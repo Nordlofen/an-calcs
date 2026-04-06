@@ -2,7 +2,7 @@
 
 Berakningsrepo for materialuppdelade ingenjorsfunktioner.
 
-Foreslagen struktur:
+Foreslagen projektstruktur:
 
 - `src/an_calcs/tra` for tra
 - `src/an_calcs/stal` for stal
