@@ -34,6 +34,11 @@ def _post(namn, latex, value, unit="", etikett=""):
     }
 
 
+def _ekvation(latex, etikett):
+    """Skapar en standardiserad ekvationspost."""
+    return {"latex": latex, "etikett": etikett}
+
+
 def barformaga_trapelare(px):
     """
     Beräknar dimensionerande bärförmåga i tryck för träpelare enligt
@@ -104,6 +109,8 @@ def barformaga_trapelare(px):
         raise ValueError("f_c_0_k måste vara > 0.")
     if E_0_05 <= 0:
         raise ValueError("E_0_05 måste vara > 0.")
+    if beta_c <= 0:
+        raise ValueError("beta_c måste vara > 0.")
     if gamma_M <= 0:
         raise ValueError("gamma_M måste vara > 0.")
     if k_mod <= 0:
@@ -127,7 +134,7 @@ def barformaga_trapelare(px):
 
     i = math.sqrt(I_vald / A)
     L_cr = beta * L
-    lambda_ = beta * L / i
+    lambda_ = L_cr / i
     lambda_rel = (lambda_ / math.pi) * math.sqrt(f_c_0_k / E_0_05)
     k = 0.5 * (1.0 + beta_c * (lambda_rel - 0.3) + lambda_rel**2)
     rotuttryck = k**2 - lambda_rel**2
@@ -139,7 +146,7 @@ def barformaga_trapelare(px):
             raise ValueError("Uttrycket under rottecknet blev negativt.")
 
     k_c = 1.0 / (k + math.sqrt(rotuttryck))
-    N_R_d_kN = (k_mod / gamma_M) * f_c_0_k * A * k_c / 1000.0
+    N_R_d = (k_mod / gamma_M) * f_c_0_k * A * k_c / 1000.0
 
     return {
         "metodbeskrivning": {
@@ -219,22 +226,22 @@ def barformaga_trapelare(px):
         "slutresultat": {
             "title": "Slutresultat",
             "items": [
-                _post("N_R_d", r"N_{R,d}", N_R_d_kN, "kN", "dimensionerande bärförmåga i tryck"),
+                _post("N_R_d", r"N_{R,d}", N_R_d, "kN", "dimensionerande bärförmåga i tryck"),
             ],
         },
         "ekvationer": {
             "title": "Ekvationer",
             "items": [
-                {"latex": r"I_y = \frac{n \, t \, h^3}{12}", "etikett": "tröghetsmoment kring y-axeln"},
-                {"latex": r"I_z = \frac{n \, h \, t^3}{12}", "etikett": "tröghetsmoment kring z-axeln"},
-                {"latex": r"A = n \, h \, t", "etikett": "total tvärsnittsarea"},
-                {"latex": r"i = \sqrt{\frac{I}{A}}", "etikett": "tröghetsradie"},
-                {"latex": r"L_{cr} = \beta \, L", "etikett": "kritisk knäcklängd"},
-                {"latex": r"\lambda = \frac{\beta \, L}{i}", "etikett": "slankhet"},
-                {"latex": r"\lambda_{rel} = \frac{\lambda}{\pi}\sqrt{\frac{f_{c,0,k}}{E_{0.05}}}", "etikett": "relativ slankhet"},
-                {"latex": r"k = 0.5 \, \left(1 + \beta_c \, (\lambda_{rel} - 0.3) + \lambda_{rel}^2\right)", "etikett": "hjälpparameter för knäckning"},
-                {"latex": r"k_c = \frac{1}{k + \sqrt{k^2 - \lambda_{rel}^2}}", "etikett": "reduktionsfaktor för knäckning"},
-                {"latex": r"N_{R,d} = \frac{k_{mod}}{\gamma_M} \, f_{c,0,k} \, A \, k_c", "etikett": "dimensionerande bärförmåga i tryck"},
+                _ekvation(r"I_y = \frac{n \, t \, h^3}{12}", "tröghetsmoment kring y-axeln"),
+                _ekvation(r"I_z = \frac{n \, h \, t^3}{12}", "tröghetsmoment kring z-axeln"),
+                _ekvation(r"A = n \, h \, t", "total tvärsnittsarea"),
+                _ekvation(r"i = \sqrt{\frac{I}{A}}", "tröghetsradie"),
+                _ekvation(r"L_{cr} = \beta \, L", "kritisk knäcklängd"),
+                _ekvation(r"\lambda = \frac{L_{cr}}{i}", "slankhet"),
+                _ekvation(r"\lambda_{rel} = \frac{\lambda}{\pi}\sqrt{\frac{f_{c,0,k}}{E_{0.05}}}", "relativ slankhet"),
+                _ekvation(r"k = 0.5 \, \left(1 + \beta_c \, (\lambda_{rel} - 0.3) + \lambda_{rel}^2\right)", "hjälpparameter för knäckning"),
+                _ekvation(r"k_c = \frac{1}{k + \sqrt{k^2 - \lambda_{rel}^2}}", "reduktionsfaktor för knäckning"),
+                _ekvation(r"N_{R,d} = \frac{k_{mod}}{\gamma_M} \, f_{c,0,k} \, A \, k_c \, / \, 1000", "dimensionerande bärförmåga i tryck"),
             ],
         },
     }
