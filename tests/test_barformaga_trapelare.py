@@ -1,5 +1,9 @@
+import pathlib
+import sys
 import math
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from an_calcs.tra.barformaga_trapelare import barformaga_trapelare
 
