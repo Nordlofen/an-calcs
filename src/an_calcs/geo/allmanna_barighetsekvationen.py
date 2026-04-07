@@ -56,6 +56,104 @@ def allmanna_barighetsekvationen(px):
         - laster i kN
         - spänningar/hållfastheter i kPa
         - vinklar i grader
+
+    Parametrar:
+        b : float
+            Fundamentbredd [m]
+
+        l : float
+            Fundamentlängd [m]
+
+        lang : int
+            1 för långsträckt fundament, annars 0 [-]
+
+        d : float
+            Grundläggningsdjup [m]
+
+        delta_h : float
+            Avstånd mellan underkant fundament och grundvattenyta [m]
+
+        t : float
+            Fundamenttjocklek [m]
+
+        e_b_plac : float
+            Placeringsexcentricitet i breddriktning [m]
+
+        e_l_plac : float
+            Placeringsexcentricitet i längdriktning [m]
+
+        F_vy : float
+            Dimensionerande vertikallast från yttre last [kN]
+
+        F_hb : float
+            Dimensionerande horisontallast i breddriktning [kN]
+
+        F_hl : float
+            Dimensionerande horisontallast i längdriktning [kN]
+
+        M_insp_l : float
+            Inspänningsmoment kring l-axel [kNm]
+
+        M_insp_b : float
+            Inspänningsmoment kring b-axel [kNm]
+
+        l_h : float
+            Hävarm för horisontallast [m]
+
+        c_prime : float
+            Dränerad kohesion [kPa]
+
+        c_uk : float
+            Odränerad skjuvhållfasthet [kPa]
+
+        gamma : float
+            Tunghet för jord under grundläggningsnivå [kN/m^3]
+
+        gamma_prime : float
+            Effektiv tunghet för jord under grundläggningsnivå [kN/m^3]
+
+        phi_k : float
+            Karakteristisk friktionsvinkel [deg]
+
+        eta : float
+            Omräkningsfaktor [-]
+
+        gamma_m : float
+            Partialkoefficient för friktionsvinkel och effektiv kohesion [-]
+
+        gamma_m0 : float
+            Partialkoefficient för odränerad skjuvhållfasthet [-]
+
+        gamma_Rd : float
+            Modellfaktor/osäkerhet i beräkningsmodell [-]
+
+        beta : float
+            Lutning på intilliggande markyta [deg]
+
+        alpha : float
+            Lutning på fundamentets basyta [deg]
+
+    Exempel:
+        Ett kopierbart exempel för långsträckt fundament:
+
+        px_lang = [
+            0.8, 6.0, 1,
+            1.0, 1.5, 0.4,
+            0.0, 0.0,
+            350.0, 0.0, 0.0,
+            0.0, 0.0, 1.0,
+            0.0, 0.0,
+            18.0, 10.0, 35.0,
+            1.0, 1.3, 1.5, 1.0,
+            0.0, 0.0,
+        ]
+
+        details = allmanna_barighetsekvationen(px_lang)
+
+    Returvärde:
+        dict
+            Dictionary med nycklarna ``metodbeskrivning``, ``indata``,
+            ``delresultat``, ``slutresultat`` och ``ekvationer``.
     """
     if px is None:
         raise ValueError("px måste anges.")
@@ -244,8 +342,8 @@ def allmanna_barighetsekvationen(px):
         b_c = 1.0
         b_gamma = 1.0
     else:
-        b_q = (1.0 - alpha_rad * tan_phi_d) ** 2
-        b_gamma = (1.0 - alpha_rad * tan_phi_d) ** 2
+        b_q = 1.0 - alpha_rad * tan_phi_d**2
+        b_gamma = 1.0 - alpha_rad * tan_phi_d**2
         if _ar_noll(phi_d_rad):
             b_c = 1.0 - 2.0 * alpha_rad / (math.pi + 2.0)
         else:
@@ -347,11 +445,11 @@ def allmanna_barighetsekvationen(px):
                 _post("l_ef", r"l_{ef}", l_ef, "m", "effektiv längd"),
                 _post("q_d_prime", r"q^{\prime}_d", q_d_prime, "kPa", "stapellast på grundläggningsnivå"),
                 _post("gamma_fri", r"\gamma_{fri}", gamma_fri, "kN/m^3", "tunghet för friktionsjord under G-nivå"),
-                _post("F", "F", F, "", "hjälpparameter för N_gamma"),
-                _post("N_c_0", r"N_{c,0}", N_c_0, "", "specialvärde för N_c vid phi_d = 0"),
-                _post("N_q", r"N_q", N_q, "", "bärighetsfaktor N_q"),
-                _post("N_c", r"N_c", N_c, "", "bärighetsfaktor N_c"),
-                _post("N_gamma", r"N_{\gamma}", N_gamma, "", "bärighetsfaktor N_gamma"),
+                _post("F", "F", F, "", "hjälpparameter för N-gamma"),
+                _post("N_c_0", r"N_{c,0}", N_c_0, "", "specialvärde för N-c vid phi-d = 0"),
+                _post("N_q", r"N_q", N_q, "", "bärighetsfaktor N-q"),
+                _post("N_c", r"N_c", N_c, "", "bärighetsfaktor N-c"),
+                _post("N_gamma", r"N_{\gamma}", N_gamma, "", "bärighetsfaktor N-gamma"),
                 _post("d_c_raw", r"d_{c,raw}", d_c_raw, "", "oklippt djupfaktor för c-termen"),
                 _post("d_c", r"d_c", d_c, "", "djupfaktor för c-termen"),
                 _post("d_q", r"d_q", d_q, "", "djupfaktor för q-termen"),
@@ -383,19 +481,63 @@ def allmanna_barighetsekvationen(px):
         "ekvationer": {
             "title": "Ekvationer",
             "items": [
+                _ekvation(r"l_{ref} = 1", "referenslängd för långsträckt fundament"),
+                _ekvation(r"l_{ref} = l", "referenslängd för övrigt fundament"),
                 _ekvation(r"\phi^{\prime}_d = \arctan\left(\tan(\phi_k)\frac{\eta}{\gamma_m}\right)", "dimensionerande friktionsvinkel"),
-                _ekvation(r"c_{ud} = \eta c^{\prime} / \gamma_m \; \mathrm{eller} \; \eta c_{uk} / \gamma_{m,0}", "dimensionerande skjuvhållfasthet"),
+                _ekvation(r"c_{ud} = \eta c^{\prime} / \gamma_m", "dimensionerande skjuvhållfasthet från dränerad kohesion"),
+                _ekvation(r"c_{ud} = \eta c_{uk} / \gamma_{m,0}", "dimensionerande skjuvhållfasthet från odränerad skjuvhållfasthet"),
                 _ekvation(r"EG_k = 25 \, b \, l_{ref} \, t", "fundamentets egentyngd"),
                 _ekvation(r"F_v = F_{v,y} + 1.5 \, EG_k", "dimensionerande vertikallast"),
                 _ekvation(r"F_h = \sqrt{F_{h,b}^2 + F_{h,l}^2}", "resultant horisontallast"),
                 _ekvation(r"e_{b,last} = \frac{M_{insp,l} - F_{h,b} l_h}{F_v}", "lastexcentricitet i breddriktning"),
                 _ekvation(r"e_{l,last} = \frac{M_{insp,b} - F_{h,l} l_h}{F_v}", "lastexcentricitet i längdriktning"),
+                _ekvation(r"e_b = \left|e_{b,plac} + e_{b,last}\right|", "total excentricitet i breddriktning"),
+                _ekvation(r"e_l = \left|e_{l,plac} + e_{l,last}\right|", "total excentricitet i längdriktning"),
                 _ekvation(r"b_{ef} = b - 2 e_b", "effektiv bredd"),
                 _ekvation(r"l_{ef} = l_{ref} - 2 e_l", "effektiv längd"),
                 _ekvation(r"q^{\prime}_d = \gamma d", "stapellast på grundläggningsnivå"),
-                _ekvation(r"N_q = \frac{1 + \sin(\phi^{\prime}_d)}{1 - \sin(\phi^{\prime}_d)} e^{\pi \tan(\phi^{\prime}_d)}", "bärighetsfaktor N_q"),
-                _ekvation(r"N_c = \pi + 2 \; \mathrm{eller} \; \frac{N_q - 1}{\tan(\phi^{\prime}_d)}", "bärighetsfaktor N_c"),
-                _ekvation(r"N_{\gamma} = F \left(\frac{1 + \sin(\phi^{\prime}_d)}{1 - \sin(\phi^{\prime}_d)} e^{1.5 \pi \tan(\phi^{\prime}_d)} - 1\right)", "bärighetsfaktor N_gamma"),
+                _ekvation(r"\gamma_{fri} = \gamma^{\prime}", "tunghet för friktionsjord under G-nivå, grundvatten vid eller över G-nivå"),
+                _ekvation(r"\gamma_{fri} = \gamma \frac{\Delta h}{b_{ef}} + \gamma^{\prime}\frac{b_{ef} - \Delta h}{b_{ef}}", "tunghet för friktionsjord under G-nivå, grundvatten inom effektiv bredd"),
+                _ekvation(r"\gamma_{fri} = \gamma", "tunghet för friktionsjord under G-nivå, grundvatten under effektiv bredd"),
+                _ekvation(r"F = 0.08705 + 0.3231\sin(2\phi^{\prime}_d) - 0.04836\sin^2(2\phi^{\prime}_d)", "hjälpparameter för N-gamma"),
+                _ekvation(r"N_{c,0} = \pi + 2", "specialvärde för N-c vid phi-d = 0"),
+                _ekvation(r"N_q = \frac{1 + \sin(\phi^{\prime}_d)}{1 - \sin(\phi^{\prime}_d)} e^{\pi \tan(\phi^{\prime}_d)}", "bärighetsfaktor N-q"),
+                _ekvation(r"N_c = \pi + 2", "bärighetsfaktor N-c för phi-d = 0"),
+                _ekvation(r"N_c = \frac{N_q - 1}{\tan(\phi^{\prime}_d)}", "bärighetsfaktor N-c för phi-d > 0"),
+                _ekvation(r"N_{\gamma} = F \left(\frac{1 + \sin(\phi^{\prime}_d)}{1 - \sin(\phi^{\prime}_d)} e^{1.5 \pi \tan(\phi^{\prime}_d)} - 1\right)", "bärighetsfaktor N-gamma"),
+                _ekvation(r"d_{c,raw} = 1 + 0.35 \frac{d}{b_{ef}}", "oklippt djupfaktor för c-termen"),
+                _ekvation(r"d_c = \min(d_{c,raw}, 1.7)", "djupfaktor för c-termen"),
+                _ekvation(r"d_q = d_c", "djupfaktor för q-termen"),
+                _ekvation(r"d_{\gamma} = 1", "djupfaktor för gamma-termen"),
+                _ekvation(r"s_c = 1", "formfaktor för c-termen, långsträckt fundament"),
+                _ekvation(r"s_c = 1 + 0.2 \frac{b_{ef}}{l_{ef}}", "formfaktor för c-termen, phi-d = 0"),
+                _ekvation(r"s_c = 1 + \frac{N_q b_{ef}}{N_c l_{ef}}", "formfaktor för c-termen, phi-d > 0"),
+                _ekvation(r"s_q = 1", "formfaktor för q-termen, långsträckt fundament"),
+                _ekvation(r"s_q = 1 + \tan(\phi^{\prime}_d)\frac{b_{ef}}{l_{ef}}", "formfaktor för q-termen"),
+                _ekvation(r"s_{\gamma} = 1", "formfaktor för gamma-termen, långsträckt fundament"),
+                _ekvation(r"s_{\gamma} = 1 - 0.4 \frac{b_{ef}}{l_{ef}}", "formfaktor för gamma-termen"),
+                _ekvation(r"m_i = \frac{2 l_{ef} + b_{ef}}{l_{ef} + b_{ef}}", "hjälpparameter för lastlutning"),
+                _ekvation(r"i_q = 1", "lastlutningsfaktor för q-termen, specialfall"),
+                _ekvation(r"i_q = \left(1 - \frac{F_h}{F_v + b_{ef} l_{ef} c_{ud} / \tan(\phi^{\prime}_d)}\right)^{m_i}", "lastlutningsfaktor för q-termen"),
+                _ekvation(r"i_{\gamma} = 1", "lastlutningsfaktor för gamma-termen, specialfall"),
+                _ekvation(r"i_{\gamma} = \left(1 - \frac{F_h}{F_v + b_{ef} l_{ef} c_{ud} / \tan(\phi^{\prime}_d)}\right)^{m_i + 1}", "lastlutningsfaktor för gamma-termen"),
+                _ekvation(r"i_c = 1", "lastlutningsfaktor för c-termen, specialfall"),
+                _ekvation(r"i_c = 1 - \frac{m_i F_h}{b_{ef} l_{ef} c_{ud} N_c}", "lastlutningsfaktor för c-termen, phi-d = 0"),
+                _ekvation(r"i_c = i_q - \frac{1 - i_q}{N_c \tan(\phi^{\prime}_d)}", "lastlutningsfaktor för c-termen, phi-d > 0"),
+                _ekvation(r"g_c = 1", "marklutningsfaktor för c-termen, plan markyta"),
+                _ekvation(r"g_c = 1 - \frac{2 \beta}{N_c}", "marklutningsfaktor för c-termen, phi-d = 0"),
+                _ekvation(r"g_c = e^{-2 \beta \tan(\phi^{\prime}_d)}", "marklutningsfaktor för c-termen, phi-d > 0"),
+                _ekvation(r"g_q = 1", "marklutningsfaktor för q-termen, plan markyta"),
+                _ekvation(r"g_q = 1 - \sin(2 \beta)", "marklutningsfaktor för q-termen"),
+                _ekvation(r"g_{\gamma} = 1", "marklutningsfaktor för gamma-termen, plan markyta"),
+                _ekvation(r"g_{\gamma} = 1 - \sin(2 \beta)", "marklutningsfaktor för gamma-termen"),
+                _ekvation(r"b_c = 1", "baslutningsfaktor för c-termen, horisontell basyta"),
+                _ekvation(r"b_c = 1 - \frac{2 \alpha}{\pi + 2}", "baslutningsfaktor för c-termen, phi-d = 0"),
+                _ekvation(r"b_c = b_q - \frac{1 - b_q}{N_c \tan(\phi^{\prime}_d)}", "baslutningsfaktor för c-termen, phi-d > 0"),
+                _ekvation(r"b_q = 1", "baslutningsfaktor för q-termen, horisontell basyta"),
+                _ekvation(r"b_q = 1 - \alpha \tan^2(\phi^{\prime}_d)", "baslutningsfaktor för q-termen"),
+                _ekvation(r"b_{\gamma} = 1", "baslutningsfaktor för gamma-termen, horisontell basyta"),
+                _ekvation(r"b_{\gamma} = 1 - \alpha \tan^2(\phi^{\prime}_d)", "baslutningsfaktor för gamma-termen"),
                 _ekvation(r"\xi_c = d_c s_c i_c g_c b_c", "sammanlagd korrektionsfaktor för c-termen"),
                 _ekvation(r"\xi_q = d_q s_q i_q g_q b_q", "sammanlagd korrektionsfaktor för q-termen"),
                 _ekvation(r"\xi_{\gamma} = d_{\gamma} s_{\gamma} i_{\gamma} g_{\gamma} b_{\gamma}", "sammanlagd korrektionsfaktor för gamma-termen"),
