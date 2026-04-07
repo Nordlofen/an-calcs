@@ -357,6 +357,15 @@ def allmanna_barighetsekvationen(px):
         c_ud * N_c * xi_c + q_d_prime * N_q * xi_q + 0.5 * gamma_fri * b_ef * N_gamma * xi_gamma
     ) / gamma_Rd
 
+    if lang == 1:
+        F_bd = q_bd * b
+        F_bd_unit = "kN/m"
+        F_bd_etikett = "dimensionerande bärförmåga för jord som linjelast"
+    else:
+        F_bd = q_bd * b * l
+        F_bd_unit = "kN"
+        F_bd_etikett = "dimensionerande bärförmåga för jord som punktlast"
+
     return {
         "metodbeskrivning": {
             "title": "Metodbeskrivning",
@@ -476,6 +485,7 @@ def allmanna_barighetsekvationen(px):
             "title": "Slutresultat",
             "items": [
                 _post("q_bd", r"q_{bd}", q_bd, "kPa", "dimensionerande bärförmåga för jord"),
+                _post("F_bd", r"F_{bd}", F_bd, F_bd_unit, F_bd_etikett),
             ],
         },
         "ekvationer": {
@@ -545,6 +555,8 @@ def allmanna_barighetsekvationen(px):
                     r"q_{bd} = \frac{c_{ud} N_c \xi_c + q^{\prime}_d N_q \xi_q + 0.5 \gamma_{fri} b_{ef} N_{\gamma} \xi_{\gamma}}{\gamma_{Rd}}",
                     "dimensionerande bärförmåga",
                 ),
+                _ekvation(r"F_{bd} = q_{bd} b", "dimensionerande bärförmåga som linjelast för långsträckt sula"),
+                _ekvation(r"F_{bd} = q_{bd} b l", "dimensionerande bärförmåga som punktlast för punktfundament"),
             ],
         },
     }
