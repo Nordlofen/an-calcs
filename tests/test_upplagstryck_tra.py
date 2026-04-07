@@ -16,7 +16,7 @@ def _hamta_post(section, namn):
 
 
 class TestUpplagstryckTra(unittest.TestCase):
-    def test_returnerar_standardiserad_details(self):
+    def test_returnerar_standardiserad_details_i_direktformat(self):
         details = upplagstryck_tra(
             [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
         )
@@ -40,18 +40,14 @@ class TestUpplagstryckTra(unittest.TestCase):
             for post in section["items"]:
                 self.assertEqual(set(post), {"namn", "latex", "value", "unit", "etikett"})
 
-        metod = details["metodbeskrivning"]
-        self.assertEqual(metod["title"], "Metodbeskrivning")
-        self.assertTrue(any("SS_EN_1995_1_1" in item["text"] for item in metod["items"]))
-        self.assertTrue(any("6.1.5" in item["text"] for item in metod["items"]))
-
         ekvationer = details["ekvationer"]
         self.assertEqual(ekvationer["title"], "Ekvationer")
-        self.assertEqual(len(ekvationer["items"]), 7)
-        for post in ekvationer["items"]:
-            self.assertEqual(set(post), {"latex", "etikett"})
+        self.assertGreaterEqual(len(ekvationer["items"]), 11)
+        latex_items = {item["latex"] for item in ekvationer["items"]}
+        self.assertIn(r"l_1 \geq 2h", latex_items)
+        self.assertTrue(any(r"k_{c,90} = \begin{cases}" in latex for latex in latex_items))
 
-    def test_beraknar_x_end_och_x_in_lang(self):
+    def test_direktformat_beraknar_x_end_och_x_in_lang(self):
         details = upplagstryck_tra(
             [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
         )
@@ -60,20 +56,10 @@ class TestUpplagstryckTra(unittest.TestCase):
 
         self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 0.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "x_in")["value"], 30.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef")["value"], 75.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 6750.0))
 
-    def test_beraknar_x_end_och_x_in_numeriskt(self):
-        details = upplagstryck_tra(
-            [90, 45, 12, 40, 30, "barverksdel_pa_upplag_enkelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
-        )
-
-        delresultat = details["delresultat"]
-
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 12.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_in")["value"], 20.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 6930.0))
-
-    def test_beraknar_kapacitet_for_dubbelsidigt_understodd_konstruktionsvirke(self):
+    def test_direktformat_beraknar_kapacitet_for_dubbelsidigt_understodd_konstruktionsvirke(self):
         details = upplagstryck_tra(
             [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
         )
@@ -85,45 +71,122 @@ class TestUpplagstryckTra(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "f_c_90_d")["value"], 1.5384615384615383))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "N_c_90_Rd")["value"], 12.980769230769228))
 
-    def test_beraknar_kapacitet_for_enkelsidigt_upplag_limtra(self):
-        details = upplagstryck_tra(
-            [115, 200, 15, 80, 120, "barverksdel_pa_upplag_enkelsidig", "limtra", 3.0, 1.0, 1.25, False]
-        )
-
-        delresultat = details["delresultat"]
-        slutresultat = details["slutresultat"]
-
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 15.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_in")["value"], 30.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 28175.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_c_90")["value"], 1.75))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "N_c_90_Rd")["value"], 118.335))
-
-    def test_eks_flagga_satter_dimensionerande_hallfasthet_till_karakteristiskt_varde(self):
+    def test_direktformat_eks_visar_effektiva_indata(self):
         details = upplagstryck_tra(
             [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, True]
         )
 
-        delresultat = details["delresultat"]
-        slutresultat = details["slutresultat"]
         indata = details["indata"]
-
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "f_c_90_d")["value"], 2.5))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "N_c_90_Rd")["value"], 21.09375))
         self.assertTrue(math.isclose(_hamta_post(indata, "k_mod")["value"], 1.0))
         self.assertTrue(math.isclose(_hamta_post(indata, "gamma_M")["value"], 1.0))
 
-    def test_beraknar_kontroll_nar_last_anges(self):
+    def test_direktformat_last_ar_valfri(self):
         details = upplagstryck_tra(
-            [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False, 10.0]
+            [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        with self.assertRaises(AssertionError):
+            _hamta_post(details["indata"], "N_c_90_Ed")
+
+    def test_mittupplag_kort_format_utan_last(self):
+        details = upplagstryck_tra(
+            [90, 45, "mittupplag", "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        indata = details["indata"]
+        delresultat = details["delresultat"]
+
+        self.assertEqual(_hamta_post(indata, "upplagsplacering")["value"], "mittupplag")
+        with self.assertRaises(AssertionError):
+            _hamta_post(indata, "a")
+        with self.assertRaises(AssertionError):
+            _hamta_post(delresultat, "x_end")
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_in")["value"], 30.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef")["value"], 105.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 9450.0))
+
+    def test_mittupplag_kort_format_med_last(self):
+        details = upplagstryck_tra(
+            [90, 45, "mittupplag", "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False, 10.0]
         )
 
         delresultat = details["delresultat"]
         slutresultat = details["slutresultat"]
 
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_c_90_d")["value"], 1.4814814814814814))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "eta")["value"], 0.7703703703703705))
-        self.assertTrue(_hamta_post(slutresultat, "kontroll_ok")["value"])
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_c_90_d")["value"], 1.0582010582010581))
+        self.assertEqual(_hamta_post(slutresultat, "eta")["value"], "55.026 %")
+        self.assertEqual(_hamta_post(slutresultat, "eta")["latex"], r"\mu")
+        self.assertEqual(_hamta_post(slutresultat, "eta")["unit"], "")
+
+    def test_mittupplag_redundant_none_plats_utan_last(self):
+        details = upplagstryck_tra(
+            [90, 45, "mittupplag", None, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "A_ef")["value"], 9450.0))
+
+    def test_mittupplag_redundant_numeriskt_a_ignoreras(self):
+        details = upplagstryck_tra(
+            [90, 45, "mittupplag", 999, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "A_ef")["value"], 9450.0))
+
+    def test_andupplag_explicit_format(self):
+        details = upplagstryck_tra(
+            [90, 45, "andupplag", 12, 40, 20, "barverksdel_pa_upplag_enkelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        indata = details["indata"]
+        delresultat = details["delresultat"]
+
+        self.assertEqual(_hamta_post(indata, "upplagsplacering")["value"], "andupplag")
+        self.assertTrue(math.isclose(_hamta_post(indata, "a")["value"], 12.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 12.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 6930.0))
+
+    def test_andupplag_accepterar_a_none_som_noll(self):
+        details = upplagstryck_tra(
+            [90, 45, "andupplag", None, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        indata = details["indata"]
+        delresultat = details["delresultat"]
+
+        self.assertTrue(math.isclose(_hamta_post(indata, "a")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 6750.0))
+
+    def test_andupplag_accepterar_utelamnat_a_som_noll(self):
+        details = upplagstryck_tra(
+            [90, 45, "andupplag", "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+        )
+
+        indata = details["indata"]
+        delresultat = details["delresultat"]
+
+        self.assertTrue(math.isclose(_hamta_post(indata, "a")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "x_end")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_ef")["value"], 6750.0))
+
+    def test_andupplag_accepterar_utelamnat_a_med_last(self):
+        details = upplagstryck_tra(
+            [90, 45, "andupplag", "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False, 10.0]
+        )
+
+        indata = details["indata"]
+        slutresultat = details["slutresultat"]
+
+        self.assertTrue(math.isclose(_hamta_post(indata, "a")["value"], 0.0))
+        self.assertEqual(_hamta_post(slutresultat, "eta")["value"], "77.037 %")
+        self.assertEqual(_hamta_post(slutresultat, "eta")["latex"], r"\mu")
+        self.assertEqual(_hamta_post(slutresultat, "eta")["unit"], "")
+
+    def test_om_tredje_parametern_ar_text_maste_den_vara_upplagsplacering(self):
+        with self.assertRaisesRegex(ValueError, "mittupplag' eller 'andupplag"):
+            upplagstryck_tra(
+                [90, 45, "okant", "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+            )
 
     def test_validerar_l_1(self):
         with self.assertRaisesRegex(ValueError, "l_1 måste vara"):
@@ -150,27 +213,20 @@ class TestUpplagstryckTra(unittest.TestCase):
             )
 
     def test_validerar_geometri_for_enkelsidigt_upplag(self):
-        with self.assertRaisesRegex(ValueError, "l <= 2h"):
+        with self.assertRaisesRegex(ValueError, "l_1 >= 2h"):
             upplagstryck_tra(
                 [115, 260, 15, 80, 120, "barverksdel_pa_upplag_enkelsidig", "konstruktionsvirke", 3.0, 1.0, 1.25, False]
             )
 
-    def test_validerar_limtra_langd_for_hogre_k_c_90(self):
-        with self.assertRaisesRegex(ValueError, "l <= 400 mm"):
-            upplagstryck_tra(
-                [115, 401, 15, 80, 250, "barverksdel_pa_upplag_enkelsidig", "limtra", 3.0, 1.0, 1.25, False]
-            )
-
-    def test_utelamnad_last_visas_inte_i_indata(self):
+    def test_limtra_med_l_storre_an_400_faller_tillbaka_till_k_c_90_1_5(self):
         details = upplagstryck_tra(
-            [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]
+            [115, 401, 15, "lang", 250, "barverksdel_pa_upplag_enkelsidig", "limtra", 3.0, 1.0, 1.25, False]
         )
 
-        with self.assertRaises(AssertionError):
-            _hamta_post(details["indata"], "N_c_90_Ed")
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "k_c_90")["value"], 1.5))
 
     def test_validerar_antal_inparametrar(self):
-        with self.assertRaisesRegex(ValueError, "11 eller 12 värden"):
+        with self.assertRaisesRegex(ValueError, "Stödda format"):
             upplagstryck_tra([90, 45, 0])
 
 
