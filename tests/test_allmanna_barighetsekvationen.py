@@ -145,10 +145,16 @@ class TestAllmannaBarighetsekvationen(unittest.TestCase):
                 [0.8, 1.0, 0, 0.8, 10.2, 0.4, 0.0, 0.0, 314.0, 0.0, 0.0, 0.0, 0.0, 1.5, 0.0, 0.0, 18.0, 9.0, 35.0, 1.0, 1.3, 1.5, 0.0, 0.0, 0.0]
             )
 
-        with self.assertRaisesRegex(ValueError, "b måste vara <= l_ref."):
-            allmanna_barighetsekvationen(
-                [1.2, 1.0, 0, 0.8, 10.2, 0.4, 0.0, 0.0, 314.0, 0.0, 0.0, 0.0, 0.0, 1.5, 0.0, 0.0, 18.0, 9.0, 35.0, 1.0, 1.3, 1.5, 1.0, 0.0, 0.0]
-            )
+    def test_tillater_b_storre_an_l_och_l_ref(self):
+        details_punkt = allmanna_barighetsekvationen(
+            [1.2, 1.0, 0, 0.8, 10.2, 0.4, 0.0, 0.0, 314.0, 0.0, 0.0, 0.0, 0.0, 1.5, 0.0, 0.0, 18.0, 9.0, 35.0, 1.0, 1.3, 1.5, 1.0, 0.0, 0.0]
+        )
+        self.assertIn("slutresultat", details_punkt)
+
+        details_lang = allmanna_barighetsekvationen(
+            [1.1, 6.0, 1, 0.0, -1.36, 0.2, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 18.0, 9.0, 35.0, 1.0, 1.3, 1.5, 1.0, 0.0, 0.0]
+        )
+        self.assertIn("slutresultat", details_lang)
 
 
 if __name__ == "__main__":

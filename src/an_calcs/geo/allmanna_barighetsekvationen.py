@@ -218,8 +218,6 @@ def allmanna_barighetsekvationen(px):
         raise ValueError("alpha måste vara < 90 grader.")
 
     l_ref = 1.0 if lang == 1 else l
-    if b > l_ref:
-        raise ValueError("b måste vara <= l_ref.")
 
     phi_k_rad = _grader_till_radianer(phi_k)
     beta_rad = _grader_till_radianer(beta)
