@@ -68,9 +68,14 @@ class TestAllmannaBarighetsekvationen(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "N_c")["value"], 26.414607440205454))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "N_gamma")["value"], 11.143435669262614))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "xi_q")["value"], 1.7))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "EG_k")["value"], 8.0))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "F_v")["value"], 326.0))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "b_ef")["value"], 0.000200000000000089))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "q_bd")["value"], 372.78845314023766))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "F_bd")["value"], 298.23076251219013))
         self.assertEqual(_hamta_post(slutresultat, "F_bd")["unit"], "kN/m")
+        with self.assertRaises(AssertionError):
+            _hamta_post(slutresultat, "l_ef")
 
     def test_kohesionsjord_anvander_c_prime(self):
         details = allmanna_barighetsekvationen(
@@ -86,6 +91,10 @@ class TestAllmannaBarighetsekvationen(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "N_q")["value"], 1.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "N_c")["value"], math.pi + 2.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "N_gamma")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "EG_k")["value"], 75.0))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "F_v")["value"], 612.5))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "b_ef")["value"], 2.0))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "l_ef")["value"], 3.0))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "q_bd")["value"], 105.33673154405756))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "F_bd")["value"], 632.0203892643454))
         self.assertEqual(_hamta_post(slutresultat, "F_bd")["unit"], "kN")

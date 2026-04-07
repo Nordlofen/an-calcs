@@ -364,6 +364,16 @@ def allmanna_barighetsekvationen(px):
         F_bd_unit = "kN"
         F_bd_etikett = "dimensionerande bärförmåga för jord som punktlast"
 
+    slutresultat_items = [
+        _post("q_bd", r"q_{bd}", q_bd, "kPa", "dimensionerande bärförmåga för jord"),
+        _post("F_bd", r"F_{bd}", F_bd, F_bd_unit, F_bd_etikett),
+        _post("EG_k", r"EG_k", EG_k, "kN", "fundamentets egentyngd"),
+        _post("F_v", r"F_v", F_v, "kN", "dimensionerande vertikallast"),
+        _post("b_ef", r"b_{ef}", b_ef, "m", "effektiv bredd"),
+    ]
+    if lang == 0:
+        slutresultat_items.append(_post("l_ef", r"l_{ef}", l_ef, "m", "effektiv längd"))
+
     return {
         "metodbeskrivning": {
             "title": "Metodbeskrivning",
@@ -481,10 +491,7 @@ def allmanna_barighetsekvationen(px):
         },
         "slutresultat": {
             "title": "Slutresultat",
-            "items": [
-                _post("q_bd", r"q_{bd}", q_bd, "kPa", "dimensionerande bärförmåga för jord"),
-                _post("F_bd", r"F_{bd}", F_bd, F_bd_unit, F_bd_etikett),
-            ],
+            "items": slutresultat_items,
         },
         "ekvationer": {
             "title": "Ekvationer",
