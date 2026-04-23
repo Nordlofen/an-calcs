@@ -206,6 +206,40 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_f")["value"], 2285.0, rel_tol=1e-3))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "F_v_Rk_enkel")["value"], 2285.0, rel_tol=1e-3))
 
+    def test_traskruv_med_infastning_sist_i_px_stods(self):
+        fu_for_my = 10500.0 / (0.30 * 6.0**2.6)
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "tra-tra",
+                "lvl",
+                "konstruktionsvirke",
+                90,
+                45,
+                350,
+                350,
+                0,
+                0,
+                6.0,
+                14.0,
+                220.0,
+                70.0,
+                fu_for_my,
+                False,
+                6,
+                1,
+                False,
+                True,
+                "sidotra",
+                "andtra",
+            ]
+        )
+
+        self.assertEqual(_hamta_post(details["indata"], "infastning_1")["value"], "sidotra")
+        self.assertEqual(_hamta_post(details["indata"], "infastning_2")["value"], "andtra")
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "t_2_eff")["value"], 130.0))
+
     def test_traskruv_auto_med_slat_hals_och_d_over_6_valjer_skruvgren(self):
         details = tvarkraft_dymlingsforband(
             [
