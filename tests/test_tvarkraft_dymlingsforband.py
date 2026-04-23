@@ -240,6 +240,38 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(_hamta_post(details["indata"], "infastning_2")["value"], "andtra")
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "t_2_eff")["value"], 130.0))
 
+    def test_ekvationsetiketter_undviker_problemtecken(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "tra-tra",
+                "lvl",
+                "konstruktionsvirke",
+                90,
+                45,
+                350,
+                350,
+                0,
+                0,
+                6.0,
+                14.0,
+                220.0,
+                70.0,
+                10500.0 / (0.30 * 6.0**2.6),
+                False,
+                6,
+                1,
+                False,
+                True,
+                "sidotra",
+                "andtra",
+            ]
+        )
+
+        for item in details["ekvationer"]["items"]:
+            self.assertNotRegex(item["etikett"], r"[_{}]")
+
     def test_traskruv_auto_med_slat_hals_och_d_over_6_valjer_skruvgren(self):
         details = tvarkraft_dymlingsforband(
             [

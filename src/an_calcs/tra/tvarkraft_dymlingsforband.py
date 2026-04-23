@@ -866,6 +866,29 @@ def tvarkraft_dymlingsforband(px):
             _post(f"brottmod_{namn}", rf"F_{{v,Rk,{namn}}}", candidates[namn], "N", f"kandidat för brottmod {namn}")
         )
 
+    ekvationer = [
+        _ekvation(r"F_{v,Rk,total} = F_{v,Rk,enkel} \, n_{tot,ef}", "total tvarkraftsbärförmåga"),
+        _ekvation(r"d_{eff} = 0.8\,d", "effektiv diameter för träskruv i denna modell"),
+        _ekvation(r"M_{y,Rk} = 0.30 \, f_u \, d^{2.6}", "flytmoment för rund spik och skruv"),
+        _ekvation(r"M_{y,Rk} = 0.45 \, f_u \, d^{2.6}", "flytmoment för profilerad spik"),
+        _ekvation(r"f_{h,k} = 0.082 \, \rho_k \, d^{-0.3}", "bäddhallfasthet för spik i trä utan förborrning"),
+        _ekvation(r"f_{h,k} = 0.082 \, (1-0.01d)\,\rho_k", "bäddhallfasthet för spik i trä med förborrning"),
+        _ekvation(
+            r"f_{h,\alpha,k} = f_{h,0,k} / (k_{90}\sin^2\alpha + \cos^2\alpha)",
+            "bäddhallfasthet för skruv i trä",
+        ),
+        _ekvation(r"n_{ef} = n^{k_{ef}}", "effektivt antal för spikrad eller skruvrad med liten diameter"),
+        _ekvation(
+            r"n_{ef} = \min(n, n^{0.9} a_1 / (13 d))",
+            "effektivt antal för skruvar med diameter större än 6 mm",
+        ),
+        _ekvation(
+            r"F_{rope} = \min(F_{ax,Rk}/4, c_{rope} F_{Johansen})",
+            "begränsad linverkan",
+        ),
+        _ekvation(r"f_{h,endtra,k} = (1/3) f_{h,sidotra,k}", "modellantagande för ändträ"),
+    ]
+
     return {
         "metodbeskrivning": {
             "title": "Metodbeskrivning",
@@ -922,18 +945,6 @@ def tvarkraft_dymlingsforband(px):
         },
         "ekvationer": {
             "title": "Ekvationer",
-            "items": [
-                _ekvation(r"F_{v,Rk,total} = F_{v,Rk,enkel} \, n_{tot,ef}", "total tvärkraftsbärförmåga"),
-                _ekvation(r"d_{eff} = 0.8\,d", "effektiv diameter för träskruv i denna modell"),
-                _ekvation(r"M_{y,Rk} = 0.30 \, f_u \, d^{2.6}", "flytmoment för rund spik och skruv"),
-                _ekvation(r"M_{y,Rk} = 0.45 \, f_u \, d^{2.6}", "flytmoment för profilerad spik"),
-                _ekvation(r"f_{h,k} = 0.082 \, \rho_k \, d^{-0.3}", "bäddhållfasthet för spik i trä utan förborrning"),
-                _ekvation(r"f_{h,k} = 0.082 \, (1-0.01d)\,\rho_k", "bäddhållfasthet för spik i trä med förborrning"),
-                _ekvation(r"f_{h,\alpha,k} = \frac{f_{h,0,k}}{k_{90}\sin^2\alpha + \cos^2\alpha}", "bäddhållfasthet för skruv i trä"),
-                _ekvation(r"n_{ef} = n^{k_{ef}}", "effektivt antal för spikrad eller skruvrad med liten diameter"),
-                _ekvation(r"n_{ef} = \min\left(n, n^{0.9}\frac{a_1}{13d}\right)", "effektivt antal för skruvar med diameter större än 6 mm"),
-                _ekvation(r"F_{rope} = \min\left(\frac{F_{ax,Rk}}{4}, c_{rope}F_{Johansen}\right)", "begränsad linverkan"),
-                _ekvation(r"f_{h,endtra,k} = \frac{1}{3}f_{h,sidotra,k}", "modellantagande för ändträ"),
-            ],
+            "items": ekvationer,
         },
     }
