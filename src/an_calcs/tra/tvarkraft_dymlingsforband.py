@@ -25,6 +25,7 @@ VALID_FASTENER_TYPES = {"spik", "skruv", "traskruv"}
 VALID_SHEAR_MODELS = {"auto", "spikregler", "skruvregler"}
 VALID_CONNECTION_TYPES = {"tra-tra", "stal-tra", "tra-skiva", "skiva-tra"}
 VALID_NAIL_TYPES = {"slat", "profilerad"}
+VALID_INFASTNING_TYPES = {"sidotra", "andtra"}
 
 
 @dataclass
@@ -48,6 +49,8 @@ class FastenerInput:
     n_per_rad: int
     tvarforskjuten_1d: bool
     forborrad: bool
+    infastning_1: str = "sidotra"
+    infastning_2: str = "sidotra"
     spiktyp: str | None = None
     l_gang: float | None = None
     slat_hals: bool | None = None
@@ -115,6 +118,15 @@ def _validera_gemensamt(data):
         if value < 0 or value > 360:
             raise ValueError(f"{namn} måste ligga mellan 0 och 360 grader.")
 
+    if data.infastning_1 not in VALID_INFASTNING_TYPES:
+        raise ValueError("infastning_1 måste vara 'sidotra' eller 'andtra'.")
+    if data.infastning_2 not in VALID_INFASTNING_TYPES:
+        raise ValueError("infastning_2 måste vara 'sidotra' eller 'andtra'.")
+    if data.infastning_1 == "andtra" and not _is_wood(data.materialtyp_1):
+        raise ValueError("infastning_1='andtra' får bara användas för trädel.")
+    if data.infastning_2 == "andtra" and not _is_wood(data.materialtyp_2):
+        raise ValueError("infastning_2='andtra' får bara användas för trädel.")
+
     if data.anslutningstyp == "tra-tra":
         if not ((_is_wood(data.materialtyp_1) or _is_sheet(data.materialtyp_1)) and (_is_wood(data.materialtyp_2) or _is_sheet(data.materialtyp_2))):
             raise ValueError("tra-tra kräver två trä- eller skivdelar.")
@@ -130,30 +142,58 @@ def _validera_gemensamt(data):
 
 
 def _tolka_px_spik(px):
-    if len(px) != 20:
-        raise ValueError("px för spik måste innehålla 20 värden.")
-    (
-        forbindartyp,
-        tvarkraftsmodell,
-        anslutningstyp,
-        materialtyp_1,
-        materialtyp_2,
-        t_1,
-        t_2,
-        rho_k_1,
-        rho_k_2,
-        alpha_1,
-        alpha_2,
-        d,
-        d_h,
-        l,
-        f_u,
-        spiktyp,
-        n_rader,
-        n_per_rad,
-        tvarforskjuten_1d,
-        forborrad,
-    ) = px
+    if len(px) == 20:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            d,
+            d_h,
+            l,
+            f_u,
+            spiktyp,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+        infastning_1 = "sidotra"
+        infastning_2 = "sidotra"
+    elif len(px) == 22:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            infastning_1,
+            infastning_2,
+            d,
+            d_h,
+            l,
+            f_u,
+            spiktyp,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+    else:
+        raise ValueError("px för spik måste innehålla 20 eller 22 värden.")
     data = FastenerInput(
         forbindartyp=_normalize_text(forbindartyp),
         tvarkraftsmodell=_normalize_text(tvarkraftsmodell),
@@ -166,6 +206,8 @@ def _tolka_px_spik(px):
         rho_k_2=float(rho_k_2),
         alpha_1=float(alpha_1),
         alpha_2=float(alpha_2),
+        infastning_1=_normalize_text(infastning_1),
+        infastning_2=_normalize_text(infastning_2),
         d=float(d),
         d_h=float(d_h),
         l=float(l),
@@ -183,29 +225,56 @@ def _tolka_px_spik(px):
 
 
 def _tolka_px_skruv(px):
-    if len(px) != 19:
-        raise ValueError("px för skruv måste innehålla 19 värden.")
-    (
-        forbindartyp,
-        tvarkraftsmodell,
-        anslutningstyp,
-        materialtyp_1,
-        materialtyp_2,
-        t_1,
-        t_2,
-        rho_k_1,
-        rho_k_2,
-        alpha_1,
-        alpha_2,
-        d,
-        d_h,
-        l,
-        f_u,
-        n_rader,
-        n_per_rad,
-        tvarforskjuten_1d,
-        forborrad,
-    ) = px
+    if len(px) == 19:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            d,
+            d_h,
+            l,
+            f_u,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+        infastning_1 = "sidotra"
+        infastning_2 = "sidotra"
+    elif len(px) == 21:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            infastning_1,
+            infastning_2,
+            d,
+            d_h,
+            l,
+            f_u,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+    else:
+        raise ValueError("px för skruv måste innehålla 19 eller 21 värden.")
     data = FastenerInput(
         forbindartyp=_normalize_text(forbindartyp),
         tvarkraftsmodell=_normalize_text(tvarkraftsmodell),
@@ -218,6 +287,8 @@ def _tolka_px_skruv(px):
         rho_k_2=float(rho_k_2),
         alpha_1=float(alpha_1),
         alpha_2=float(alpha_2),
+        infastning_1=_normalize_text(infastning_1),
+        infastning_2=_normalize_text(infastning_2),
         d=float(d),
         d_h=float(d_h),
         l=float(l),
@@ -232,31 +303,60 @@ def _tolka_px_skruv(px):
 
 
 def _tolka_px_traskruv(px):
-    if len(px) != 21:
-        raise ValueError("px för traskruv måste innehålla 21 värden.")
-    (
-        forbindartyp,
-        tvarkraftsmodell,
-        anslutningstyp,
-        materialtyp_1,
-        materialtyp_2,
-        t_1,
-        t_2,
-        rho_k_1,
-        rho_k_2,
-        alpha_1,
-        alpha_2,
-        d,
-        d_h,
-        l,
-        l_gang,
-        f_u,
-        slat_hals,
-        n_rader,
-        n_per_rad,
-        tvarforskjuten_1d,
-        forborrad,
-    ) = px
+    if len(px) == 21:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            d,
+            d_h,
+            l,
+            l_gang,
+            f_u,
+            slat_hals,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+        infastning_1 = "sidotra"
+        infastning_2 = "sidotra"
+    elif len(px) == 23:
+        (
+            forbindartyp,
+            tvarkraftsmodell,
+            anslutningstyp,
+            materialtyp_1,
+            materialtyp_2,
+            t_1,
+            t_2,
+            rho_k_1,
+            rho_k_2,
+            alpha_1,
+            alpha_2,
+            infastning_1,
+            infastning_2,
+            d,
+            d_h,
+            l,
+            l_gang,
+            f_u,
+            slat_hals,
+            n_rader,
+            n_per_rad,
+            tvarforskjuten_1d,
+            forborrad,
+        ) = px
+    else:
+        raise ValueError("px för traskruv måste innehålla 21 eller 23 värden.")
     data = FastenerInput(
         forbindartyp=_normalize_text(forbindartyp),
         tvarkraftsmodell=_normalize_text(tvarkraftsmodell),
@@ -269,6 +369,8 @@ def _tolka_px_traskruv(px):
         rho_k_2=float(rho_k_2),
         alpha_1=float(alpha_1),
         alpha_2=float(alpha_2),
+        infastning_1=_normalize_text(infastning_1),
+        infastning_2=_normalize_text(infastning_2),
         d=float(d),
         d_h=float(d_h),
         l=float(l),
@@ -313,6 +415,14 @@ def _fastener_penetration(data):
     return max(0.0, data.l - data.t_1)
 
 
+def _effective_thicknesses(data):
+    t_1_eff = data.t_1
+    t_2_eff = data.t_2
+    if data.infastning_2 == "andtra" and not _is_steel(data.materialtyp_2):
+        t_2_eff = _fastener_penetration(data)
+    return t_1_eff, t_2_eff
+
+
 def _pick_normative_shear_branch(data):
     if data.tvarkraftsmodell == "spikregler":
         return "8.3"
@@ -354,9 +464,14 @@ def _k_90(materialtyp, d):
     return 1.35 + 0.015 * d
 
 
-def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad):
+def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad, infastning):
     if _is_steel(materialtyp):
         return None
+
+    if infastning == "andtra" and _is_wood(materialtyp):
+        factor_endgrain = 1.0 / 3.0 if branch == "8.3" else 0.4
+    else:
+        factor_endgrain = 1.0
 
     if branch == "8.3":
         if _is_sheet(materialtyp):
@@ -364,9 +479,9 @@ def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad)
         if d > 8.0:
             branch = "8.5"
         elif forborrad:
-            return 0.082 * (1.0 - 0.01 * d) * rho_k
+            return factor_endgrain * 0.082 * (1.0 - 0.01 * d) * rho_k
         else:
-            return 0.082 * rho_k * d ** (-0.3)
+            return factor_endgrain * 0.082 * rho_k * d ** (-0.3)
 
     if branch in {"8.5", "8.2", "8.7"}:
         if _is_sheet(materialtyp):
@@ -374,7 +489,7 @@ def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad)
                 return 0.11 * max(rho_k, 350.0) * (1.0 - 0.01 * d)
             return 0.25 * math.sqrt(max(t, 1.0) / d) * max(10.0, min(rho_k / 10.0, 40.0))
         fh_0_k = 0.082 * (1.0 - 0.01 * d) * rho_k
-        return fh_0_k / (_k_90(materialtyp, d) * _sin_deg(alpha) ** 2 + _cos_deg(alpha) ** 2)
+        return factor_endgrain * fh_0_k / (_k_90(materialtyp, d) * _sin_deg(alpha) ** 2 + _cos_deg(alpha) ** 2)
 
     raise ValueError("Okänd normativ gren för bäddhållfasthet.")
 
@@ -399,11 +514,11 @@ def _timber_timber_shear_candidates(fh1, fh2, t1, t2, diameter, my_rk, line_effe
     root_d = 2.0 * beta * (1.0 + beta) + 4.0 * beta * (2.0 + beta) * my_rk / (fh1 * diameter * t1**2)
     candidates["d"] = 1.05 * (fh1 * t1 * diameter / (2.0 + beta)) * (math.sqrt(root_d) - beta)
 
-    root_e = 2.0 * beta**2 * (1.0 + beta) + 4.0 * beta * (1.0 + 2.0 * beta) * my_rk / (fh2 * diameter * t2**2)
-    candidates["e"] = 1.05 * (fh2 * t2 * diameter / (1.0 + 2.0 * beta)) * (math.sqrt(root_e) - beta)
+    root_e = 2.0 * beta**2 * (1.0 + beta) + 4.0 * beta * (1.0 + 2.0 * beta) * my_rk / (fh1 * diameter * t2**2)
+    candidates["e"] = 1.05 * (fh1 * t2 * diameter / (1.0 + 2.0 * beta)) * (math.sqrt(root_e) - beta)
 
     candidates["f"] = 1.15 * math.sqrt((2.0 * beta / (1.0 + beta)) * (2.0 * my_rk * fh1 * diameter))
-    return {namn: value + line_effect for namn, value in candidates.items()}
+    return candidates
 
 
 def _steel_timber_shear_candidates(fh, t_timber, diameter, my_rk, steel_thickness, line_effect):
@@ -417,7 +532,7 @@ def _steel_timber_shear_candidates(fh, t_timber, diameter, my_rk, steel_thicknes
             "m": fh * t_timber * diameter,
             "n": 1.15 * math.sqrt(2.0 * my_rk * fh * diameter),
         }
-    return {namn: value + line_effect for namn, value in candidates.items()}
+    return candidates
 
 
 def _line_effect_ratio(data):
@@ -451,11 +566,9 @@ def _axial_capacity_skruv(data):
 def _axial_capacity_traskruv(data):
     penetration = min(_fastener_penetration(data), data.l_gang)
     rho = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
-    angle = min(data.alpha_1, data.alpha_2)
-    withdrawal = 14.0 * data.d * penetration * (rho / 350.0) ** 0.8 / (1.2 * _cos_deg(angle) ** 2 + _sin_deg(angle) ** 2)
-    head_pull_through = 9.0 * data.d_h**2 * (rho / 350.0) ** 0.8
-    tensile = 0.9 * data.f_u * math.pi * (0.8 * data.d) ** 2 / 4.0
-    return min(withdrawal, head_pull_through, tensile)
+    # I den här modellen används utdragsmotståndet som karakteristisk axialbärförmåga
+    # för linverkan i tvärkraftsberäkningen.
+    return 6.5 * data.d * penetration * (rho / 350.0) ** 0.8
 
 
 def _axial_capacity(data):
@@ -608,6 +721,7 @@ def tvarkraft_dymlingsforband(px):
     data.normativ_tvarkraftsgren = _pick_normative_shear_branch(data)
     data.normativ_axialgren = _pick_normative_axial_branch(data)
     data.d_eff = _effective_diameter(data)
+    t_1_eff, t_2_eff = _effective_thicknesses(data)
 
     d_for_calc = data.d_eff if data.forbindartyp == "traskruv" and data.normativ_tvarkraftsgren in {"8.2", "8.7"} else data.d
 
@@ -617,9 +731,10 @@ def tvarkraft_dymlingsforband(px):
         data.alpha_1,
         d_for_calc,
         data.d_h,
-        data.t_1,
+        t_1_eff,
         data.normativ_tvarkraftsgren,
         data.forborrad,
+        data.infastning_1,
     )
     fh_2_k = _embedment_strength(
         data.materialtyp_2,
@@ -627,9 +742,10 @@ def tvarkraft_dymlingsforband(px):
         data.alpha_2,
         d_for_calc,
         data.d_h,
-        data.t_2,
+        t_2_eff,
         data.normativ_tvarkraftsgren,
         data.forborrad,
+        data.infastning_2,
     )
 
     my_rk = _yield_moment(data)
@@ -640,12 +756,15 @@ def tvarkraft_dymlingsforband(px):
         fh_timber, timber_thickness, steel_thickness = _timber_side_values(data, fh_1_k, fh_2_k)
         base_candidates = _steel_timber_shear_candidates(fh_timber, timber_thickness, d_for_calc, my_rk, steel_thickness, 0.0)
     else:
-        base_candidates = _timber_timber_shear_candidates(fh_1_k, fh_2_k, data.t_1, data.t_2, d_for_calc, my_rk, 0.0)
+        base_candidates = _timber_timber_shear_candidates(fh_1_k, fh_2_k, t_1_eff, t_2_eff, d_for_calc, my_rk, 0.0)
 
-    candidates = {
-        namn: value + _line_effect(data, value, f_ax_rk)
-        for namn, value in base_candidates.items()
-    }
+    line_effect_modes = {"c", "d", "e", "f", "l", "n"}
+    candidates = {}
+    for namn, value in base_candidates.items():
+        if namn in line_effect_modes:
+            candidates[namn] = value + _line_effect(data, value, f_ax_rk)
+        else:
+            candidates[namn] = value
     brottmod_styrande = min(candidates, key=candidates.get)
     f_v_rk_enkel = candidates[brottmod_styrande]
 
@@ -668,6 +787,8 @@ def tvarkraft_dymlingsforband(px):
         _post("rho_k_2", r"\rho_{k,2}", data.rho_k_2, "kg/m^3", "karakteristisk densitet del 2"),
         _post("alpha_1", r"\alpha_1", data.alpha_1, "deg", "vinkel mellan kraft och fiberriktning i del 1"),
         _post("alpha_2", r"\alpha_2", data.alpha_2, "deg", "vinkel mellan kraft och fiberriktning i del 2"),
+        _post("infastning_1", r"\mathrm{inf}_1", data.infastning_1, "-", "sidoträ eller ändträ i del 1"),
+        _post("infastning_2", r"\mathrm{inf}_2", data.infastning_2, "-", "sidoträ eller ändträ i del 2"),
         _post("d", "d", data.d, "mm", "förbindarens diameter"),
         _post("d_h", r"d_h", data.d_h, "mm", "huvuddiameter"),
         _post("l", "l", data.l, "mm", "total längd"),
@@ -694,6 +815,8 @@ def tvarkraft_dymlingsforband(px):
         _post("d_eff", r"d_{eff}", data.d_eff, "mm", "effektiv diameter"),
         _post("f_h_1_k", r"f_{h,1,k}", fh_1_k, "N/mm^2", "bäddhållfasthet del 1"),
         _post("f_h_2_k", r"f_{h,2,k}", fh_2_k, "N/mm^2", "bäddhållfasthet del 2"),
+        _post("t_1_eff", r"t_{1,eff}", t_1_eff, "mm", "effektiv tjocklek del 1"),
+        _post("t_2_eff", r"t_{2,eff}", t_2_eff, "mm", "effektiv tjocklek del 2"),
         _post("M_y_Rk", r"M_{y,Rk}", my_rk, "Nmm", "karakteristiskt flytmoment"),
         _post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"),
         _post("n_ef_rad", r"n_{ef}", n_ef_rad, "", "effektivt antal förbindare i rad"),
@@ -742,6 +865,13 @@ def tvarkraft_dymlingsforband(px):
                         "inte dessa mot några separat inmatade verkliga avstånd."
                     ),
                 },
+                {
+                    "rubrik": "Ändträ",
+                    "text": (
+                        "Om en trädel anges som ändträ reduceras bäddhållfastheten i just den delen till en tredjedel "
+                        "av motsvarande sidoträvärde enligt valt modellantagande."
+                    ),
+                },
             ],
         },
         "indata": {
@@ -776,6 +906,7 @@ def tvarkraft_dymlingsforband(px):
                 _ekvation(r"n_{ef} = n^{k_{ef}}", "effektivt antal för spikrad eller skruvrad med liten diameter"),
                 _ekvation(r"n_{ef} = \min\left(n, n^{0.9}\frac{a_1}{13d}\right)", "effektivt antal för skruvar med diameter större än 6 mm"),
                 _ekvation(r"F_{rope} = \min\left(\frac{F_{ax,Rk}}{4}, c_{rope}F_{Johansen}\right)", "begränsad linverkan"),
+                _ekvation(r"f_{h,endtra,k} = \frac{1}{3}f_{h,sidotra,k}", "modellantagande för ändträ"),
             ],
         },
     }
