@@ -129,6 +129,62 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(_hamta_post(delresultat, "normativ_tvarkraftsgren")["value"], "8.7")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "d_eff")["value"], 6.4))
 
+    def test_valfritt_my_rk_anvands_direkt_nar_det_matas_in(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "skruv",
+                "auto",
+                "tra-tra",
+                "konstruktionsvirke",
+                "konstruktionsvirke",
+                45,
+                95,
+                350,
+                350,
+                0,
+                0,
+                12.0,
+                36.0,
+                160.0,
+                400.0,
+                2,
+                3,
+                False,
+                True,
+                12345.0,
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "M_y_Rk")["value"], 12345.0))
+
+    def test_my_rk_beraknas_nar_det_inte_matas_in(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "skruv",
+                "auto",
+                "tra-tra",
+                "konstruktionsvirke",
+                "konstruktionsvirke",
+                45,
+                95,
+                350,
+                350,
+                0,
+                0,
+                12.0,
+                36.0,
+                160.0,
+                400.0,
+                2,
+                3,
+                False,
+                True,
+            ]
+        )
+
+        expected = 0.30 * 400.0 * 12.0**2.6
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "M_y_Rk")["value"], expected))
+
     def test_andtra_reducerar_baddhallfasthet_till_en_tredjedel_for_tra_del(self):
         details = tvarkraft_dymlingsforband(
             [
@@ -160,6 +216,36 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         fh_2_k = _hamta_post(details["delresultat"], "f_h_2_k")["value"]
         self.assertTrue(math.isclose(fh_1_k * 2.5, fh_2_k, rel_tol=1e-9))
         self.assertEqual(_hamta_post(details["indata"], "infastning_1")["value"], "andtra")
+
+    def test_spik_i_andtra_ger_noll_axiell_barformaga(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "auto",
+                "tra-tra",
+                "konstruktionsvirke",
+                "konstruktionsvirke",
+                45,
+                95,
+                350,
+                350,
+                0,
+                0,
+                "andtra",
+                "sidotra",
+                4.0,
+                8.0,
+                75.0,
+                600.0,
+                "slat",
+                1,
+                1,
+                False,
+                False,
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
 
     def test_fastener_designer_benchmark_for_traskruv_i_andtra(self):
         fu_for_my = 10500.0 / (0.30 * 6.0**2.6)
@@ -391,6 +477,8 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
             _hamta_post(details_sicksack["slutresultat"], "F_v_Rk_total")["value"]
             > _hamta_post(details_rak["slutresultat"], "F_v_Rk_total")["value"]
         )
+        self.assertIn("k_ef", {item["namn"] for item in details_rak["delresultat"]["items"]})
+        self.assertIn("a1_for_nef", {item["namn"] for item in details_rak["delresultat"]["items"]})
 
     def test_total_ar_lika_med_enkel_nar_antal_ar_ett(self):
         details = tvarkraft_dymlingsforband(
@@ -448,12 +536,12 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
 
         delresultat = details["delresultat"]
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a1_min")["value"], 60.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "a2_min")["value"], 48.0))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "a3_t_min")["value"], 84.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a2_min")["value"], 36.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a3_t_min")["value"], 144.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a4_c_min")["value"], 36.0))
 
     def test_validerar_format_for_spik(self):
-        with self.assertRaisesRegex(ValueError, "20 eller 22 värden"):
+        with self.assertRaisesRegex(ValueError, "20, 21, 22 eller 23 värden"):
             tvarkraft_dymlingsforband(["spik"])
 
 
