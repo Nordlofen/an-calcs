@@ -55,6 +55,11 @@ class FastenerInput:
     l_gang: float | None = None
     slat_hals: bool | None = None
     my_rk_input: float | None = None
+    f_ax_k_input: float | None = None
+    f_head_k_input: float | None = None
+    f_tens_k_input: float | None = None
+    rho_a_input: float | None = None
+    alpha_ax_input: float | None = None
     normativ_tvarkraftsgren: str | None = None
     normativ_axialgren: str | None = None
     d_eff: float | None = None
@@ -90,6 +95,12 @@ def _krav_icke_negativ(namn, value):
         raise ValueError(f"{namn} måste vara >= 0.")
 
 
+def _optional_float(value):
+    if value is None:
+        return None
+    return float(value)
+
+
 def _normalize_text(value):
     return str(value).strip().lower()
 
@@ -116,6 +127,16 @@ def _validera_gemensamt(data):
     _krav_storre_an_noll("n_per_rad", data.n_per_rad)
     if data.my_rk_input is not None:
         _krav_storre_an_noll("M_y_Rk", data.my_rk_input)
+    for namn, value in (
+        ("f_ax_k", data.f_ax_k_input),
+        ("f_head_k", data.f_head_k_input),
+        ("f_tens_k", data.f_tens_k_input),
+        ("rho_a", data.rho_a_input),
+    ):
+        if value is not None:
+            _krav_icke_negativ(namn, value)
+    if data.alpha_ax_input is not None and (data.alpha_ax_input < 0 or data.alpha_ax_input > 90):
+        raise ValueError("alpha_ax måste ligga mellan 0 och 90 grader.")
 
     for namn, value in (("alpha_1", data.alpha_1), ("alpha_2", data.alpha_2)):
         if value < 0 or value > 360:
@@ -322,6 +343,11 @@ def _tolka_px_skruv(px):
 
 
 def _tolka_px_traskruv(px):
+    px = list(px)
+    axial_props = {}
+    if px and isinstance(px[-1], dict):
+        axial_props = dict(px.pop())
+
     my_rk_input = None
     if len(px) in {21, 22}:
         if len(px) == 22:
@@ -353,7 +379,7 @@ def _tolka_px_traskruv(px):
         infastning_1 = "sidotra"
         infastning_2 = "sidotra"
     elif len(px) in {23, 24}:
-        if len(px) == 24:
+        if len(px) == 24 and not (isinstance(px[-1], str) and isinstance(px[-2], str)):
             my_rk_input = float(px[-1])
             px = px[:-1]
         if isinstance(px[-1], str) and isinstance(px[-2], str):
@@ -409,7 +435,7 @@ def _tolka_px_traskruv(px):
                 forborrad,
             ) = px
     else:
-        raise ValueError("px för traskruv måste innehålla 21, 22, 23 eller 24 värden.")
+        raise ValueError("px för traskruv måste innehålla 21, 22, 23 eller 24 värden, plus eventuellt en avslutande dict med axialdata.")
     data = FastenerInput(
         forbindartyp=_normalize_text(forbindartyp),
         tvarkraftsmodell=_normalize_text(tvarkraftsmodell),
@@ -431,6 +457,11 @@ def _tolka_px_traskruv(px):
         f_u=float(f_u),
         slat_hals=bool(slat_hals),
         my_rk_input=my_rk_input,
+        f_ax_k_input=_optional_float(axial_props["f_ax_k"]) if "f_ax_k" in axial_props else None,
+        f_head_k_input=_optional_float(axial_props["f_head_k"]) if "f_head_k" in axial_props else None,
+        f_tens_k_input=_optional_float(axial_props["f_tens_k"]) if "f_tens_k" in axial_props else None,
+        rho_a_input=_optional_float(axial_props["rho_a"]) if "rho_a" in axial_props else None,
+        alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
         tvarforskjuten_1d=bool(tvarforskjuten_1d),
@@ -694,12 +725,83 @@ def _axial_capacity_skruv(data):
     return min(tensile_capacity, washer_capacity) if washer_capacity > 0 else tensile_capacity
 
 
-def _axial_capacity_traskruv(data):
-    penetration = min(_fastener_penetration(data), data.l_gang)
-    rho = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
-    fax_k_model = 6.5
-    # Bench-kompatibel modell för träskruv där Fax används för linverkan även i ändträ.
-    return fax_k_model * data.d * penetration * (rho / 350.0) ** 0.8
+def _axial_enabled_traskruv(data):
+    if data.alpha_ax_input is None:
+        return False
+    if not (data.f_ax_k_input and data.f_ax_k_input > 0 and data.f_tens_k_input and data.f_tens_k_input > 0):
+        return False
+    if data.anslutningstyp == "tra-tra" and not (data.f_head_k_input and data.f_head_k_input > 0):
+        return False
+    return True
+
+
+def _axial_timber_material(data):
+    if not _is_steel(data.materialtyp_2):
+        return data.materialtyp_2, data.rho_k_2
+    return data.materialtyp_1, data.rho_k_1
+
+
+def _axial_components_traskruv(data):
+    off = {
+        "enabled": False,
+        "l_ef": min(_fastener_penetration(data), data.l_gang),
+        "k_ax": None,
+        "k_beta": None,
+        "rho_ax": None,
+        "rho_a": data.rho_a_input or 350.0,
+        "f_ax_k": data.f_ax_k_input,
+        "f_head_k": data.f_head_k_input,
+        "f_tens_k": data.f_tens_k_input,
+        "alpha_ax": data.alpha_ax_input,
+        "F_ax_w": 0.0,
+        "F_ax_h": None,
+        "F_t_Rk": data.f_tens_k_input if data.f_tens_k_input and data.f_tens_k_input > 0 else None,
+        "F_ax_Rk": 0.0,
+    }
+    if not _axial_enabled_traskruv(data):
+        return off
+
+    materialtyp_ax, rho_ax = _axial_timber_material(data)
+    l_ef = min(_fastener_penetration(data), data.l_gang)
+    rho_a = data.rho_a_input or 350.0
+    alpha_ax = data.alpha_ax_input
+    if materialtyp_ax == "lvl":
+        a_const = 0.5
+        b_const = 0.5
+        k_beta = 1.0
+    else:
+        a_const = 0.3
+        b_const = 0.7
+        k_beta = 1.0
+    if alpha_ax >= 45.0:
+        k_ax = 1.0
+    else:
+        k_ax = a_const + b_const * alpha_ax / 45.0
+
+    f_ax_w = k_ax * data.f_ax_k_input * data.d * l_ef / k_beta * (rho_ax / rho_a) ** 0.8
+    f_ax_h = None
+    if data.anslutningstyp == "tra-tra":
+        f_ax_h = data.f_head_k_input * data.d_h**2 * (rho_ax / rho_a) ** 0.8
+    f_t_rk = data.f_tens_k_input
+    active_modes = [f_ax_w, f_t_rk]
+    if f_ax_h is not None:
+        active_modes.append(f_ax_h)
+    return {
+        "enabled": True,
+        "l_ef": l_ef,
+        "k_ax": k_ax,
+        "k_beta": k_beta,
+        "rho_ax": rho_ax,
+        "rho_a": rho_a,
+        "f_ax_k": data.f_ax_k_input,
+        "f_head_k": data.f_head_k_input,
+        "f_tens_k": data.f_tens_k_input,
+        "alpha_ax": alpha_ax,
+        "F_ax_w": f_ax_w,
+        "F_ax_h": f_ax_h,
+        "F_t_Rk": f_t_rk,
+        "F_ax_Rk": min(active_modes),
+    }
 
 
 def _axial_capacity(data):
@@ -707,7 +809,7 @@ def _axial_capacity(data):
         return _axial_capacity_spik(data)
     if data.forbindartyp == "skruv":
         return _axial_capacity_skruv(data)
-    return _axial_capacity_traskruv(data)
+    return _axial_components_traskruv(data)["F_ax_Rk"]
 
 
 def _line_effect(data, base_value, fax_rk):
@@ -886,19 +988,19 @@ def _distance_equations(data):
     }
     for key in ("a1_min", "a2_min", "a3_t_min", "a3_c_min", "a4_t_min", "a4_c_min"):
         governing_idx = max(per_side, key=lambda idx: per_side[idx][key])
-        equations.append(_ekvation(_formula(governing_idx, key), f"styrande {labels[key]}"))
+        equations.append(_ekvation(_formula(governing_idx, key), f"styrande {labels[key]}, EC5 Tabell 8.2"))
     return equations
 
 
 def _k_ef_equation(data, a1_min):
     if data.n_per_rad == 1:
-        return _ekvation(r"n_{ef} = 1", "effektivt antal för en ensam förbindare i rad")
+        return _ekvation(r"n_{ef} = 1", "effektivt antal för en ensam förbindare i rad, EC5 8.3.1.1(8)")
 
     if data.tvarforskjuten_1d and data.normativ_tvarkraftsgren in {"8.3", "8.2", "8.7"}:
-        return _ekvation(r"n_{ef} = n", "effektivt antal i sicksackrad")
+        return _ekvation(r"n_{ef} = n", "effektivt antal i sicksackrad, EC5 8.3.1.1(8)")
 
     if data.normativ_tvarkraftsgren == "8.5" and data.d > 6.0:
-        return _ekvation(r"n_{ef} = \min(n, n^{0.9} \cdot a_{1,min} / (13 \cdot d))", "effektivt antal i rad")
+        return _ekvation(r"n_{ef} = \min(n, n^{0.9} \cdot a_{1,min} / (13 \cdot d))", "effektivt antal i rad, EC5 8.5.1")
 
     diameter_symbol = r"d_{eff}" if data.normativ_tvarkraftsgren in {"8.2", "8.7"} else "d"
     diameter_value = max(data.d_eff, 1e-9) if data.normativ_tvarkraftsgren in {"8.2", "8.7"} else data.d
@@ -916,8 +1018,8 @@ def _k_ef_equation(data, a1_min):
         k_eq = r"k_{ef} = 0.50" if data.forborrad else r"k_{ef} = 0.70"
 
     return (
-        _ekvation(k_eq, "interpolerat k_ef enligt tabell 8.1"),
-        _ekvation(r"n_{ef} = n^{k_{ef}}", "effektivt antal i rad"),
+        _ekvation(k_eq, "interpolerat k_ef enligt tabell 8.1, EC5 Tabell 8.1"),
+        _ekvation(r"n_{ef} = n^{k_{ef}}", "effektivt antal i rad, EC5 8.3.1.1(8)"),
     )
 
 
@@ -1147,6 +1249,33 @@ def tvarkraft_dymlingsforband(px):
         M_y_Rk
     ]``
 
+    Valfritt kan träskruvsformatet också avslutas med en dict för axiella
+    produktparametrar. Denna används bara för att beräkna ``F_ax,Rk`` enligt
+    träskruvsgrenen; om dict saknas, eller parametrarna sätts till ``None`` eller
+    ``0``, sätts ``F_ax,Rk = 0`` och linverkan stängs av.
+
+    ``{
+        "f_ax_k": ...,
+        "f_head_k": ...,
+        "f_tens_k": ...,
+        "alpha_ax": ...,
+        "rho_a": ...   # valfritt, standard 350
+    }``
+
+    Exempel med både ``M_y_Rk`` och axialdata:
+
+    ``[
+        ...,
+        infastning_1, infastning_2,
+        M_y_Rk,
+        {
+            "f_ax_k": 21.67,
+            "f_head_k": 13.3,
+            "f_tens_k": 12300.0,
+            "alpha_ax": 0.0
+        }
+    ]``
+
     där:
     - ``d`` = diameter [mm]
     - ``d_h`` = huvuddiameter [mm]
@@ -1217,6 +1346,12 @@ def tvarkraft_dymlingsforband(px):
         True,
         "sidotra",
         "andtra",
+        {
+            "f_ax_k": 21.6666666667,
+            "f_head_k": 13.3,
+            "f_tens_k": 12300.0,
+            "alpha_ax": 0.0,
+        },
     ]
 
     details = tvarkraft_dymlingsforband(px)
@@ -1326,16 +1461,15 @@ def tvarkraft_dymlingsforband(px):
     fh_2_k = fh_2_data["fh_k"]
 
     my_rk = _yield_moment(data)
-    f_ax_rk = _axial_capacity(data)
+    axial_traskruv = _axial_components_traskruv(data) if data.forbindartyp == "traskruv" else None
+    f_ax_rk = axial_traskruv["F_ax_Rk"] if axial_traskruv is not None else _axial_capacity(data)
     line_effect_active = f_ax_rk > 0.0
     c_rope = _line_effect_ratio(data)
     l_pen = None
     rho_ax = None
-    fax_k_model = None
     if data.forbindartyp == "traskruv":
-        l_pen = min(_fastener_penetration(data), data.l_gang)
-        rho_ax = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
-        fax_k_model = 6.5
+        l_pen = axial_traskruv["l_ef"]
+        rho_ax = axial_traskruv["rho_ax"]
     elif data.forbindartyp == "spik":
         l_pen = _fastener_penetration(data)
         rho_ax = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
@@ -1403,6 +1537,22 @@ def tvarkraft_dymlingsforband(px):
                 _post("slat_hals", r"\mathrm{slat\_hals}", data.slat_hals, "-", "träskruv med slät hals"),
             ]
         )
+        if (
+            data.f_ax_k_input is not None
+            or data.f_head_k_input is not None
+            or data.f_tens_k_input is not None
+            or data.alpha_ax_input is not None
+            or data.rho_a_input is not None
+        ):
+            indata_items.extend(
+                [
+                    _post("f_ax_k_input", r"f_{ax,k}", data.f_ax_k_input, "N/mm^2", "inmatad utdragshållfasthet"),
+                    _post("f_head_k_input", r"f_{head,k}", data.f_head_k_input, "N/mm^2", "inmatad genomdragningshållfasthet"),
+                    _post("f_tens_k_input", r"F_{t,Rk}", data.f_tens_k_input, "N", "inmatad dragbärförmåga"),
+                    _post("alpha_ax_input", r"\alpha_{ax}", data.alpha_ax_input, "deg", "inmatad axelvinkel mot fiberriktning"),
+                    _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
+                ]
+            )
     if data.my_rk_input is not None:
         indata_items.append(_post("M_y_Rk_input", r"M_{y,Rk}", data.my_rk_input, "Nmm", "inmatat flytmoment"))
 
@@ -1438,21 +1588,43 @@ def tvarkraft_dymlingsforband(px):
             _post("andtra_reduktion_info", r"\mathrm{andtra}", "1/3 i spikgrenen, 0.4 i denna skruvmodell", "-", "synlig info om ändträmodell")
         )
 
-    delresultat_items.extend(
-        [
-            _post("M_y_Rk", r"M_{y,Rk}", my_rk, "Nmm", "karakteristiskt flytmoment"),
-            _post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"),
-        ]
-    )
+    delresultat_items.append(_post("M_y_Rk", r"M_{y,Rk}", my_rk, "Nmm", "karakteristiskt flytmoment"))
+
+    if data.forbindartyp == "traskruv":
+        delresultat_items.append(
+            _post("axialdata_aktiv", r"\mathrm{axial}", axial_traskruv["enabled"], "-", "axialdata aktiv för träskruv")
+        )
+        delresultat_items.append(_post("l_ef", r"l_{ef}", axial_traskruv["l_ef"], "mm", "effektiv gänginträngning"))
+        if axial_traskruv["rho_ax"] is not None:
+            delresultat_items.append(_post("rho_ax", r"\rho_{ax}", axial_traskruv["rho_ax"], "kg/m^3", "densitet i axialmodell"))
+        delresultat_items.append(_post("rho_a", r"\rho_a", axial_traskruv["rho_a"], "kg/m^3", "referensdensitet i axialmodell"))
+        if axial_traskruv["alpha_ax"] is not None:
+            delresultat_items.append(_post("alpha_ax", r"\alpha_{ax}", axial_traskruv["alpha_ax"], "deg", "vinkel mellan skruvaxel och fiberriktning"))
+        if axial_traskruv["k_ax"] is not None:
+            delresultat_items.append(_post("k_ax", r"k_{ax}", axial_traskruv["k_ax"], "-", "vinkelfaktor för axial utdragning"))
+        if axial_traskruv["k_beta"] is not None:
+            delresultat_items.append(_post("k_beta", r"k_{\beta}", axial_traskruv["k_beta"], "-", "korrektionsfaktor för axial utdragning"))
+        if axial_traskruv["f_ax_k"] is not None:
+            delresultat_items.append(_post("f_ax_k", r"f_{ax,k}", axial_traskruv["f_ax_k"], "N/mm^2", "utdragshållfasthet för gängad del"))
+        if axial_traskruv["f_head_k"] is not None:
+            delresultat_items.append(_post("f_head_k", r"f_{head,k}", axial_traskruv["f_head_k"], "N/mm^2", "genomdragningshållfasthet för huvud"))
+        if axial_traskruv["F_t_Rk"] is not None:
+            delresultat_items.append(_post("F_t_Rk", r"F_{t,Rk}", axial_traskruv["F_t_Rk"], "N", "dragbärförmåga i skruven"))
+        delresultat_items.append(_post("F_ax_w", r"F_{ax,w}", axial_traskruv["F_ax_w"], "N", "axiell bärförmåga för utdragning"))
+        if axial_traskruv["F_ax_h"] is not None:
+            delresultat_items.append(_post("F_ax_h", r"F_{ax,h}", axial_traskruv["F_ax_h"], "N", "axiell bärförmåga för genomdragning huvud"))
+        delresultat_items.append(_post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"))
+        if not axial_traskruv["enabled"]:
+            delresultat_items.append(
+                _post("axialdata_info", r"\mathrm{axial\_info}", "axialdata saknas eller är avstängda", "-", "ingen linverkan tillgodoräknas")
+            )
+    else:
+        delresultat_items.append(_post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"))
 
     if line_effect_active:
         delresultat_items.append(_post("c_rope", r"c_{rope}", c_rope, "-", "linverkskoefficient"))
     if l_pen is not None:
         delresultat_items.append(_post("l_pen", r"l_{pen}", l_pen, "mm", "inträngningslängd i axialmodell"))
-    if rho_ax is not None:
-        delresultat_items.append(_post("rho_ax", r"\rho_{ax}", rho_ax, "kg/m^3", "densitet i axialmodell"))
-    if fax_k_model is not None:
-        delresultat_items.append(_post("f_ax_k_modell", r"f_{ax,k}", fax_k_model, "N/mm^2", "modellvärde för träskruvens utdragshållfasthet"))
     if beta is not None:
         delresultat_items.append(_post("beta", r"\beta", beta, "-", "kvot mellan bäddhållfastheter"))
     if r_t is not None:
@@ -1487,17 +1659,17 @@ def tvarkraft_dymlingsforband(px):
     ekvationer = []
 
     if data.infastning_2 == "andtra" and not _is_steel(data.materialtyp_2):
-        ekvationer.append(_ekvation(r"t_{2,eff} = l - t_1", "effektiv tjocklek del 2 vid ändträ"))
+        ekvationer.append(_ekvation(r"t_{2,eff} = l - t_1", "effektiv tjocklek del 2 vid ändträ, EC5 8.2.2"))
 
     if data.forbindartyp == "traskruv" and data.normativ_tvarkraftsgren in {"8.2", "8.7"}:
-        ekvationer.append(_ekvation(r"d_{eff} = 0.8 \cdot d", "effektiv diameter för träskruv"))
+        ekvationer.append(_ekvation(r"d_{eff} = 0.8 \cdot d", "effektiv diameter för träskruv, EC5 8.7.1"))
 
     def _k90_eq(materialtyp, idx):
         if materialtyp == "hardtra":
-            return _ekvation(rf"k_{{90,{idx}}} = 0.90 + 0.015 \cdot d", f"k90 för del {idx}")
+            return _ekvation(rf"k_{{90,{idx}}} = 0.90 + 0.015 \cdot d", f"k90 för del {idx}, EC5 8.5.1")
         if materialtyp == "lvl":
-            return _ekvation(rf"k_{{90,{idx}}} = 1.30 + 0.015 \cdot d", f"k90 för del {idx}")
-        return _ekvation(rf"k_{{90,{idx}}} = 1.35 + 0.015 \cdot d", f"k90 för del {idx}")
+            return _ekvation(rf"k_{{90,{idx}}} = 1.30 + 0.015 \cdot d", f"k90 för del {idx}, EC5 8.5.1")
+        return _ekvation(rf"k_{{90,{idx}}} = 1.35 + 0.015 \cdot d", f"k90 för del {idx}, EC5 8.5.1")
 
     def _fh0_eq(data_item, idx):
         branch_used = data_item["branch_used"]
@@ -1505,15 +1677,15 @@ def tvarkraft_dymlingsforband(px):
             return []
         if branch_used == "8.3":
             if (idx == 1 and _is_sheet(data.materialtyp_1)) or (idx == 2 and _is_sheet(data.materialtyp_2)):
-                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}")]
+                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]
             if data.forborrad:
-                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot (1 - 0.01 \cdot d) \cdot \rho_{{k,{idx}}}", f"oreducerad bäddhållfasthet del {idx}")]
-            return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}")]
+                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot (1 - 0.01 \cdot d) \cdot \rho_{{k,{idx}}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]
+            return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]
         if (idx == 1 and _is_sheet(data.materialtyp_1)) or (idx == 2 and _is_sheet(data.materialtyp_2)):
             if (idx == 1 and data.materialtyp_1 == "plywood") or (idx == 2 and data.materialtyp_2 == "plywood"):
-                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot (1 - 0.01 \cdot d)", f"oreducerad bäddhållfasthet del {idx}")]
-            return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.25 \cdot \sqrt{{t_{{{idx},eff}} / d_{{eff}}}} \cdot c_{{board,{idx}}}", f"oreducerad bäddhållfasthet del {idx}")]
-        return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot (1 - 0.01 \cdot d_{{eff}}) \cdot \rho_{{k,{idx}}}", f"oreducerad bäddhållfasthet del {idx}")]
+                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot (1 - 0.01 \cdot d)", f"oreducerad bäddhållfasthet del {idx}, EC5 8.5.1")]
+            return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.25 \cdot \sqrt{{t_{{{idx},eff}} / d_{{eff}}}} \cdot c_{{board,{idx}}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.5.1")]
+        return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot (1 - 0.01 \cdot d_{{eff}}) \cdot \rho_{{k,{idx}}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.5.1")]
 
     def _fh_eq(data_item, idx):
         equations = []
@@ -1525,42 +1697,54 @@ def tvarkraft_dymlingsforband(px):
         equations.extend(_fh0_eq(data_item, idx))
         if data_item["endgrain_factor"] not in {None, 1.0}:
             factor_text = r"\frac{1}{3}" if abs(data_item["endgrain_factor"] - (1.0 / 3.0)) < 1e-9 else "0.4"
-            equations.append(_ekvation(rf"\eta_{{end,{idx}}} = {factor_text}", f"ändträfaktor del {idx}"))
+            equations.append(_ekvation(rf"\eta_{{end,{idx}}} = {factor_text}", f"ändträfaktor del {idx}, EC5 8.3.1.2(4)"))
         if data_item["k_90"] is not None:
             side_expr = rf"\frac{{f_{{h,0,{idx},k}}}}{{k_{{90,{idx}}} \cdot \sin^2(\alpha_{idx}) + \cos^2(\alpha_{idx})}}"
         else:
             side_expr = rf"f_{{h,0,{idx},k}}"
         if data_item["endgrain_factor"] not in {None, 1.0}:
-            equations.append(_ekvation(rf"f_{{h,{idx},k}} = \eta_{{end,{idx}}} \cdot {side_expr}", f"bäddhållfasthet del {idx}"))
+            equations.append(_ekvation(rf"f_{{h,{idx},k}} = \eta_{{end,{idx}}} \cdot {side_expr}", f"bäddhållfasthet del {idx}, EC5 {data.normativ_tvarkraftsgren}"))
         else:
-            equations.append(_ekvation(rf"f_{{h,{idx},k}} = {side_expr}", f"bäddhållfasthet del {idx}"))
+            equations.append(_ekvation(rf"f_{{h,{idx},k}} = {side_expr}", f"bäddhållfasthet del {idx}, EC5 {data.normativ_tvarkraftsgren}"))
         return equations
 
     ekvationer.extend(_fh_eq(fh_1_data, 1))
     ekvationer.extend(_fh_eq(fh_2_data, 2))
 
     if beta is not None:
-        ekvationer.append(_ekvation(r"\beta = \frac{f_{h,2,k}}{f_{h,1,k}}", "kvot mellan bäddhållfastheter"))
+        ekvationer.append(_ekvation(r"\beta = \frac{f_{h,2,k}}{f_{h,1,k}}", "kvot mellan bäddhållfastheter, EC5 8.2.3"))
     if r_t is not None:
-        ekvationer.append(_ekvation(r"R_t = \frac{t_{2,eff}}{t_{1,eff}}", "kvot mellan effektiva tjocklekar"))
+        ekvationer.append(_ekvation(r"R_t = \frac{t_{2,eff}}{t_{1,eff}}", "kvot mellan effektiva tjocklekar, EC5 8.2.3"))
 
     if data.my_rk_input is not None:
-        ekvationer.append(_ekvation(r"M_{y,Rk} = \mathrm{inmatat\ värde}", "karakteristiskt flytmoment"))
+        ekvationer.append(_ekvation(r"M_{y,Rk} = \mathrm{inmatat\ värde}", "karakteristiskt flytmoment, EC5 8.5.1"))
     elif data.forbindartyp == "spik" and data.spiktyp == "profilerad":
-        ekvationer.append(_ekvation(r"M_{y,Rk} = 0.45 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment"))
+        ekvationer.append(_ekvation(r"M_{y,Rk} = 0.45 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment, EC5 8.5.1"))
     else:
-        ekvationer.append(_ekvation(r"M_{y,Rk} = 0.30 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment"))
+        ekvationer.append(_ekvation(r"M_{y,Rk} = 0.30 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment, EC5 8.5.1"))
 
     if data.forbindartyp == "spik":
         if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
-            ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "spik i ändträ antas inte ta axiell last"))
+            ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "spik i ändträ antas inte ta axiell last, EC5 8.3.2"))
         else:
-            ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{ax,withdrawal}, F_{head})", "karakteristisk axialbärförmåga"))
+            ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{ax,withdrawal}, F_{head})", "karakteristisk axialbärförmåga, EC5 8.3.2"))
     elif data.forbindartyp == "skruv":
-        ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{tensile}, F_{washer})", "karakteristisk axialbärförmåga"))
+        ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{tensile}, F_{washer})", "karakteristisk axialbärförmåga, EC5 8.5.2"))
     else:
-        ekvationer.append(_ekvation(r"f_{ax,k} = 6.5", "modellvärde för träskruvens utdragshållfasthet"))
-        ekvationer.append(_ekvation(r"F_{ax,Rk} = f_{ax,k} \cdot d \cdot l_{pen} \cdot (\rho_{ax}/350)^{0.8}", "karakteristisk axialbärförmåga"))
+        if axial_traskruv["enabled"]:
+            ekvationer.extend(
+                [
+                    _ekvation(r"F_{ax,w} = k_{ax} \cdot f_{ax,k} \cdot d \cdot l_{ef} / k_{\beta} \cdot \left(\frac{\rho_{ax}}{\rho_a}\right)^{0.8}", "axiell bärförmåga utdragning, EC5 8.7.2"),
+                    _ekvation(r"F_{t,Rk} = f_{tens,k}", "dragbärförmåga i skruven, EC5 8.7.2"),
+                ]
+            )
+            if data.anslutningstyp == "tra-tra":
+                ekvationer.append(_ekvation(r"F_{ax,h} = f_{head,k} \cdot d_h^2 \cdot \left(\frac{\rho_{ax}}{\rho_a}\right)^{0.8}", "axiell bärförmåga genomdragning huvud, EC5 8.7.2"))
+                ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{ax,w}, F_{ax,h}, F_{t,Rk})", "karakteristisk axialbärförmåga, EC5 8.7.2"))
+            else:
+                ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{ax,w}, F_{t,Rk})", "karakteristisk axialbärförmåga, EC5 8.7.2"))
+        else:
+            ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "axialdata saknas, linverkan avstängd, EC5 8.7.2"))
 
     ekvationer.extend(_distance_equations(data))
 
@@ -1568,45 +1752,45 @@ def tvarkraft_dymlingsforband(px):
         if data.t_1 <= 0.5 * d_for_calc or data.t_2 <= 0.5 * d_for_calc:
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,1} = 0.4 \cdot f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod k"),
-                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod l"),
+                    _ekvation(r"F_{v,Rk,1} = 0.4 \cdot f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod k, EC5 8.2.3"),
+                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod l, EC5 8.2.3"),
                 ]
             )
         else:
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,1} = f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod m"),
-                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod n"),
+                    _ekvation(r"F_{v,Rk,1} = f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod m, EC5 8.2.3"),
+                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod n, EC5 8.2.3"),
                 ]
             )
     else:
         ekvationer.extend(
             [
-                _ekvation(r"F_{v,Rk,1} = f_{h,1,k} \cdot t_{1,eff} \cdot d_{eff}", "brottmod a"),
-                _ekvation(r"F_{v,Rk,2} = f_{h,2,k} \cdot t_{2,eff} \cdot d_{eff}", "brottmod b"),
+                _ekvation(r"F_{v,Rk,1} = f_{h,1,k} \cdot t_{1,eff} \cdot d_{eff}", "brottmod a, EC5 8.2.3"),
+                _ekvation(r"F_{v,Rk,2} = f_{h,2,k} \cdot t_{2,eff} \cdot d_{eff}", "brottmod b, EC5 8.2.3"),
                 _ekvation(
                     r"F_{v,Rk,3} = \frac{f_{h,1,k} \cdot t_{1,eff} \cdot d_{eff}}{1 + \beta} \cdot \left(\sqrt{\beta + 2 \beta^2 (1 + R_t + R_t^2) + \beta^3 R_t^2} - \beta (1 + R_t)\right) + F_{rope}",
-                    "brottmod c",
+                    "brottmod c, EC5 8.2.3",
                 ),
                 _ekvation(
                     r"F_{v,Rk,4} = 1.05 \cdot \frac{f_{h,1,k} \cdot t_{1,eff} \cdot d_{eff}}{2 + \beta} \cdot \left(\sqrt{2 \beta (1 + \beta) + \frac{4 \beta (2 + \beta) M_{y,Rk}}{f_{h,1,k} \cdot d_{eff} \cdot t_{1,eff}^2}} - \beta\right) + F_{rope}",
-                    "brottmod d",
+                    "brottmod d, EC5 8.2.3",
                 ),
                 _ekvation(
                     r"F_{v,Rk,5} = 1.05 \cdot \frac{f_{h,1,k} \cdot t_{2,eff} \cdot d_{eff}}{1 + 2 \beta} \cdot \left(\sqrt{2 \beta^2 (1 + \beta) + \frac{4 \beta (1 + 2 \beta) M_{y,Rk}}{f_{h,1,k} \cdot d_{eff} \cdot t_{2,eff}^2}} - \beta\right) + F_{rope}",
-                    "brottmod e",
+                    "brottmod e, EC5 8.2.3",
                 ),
                 _ekvation(
                     r"F_{v,Rk,6} = 1.15 \cdot \sqrt{\frac{2 \beta}{1 + \beta} \cdot (2 \cdot M_{y,Rk} \cdot f_{h,1,k} \cdot d_{eff})} + F_{rope}",
-                    "brottmod f",
+                    "brottmod f, EC5 8.2.3",
                 ),
             ]
         )
 
     if line_effect_active:
-        ekvationer.append(_ekvation(r"F_{rope} = \min(F_{ax,Rk}/4, c_{rope} \cdot F_{Johansen})", "begränsad linverkan i aktuella brottmoder"))
+        ekvationer.append(_ekvation(r"F_{rope} = \min(F_{ax,Rk}/4, c_{rope} \cdot F_{Johansen})", "begränsad linverkan i aktuella brottmoder, EC5 8.2.2(2)"))
 
-    ekvationer.append(_ekvation(r"F_{v,Rk} = \min(F_{v,Rk,i})", "styrande karakteristisk tvärkraftsbärförmåga"))
+    ekvationer.append(_ekvation(r"F_{v,Rk} = \min(F_{v,Rk,i})", "styrande karakteristisk tvärkraftsbärförmåga, EC5 8.2.3"))
 
     k_ef_eq = _k_ef_equation(data, min_distances["a1_min"])
     if isinstance(k_ef_eq, tuple):
@@ -1614,7 +1798,7 @@ def tvarkraft_dymlingsforband(px):
     else:
         ekvationer.append(k_ef_eq)
 
-    ekvationer.append(_ekvation(r"F_{v,Rk,total} = F_{v,Rk,enkel} \cdot n_{tot,ef}", "total karakteristisk tvärkraftsbärförmåga"))
+    ekvationer.append(_ekvation(r"F_{v,Rk,total} = F_{v,Rk,enkel} \cdot n_{tot,ef}", "total karakteristisk tvärkraftsbärförmåga, EC5 8.3.1.1(8)"))
 
     return {
         "metodbeskrivning": {

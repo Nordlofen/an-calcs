@@ -274,6 +274,12 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 1,
                 False,
                 True,
+                {
+                    "f_ax_k": 21.6666666667,
+                    "f_head_k": 14.0,
+                    "f_tens_k": 12300.0,
+                    "alpha_ax": 0.0,
+                },
             ]
         )
 
@@ -285,6 +291,8 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "f_h_2_k")["value"], 10.7912, rel_tol=1e-4))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "M_y_Rk")["value"], 10500.0, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 2730.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_w")["value"], 2730.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_h")["value"], 2744.0, rel_tol=1e-3))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], 14568.0, rel_tol=1e-3))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_b")["value"], 8417.0, rel_tol=1e-3))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_c")["value"], 5163.0, rel_tol=1e-3))
@@ -352,11 +360,164 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 True,
                 "sidotra",
                 "andtra",
+                {
+                    "f_ax_k": 21.6666666667,
+                    "f_head_k": 14.0,
+                    "f_tens_k": 12300.0,
+                    "alpha_ax": 0.0,
+                },
             ]
         )
 
         for item in details["ekvationer"]["items"]:
             self.assertNotRegex(item["etikett"], r"[_{}]")
+            self.assertIn("EC5", item["etikett"])
+
+    def test_traskruv_utan_axialdata_stanger_av_linverkan(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "tra-tra",
+                "lvl",
+                "konstruktionsvirke",
+                90,
+                45,
+                350,
+                350,
+                0,
+                0,
+                6.0,
+                14.0,
+                220.0,
+                70.0,
+                10500.0 / (0.30 * 6.0**2.6),
+                False,
+                1,
+                1,
+                False,
+                True,
+                "sidotra",
+                "andtra",
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_traskruv_stal_tra_axialkapacitet_ignorerar_huvudgenomdragning(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "stal-tra",
+                "stal",
+                "konstruktionsvirke",
+                3.0,
+                90.0,
+                0.0,
+                350.0,
+                0.0,
+                0.0,
+                6.0,
+                11.8,
+                220.0,
+                70.0,
+                650.0,
+                False,
+                1,
+                1,
+                False,
+                True,
+                {
+                    "f_ax_k": 13.0,
+                    "f_head_k": 11.9,
+                    "f_tens_k": 12300.0,
+                    "alpha_ax": 0.0,
+                },
+            ]
+        )
+
+        namn = {item["namn"] for item in details["delresultat"]["items"]}
+        self.assertIn("F_ax_w", namn)
+        self.assertNotIn("F_ax_h", namn)
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], _hamta_post(details["delresultat"], "F_ax_w")["value"]))
+
+    def test_traskruv_none_axialdata_stanger_av_linverkan(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "tra-tra",
+                "lvl",
+                "konstruktionsvirke",
+                90,
+                45,
+                350,
+                350,
+                0,
+                0,
+                6.0,
+                14.0,
+                220.0,
+                70.0,
+                10500.0 / (0.30 * 6.0**2.6),
+                False,
+                1,
+                1,
+                False,
+                True,
+                "sidotra",
+                "andtra",
+                {
+                    "f_ax_k": None,
+                    "f_head_k": None,
+                    "f_tens_k": None,
+                    "alpha_ax": None,
+                },
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_traskruv_noll_axialdata_stanger_av_linverkan(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "tra-tra",
+                "lvl",
+                "konstruktionsvirke",
+                90,
+                45,
+                350,
+                350,
+                0,
+                0,
+                6.0,
+                14.0,
+                220.0,
+                70.0,
+                10500.0 / (0.30 * 6.0**2.6),
+                False,
+                1,
+                1,
+                False,
+                True,
+                "sidotra",
+                "andtra",
+                {
+                    "f_ax_k": 0.0,
+                    "f_head_k": 0.0,
+                    "f_tens_k": 0.0,
+                    "alpha_ax": 0.0,
+                },
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
 
     def test_traskruv_auto_med_slat_hals_och_d_over_6_valjer_skruvgren(self):
         details = tvarkraft_dymlingsforband(
