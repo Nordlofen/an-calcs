@@ -275,7 +275,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 False,
                 True,
                 {
-                    "f_ax_k": 21.6666666667,
+                    "f_ax_k": 10.4,
                     "f_head_k": 14.0,
                     "f_tens_k": 12300.0,
                     "alpha_ax": 0.0,
@@ -361,7 +361,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 "sidotra",
                 "andtra",
                 {
-                    "f_ax_k": 21.6666666667,
+                    "f_ax_k": 10.4,
                     "f_head_k": 14.0,
                     "f_tens_k": 12300.0,
                     "alpha_ax": 0.0,
@@ -372,6 +372,9 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         for item in details["ekvationer"]["items"]:
             self.assertNotRegex(item["etikett"], r"[_{}]")
             self.assertIn("EC5", item["etikett"])
+        namn = {item["namn"] for item in details["delresultat"]["items"]}
+        self.assertNotIn("k_ax", namn)
+        self.assertNotIn("k_beta", namn)
 
     def test_traskruv_utan_axialdata_stanger_av_linverkan(self):
         details = tvarkraft_dymlingsforband(
@@ -441,7 +444,86 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         namn = {item["namn"] for item in details["delresultat"]["items"]}
         self.assertIn("F_ax_w", namn)
         self.assertNotIn("F_ax_h", namn)
+        self.assertNotIn("k_ax", namn)
+        self.assertNotIn("k_beta", namn)
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_w")["value"], 3412.5, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], _hamta_post(details["delresultat"], "F_ax_w")["value"]))
+
+    def test_traskruv_redovisar_k_d_for_d_under_8_mm(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "skruvregler",
+                "stal-tra",
+                "stal",
+                "konstruktionsvirke",
+                3.0,
+                90.0,
+                0.0,
+                350.0,
+                0.0,
+                0.0,
+                6.0,
+                11.8,
+                220.0,
+                70.0,
+                650.0,
+                False,
+                1,
+                1,
+                False,
+                True,
+                {
+                    "f_ax_k": 13.0,
+                    "f_head_k": 11.9,
+                    "f_tens_k": 12300.0,
+                    "alpha_ax": 0.0,
+                },
+            ]
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "k_d")["value"], 0.75, rel_tol=1e-9))
+
+    def test_skruv_med_axialdata_anvander_samma_8_38_gren(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "skruv",
+                "skruvregler",
+                "tra-tra",
+                "konstruktionsvirke",
+                "konstruktionsvirke",
+                45.0,
+                95.0,
+                350.0,
+                350.0,
+                0.0,
+                0.0,
+                "sidotra",
+                "sidotra",
+                10.0,
+                20.0,
+                160.0,
+                400.0,
+                1,
+                1,
+                False,
+                True,
+                {
+                    "f_ax_k": 8.0,
+                    "f_head_k": 8.0,
+                    "f_tens_k": 50000.0,
+                    "alpha_ax": 90.0,
+                },
+            ]
+        )
+
+        delresultat = details["delresultat"]
+        self.assertEqual(_hamta_post(delresultat, "normativ_axialgren")["value"], "8.38")
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_d")["value"], 1.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef")["value"], 115.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_w")["value"], 9200.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_h")["value"], 3200.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 3200.0, rel_tol=1e-9))
 
     def test_traskruv_none_axialdata_stanger_av_linverkan(self):
         details = tvarkraft_dymlingsforband(
