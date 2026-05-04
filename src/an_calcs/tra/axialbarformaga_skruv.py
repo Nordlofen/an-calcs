@@ -18,7 +18,7 @@ def _ekvation(latex, etikett):
     return {"latex": latex, "etikett": etikett}
 
 
-SUPPORTED_GANGTYPER = {"slat-hals", "helgangad", "klamskruv"}
+SUPPORTED_GANGTYPER = {"slat-hals", "helgangad", "dubbelgangad"}
 SUPPORTED_CONNECTION_TYPES = {"tra-tra"}
 FUTURE_CONNECTION_TYPES = {"stal-tra", "skiva-tra"}
 VALID_CONNECTION_TYPES = SUPPORTED_CONNECTION_TYPES | FUTURE_CONNECTION_TYPES
@@ -122,7 +122,7 @@ def _hamta_px(px):
     )
 
     if data.gangtyp not in SUPPORTED_GANGTYPER:
-        raise ValueError("gangtyp måste vara 'slat-hals', 'helgangad' eller 'klamskruv'.")
+        raise ValueError("gangtyp måste vara 'slat-hals', 'helgangad' eller 'dubbelgangad'.")
     if data.anslutningstyp not in VALID_CONNECTION_TYPES:
         raise ValueError("anslutningstyp måste vara 'tra-tra', 'stal-tra' eller 'skiva-tra'.")
     if data.anslutningstyp not in SUPPORTED_CONNECTION_TYPES:
@@ -147,9 +147,9 @@ def _hamta_px(px):
         "rho_a",
     ):
         _krav_storre_an_noll(namn, getattr(data, namn))
-    if data.gangtyp in {"slat-hals", "klamskruv"}:
+    if data.gangtyp in {"slat-hals", "dubbelgangad"}:
         if data.Lg is None:
-            raise ValueError("Lg måste anges för slat-hals och klamskruv.")
+            raise ValueError("Lg måste anges för slat-hals och dubbelgangad.")
         _krav_storre_an_noll("Lg", data.Lg)
     elif data.Lg is not None and data.Lg <= 0:
         raise ValueError("Lg måste vara > 0 om det anges.")
@@ -187,14 +187,14 @@ def _effektiva_langder(data):
     l_ef_2 = l_ef_2_geometri
     if data.gangtyp == "slat-hals":
         l_ef_2 = min(l_ef_2_geometri, data.Lg)
-    elif data.gangtyp == "klamskruv":
+    elif data.gangtyp == "dubbelgangad":
         l_ef_1 = min(l_ef_1_geometri, data.Lg)
         l_ef_2 = min(l_ef_2_geometri, data.Lg)
 
     if l_ef_2 < 6.0 * data.d:
         raise ValueError("l_ef_2 måste vara minst 6d.")
-    if data.gangtyp in {"helgangad", "klamskruv"} and l_ef_1 <= 0:
-        raise ValueError("l_ef_1 måste vara > 0 för helgängad träskruv och klämskruv.")
+    if data.gangtyp in {"helgangad", "dubbelgangad"} and l_ef_1 <= 0:
+        raise ValueError("l_ef_1 måste vara > 0 för helgängad och dubbelgängad träskruv.")
     return l_ef_1, l_ef_2, l_ef_2_bas, l_ef_1_geometri, l_ef_2_geometri
 
 
@@ -210,12 +210,12 @@ def _berakna(data):
 
     f_t_ed = data.V_Ed_kN * 1000.0 / _sin_deg(data.alpha_ax)
     f_ax_w_1 = None
-    if data.gangtyp in {"helgangad", "klamskruv"}:
+    if data.gangtyp in {"helgangad", "dubbelgangad"}:
         f_ax_w_1 = _withdrawal_capacity(data.f_ax_k, data.d, l_ef_1, alpha_1, data.rho_k_1, data.rho_a)
     f_ax_w_2 = _withdrawal_capacity(data.f_ax_k, data.d, l_ef_2, alpha_2, data.rho_k_2, data.rho_a)
     f_ax_h = data.f_head_k * data.d_h**2 * (data.rho_k_1 / data.rho_a) ** 0.8
 
-    if data.gangtyp in {"helgangad", "klamskruv"}:
+    if data.gangtyp in {"helgangad", "dubbelgangad"}:
         f_ax_1 = max(f_ax_w_1, f_ax_h)
         mode_1 = "utdragning del 1" if f_ax_w_1 >= f_ax_h else "huvudgenomdragning"
     else:
@@ -233,7 +233,7 @@ def _berakna(data):
     return {
         "alpha_1": alpha_1,
         "alpha_2": alpha_2,
-        "l_ef_1": l_ef_1 if data.gangtyp in {"helgangad", "klamskruv"} else None,
+        "l_ef_1": l_ef_1 if data.gangtyp in {"helgangad", "dubbelgangad"} else None,
         "l_ef_2": l_ef_2,
         "l_ef_2_bas": l_ef_2_bas,
         "l_ef_1_geometri": l_ef_1_geometri,
@@ -273,14 +273,14 @@ def axialdrag_traskruv(px):
 
     ```python
     [
-        gangtyp,        # "slat-hals", "helgangad" eller "klamskruv"
+        gangtyp,        # "slat-hals", "helgangad" eller "dubbelgangad"
         anslutningstyp, # endast "tra-tra" stöds i nuläget
         andtra,         # bool; True innebär ändträ i del 2 och sidoträ i del 1
         V_Ed_kN,        # dimensionerande upplagsreaktion [kN]
         d,              # ytterdiameter [mm]
         d_h,            # huvuddiameter [mm]
         L,              # skruvlängd längs skruvaxel [mm]
-        Lg,             # gängad längd [mm], krävs för slat-hals och klamskruv
+        Lg,             # gängad längd [mm], krävs för slat-hals och dubbelgangad
         rho_k_1,        # karakteristisk densitet del 1 [kg/m3]
         rho_k_2,        # karakteristisk densitet del 2 [kg/m3]
         t_1,            # tjocklek del 1 [mm]
@@ -304,8 +304,8 @@ def axialdrag_traskruv(px):
     särskilt anges ``a_2,CG`` ofta som 3d även om EC5-värdet här redovisas som 4d.
 
     ``Lg`` begränsar effektiv gänglängd för träskruv med slät hals och
-    klämskruv. För ``"slat-hals"`` begränsas endast ``l_ef,2``. För
-    ``"klamskruv"`` begränsas både ``l_ef,1`` och ``l_ef,2``. För
+    dubbelgängad skruv. För ``"slat-hals"`` begränsas endast ``l_ef,2``. För
+    ``"dubbelgangad"`` begränsas både ``l_ef,1`` och ``l_ef,2``. För
     ``"helgangad"`` används inte ``Lg`` och kan anges som ``None``.
     """
     data = _hamta_px(px)
@@ -332,7 +332,7 @@ def axialdrag_traskruv(px):
         _post("rho_a", r"\rho_a", data.rho_a, "kg/m^3", "referensdensitet"),
     ]
     if data.Lg is not None:
-        indata_items.insert(9, _post("Lg", r"L_g", data.Lg, "mm", "gängad längd, används för slät hals och klämskruv"))
+        indata_items.insert(9, _post("Lg", r"L_g", data.Lg, "mm", "gängad längd, används för slät hals och dubbelgängad skruv"))
 
     delresultat_items = [
         _post("alpha_1", r"\alpha_1", axial["alpha_1"], "deg", "vinkel mellan skruvaxel och fiber i del 1"),
@@ -365,15 +365,15 @@ def axialdrag_traskruv(px):
     ]
     if data.gangtyp == "helgangad":
         ekvationer.append(_ekvation(r"l_{ef,1} = \frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2}", "effektiv gänglängd i del 1"))
-    elif data.gangtyp == "klamskruv":
-        ekvationer.append(_ekvation(r"l_{ef,1} = \min\left(\frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2},\ L_g\right)", "effektiv gänglängd i del 1 för klämskruv"))
+    elif data.gangtyp == "dubbelgangad":
+        ekvationer.append(_ekvation(r"l_{ef,1} = \min\left(\frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2},\ L_g\right)", "effektiv gänglängd i del 1 för dubbelgängad skruv"))
     if data.andtra:
-        if data.gangtyp in {"slat-hals", "klamskruv"}:
+        if data.gangtyp in {"slat-hals", "dubbelgangad"}:
             ekvationer.append(_ekvation(r"l_{ef,2} = \min\left(L - \frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2},\ L_g\right)", "effektiv gänglängd i del 2 vid ändträ"))
         else:
             ekvationer.append(_ekvation(r"l_{ef,2} = L - \frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2}", "effektiv gänglängd i del 2 vid ändträ"))
     else:
-        if data.gangtyp in {"slat-hals", "klamskruv"}:
+        if data.gangtyp in {"slat-hals", "dubbelgangad"}:
             ekvationer.append(
                 _ekvation(
                     r"l_{ef,2} = \min\left(L - \frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2},\ \frac{t_2}{\cos(\alpha_{ax})} - 10 - \frac{10}{2},\ L_g\right)",
@@ -396,8 +396,8 @@ def axialdrag_traskruv(px):
             _ekvation(r"a_1=7d,\ a_2=5d,\ a_{1,CG}=10d,\ a_{2,CG}=4d", "minimiavstånd, EC5 Tabell 8.6"),
         ]
     )
-    if data.gangtyp in {"helgangad", "klamskruv"}:
-        ekvationer.append(_ekvation(r"F_{ax,1} = \max(F_{ax,w,1}, F_{ax,h})", "bärförmåga i del 1 för helgängad träskruv eller klämskruv"))
+    if data.gangtyp in {"helgangad", "dubbelgangad"}:
+        ekvationer.append(_ekvation(r"F_{ax,1} = \max(F_{ax,w,1}, F_{ax,h})", "bärförmåga i del 1 för helgängad eller dubbelgängad träskruv"))
     else:
         ekvationer.append(_ekvation(r"F_{ax,1} = F_{ax,h}", "bärförmåga i del 1 för träskruv med slät hals"))
 

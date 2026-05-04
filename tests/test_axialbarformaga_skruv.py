@@ -172,11 +172,11 @@ class TestAxialdragTraskruv(unittest.TestCase):
         details = axialdrag_traskruv(_px(gangtyp="slat-hals", Lg=80.0, L=400.0, t_1=90.0, t_2=145.0))
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "l_ef_2")["value"], 80.0))
 
-    def test_klamskruv_kraver_lg_och_begransar_bada_effektiva_langder(self):
+    def test_dubbelgangad_kraver_lg_och_begransar_bada_effektiva_langder(self):
         with self.assertRaisesRegex(ValueError, "Lg måste anges"):
-            axialdrag_traskruv(_px(gangtyp="klamskruv", Lg=None))
+            axialdrag_traskruv(_px(gangtyp="dubbelgangad", Lg=None))
 
-        details = axialdrag_traskruv(_px(gangtyp="klamskruv", Lg=80.0, L=400.0, t_1=90.0, t_2=145.0))
+        details = axialdrag_traskruv(_px(gangtyp="dubbelgangad", Lg=80.0, L=400.0, t_1=90.0, t_2=145.0))
         delresultat = details["delresultat"]
 
         self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef_1")["value"], 80.0))
