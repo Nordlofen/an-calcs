@@ -265,3 +265,40 @@ def sattning(px):
             ],
         },
     }
+
+
+sattning.panel_schema = {
+    "title": "Sättning",
+    "px": ["typ", "t_skikt", "dz_lista", "Ek_lista", "gamma_m_lista", "F", "b1", "b2"],
+    "fields": [
+        {
+            "name": "typ",
+            "type": "choice",
+            "label": "Lasttyp",
+            "default": "PS",
+            "options": [
+                {"label": "PS - pelarsula/punktlast", "value": "PS"},
+                {"label": "VS - väggsula/långsträckt last", "value": "VS"},
+            ],
+        },
+        {"name": "t_skikt", "type": "float", "label": "Diskretiseringstjocklek", "unit": "m", "default": 0.1},
+        {
+            "name": "jordlager",
+            "type": "table",
+            "label": "Jordlager",
+            "outputs": ["dz_lista", "Ek_lista", "gamma_m_lista"],
+            "columns": [
+                {"name": "dz", "output": "dz_lista", "type": "float", "label": "Tjocklek", "unit": "m", "default": 1.0},
+                {"name": "Ek", "output": "Ek_lista", "type": "float", "label": "E-modul", "unit": "MPa", "default": 10.0},
+                {"name": "gamma_m", "output": "gamma_m_lista", "type": "float", "label": "Materialfaktor", "unit": "", "default": 1.0},
+            ],
+            "default_rows": [
+                {"dz": 1.0, "Ek": 10.0, "gamma_m": 1.0},
+                {"dz": 1.0, "Ek": 15.0, "gamma_m": 1.0},
+            ],
+        },
+        {"name": "F", "type": "float", "label": "Last", "unit": "kN eller kN/m", "default": 500.0},
+        {"name": "b1", "type": "float", "label": "Grundmått 1", "unit": "m", "default": 2.0},
+        {"name": "b2", "type": "float", "label": "Grundmått 2", "unit": "m", "default": 3.0},
+    ],
+}
