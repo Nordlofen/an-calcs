@@ -30,11 +30,11 @@ def _krav_max(namn, latex, value, krav, unit, etikett):
 
 
 def _tolka_px(px):
-    if len(px) != 17:
+    if len(px) != 19:
         raise ValueError(
-            "haltagning_limtrabalk kräver 17 värden: "
+            "haltagning_limtrabalk kräver 19 värden: "
             "[L, b, h, s, x, d, l_z, anvand_direkta_snittkrafter, E_g, Q_k, V_Ed, M_Ed, "
-            "f_v_g_d, f_m_g_d, f_t_90_d, F_ax_Rd, kontrollera_forstarkning]."
+            "k_mod, gamma_m, f_v_g_k, f_m_g_k, f_t_90_k, F_ax_Rk, kontrollera_forstarkning]."
         )
 
     (
@@ -50,10 +50,12 @@ def _tolka_px(px):
         Q_k,
         V_Ed,
         M_Ed,
-        f_v_g_d,
-        f_m_g_d,
-        f_t_90_d,
-        F_ax_Rd,
+        k_mod,
+        gamma_m,
+        f_v_g_k,
+        f_m_g_k,
+        f_t_90_k,
+        F_ax_Rk,
         kontrollera_forstarkning,
     ) = px
 
@@ -69,10 +71,12 @@ def _tolka_px(px):
         "Q_k": Q_k,
         "V_Ed": V_Ed,
         "M_Ed": M_Ed,
-        "f_v_g_d": f_v_g_d,
-        "f_m_g_d": f_m_g_d,
-        "f_t_90_d": f_t_90_d,
-        "F_ax_Rd": F_ax_Rd,
+        "k_mod": k_mod,
+        "gamma_m": gamma_m,
+        "f_v_g_k": f_v_g_k,
+        "f_m_g_k": f_m_g_k,
+        "f_t_90_k": f_t_90_k,
+        "F_ax_Rk": F_ax_Rk,
     }
 
     for namn, value in values.items():
@@ -105,8 +109,9 @@ def haltagning_limtrabalk(px):
         px = [
             L, b, h, s, x, d, l_z,
             anvand_direkta_snittkrafter, E_g, Q_k, V_Ed, M_Ed,
-            f_v_g_d, f_m_g_d, f_t_90_d,
-            F_ax_Rd, kontrollera_forstarkning,
+            k_mod, gamma_m,
+            f_v_g_k, f_m_g_k, f_t_90_k,
+            F_ax_Rk, kontrollera_forstarkning,
         ]
 
     Enheter:
@@ -126,10 +131,12 @@ def haltagning_limtrabalk(px):
     Q_k = v["Q_k"]
     V_Ed = v["V_Ed"]
     M_Ed = v["M_Ed"]
-    f_v_g_d = v["f_v_g_d"]
-    f_m_g_d = v["f_m_g_d"]
-    f_t_90_d = v["f_t_90_d"]
-    F_ax_Rd = v["F_ax_Rd"]
+    k_mod = v["k_mod"]
+    gamma_m = v["gamma_m"]
+    f_v_g_k = v["f_v_g_k"]
+    f_m_g_k = v["f_m_g_k"]
+    f_t_90_k = v["f_t_90_k"]
+    F_ax_Rk = v["F_ax_Rk"]
     kontrollera_forstarkning = v["kontrollera_forstarkning"]
 
     l_A = x - d / 2.0
@@ -142,6 +149,12 @@ def haltagning_limtrabalk(px):
     krav_l_A = 0.5 * h
     krav_l_v = h
     krav_h_r = 0.35 * h
+
+    k_h = min(1.1, (600.0 / h) ** 0.1)
+    f_t_90_d = k_mod * f_t_90_k / gamma_m
+    f_m_g_d = k_h * k_mod * f_m_g_k / gamma_m
+    f_v_g_d = k_mod * f_v_g_k / gamma_m
+    F_ax_Rd = k_mod * F_ax_Rk / gamma_m
 
     if anvand_direkta_snittkrafter:
         q_d = None
@@ -241,10 +254,12 @@ def haltagning_limtrabalk(px):
         )
     indata_items.extend(
         [
-            _post("f_v_g_d", r"f_{v,g,d}", f_v_g_d, "MPa", "dimensionerande skjuvhållfasthet"),
-            _post("f_m_g_d", r"f_{m,g,d}", f_m_g_d, "MPa", "dimensionerande böjhållfasthet"),
-            _post("f_t_90_d", r"f_{t,90,d}", f_t_90_d, "MPa", "dimensionerande draghållfasthet vinkelrätt fibrer"),
-            _post("F_ax_Rd", r"F_{ax,Rd}", F_ax_Rd, "kN", "dimensionerande axiell bärförmåga per skruv"),
+            _post("k_mod", r"k_{mod}", k_mod, "", "modifieringsfaktor"),
+            _post("gamma_m", r"\gamma_m", gamma_m, "", "partialkoefficient trä"),
+            _post("f_v_g_k", r"f_{v,g,k}", f_v_g_k, "MPa", "karakteristisk skjuvhållfasthet"),
+            _post("f_m_g_k", r"f_{m,g,k}", f_m_g_k, "MPa", "karakteristisk böjhållfasthet"),
+            _post("f_t_90_k", r"f_{t,90,k}", f_t_90_k, "MPa", "karakteristisk draghållfasthet vinkelrätt fibrer"),
+            _post("F_ax_Rk", r"F_{ax,Rk}", F_ax_Rk, "kN", "karakteristisk axiell bärförmåga per skruv"),
         ]
     )
 
@@ -254,6 +269,11 @@ def haltagning_limtrabalk(px):
         _post("h_ro", "h_{ro}", h_ro, "mm", "höjd över hål"),
         _post("h_ru", "h_{ru}", h_ru, "mm", "höjd under hål"),
         _post("h_d", "h_d", h_d, "mm", "hålets höjd"),
+        _post("k_h", "k_h", k_h, "", "höjdfaktor för böjhållfasthet"),
+        _post("f_v_g_d", r"f_{v,g,d}", f_v_g_d, "MPa", "dimensionerande skjuvhållfasthet"),
+        _post("f_m_g_d", r"f_{m,g,d}", f_m_g_d, "MPa", "dimensionerande böjhållfasthet"),
+        _post("f_t_90_d", r"f_{t,90,d}", f_t_90_d, "MPa", "dimensionerande draghållfasthet vinkelrätt fibrer"),
+        _post("F_ax_Rd", r"F_{ax,Rd}", F_ax_Rd, "kN", "dimensionerande axiell bärförmåga per skruv"),
     ]
     if q_d is not None:
         delresultat_items.append(_post("q_d", "q_d", q_d, "kN/m", "dimensionerande linjelast"))
@@ -303,6 +323,11 @@ def haltagning_limtrabalk(px):
         )
     ekvationer_items.extend(
         [
+            _ekvation(r"k_h = \min(1.1, (600/h)^{0.1})", "höjdfaktor för böjhållfasthet"),
+            _ekvation(r"f_{t,90,d} = \frac{k_{mod} f_{t,90,k}}{\gamma_m}", "dimensionerande draghållfasthet vinkelrätt fibrer"),
+            _ekvation(r"f_{m,g,d} = k_h\frac{k_{mod} f_{m,g,k}}{\gamma_m}", "dimensionerande böjhållfasthet"),
+            _ekvation(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", "dimensionerande skjuvhållfasthet"),
+            _ekvation(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", "dimensionerande axiell skruvbärförmåga"),
             _ekvation(r"b_{ef} = 0.67b", "effektiv bredd"),
             _ekvation(r"S_y = b_{ef} h_{ro}(0.5h_{ro} + d/2)", "statiskt moment för skjuvkontroll"),
             _ekvation(r"I_{y,V} = 2\left(\frac{b_{ef}h_{ro}^3}{12} + b_{ef}h_{ro}(0.5h_{ro}+d/2)^2\right)", "tröghetsmoment för skjuvkontroll"),
@@ -385,10 +410,12 @@ haltagning_limtrabalk.panel_schema = {
         "Q_k",
         "V_Ed",
         "M_Ed",
-        "f_v_g_d",
-        "f_m_g_d",
-        "f_t_90_d",
-        "F_ax_Rd",
+        "k_mod",
+        "gamma_m",
+        "f_v_g_k",
+        "f_m_g_k",
+        "f_t_90_k",
+        "F_ax_Rk",
         "kontrollera_forstarkning",
     ],
     "fields": [
@@ -442,16 +469,18 @@ haltagning_limtrabalk.panel_schema = {
             "default": 1.3,
             "visible_if": {"field": "anvand_direkta_snittkrafter", "equals": True},
         },
-        {"name": "f_v_g_d", "type": "float", "label": "Dimensionerande skjuvhållfasthet", "symbol": "<i>f</i><sub>v,g,d</sub>", "unit": "MPa", "default": 2.5},
-        {"name": "f_m_g_d", "type": "float", "label": "Dimensionerande böjhållfasthet", "symbol": "<i>f</i><sub>m,g,d</sub>", "unit": "MPa", "default": 16.2},
-        {"name": "f_t_90_d", "type": "float", "label": "Dimensionerande draghållfasthet vinkelrätt fibrer", "symbol": "<i>f</i><sub>t,90,d</sub>", "unit": "MPa", "default": 0.2},
+        {"name": "k_mod", "type": "float", "label": "Modifieringsfaktor", "symbol": "<i>k</i><sub>mod</sub>", "default": 0.8},
+        {"name": "gamma_m", "type": "float", "label": "Partialkoefficient trä", "symbol": "γ<sub>m</sub>", "default": 1.3},
+        {"name": "f_v_g_k", "type": "float", "label": "Karakteristisk skjuvhållfasthet", "symbol": "<i>f</i><sub>v,g,k</sub>", "unit": "MPa", "default": 4.0},
+        {"name": "f_m_g_k", "type": "float", "label": "Karakteristisk böjhållfasthet", "symbol": "<i>f</i><sub>m,g,k</sub>", "unit": "MPa", "default": 24.0},
+        {"name": "f_t_90_k", "type": "float", "label": "Karakteristisk draghållfasthet vinkelrätt fibrer", "symbol": "<i>f</i><sub>t,90,k</sub>", "unit": "MPa", "default": 0.4},
         {
-            "name": "F_ax_Rd",
+            "name": "F_ax_Rk",
             "type": "float",
-            "label": "Dimensionerande axiell bärförmåga per skruv",
-            "symbol": "<i>F</i><sub>ax,Rd</sub>",
+            "label": "Karakteristisk axiell bärförmåga per skruv",
+            "symbol": "<i>F</i><sub>ax,Rk</sub>",
             "unit": "kN",
-            "default": 4.2,
+            "default": 2.08,
         },
         {
             "name": "kontrollera_forstarkning",

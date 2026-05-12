@@ -28,10 +28,12 @@ EXEMPEL_PX = [
     2.0,
     4.0,
     1.3,
-    2.5,
-    16.2,
-    0.2,
-    4.2,
+    0.8,
+    1.3,
+    4.0,
+    24.0,
+    0.4,
+    2.08,
     True,
 ]
 
@@ -81,6 +83,8 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         )
         self.assertIn(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", ekvationstexter)
         self.assertIn(r"\mu_{t,90} = \frac{\sigma_{t,90}}{k_{t,90}f_{t,90,d}}", ekvationstexter)
+        self.assertIn(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", ekvationstexter)
+        self.assertIn(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", ekvationstexter)
 
     def test_beraknar_geometri_och_placeringskrav(self):
         details = haltagning_limtrabalk(EXEMPEL_PX)
@@ -115,7 +119,8 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "I_y_skjuv")["value"], 22931901.5625))
         self.assertEqual(_hamta_post(delresultat, "I_y_skjuv")["latex"], r"I_{y,V}")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "tau_d2")["value"], 0.7607937877))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_v")["value"], 0.3043175151))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "f_v_g_d")["value"], 2.4615384615))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_v")["value"], 0.3090724763))
 
     def test_beraknar_moment_interaktion_och_drag_vinkelratt_fibrer(self):
         details = haltagning_limtrabalk(EXEMPEL_PX)
@@ -126,14 +131,17 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertEqual(_hamta_post(delresultat, "I_y_moment")["latex"], r"I_{y,M}")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "I_kvot")["value"], 1.1666324281))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_m_d")["value"], 4.1734973499))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_m")["value"], 0.2576232932))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_vm")["value"], 0.5619408083))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_h")["value"], 1.1))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "f_m_g_d")["value"], 16.2461538462))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_m")["value"], 0.2568914088))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_vm")["value"], 0.5659638851))
 
         self.assertTrue(math.isclose(_hamta_post(delresultat, "h_r")["value"], 69.75))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "l_t_90")["value"], 150.25))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "F_t_90")["value"], 1.5628609769))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_t_90")["value"], 0.4622994201))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_t_90")["value"], 2.3114971003))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "f_t_90_d")["value"], 0.2461538462))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_t_90")["value"], 1.8780913940))
         self.assertEqual(_hamta_post(slutresultat, "drag_t_90_ok")["value"], "EJ OK")
 
     def test_beraknar_skruvforstarkning(self):
@@ -141,14 +149,15 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         delresultat = details["delresultat"]
         slutresultat = details["slutresultat"]
 
-        self.assertTrue(math.isclose(_hamta_post(details["indata"], "F_ax_Rd")["value"], 4.2))
+        self.assertTrue(math.isclose(_hamta_post(details["indata"], "F_ax_Rk")["value"], 2.08))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rd")["value"], 1.28))
         with self.assertRaises(AssertionError):
             _hamta_post(delresultat, "F_t_Rd")
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "U_skruv")["value"], 0.3721097564))
-        self.assertEqual(_hamta_post(slutresultat, "forstarkning_ok")["value"], "OK")
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "U_skruv")["value"], 1.2209851382))
+        self.assertEqual(_hamta_post(slutresultat, "forstarkning_ok")["value"], "EJ OK")
 
     def test_validerar_px_langd(self):
-        with self.assertRaisesRegex(ValueError, "kräver 17 värden"):
+        with self.assertRaisesRegex(ValueError, "kräver 19 värden"):
             haltagning_limtrabalk(EXEMPEL_PX[:-1])
 
     def test_direkta_snittkrafter_skippar_lastindata_och_q_d(self):
