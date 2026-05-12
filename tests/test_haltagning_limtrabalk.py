@@ -83,6 +83,7 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
             ekvationstexter,
         )
         self.assertIn(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", ekvationstexter)
+        self.assertIn(r"F_{t,90} = F_{t,90,V} + F_{t,90,M}", ekvationstexter)
         self.assertIn(r"\mu_{t,90} = \frac{\sigma_{t,90}}{k_{t,90}f_{t,90,d}}", ekvationstexter)
         self.assertIn(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", ekvationstexter)
         self.assertIn(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", ekvationstexter)

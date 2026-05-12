@@ -342,6 +342,7 @@ def haltagning_limtrabalk(px):
             _ekvation(r"k_{t,90} = \min(1, \sqrt{450/h})", "storleksfaktor"),
             _ekvation(r"F_{t,90,V} = \frac{V_dh_d}{4h}\left(3-\frac{h_d^2}{h^2}\right)", "dragkraft från tvärkraft"),
             _ekvation(r"F_{t,90,M} = 0.008\frac{M_d}{h_r}", "dragkraft från moment"),
+            _ekvation(r"F_{t,90} = F_{t,90,V} + F_{t,90,M}", "samlad dragkraft vinkelrätt fibrer"),
             _ekvation(r"\sigma_{t,90} = \frac{F_{t,90}}{0.5l_{t,90}b}", "dragspänning vinkelrätt fibrer"),
             _ekvation(r"\mu_{t,90} = \frac{\sigma_{t,90}}{k_{t,90}f_{t,90,d}}", "utnyttjande drag vinkelrätt fiberriktningen"),
             _ekvation(r"\mu_{skruv} = F_{t,90}/F_{ax,Rd}", "utnyttjande skruvförstärkning"),
