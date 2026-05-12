@@ -190,11 +190,11 @@ def haltagning_limtrabalk(px):
     f_t_90_eff = k_t_90 * f_t_90_d
     mu_t_90 = sigma_t_90 / f_t_90_eff
 
-    U_skruv = F_t_90 / F_ax_Rd
+    mu_skruv = F_t_90 / F_ax_Rd
 
     tvarsnitt_ok = mu_v <= 1.0 and mu_m <= 1.0 and mu_vm <= 1.0
     drag_t_90_ok = mu_t_90 <= 1.0
-    forstarkning_ok = U_skruv <= 1.0 if kontrollera_forstarkning else None
+    forstarkning_ok = mu_skruv <= 1.0 if kontrollera_forstarkning else None
 
     slutresultat_items = [
         _krav_min("krav_l_z", r"l_z \geq \max(300, 1.5h)", l_z, krav_l_z, "mm", "avstånd mellan hål eller fri zon"),
@@ -209,7 +209,7 @@ def haltagning_limtrabalk(px):
     ]
     if kontrollera_forstarkning:
         slutresultat_items.append(
-            _post("U_skruv", r"U_{skruv}", U_skruv, "", "utnyttjande skruvförstärkning")
+            _post("mu_skruv", r"\mu_{skruv}", mu_skruv, "", "utnyttjande skruvförstärkning")
         )
     slutresultat_items.extend(
         [
@@ -344,7 +344,7 @@ def haltagning_limtrabalk(px):
             _ekvation(r"F_{t,90,M} = 0.008\frac{M_d}{h_r}", "dragkraft från moment"),
             _ekvation(r"\sigma_{t,90} = \frac{F_{t,90}}{0.5l_{t,90}b}", "dragspänning vinkelrätt fibrer"),
             _ekvation(r"\mu_{t,90} = \frac{\sigma_{t,90}}{k_{t,90}f_{t,90,d}}", "utnyttjande drag vinkelrätt fiberriktningen"),
-            _ekvation(r"U_{skruv} = F_{t,90}/F_{ax,Rd}", "utnyttjande skruvförstärkning"),
+            _ekvation(r"\mu_{skruv} = F_{t,90}/F_{ax,Rd}", "utnyttjande skruvförstärkning"),
         ]
     )
 

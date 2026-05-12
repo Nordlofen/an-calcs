@@ -70,8 +70,9 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertNotIn(r"l_v \geq h", ekvationstexter)
         self.assertNotIn(r"h_{ro}, h_{ru} \geq 0.35h", ekvationstexter)
         self.assertNotIn(r"h_d \leq 0.15h", ekvationstexter)
-        self.assertIn(r"U_{skruv} = F_{t,90}/F_{ax,Rd}", ekvationstexter)
-        self.assertNotIn(r"U_{skruv} = F_{t,90}/F_{t,Rd}", ekvationstexter)
+        self.assertIn(r"\mu_{skruv} = F_{t,90}/F_{ax,Rd}", ekvationstexter)
+        self.assertNotIn(r"U_{skruv} = F_{t,90}/F_{ax,Rd}", ekvationstexter)
+        self.assertNotIn(r"\mu_{skruv} = F_{t,90}/F_{t,Rd}", ekvationstexter)
         self.assertIn(
             r"I_{y,V} = 2\left(\frac{b_{ef}h_{ro}^3}{12} + b_{ef}h_{ro}(0.5h_{ro}+d/2)^2\right)",
             ekvationstexter,
@@ -153,7 +154,7 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rd")["value"], 1.28))
         with self.assertRaises(AssertionError):
             _hamta_post(delresultat, "F_t_Rd")
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "U_skruv")["value"], 1.2209851382))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_skruv")["value"], 1.2209851382))
         self.assertEqual(_hamta_post(slutresultat, "forstarkning_ok")["value"], "EJ OK")
 
     def test_validerar_px_langd(self):
