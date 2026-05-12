@@ -82,13 +82,13 @@ def _tolka_px(px):
     for namn, value in values.items():
         if value <= 0 and namn not in {"E_g", "Q_k", "V_Ed", "M_Ed"}:
             raise ValueError(f"{namn} måste vara > 0.")
-    for namn in ("E_g", "Q_k", "V_Ed", "M_Ed"):
+    for namn in ("E_g", "Q_k", "M_Ed"):
         if values[namn] < 0:
             raise ValueError(f"{namn} måste vara >= 0.")
 
     anvand_direkta_snittkrafter = bool(anvand_direkta_snittkrafter)
-    if anvand_direkta_snittkrafter and (V_Ed <= 0 or M_Ed <= 0):
-        raise ValueError("V_Ed och M_Ed måste vara > 0 när direkta snittkrafter används.")
+    if anvand_direkta_snittkrafter and (V_Ed == 0 or M_Ed <= 0):
+        raise ValueError("V_Ed måste vara skilt från 0 och M_Ed måste vara > 0 när direkta snittkrafter används.")
     if not anvand_direkta_snittkrafter and (E_g <= 0 or Q_k <= 0):
         raise ValueError("E_g och Q_k måste vara > 0 när lasten beräknas från ytlaster.")
 
@@ -158,11 +158,11 @@ def haltagning_limtrabalk(px):
 
     if anvand_direkta_snittkrafter:
         q_d = None
-        V_d = V_Ed
+        V_d = abs(V_Ed)
         M_d = M_Ed
     else:
         q_d = (s / 1000.0) * (1.2 * E_g + 1.5 * Q_k)
-        V_d = q_d * (L / 1000.0 / 2.0 - x / 1000.0)
+        V_d = abs(q_d * (L / 1000.0 / 2.0 - x / 1000.0))
         M_d = q_d * (L / 1000.0 / 2.0 * x / 1000.0 - (x / 1000.0) ** 2 / 2.0)
 
     b_ef = 0.67 * b
@@ -309,7 +309,7 @@ def haltagning_limtrabalk(px):
     if anvand_direkta_snittkrafter:
         ekvationer_items.extend(
             [
-                _ekvation(r"V_d = V_{Ed}", "direkt inmatad tvärkraft"),
+                _ekvation(r"V_d = |V_{Ed}|", "direkt inmatad tvärkraft"),
                 _ekvation(r"M_d = M_{Ed}", "direkt inmatat moment"),
             ]
         )
@@ -317,7 +317,7 @@ def haltagning_limtrabalk(px):
         ekvationer_items.extend(
             [
                 _ekvation(r"q_d = s(1.2E_g + 1.5Q_k)", "dimensionerande linjelast"),
-                _ekvation(r"V_d = q_d(L/2 - x)", "tvärkraft vid hål"),
+                _ekvation(r"V_d = |q_d(L/2 - x)|", "tvärkraft vid hål"),
                 _ekvation(r"M_d = q_d(Lx/2 - x^2/2)", "moment vid hål"),
             ]
         )

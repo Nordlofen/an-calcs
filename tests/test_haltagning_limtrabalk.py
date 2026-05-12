@@ -84,6 +84,8 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         )
         self.assertIn(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", ekvationstexter)
         self.assertIn(r"F_{t,90} = F_{t,90,V} + F_{t,90,M}", ekvationstexter)
+        self.assertIn(r"V_d = |q_d(L/2 - x)|", ekvationstexter)
+        self.assertNotIn(r"V_d = q_d(L/2 - x)", ekvationstexter)
         self.assertIn(r"\mu_{t,90} = \frac{\sigma_{t,90}}{k_{t,90}f_{t,90,d}}", ekvationstexter)
         self.assertIn(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", ekvationstexter)
         self.assertIn(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", ekvationstexter)
@@ -179,6 +181,30 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
             _hamta_post(details["delresultat"], "q_d")
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 5.0))
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "M_d")["value"], 2.0))
+
+    def test_tvarkraft_anvander_absolutbelopp(self):
+        px = list(EXEMPEL_PX)
+        px[4] = 3700.0
+
+        details = haltagning_limtrabalk(px)
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 4.2084))
+        self.assertGreater(_hamta_post(details["delresultat"], "tau_d2")["value"], 0)
+        self.assertGreater(_hamta_post(details["delresultat"], "F_t_90_V")["value"], 0)
+        self.assertGreater(_hamta_post(details["slutresultat"], "mu_v")["value"], 0)
+
+    def test_direkt_tvarkraft_far_anges_negativt(self):
+        px = list(EXEMPEL_PX)
+        px[7] = True
+        px[10] = -5.0
+        px[11] = 2.0
+
+        details = haltagning_limtrabalk(px)
+        ekvationstexter = {item["latex"] for item in details["ekvationer"]["items"]}
+
+        self.assertTrue(math.isclose(_hamta_post(details["indata"], "V_Ed")["value"], -5.0))
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 5.0))
+        self.assertIn(r"V_d = |V_{Ed}|", ekvationstexter)
 
 
 if __name__ == "__main__":
