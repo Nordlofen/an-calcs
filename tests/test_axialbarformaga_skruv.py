@@ -135,6 +135,21 @@ class TestAxialdragTraskruv(unittest.TestCase):
 
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_t_Ed")["value"], expected))
 
+    def test_v_ed_none_eller_noll_skippar_f_t_ed(self):
+        for V_Ed_kN in (None, 0.0):
+            details = axialdrag_traskruv(_px(V_Ed_kN=V_Ed_kN, alpha_ax=0.0, andtra=False))
+            delresultat_namn = {item["namn"] for item in details["delresultat"]["items"]}
+            slutresultat_namn = {item["namn"] for item in details["slutresultat"]["items"]}
+            ekvationer = [item["latex"] for item in details["ekvationer"]["items"]]
+
+            self.assertNotIn("F_t_Ed", delresultat_namn)
+            self.assertNotIn("F_t_Ed", slutresultat_namn)
+            self.assertFalse(any("F_{t,Ed}" in ekvation for ekvation in ekvationer))
+
+    def test_negativt_v_ed_ger_fel(self):
+        with self.assertRaisesRegex(ValueError, "V_Ed_kN måste vara >= 0"):
+            axialdrag_traskruv(_px(V_Ed_kN=-1.0))
+
     def test_f_ax_rk_begransas_av_minsta_av_delar_och_skruvdragbrott(self):
         details = axialdrag_traskruv(_px(f_tens_k=1000.0))
         delresultat = details["delresultat"]
@@ -186,6 +201,41 @@ class TestAxialdragTraskruv(unittest.TestCase):
     def test_helgangad_behover_inte_lg(self):
         details = axialdrag_traskruv(_px(gangtyp="helgangad", Lg=None))
         self.assertIn("l_ef_1", {item["namn"] for item in details["delresultat"]["items"]})
+
+    def test_panel_schema_har_ratt_px_ordning_och_default_kan_beraknas(self):
+        schema = axialdrag_traskruv.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        px = [values[name] for name in schema["px"]]
+
+        self.assertEqual(
+            schema["px"],
+            [
+                "gangtyp",
+                "anslutningstyp",
+                "andtra",
+                "V_Ed_kN",
+                "d",
+                "d_h",
+                "L",
+                "Lg",
+                "rho_k_1",
+                "rho_k_2",
+                "t_1",
+                "t_2",
+                "f_ax_k",
+                "f_head_k",
+                "f_tens_k",
+                "alpha_ax",
+                "rho_a",
+            ],
+        )
+        details = axialdrag_traskruv(px)
+        self.assertIn("F_ax_Rk", {item["namn"] for item in details["slutresultat"]["items"]})
+
+    def test_panel_schema_visar_lg_for_relevanta_gangtyper(self):
+        lg_field = next(field for field in axialdrag_traskruv.panel_schema["fields"] if field["name"] == "Lg")
+
+        self.assertEqual(lg_field["visible_if"], {"field": "gangtyp", "in": ["slat-hals", "dubbelgangad"]})
 
 
 if __name__ == "__main__":

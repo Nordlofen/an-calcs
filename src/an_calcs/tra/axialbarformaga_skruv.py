@@ -12,7 +12,6 @@ def _post(namn, latex, value, unit="", etikett=""):
         "etikett": etikett,
     }
 
-
 def _ekvation(latex, etikett):
     """Skapar en standardiserad ekvationspost."""
     return {"latex": latex, "etikett": etikett}
@@ -29,7 +28,7 @@ class AxialDragTraskruvInput:
     gangtyp: str
     anslutningstyp: str
     andtra: bool
-    V_Ed_kN: float
+    V_Ed_kN: float | None
     d: float
     d_h: float
     L: float
@@ -105,7 +104,7 @@ def _hamta_px(px):
         gangtyp=_normalize_text(gangtyp),
         anslutningstyp=_normalize_text(anslutningstyp),
         andtra=_bool(andtra, "andtra"),
-        V_Ed_kN=float(V_Ed_kN),
+        V_Ed_kN=_optional_float(V_Ed_kN),
         d=float(d),
         d_h=float(d_h),
         L=float(L),
@@ -132,7 +131,6 @@ def _hamta_px(px):
         )
 
     for namn in (
-        "V_Ed_kN",
         "d",
         "d_h",
         "L",
@@ -143,16 +141,19 @@ def _hamta_px(px):
         "f_ax_k",
         "f_head_k",
         "f_tens_k",
-        "alpha_ax",
         "rho_a",
     ):
         _krav_storre_an_noll(namn, getattr(data, namn))
+    if data.alpha_ax < 0:
+        raise ValueError("alpha_ax måste vara >= 0.")
+    if data.V_Ed_kN is not None and data.V_Ed_kN < 0:
+        raise ValueError("V_Ed_kN måste vara >= 0 om det anges.")
     if data.gangtyp in {"slat-hals", "dubbelgangad"}:
         if data.Lg is None:
             raise ValueError("Lg måste anges för slat-hals och dubbelgangad.")
         _krav_storre_an_noll("Lg", data.Lg)
-    elif data.Lg is not None and data.Lg <= 0:
-        raise ValueError("Lg måste vara > 0 om det anges.")
+    elif data.Lg is not None and data.Lg < 0:
+        raise ValueError("Lg måste vara >= 0 om det anges för helgangad.")
 
     if data.andtra:
         if data.alpha_ax < 30 or data.alpha_ax > 45:
@@ -208,7 +209,9 @@ def _berakna(data):
     alpha_1, alpha_2 = _vinklar(data)
     l_ef_1, l_ef_2, l_ef_2_bas, l_ef_1_geometri, l_ef_2_geometri = _effektiva_langder(data)
 
-    f_t_ed = data.V_Ed_kN * 1000.0 / _sin_deg(data.alpha_ax)
+    f_t_ed = None
+    if data.V_Ed_kN is not None and data.V_Ed_kN > 0:
+        f_t_ed = data.V_Ed_kN * 1000.0 / _sin_deg(data.alpha_ax)
     f_ax_w_1 = None
     if data.gangtyp in {"helgangad", "dubbelgangad"}:
         f_ax_w_1 = _withdrawal_capacity(data.f_ax_k, data.d, l_ef_1, alpha_1, data.rho_k_1, data.rho_a)
@@ -262,7 +265,9 @@ def axialdrag_traskruv(px):
     Funktionen avser endast träskruvar belastade i axiellt drag enligt EC5 8.7.
     Tryckbelastade skruvar omfattas inte. Funktionen redovisar även skruvens
     dragkraft ``F_t,Ed`` från användarens dimensionerande upplagsreaktion
-    ``V_Ed``, men gör ingen dimensionerande verifiering mot ``F_ax,Rd``.
+    ``V_Ed`` när ``V_Ed`` anges, men gör ingen dimensionerande verifiering mot
+    ``F_ax,Rd``. Om du bara vill beräkna karakteristisk bärförmåga kan
+    ``V_Ed`` anges som ``None`` eller ``0``; då redovisas inte ``F_t,Ed``.
 
     Delkonventionen är fast:
 
@@ -276,7 +281,7 @@ def axialdrag_traskruv(px):
         gangtyp,        # "slat-hals", "helgangad" eller "dubbelgangad"
         anslutningstyp, # endast "tra-tra" stöds i nuläget
         andtra,         # bool; True innebär ändträ i del 2 och sidoträ i del 1
-        V_Ed_kN,        # dimensionerande upplagsreaktion [kN]
+        V_Ed_kN,        # dimensionerande upplagsreaktion [kN], None/0 om bara kapacitet önskas
         d,              # ytterdiameter [mm]
         d_h,            # huvuddiameter [mm]
         L,              # skruvlängd längs skruvaxel [mm]
@@ -317,7 +322,7 @@ def axialdrag_traskruv(px):
         _post("andtra", r"\mathrm{andtra}", data.andtra, "-", "True innebär ändträ i del 2 och sidoträ i del 1"),
         _post("del_1", r"\mathrm{del\ 1}", "virkesdel invid skruvhuvudet", "-", "fast delkonvention"),
         _post("del_2", r"\mathrm{del\ 2}", "spetsmottagande virkesdel", "-", "fast delkonvention"),
-        _post("V_Ed", r"V_{Ed}", data.V_Ed_kN, "kN", "dimensionerande upplagsreaktion"),
+        _post("V_Ed", r"V_{Ed}", data.V_Ed_kN, "kN", "dimensionerande upplagsreaktion, valfri"),
         _post("d", "d", data.d, "mm", "skruvens ytterdiameter"),
         _post("d_h", r"d_h", data.d_h, "mm", "huvuddiameter"),
         _post("L", "L", data.L, "mm", "skruvlängd längs skruvaxel"),
@@ -331,14 +336,15 @@ def axialdrag_traskruv(px):
         _post("alpha_ax", r"\alpha_{ax}", data.alpha_ax, "deg", "installationsvinkel"),
         _post("rho_a", r"\rho_a", data.rho_a, "kg/m^3", "referensdensitet"),
     ]
-    if data.Lg is not None:
+    if data.gangtyp in {"slat-hals", "dubbelgangad"}:
         indata_items.insert(9, _post("Lg", r"L_g", data.Lg, "mm", "gängad längd, används för slät hals och dubbelgängad skruv"))
 
     delresultat_items = [
         _post("alpha_1", r"\alpha_1", axial["alpha_1"], "deg", "vinkel mellan skruvaxel och fiber i del 1"),
         _post("alpha_2", r"\alpha_2", axial["alpha_2"], "deg", "vinkel mellan skruvaxel och fiber i del 2"),
-        _post("F_t_Ed", r"F_{t,Ed}", axial["F_t_Ed"], "N", "dragkraft från V_Ed; ingen verifiering görs"),
     ]
+    if axial["F_t_Ed"] is not None:
+        delresultat_items.append(_post("F_t_Ed", r"F_{t,Ed}", axial["F_t_Ed"], "N", "dragkraft från V_Ed; ingen verifiering görs"))
     if axial["l_ef_1"] is not None:
         delresultat_items.append(_post("l_ef_1", r"l_{ef,1}", axial["l_ef_1"], "mm", "effektiv gänglängd i del 1"))
         delresultat_items.append(_post("F_ax_w_1", r"F_{ax,w,1}", axial["F_ax_w_1"], "N", "utdragsbärförmåga i del 1"))
@@ -360,9 +366,9 @@ def axialdrag_traskruv(px):
         ]
     )
 
-    ekvationer = [
-        _ekvation(r"F_{t,Ed} = V_{Ed} / \sin(\alpha_{ax})", "dragkraft i skruv från upplagsreaktion"),
-    ]
+    ekvationer = []
+    if axial["F_t_Ed"] is not None:
+        ekvationer.append(_ekvation(r"F_{t,Ed} = V_{Ed} / \sin(\alpha_{ax})", "dragkraft i skruv från upplagsreaktion"))
     if data.gangtyp == "helgangad":
         ekvationer.append(_ekvation(r"l_{ef,1} = \frac{t_1}{\cos(\alpha_{ax})} - 10 - \frac{10}{2}", "effektiv gänglängd i del 1"))
     elif data.gangtyp == "dubbelgangad":
@@ -428,9 +434,154 @@ def axialdrag_traskruv(px):
             "title": "Slutresultat",
             "items": [
                 _post("F_ax_Rk", r"F_{ax,Rk}", axial["F_ax_Rk"], "N", "karakteristisk axial dragbärförmåga"),
-                _post("F_t_Ed", r"F_{t,Ed}", axial["F_t_Ed"], "N", "dragkraft från V_Ed; ingen verifiering görs"),
                 _post("brottmod_styrande", r"\mathrm{mode}", axial["brottmod_styrande"], "-", "styrande brottmod"),
-            ],
+            ]
+            + (
+                [_post("F_t_Ed", r"F_{t,Ed}", axial["F_t_Ed"], "N", "dragkraft från V_Ed; ingen verifiering görs")]
+                if axial["F_t_Ed"] is not None
+                else []
+            ),
         },
         "ekvationer": {"title": "Ekvationer", "items": ekvationer},
     }
+
+
+axialdrag_traskruv.panel_schema = {
+    "title": "Axialdrag träskruv",
+    "px": [
+        "gangtyp",
+        "anslutningstyp",
+        "andtra",
+        "V_Ed_kN",
+        "d",
+        "d_h",
+        "L",
+        "Lg",
+        "rho_k_1",
+        "rho_k_2",
+        "t_1",
+        "t_2",
+        "f_ax_k",
+        "f_head_k",
+        "f_tens_k",
+        "alpha_ax",
+        "rho_a",
+    ],
+    "fields": [
+        {
+            "name": "gangtyp",
+            "type": "choice",
+            "label": "Gängutförande",
+            "symbol": "gängtyp",
+            "default": "helgangad",
+            "options": [
+                {"label": "Helgängad", "value": "helgangad"},
+                {"label": "Slät hals", "value": "slat-hals"},
+                {"label": "Dubbelgängad", "value": "dubbelgangad"},
+            ],
+        },
+        {
+            "name": "anslutningstyp",
+            "type": "choice",
+            "label": "Anslutningstyp",
+            "symbol": "anslutning",
+            "default": "tra-tra",
+            "options": [
+                {"label": "Trä-trä", "value": "tra-tra"},
+                {"label": "Stål-trä (framtida)", "value": "stal-tra"},
+                {"label": "Skiva-trä (framtida)", "value": "skiva-tra"},
+            ],
+        },
+        {
+            "name": "andtra",
+            "type": "bool",
+            "label": "Ändträ i del 2",
+            "symbol": "ändträ",
+            "default": True,
+        },
+        {
+            "name": "V_Ed_kN",
+            "type": "float",
+            "label": "Dimensionerande upplagsreaktion",
+            "symbol": "<i>V</i><sub>Ed</sub>",
+            "unit": "kN",
+            "default": 0.0,
+        },
+        {"name": "d", "type": "float", "label": "Skruvdiameter", "symbol": "<i>d</i>", "unit": "mm", "default": 7.0},
+        {"name": "d_h", "type": "float", "label": "Huvuddiameter", "symbol": "<i>d</i><sub>h</sub>", "unit": "mm", "default": 9.5},
+        {"name": "L", "type": "float", "label": "Skruvlängd", "symbol": "<i>L</i>", "unit": "mm", "default": 220.0},
+        {
+            "name": "Lg",
+            "type": "float",
+            "label": "Gängad längd",
+            "symbol": "<i>L</i><sub>g</sub>",
+            "unit": "mm",
+            "default": 120.0,
+            "visible_if": {"field": "gangtyp", "in": ["slat-hals", "dubbelgangad"]},
+        },
+        {
+            "name": "rho_k_1",
+            "type": "float",
+            "label": "Densitet del 1",
+            "symbol": "ρ<sub>k,1</sub>",
+            "unit": "kg/m³",
+            "default": 350.0,
+        },
+        {
+            "name": "rho_k_2",
+            "type": "float",
+            "label": "Densitet del 2",
+            "symbol": "ρ<sub>k,2</sub>",
+            "unit": "kg/m³",
+            "default": 350.0,
+        },
+        {"name": "t_1", "type": "float", "label": "Tjocklek del 1", "symbol": "<i>t</i><sub>1</sub>", "unit": "mm", "default": 90.0},
+        {"name": "t_2", "type": "float", "label": "Tjocklek del 2", "symbol": "<i>t</i><sub>2</sub>", "unit": "mm", "default": 45.0},
+        {
+            "name": "f_ax_k",
+            "type": "float",
+            "label": "Utdragshållfasthet",
+            "symbol": "<i>f</i><sub>ax,k</sub>",
+            "unit": "N/mm²",
+            "default": 11.7,
+        },
+        {
+            "name": "f_head_k",
+            "type": "float",
+            "label": "Huvudgenomdragningshållfasthet",
+            "symbol": "<i>f</i><sub>head,k</sub>",
+            "unit": "N/mm²",
+            "default": 14.0,
+        },
+        {
+            "name": "f_tens_k",
+            "type": "float",
+            "label": "Dragbärförmåga i skruv",
+            "symbol": "<i>F</i><sub>t,Rk</sub>",
+            "unit": "N",
+            "default": 15400.0,
+        },
+        {
+            "name": "alpha_ax",
+            "type": "float",
+            "label": "Installationsvinkel",
+            "symbol": "α<sub>ax</sub>",
+            "unit": "deg",
+            "default": 35.0,
+        },
+        {
+            "name": "rho_a",
+            "type": "float",
+            "label": "Referensdensitet",
+            "symbol": "ρ<sub>a</sub>",
+            "unit": "kg/m³",
+            "default": 350.0,
+        },
+    ],
+    "blocks": {
+        "ID": {"visa": True, "etikett": True, "rader": 10},
+        "DR": {"visa": True, "etikett": True, "rader": 10},
+        "SR": {"visa": True, "etikett": True, "rader": 4},
+        "EKV": {"visa": True, "etikett": True, "rader": 20},
+    },
+}
