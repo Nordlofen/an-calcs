@@ -153,6 +153,7 @@ def haltagning_limtrabalk(px):
     f_m_g_d = k_h * k_mod * f_m_g_k / gamma_m
     f_v_g_d = k_mod * f_v_g_k / gamma_m
     F_ax_Rd = k_mod * F_ax_Rk / gamma_m
+    k_cr = min(3.0 / f_v_g_k, 1.0)
 
     if anvand_direkta_snittkrafter:
         q_d = None
@@ -163,7 +164,7 @@ def haltagning_limtrabalk(px):
         V_d = abs(q_d * (L / 1000.0 / 2.0 - x / 1000.0))
         M_d = q_d * (L / 1000.0 / 2.0 * x / 1000.0 - (x / 1000.0) ** 2 / 2.0)
 
-    b_ef = 0.67 * b
+    b_ef = k_cr * b
     A_red = b_ef * (h - h_d)
     tau_d = 1.5 * V_d * 1000.0 / A_red
     mu_v = tau_d / f_v_g_d
@@ -269,6 +270,7 @@ def haltagning_limtrabalk(px):
         _post("f_m_g_d", r"f_{m,g,d}", f_m_g_d, "MPa", "dimensionerande böjhållfasthet"),
         _post("f_t_90_d", r"f_{t,90,d}", f_t_90_d, "MPa", "dimensionerande draghållfasthet vinkelrätt fibrer"),
         _post("F_ax_Rd", r"F_{ax,Rd}", F_ax_Rd, "kN", "dimensionerande axiell bärförmåga per skruv"),
+        _post("k_cr", r"k_{cr}", k_cr, "", "sprickfaktor"),
     ]
     if q_d is not None:
         delresultat_items.append(_post("q_d", "q_d", q_d, "kN/m", "dimensionerande linjelast"))
@@ -276,7 +278,7 @@ def haltagning_limtrabalk(px):
         [
             _post("V_d", "V_d", V_d, "kN", "dimensionerande tvärkraft vid hål"),
             _post("M_d", "M_d", M_d, "kNm", "dimensionerande moment vid hål"),
-            _post("b_ef", "b_{ef}", b_ef, "mm", "effektiv bredd för skjuvkontroll"),
+            _post("b_ef", "b_{ef}", b_ef, "mm", "effektiv bredd med sprickfaktor"),
             _post("A_red", r"A_{red}", A_red, "mm^2", "reducerad tvärsnittsarea"),
             _post("tau_d", r"\tau_d", tau_d, "MPa", "skjuvspänning i reducerat tvärsnitt"),
             _post("I_y", r"I_y", I_y, "mm^4", "tröghetsmoment reducerat tvärsnitt"),
@@ -322,7 +324,8 @@ def haltagning_limtrabalk(px):
             _ekvation(r"f_{m,g,d} = k_h\frac{k_{mod} f_{m,g,k}}{\gamma_m}", "dimensionerande böjhållfasthet"),
             _ekvation(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", "dimensionerande skjuvhållfasthet"),
             _ekvation(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", "dimensionerande axiell skruvbärförmåga"),
-            _ekvation(r"b_{ef} = 0.67b", "effektiv bredd"),
+            _ekvation(r"k_{cr} = \min(3.0/f_{v,g,k}, 1.0)", "sprickfaktor"),
+            _ekvation(r"b_{ef} = k_{cr}b", "effektiv bredd med sprickfaktor"),
             _ekvation(r"A_{red} = b_{ef}h - h_d b_{ef}", "reducerad tvärsnittsarea"),
             _ekvation(r"\tau_d = 1.5\frac{V_d}{A_{red}}", "skjuvspänning i reducerat tvärsnitt"),
             _ekvation(r"\mu_v = \frac{\tau_d}{f_{v,g,d}}", "utnyttjande skjuvning"),
