@@ -222,6 +222,46 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 5.0))
         self.assertIn(r"V_d = |V_{Ed}|", ekvationstexter)
 
+    def test_direkta_snittkrafter_tillater_noll_i_en_snittkraft(self):
+        px = list(EXEMPEL_PX)
+        px[7] = True
+        px[10] = 0.0
+        px[11] = 2.0
+
+        details = haltagning_limtrabalk(px)
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "tau_d")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_v")["value"], 0.0))
+
+        px[10] = 5.0
+        px[11] = 0.0
+
+        details = haltagning_limtrabalk(px)
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 5.0))
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "M_d")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_m")["value"], 0.0))
+
+    def test_direkta_snittkrafter_tillater_noll_i_bada_snittkrafter(self):
+        px = list(EXEMPEL_PX)
+        px[7] = True
+        px[10] = 0.0
+        px[11] = 0.0
+
+        details = haltagning_limtrabalk(px)
+
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "M_d")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_v")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_m")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_vm")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_t_90")["value"], 0.0))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "mu_skruv")["value"], 0.0))
+        self.assertEqual(_hamta_post(details["slutresultat"], "tvarsnitt_ok")["value"], "OK")
+        self.assertEqual(_hamta_post(details["slutresultat"], "drag_t_90_ok")["value"], "OK")
+        self.assertEqual(_hamta_post(details["slutresultat"], "forstarkning_ok")["value"], "OK")
+
 
 if __name__ == "__main__":
     unittest.main()

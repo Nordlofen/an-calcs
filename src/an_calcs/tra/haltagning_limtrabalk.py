@@ -87,8 +87,6 @@ def _tolka_px(px):
             raise ValueError(f"{namn} måste vara >= 0.")
 
     anvand_direkta_snittkrafter = bool(anvand_direkta_snittkrafter)
-    if anvand_direkta_snittkrafter and (V_Ed == 0 or M_Ed <= 0):
-        raise ValueError("V_Ed måste vara skilt från 0 och M_Ed måste vara > 0 när direkta snittkrafter används.")
     if not anvand_direkta_snittkrafter and (E_g <= 0 or Q_k <= 0):
         raise ValueError("E_g och Q_k måste vara > 0 när lasten beräknas från ytlaster.")
 
