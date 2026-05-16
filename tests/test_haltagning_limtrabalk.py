@@ -73,16 +73,25 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertIn(r"\mu_{skruv} = F_{t,90}/F_{ax,Rd}", ekvationstexter)
         self.assertNotIn(r"U_{skruv} = F_{t,90}/F_{ax,Rd}", ekvationstexter)
         self.assertNotIn(r"\mu_{skruv} = F_{t,90}/F_{t,Rd}", ekvationstexter)
-        self.assertIn(
+        self.assertNotIn(r"S_y = b_{ef} h_{ro}(0.5h_{ro} + d/2)", ekvationstexter)
+        self.assertNotIn(
             r"I_{y,V} = 2\left(\frac{b_{ef}h_{ro}^3}{12} + b_{ef}h_{ro}(0.5h_{ro}+d/2)^2\right)",
             ekvationstexter,
         )
-        self.assertIn(r"\tau_{d2} = \frac{V_d S_y}{I_{y,V} b_{ef}}", ekvationstexter)
-        self.assertIn(
+        self.assertNotIn(r"\tau_{d2} = \frac{V_d S_y}{I_{y,V} b_{ef}}", ekvationstexter)
+        self.assertNotIn(
             r"I_{y,M} = 2\left(\frac{b h_{ro}^3}{12} + b h_{ro}(0.5h_{ro}+d/2)^2\right)",
             ekvationstexter,
         )
-        self.assertIn(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", ekvationstexter)
+        self.assertNotIn(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", ekvationstexter)
+        self.assertIn(r"A_{red} = b_{ef}h - h_d b_{ef}", ekvationstexter)
+        self.assertIn(r"\tau_d = 1.5\frac{V_d}{A_{red}}", ekvationstexter)
+        self.assertIn(r"\mu_v = \frac{\tau_d}{f_{v,g,d}}", ekvationstexter)
+        self.assertIn(
+            r"I_y = 2\left(\frac{b h_{ro}^3}{12} + b h_{ro}(0.5h_{ro}+d/2)^2\right)",
+            ekvationstexter,
+        )
+        self.assertIn(r"\sigma_{m,d} = \frac{M_d}{I_y}\frac{h}{2}", ekvationstexter)
         self.assertIn(r"F_{t,90} = F_{t,90,V} + F_{t,90,M}", ekvationstexter)
         self.assertIn(r"V_d = |q_d(L/2 - x)|", ekvationstexter)
         self.assertNotIn(r"V_d = q_d(L/2 - x)", ekvationstexter)
@@ -119,26 +128,33 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "V_d")["value"], 3.96792))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "M_d")["value"], 1.298592))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "b_ef")["value"], 30.15))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "S_y")["value"], 132565.78125))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "I_y_skjuv")["value"], 22931901.5625))
-        self.assertEqual(_hamta_post(delresultat, "I_y_skjuv")["latex"], r"I_{y,V}")
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "tau_d2")["value"], 0.7607937877))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "A_red")["value"], 3165.75))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "tau_d")["value"], 1.8800852878))
+        with self.assertRaises(AssertionError):
+            _hamta_post(delresultat, "S_y")
+        with self.assertRaises(AssertionError):
+            _hamta_post(delresultat, "I_y_skjuv")
+        with self.assertRaises(AssertionError):
+            _hamta_post(delresultat, "tau_d2")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "f_v_g_d")["value"], 2.4615384615))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_v")["value"], 0.3090724763))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_v")["value"], 0.7637846482))
 
     def test_beraknar_moment_interaktion_och_drag_vinkelratt_fibrer(self):
         details = haltagning_limtrabalk(EXEMPEL_PX)
         delresultat = details["delresultat"]
         slutresultat = details["slutresultat"]
 
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "I_y_moment")["value"], 34226718.75))
-        self.assertEqual(_hamta_post(delresultat, "I_y_moment")["latex"], r"I_{y,M}")
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "I_y")["value"], 34226718.75))
+        self.assertEqual(_hamta_post(delresultat, "I_y")["latex"], r"I_y")
+        self.assertEqual(_hamta_post(delresultat, "I_kvot")["latex"], r"I/I_y")
+        with self.assertRaises(AssertionError):
+            _hamta_post(delresultat, "I_y_moment")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "I_kvot")["value"], 1.1666324281))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_m_d")["value"], 4.1734973499))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "k_h")["value"], 1.1))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "f_m_g_d")["value"], 16.2461538462))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_m")["value"], 0.2568914088))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_vm")["value"], 0.5659638851))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "mu_vm")["value"], 1.0206760570))
 
         self.assertTrue(math.isclose(_hamta_post(delresultat, "h_r")["value"], 69.75))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "l_t_90")["value"], 150.25))
@@ -189,7 +205,7 @@ class TestHaltagningLimtrabalk(unittest.TestCase):
         details = haltagning_limtrabalk(px)
 
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "V_d")["value"], 4.2084))
-        self.assertGreater(_hamta_post(details["delresultat"], "tau_d2")["value"], 0)
+        self.assertGreater(_hamta_post(details["delresultat"], "tau_d")["value"], 0)
         self.assertGreater(_hamta_post(details["delresultat"], "F_t_90_V")["value"], 0)
         self.assertGreater(_hamta_post(details["slutresultat"], "mu_v")["value"], 0)
 

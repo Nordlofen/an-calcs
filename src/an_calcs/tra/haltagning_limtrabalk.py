@@ -166,17 +166,14 @@ def haltagning_limtrabalk(px):
         M_d = q_d * (L / 1000.0 / 2.0 * x / 1000.0 - (x / 1000.0) ** 2 / 2.0)
 
     b_ef = 0.67 * b
-    S_y = b_ef * h_ro * (0.5 * h_ro + d / 2.0)
-    I_y_skjuv = 2.0 * (
-        b_ef * h_ro**3 / 12.0 + b_ef * h_ro * (0.5 * h_ro + d / 2.0) ** 2
-    )
-    tau_d2 = V_d * 1000.0 * S_y / (I_y_skjuv * b_ef)
-    mu_v = tau_d2 / f_v_g_d
+    A_red = b_ef * (h - h_d)
+    tau_d = 1.5 * V_d * 1000.0 / A_red
+    mu_v = tau_d / f_v_g_d
 
-    I_y_moment = 2.0 * (b * h_ro**3 / 12.0 + b * h_ro * (0.5 * h_ro + d / 2.0) ** 2)
+    I_y = 2.0 * (b * h_ro**3 / 12.0 + b * h_ro * (0.5 * h_ro + d / 2.0) ** 2)
     I_brutto = b * h**3 / 12.0
-    I_kvot = I_brutto / I_y_moment
-    sigma_m_d = M_d * 1000000.0 / I_y_moment * h / 2.0
+    I_kvot = I_brutto / I_y
+    sigma_m_d = M_d * 1000000.0 / I_y * h / 2.0
     mu_m = sigma_m_d / f_m_g_d
     mu_vm = mu_v + mu_m
 
@@ -282,12 +279,11 @@ def haltagning_limtrabalk(px):
             _post("V_d", "V_d", V_d, "kN", "dimensionerande tvärkraft vid hål"),
             _post("M_d", "M_d", M_d, "kNm", "dimensionerande moment vid hål"),
             _post("b_ef", "b_{ef}", b_ef, "mm", "effektiv bredd för skjuvkontroll"),
-            _post("S_y", "S_y", S_y, "mm^3", "statiskt moment för skjuvkontroll"),
-            _post("I_y_skjuv", r"I_{y,V}", I_y_skjuv, "mm^4", "tröghetsmoment för skjuvkontroll"),
-            _post("tau_d2", r"\tau_{d2}", tau_d2, "MPa", "skjuvspänning"),
-            _post("I_y_moment", r"I_{y,M}", I_y_moment, "mm^4", "tröghetsmoment för momentkontroll"),
+            _post("A_red", r"A_{red}", A_red, "mm^2", "reducerad tvärsnittsarea"),
+            _post("tau_d", r"\tau_d", tau_d, "MPa", "skjuvspänning i reducerat tvärsnitt"),
+            _post("I_y", r"I_y", I_y, "mm^4", "tröghetsmoment reducerat tvärsnitt"),
             _post("I_brutto", "I", I_brutto, "mm^4", "bruttotröghetsmoment"),
-            _post("I_kvot", r"I/I_{y,M}", I_kvot, "", "förhållande brutto/reducerat tröghetsmoment för momentkontroll"),
+            _post("I_kvot", r"I/I_y", I_kvot, "", "förhållande brutto/reducerat tröghetsmoment"),
             _post("sigma_m_d", r"\sigma_{m,d}", sigma_m_d, "MPa", "böjspänning"),
             _post("h_r", "h_r", h_r, "mm", "effektiv kantzon för drag vinkelrätt fibrer"),
             _post("l_t_90", r"l_{t,90}", l_t_90, "mm", "effektiv längd för drag vinkelrätt fibrer"),
@@ -329,12 +325,11 @@ def haltagning_limtrabalk(px):
             _ekvation(r"f_{v,g,d} = \frac{k_{mod} f_{v,g,k}}{\gamma_m}", "dimensionerande skjuvhållfasthet"),
             _ekvation(r"F_{ax,Rd} = \frac{k_{mod}}{\gamma_m}F_{ax,Rk}", "dimensionerande axiell skruvbärförmåga"),
             _ekvation(r"b_{ef} = 0.67b", "effektiv bredd"),
-            _ekvation(r"S_y = b_{ef} h_{ro}(0.5h_{ro} + d/2)", "statiskt moment för skjuvkontroll"),
-            _ekvation(r"I_{y,V} = 2\left(\frac{b_{ef}h_{ro}^3}{12} + b_{ef}h_{ro}(0.5h_{ro}+d/2)^2\right)", "tröghetsmoment för skjuvkontroll"),
-            _ekvation(r"\tau_{d2} = \frac{V_d S_y}{I_{y,V} b_{ef}}", "skjuvspänning"),
-            _ekvation(r"\mu_v = \frac{\tau_{d2}}{f_{v,g,d}}", "utnyttjande skjuvning"),
-            _ekvation(r"I_{y,M} = 2\left(\frac{b h_{ro}^3}{12} + b h_{ro}(0.5h_{ro}+d/2)^2\right)", "tröghetsmoment för momentkontroll"),
-            _ekvation(r"\sigma_{m,d} = \frac{M_d}{I_{y,M}}\frac{h}{2}", "böjspänning"),
+            _ekvation(r"A_{red} = b_{ef}h - h_d b_{ef}", "reducerad tvärsnittsarea"),
+            _ekvation(r"\tau_d = 1.5\frac{V_d}{A_{red}}", "skjuvspänning i reducerat tvärsnitt"),
+            _ekvation(r"\mu_v = \frac{\tau_d}{f_{v,g,d}}", "utnyttjande skjuvning"),
+            _ekvation(r"I_y = 2\left(\frac{b h_{ro}^3}{12} + b h_{ro}(0.5h_{ro}+d/2)^2\right)", "tröghetsmoment reducerat tvärsnitt"),
+            _ekvation(r"\sigma_{m,d} = \frac{M_d}{I_y}\frac{h}{2}", "böjspänning"),
             _ekvation(r"\mu_m = \frac{\sigma_{m,d}}{f_{m,g,d}}", "utnyttjande moment"),
             _ekvation(r"\mu_{vm} = \mu_v + \mu_m", "interaktion moment och tvärkraft"),
             _ekvation(r"h_r = \min(h_{ru} + 0.15h_d, h_{ro} + 0.15h_d)", "effektiv kantzon"),
