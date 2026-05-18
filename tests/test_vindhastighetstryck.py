@@ -68,6 +68,8 @@ class TestVindhastighetstryck(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "z_ref")["value"], 0.05))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "k_p")["value"], 3.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "c_0")["value"], 1.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "rho")["value"], 0.00125))
+        self.assertEqual(_hamta_post(delresultat, "rho")["unit"], "kN*s^2/m^4")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "q_b")["value"], 0.36))
         self.assertTrue(math.isclose(_hamta_post(slutresultat, "q_pk")["value"], 0.7779674762229217))
 
