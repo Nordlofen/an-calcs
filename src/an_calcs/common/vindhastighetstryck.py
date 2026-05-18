@@ -25,9 +25,9 @@ TERRANGDATA = {
     "IV": {"z_0": 1.00, "z_min": 10.0},
 }
 
-K_P = 3.5
-K_I = 1.0
+K_P = 3.0
 C_0 = 1.0
+Z_REF = 0.05
 
 
 def _normalisera_terrangtyp(value):
@@ -77,8 +77,8 @@ def vindhastighetstryck(px):
     z_eff = max(z, z_min)
     log_z = math.log(z_eff / z_0)
 
-    k_r = 0.19 * (z_0 / 0.05) ** 0.07
-    I_v = K_I / (C_0 * log_z)
+    k_r = 0.19 * (z_0 / Z_REF) ** 0.07
+    I_v = 1.0 / (C_0 * log_z)
     q_b = v_b**2 / 1600.0
     q_pk = (1.0 + 2.0 * K_P * I_v) * (k_r * log_z * C_0) ** 2 * q_b
 
@@ -89,21 +89,20 @@ def vindhastighetstryck(px):
                 {
                     "rubrik": "Beräkning",
                     "text": (
-                        "Beräknar karakteristiskt vindhastighetstryck q_pk(z) "
+                        "Beräknar karakteristiskt vindhastighetstryck "
                         "utifrån terrängtyp, byggnadshöjd och referensvindhastighet. "
-                        "Terrängtypen används för att bestämma z_0 och z_min."
+                        "Terrängtypen används för att bestämma råhetslängd och minsta höjd."
                     ),
                 },
                 {
                     "rubrik": "Standard",
-                    "text": "BFS2024-6, formel för q_pk(z) enligt sida 26.",
+                    "text": "BFS 2024:6, 38-39 §§. Formel för karakteristiskt hastighetstryck redovisas på sida 26.",
                 },
                 {
                     "rubrik": "Antaganden",
                     "text": (
-                        "Topografifaktor c_0(z) sätts till 1,0 och turbulensfaktor "
-                        "k_I sätts till 1,0. Grundhastighetstrycket beräknas som "
-                        "q_b = v_b^2 / 1600, motsvarande luftdensitet 1,25 kg/m3."
+                        "Topografifaktorn sätts till 1,0. Grundhastighetstrycket "
+                        "beräknas med standardantagen luftdensitet 1,25 kg/m3."
                     ),
                 },
             ],
@@ -114,9 +113,6 @@ def vindhastighetstryck(px):
                 _post("terrangtyp", "terrängtyp", terrangtyp, "-", "terrängtyp"),
                 _post("z", "z", z, "m", "byggnadshöjd"),
                 _post("v_b", r"v_b", v_b, "m/s", "referensvindhastighet"),
-                _post("k_p", r"k_p", K_P, "-", "toppfaktor"),
-                _post("k_I", r"k_I", K_I, "-", "turbulensfaktor"),
-                _post("c_0", r"c_0(z)", C_0, "-", "topografifaktor"),
             ],
         },
         "delresultat": {
@@ -125,6 +121,9 @@ def vindhastighetstryck(px):
                 _post("z_0", r"z_0", z_0, "m", "råhetslängd"),
                 _post("z_min", r"z_{min}", z_min, "m", "minsta höjd för terrängtyp"),
                 _post("z_eff", r"z_{eff}", z_eff, "m", "beräkningshöjd"),
+                _post("z_ref", r"z_{ref}", Z_REF, "m", "referensråhetslängd"),
+                _post("k_p", r"k_p", K_P, "-", "toppfaktor"),
+                _post("c_0", r"c_0(z)", C_0, "-", "topografifaktor"),
                 _post("k_r", r"k_r", k_r, "-", "terrängfaktor"),
                 _post("I_v", r"I_v(z)", I_v, "-", "turbulensintensitet"),
                 _post("q_b", r"q_b", q_b, "kN/m^2", "grundhastighetstryck"),
@@ -140,8 +139,8 @@ def vindhastighetstryck(px):
             "title": "Ekvationer",
             "items": [
                 _ekvation(r"z_{eff} = \max(z, z_{min})", "beräkningshöjd"),
-                _ekvation(r"k_r = 0.19 \left(\frac{z_0}{0.05}\right)^{0.07}", "terrängfaktor"),
-                _ekvation(r"I_v(z) = \frac{k_I}{c_0(z)\ln(z_{eff}/z_0)}", "turbulensintensitet"),
+                _ekvation(r"k_r = 0.19 \left(\frac{z_0}{z_{ref}}\right)^{0.07}", "terrängfaktor"),
+                _ekvation(r"I_v(z) = \frac{1}{c_0(z)\ln(z_{eff}/z_0)}", "turbulensintensitet"),
                 _ekvation(r"q_b = \frac{v_b^2}{1600}", "grundhastighetstryck"),
                 _ekvation(
                     r"q_{pk}(z) = [1 + 2 k_p I_v(z)] [k_r \ln(z_{eff}/z_0)c_0(z)]^2 q_b",

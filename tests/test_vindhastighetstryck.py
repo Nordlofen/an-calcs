@@ -53,7 +53,7 @@ class TestVindhastighetstryck(unittest.TestCase):
         self.assertEqual(schema["fields"][0]["type"], "choice")
 
         details = vindhastighetstryck(px)
-        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "q_pk")["value"], 0.8468244087185799))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "q_pk")["value"], 0.7779674762229217))
 
     def test_beraknar_kant_exempel_for_terrangtyp_ii(self):
         details = vindhastighetstryck(["II", 10, 24])
@@ -61,11 +61,24 @@ class TestVindhastighetstryck(unittest.TestCase):
         delresultat = details["delresultat"]
         slutresultat = details["slutresultat"]
 
+        self.assertEqual({item["namn"] for item in details["indata"]["items"]}, {"terrangtyp", "z", "v_b"})
         self.assertTrue(math.isclose(_hamta_post(delresultat, "z_0")["value"], 0.05))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "z_min")["value"], 2.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "z_eff")["value"], 10.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "z_ref")["value"], 0.05))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_p")["value"], 3.0))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "c_0")["value"], 1.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "q_b")["value"], 0.36))
-        self.assertTrue(math.isclose(_hamta_post(slutresultat, "q_pk")["value"], 0.8468244087185799))
+        self.assertTrue(math.isclose(_hamta_post(slutresultat, "q_pk")["value"], 0.7779674762229217))
+
+    def test_k_i_redovisas_inte(self):
+        details = vindhastighetstryck(["II", 10, 24])
+
+        for section_namn in ("indata", "delresultat"):
+            self.assertNotIn("k_I", {item["namn"] for item in details[section_namn]["items"]})
+            self.assertNotIn(r"k_I", {item["latex"] for item in details[section_namn]["items"]})
+
+        self.assertFalse(any("k_I" in item["latex"] for item in details["ekvationer"]["items"]))
 
     def test_terrangtyper_ger_ratt_z0_och_zmin(self):
         expected = {
