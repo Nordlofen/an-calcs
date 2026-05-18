@@ -28,7 +28,7 @@ TERRANGDATA = {
 K_P = 3.0
 C_0 = 1.0
 Z_REF = 0.05
-RHO = 0.00125
+RHO = 1.25
 
 
 def _normalisera_terrangtyp(value):
@@ -80,7 +80,7 @@ def vindhastighetstryck(px):
 
     k_r = 0.19 * (z_0 / Z_REF) ** 0.07
     I_v = 1.0 / (C_0 * log_z)
-    q_b = 0.5 * RHO * v_b**2
+    q_b = 0.5 * RHO * v_b**2 / 1000.0
     q_pk = (1.0 + 2.0 * K_P * I_v) * (k_r * log_z * C_0) ** 2 * q_b
 
     return {
@@ -125,7 +125,7 @@ def vindhastighetstryck(px):
                 _post("z_ref", r"z_{ref}", Z_REF, "m", "referensråhetslängd"),
                 _post("k_p", r"k_p", K_P, "-", "toppfaktor"),
                 _post("c_0", r"c_0(z)", C_0, "-", "topografifaktor"),
-                _post("rho", r"\rho", RHO, "kN*s^2/m^4", "luftdensitet"),
+                _post("rho", r"\rho", RHO, "kg/m^3", "luftdensitet"),
                 _post("k_r", r"k_r", k_r, "-", "terrängfaktor"),
                 _post("I_v", r"I_v(z)", I_v, "-", "turbulensintensitet"),
                 _post("q_b", r"q_b", q_b, "kN/m^2", "grundhastighetstryck"),
