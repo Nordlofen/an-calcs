@@ -26,6 +26,40 @@ VALID_SHEAR_MODELS = {"auto", "spikregler", "skruvregler"}
 VALID_CONNECTION_TYPES = {"tra-tra", "stal-tra", "tra-skiva", "skiva-tra"}
 VALID_NAIL_TYPES = {"slat", "profilerad"}
 VALID_INFASTNING_TYPES = {"sidotra", "andtra"}
+PANEL_PX = [
+    "forbindartyp",
+    "tvarkraftsmodell",
+    "anslutningstyp",
+    "materialtyp_1",
+    "materialtyp_2",
+    "t_1",
+    "t_2",
+    "rho_k_1",
+    "rho_k_2",
+    "alpha_1",
+    "alpha_2",
+    "infastning_1",
+    "infastning_2",
+    "d",
+    "d_h",
+    "l",
+    "l_gang",
+    "f_u",
+    "spiktyp",
+    "slat_hals",
+    "n_rader",
+    "n_per_rad",
+    "tvarforskjuten_1d",
+    "forborrad",
+    "M_y_Rk",
+    "f_ax_k",
+    "f_head_k",
+    "f_tens_k",
+    "alpha_ax",
+    "rho_a",
+    "l_g",
+    "l_p",
+]
 
 
 @dataclass
@@ -498,11 +532,70 @@ def _tolka_px_traskruv(px):
     return data
 
 
+def _panel_float(value):
+    if value is None:
+        return None
+    value = float(value)
+    return value if value > 0 else None
+
+
+def _tolka_px_panel(px):
+    values = dict(zip(PANEL_PX, px))
+    forbindartyp = _normalize_text(values["forbindartyp"])
+    my_rk = _panel_float(values["M_y_Rk"])
+
+    data = FastenerInput(
+        forbindartyp=forbindartyp,
+        tvarkraftsmodell=_normalize_text(values["tvarkraftsmodell"]),
+        anslutningstyp=_normalize_text(values["anslutningstyp"]),
+        materialtyp_1=_normalize_text(values["materialtyp_1"]),
+        materialtyp_2=_normalize_text(values["materialtyp_2"]),
+        t_1=float(values["t_1"]),
+        t_2=float(values["t_2"]),
+        rho_k_1=float(values["rho_k_1"]),
+        rho_k_2=float(values["rho_k_2"]),
+        alpha_1=float(values["alpha_1"]),
+        alpha_2=float(values["alpha_2"]),
+        infastning_1=_normalize_text(values["infastning_1"]),
+        infastning_2=_normalize_text(values["infastning_2"]),
+        d=float(values["d"]),
+        d_h=float(values["d_h"]),
+        l=float(values["l"]),
+        l_gang=float(values["l_gang"]) if forbindartyp == "traskruv" else None,
+        f_u=float(values["f_u"]),
+        spiktyp=_normalize_text(values["spiktyp"]) if forbindartyp == "spik" else None,
+        slat_hals=bool(values["slat_hals"]) if forbindartyp == "traskruv" else None,
+        my_rk_input=my_rk,
+        f_ax_k_input=_optional_float(values["f_ax_k"]) if forbindartyp in {"spik", "skruv", "traskruv"} else None,
+        f_head_k_input=_optional_float(values["f_head_k"]) if forbindartyp in {"spik", "skruv", "traskruv"} else None,
+        f_tens_k_input=_optional_float(values["f_tens_k"]) if forbindartyp in {"skruv", "traskruv"} else None,
+        rho_a_input=_optional_float(values["rho_a"]) if forbindartyp in {"skruv", "traskruv"} else None,
+        alpha_ax_input=_optional_float(values["alpha_ax"]) if forbindartyp in {"skruv", "traskruv"} else None,
+        l_g_input=_optional_float(values["l_g"]) if forbindartyp == "spik" else None,
+        l_p_input=_optional_float(values["l_p"]) if forbindartyp == "spik" else None,
+        n_rader=int(values["n_rader"]),
+        n_per_rad=int(values["n_per_rad"]),
+        tvarforskjuten_1d=bool(values["tvarforskjuten_1d"]),
+        forborrad=bool(values["forborrad"]),
+    )
+    if data.forbindartyp not in VALID_FASTENER_TYPES:
+        raise ValueError("förbindartyp måste vara 'spik', 'skruv' eller 'traskruv'.")
+    if data.forbindartyp == "spik" and data.spiktyp not in VALID_NAIL_TYPES:
+        raise ValueError("spiktyp måste vara 'slat' eller 'profilerad'.")
+    if data.forbindartyp == "traskruv":
+        _krav_storre_an_noll("l_gang", data.l_gang)
+    _validera_gemensamt(data)
+    return data
+
+
 def _tolka_px(px):
     if not isinstance(px, (list, tuple)):
         raise TypeError("px måste vara en lista eller tuple.")
     if not px:
         raise ValueError("px måste innehålla minst ett värde.")
+
+    if len(px) == len(PANEL_PX):
+        return _tolka_px_panel(px)
 
     forbindartyp = _normalize_text(px[0])
     if forbindartyp not in VALID_FASTENER_TYPES:
@@ -1983,3 +2076,142 @@ def tvarkraft_dymlingsforband(px):
             "items": ekvationer,
         },
     }
+
+
+tvarkraft_dymlingsforband.panel_schema = {
+    "title": "Tvärkraft dymlingsförband",
+    "px": PANEL_PX,
+    "fields": [
+        {
+            "name": "forbindartyp",
+            "type": "choice",
+            "label": "Förbindartyp",
+            "symbol": "typ",
+            "default": "spik",
+            "options": [
+                {"label": "Spik", "value": "spik"},
+                {"label": "Skruv", "value": "skruv"},
+                {"label": "Träskruv", "value": "traskruv"},
+            ],
+        },
+        {
+            "name": "tvarkraftsmodell",
+            "type": "choice",
+            "label": "Tvärkraftsmodell",
+            "symbol": "modell",
+            "default": "spikregler",
+            "options": [
+                {"label": "Auto", "value": "auto"},
+                {"label": "Spikregler", "value": "spikregler"},
+                {"label": "Skruvregler", "value": "skruvregler"},
+            ],
+        },
+        {
+            "name": "anslutningstyp",
+            "type": "choice",
+            "label": "Anslutningstyp",
+            "symbol": "anslutning",
+            "default": "skiva-tra",
+            "options": [
+                {"label": "Trä-trä", "value": "tra-tra"},
+                {"label": "Stål-trä", "value": "stal-tra"},
+                {"label": "Trä-skiva", "value": "tra-skiva"},
+                {"label": "Skiva-trä", "value": "skiva-tra"},
+            ],
+        },
+        {
+            "name": "materialtyp_1",
+            "type": "choice",
+            "label": "Material del 1",
+            "symbol": "mat1",
+            "default": "osb",
+            "options": [
+                {"label": "Konstruktionsvirke", "value": "konstruktionsvirke"},
+                {"label": "Hårdträ", "value": "hardtra"},
+                {"label": "Limträ", "value": "limtra"},
+                {"label": "KL-trä", "value": "kl-tra"},
+                {"label": "LVL", "value": "lvl"},
+                {"label": "Plywood", "value": "plywood"},
+                {"label": "OSB", "value": "osb"},
+                {"label": "Spånskiva", "value": "spanskiva"},
+                {"label": "Stål", "value": "stal"},
+            ],
+        },
+        {
+            "name": "materialtyp_2",
+            "type": "choice",
+            "label": "Material del 2",
+            "symbol": "mat2",
+            "default": "konstruktionsvirke",
+            "options": [
+                {"label": "Konstruktionsvirke", "value": "konstruktionsvirke"},
+                {"label": "Hårdträ", "value": "hardtra"},
+                {"label": "Limträ", "value": "limtra"},
+                {"label": "KL-trä", "value": "kl-tra"},
+                {"label": "LVL", "value": "lvl"},
+                {"label": "Plywood", "value": "plywood"},
+                {"label": "OSB", "value": "osb"},
+                {"label": "Spånskiva", "value": "spanskiva"},
+                {"label": "Stål", "value": "stal"},
+            ],
+        },
+        {"name": "t_1", "type": "float", "label": "Tjocklek del 1", "symbol": "<i>t</i><sub>1</sub>", "unit": "mm", "default": 15.0},
+        {"name": "t_2", "type": "float", "label": "Tjocklek del 2", "symbol": "<i>t</i><sub>2</sub>", "unit": "mm", "default": 220.0},
+        {"name": "rho_k_1", "type": "float", "label": "Densitet del 1", "symbol": "ρ<sub>k,1</sub>", "unit": "kg/m³", "default": 650.0},
+        {"name": "rho_k_2", "type": "float", "label": "Densitet del 2", "symbol": "ρ<sub>k,2</sub>", "unit": "kg/m³", "default": 350.0},
+        {"name": "alpha_1", "type": "float", "label": "Kraftvinkel del 1", "symbol": "α<sub>1</sub>", "unit": "deg", "default": 0.0},
+        {"name": "alpha_2", "type": "float", "label": "Kraftvinkel del 2", "symbol": "α<sub>2</sub>", "unit": "deg", "default": 0.0},
+        {
+            "name": "infastning_1",
+            "type": "choice",
+            "label": "Infästning del 1",
+            "symbol": "inf1",
+            "default": "sidotra",
+            "options": [
+                {"label": "Sidoträ", "value": "sidotra"},
+                {"label": "Ändträ", "value": "andtra"},
+            ],
+        },
+        {
+            "name": "infastning_2",
+            "type": "choice",
+            "label": "Infästning del 2",
+            "symbol": "inf2",
+            "default": "sidotra",
+            "options": [
+                {"label": "Sidoträ", "value": "sidotra"},
+                {"label": "Ändträ", "value": "andtra"},
+            ],
+        },
+        {"name": "d", "type": "float", "label": "Diameter", "symbol": "<i>d</i>", "unit": "mm", "default": 2.8},
+        {"name": "d_h", "type": "float", "label": "Huvuddiameter", "symbol": "<i>d</i><sub>h</sub>", "unit": "mm", "default": 6.9},
+        {"name": "l", "type": "float", "label": "Längd", "symbol": "<i>l</i>", "unit": "mm", "default": 68.0},
+        {"name": "l_gang", "type": "float", "label": "Gänglängd", "symbol": "<i>l</i><sub>gang</sub>", "unit": "mm", "default": 40.0, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
+        {"name": "f_u", "type": "float", "label": "Draghållfasthet", "symbol": "<i>f</i><sub>u</sub>", "unit": "MPa", "default": 600.0},
+        {
+            "name": "spiktyp",
+            "type": "choice",
+            "label": "Spiktyp",
+            "symbol": "spiktyp",
+            "default": "profilerad",
+            "visible_if": {"field": "forbindartyp", "equals": "spik"},
+            "options": [
+                {"label": "Slät", "value": "slat"},
+                {"label": "Profilerad/kamspik", "value": "profilerad"},
+            ],
+        },
+        {"name": "slat_hals", "type": "bool", "label": "Slät hals", "symbol": "slät hals", "default": False, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
+        {"name": "n_rader", "type": "int", "label": "Antal rader", "symbol": "n<sub>r</sub>", "default": 1},
+        {"name": "n_per_rad", "type": "int", "label": "Antal per rad", "symbol": "n<sub>p</sub>", "default": 1},
+        {"name": "tvarforskjuten_1d", "type": "bool", "label": "Tvärförskjuten minst 1d", "symbol": "zigzag", "default": False},
+        {"name": "forborrad", "type": "bool", "label": "Förborrad", "symbol": "pre", "default": False},
+        {"name": "M_y_Rk", "type": "float", "label": "Manuellt flytmoment", "symbol": "<i>M</i><sub>y,Rk</sub>", "unit": "Nmm", "default": 0.0},
+        {"name": "f_ax_k", "type": "float", "label": "Utdragshållfasthet", "symbol": "<i>f</i><sub>ax,k</sub>", "unit": "N/mm²", "default": 8.9},
+        {"name": "f_head_k", "type": "float", "label": "Genomdragshållfasthet", "symbol": "<i>f</i><sub>head,k</sub>", "unit": "N/mm²", "default": 22.0},
+        {"name": "f_tens_k", "type": "float", "label": "Dragbärförmåga", "symbol": "<i>F</i><sub>t,Rk</sub>", "unit": "N", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
+        {"name": "alpha_ax", "type": "float", "label": "Axelvinkel", "symbol": "α<sub>ax</sub>", "unit": "deg", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
+        {"name": "rho_a", "type": "float", "label": "Referensdensitet axialdata", "symbol": "ρ<sub>a</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
+        {"name": "l_g", "type": "float", "label": "Verksam längd spetssida", "symbol": "<i>l</i><sub>g</sub>", "unit": "mm", "default": 50.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {"name": "l_p", "type": "float", "label": "Spetslängd", "symbol": "<i>l</i><sub>p</sub>", "unit": "mm", "default": 3.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+    ],
+}

@@ -16,6 +16,148 @@ def _hamta_post(section, namn):
 
 
 class TestTvarkraftDymlingsforband(unittest.TestCase):
+    def test_panel_schema_har_ratt_px_ordning_och_default_kan_beraknas(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        px = [values[name] for name in schema["px"]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertEqual(schema["title"], "Tvärkraft dymlingsförband")
+        self.assertEqual(
+            schema["px"],
+            [
+                "forbindartyp",
+                "tvarkraftsmodell",
+                "anslutningstyp",
+                "materialtyp_1",
+                "materialtyp_2",
+                "t_1",
+                "t_2",
+                "rho_k_1",
+                "rho_k_2",
+                "alpha_1",
+                "alpha_2",
+                "infastning_1",
+                "infastning_2",
+                "d",
+                "d_h",
+                "l",
+                "l_gang",
+                "f_u",
+                "spiktyp",
+                "slat_hals",
+                "n_rader",
+                "n_per_rad",
+                "tvarforskjuten_1d",
+                "forborrad",
+                "M_y_Rk",
+                "f_ax_k",
+                "f_head_k",
+                "f_tens_k",
+                "alpha_ax",
+                "rho_a",
+                "l_g",
+                "l_p",
+            ],
+        )
+        self.assertEqual(_hamta_post(details["indata"], "forbindartyp")["value"], "spik")
+        self.assertEqual(_hamta_post(details["indata"], "materialtyp_1")["value"], "osb")
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_axialgren")["value"], "8.23")
+        self.assertTrue(_hamta_post(details["slutresultat"], "F_v_Rk_enkel")["value"] > 0)
+
+    def test_panel_schema_synlighet_for_typberoende_falt(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        fields = {field["name"]: field for field in schema["fields"]}
+
+        self.assertEqual(fields["spiktyp"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
+        self.assertEqual(fields["l_g"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
+        self.assertEqual(fields["l_p"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
+        self.assertEqual(fields["l_gang"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
+        self.assertEqual(fields["slat_hals"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
+        self.assertEqual(fields["f_tens_k"]["visible_if"], {"field": "forbindartyp", "in": ["skruv", "traskruv"]})
+
+    def test_panel_format_for_spik_med_osb_och_axialdata(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        values.update({"f_ax_k": 8.9, "f_head_k": 22.0, "l_g": 50.0, "l_p": 3.0})
+        px = [values[name] for name in schema["px"]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_axialgren")["value"], "8.23")
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "t_pen")["value"], 50.0))
+        self.assertTrue(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_panel_format_for_skruv_utan_aktiv_axialdata(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        values.update(
+            {
+                "forbindartyp": "skruv",
+                "tvarkraftsmodell": "auto",
+                "anslutningstyp": "tra-tra",
+                "materialtyp_1": "konstruktionsvirke",
+                "materialtyp_2": "konstruktionsvirke",
+                "t_1": 45.0,
+                "t_2": 95.0,
+                "rho_k_1": 350.0,
+                "rho_k_2": 350.0,
+                "d": 10.0,
+                "d_h": 30.0,
+                "l": 140.0,
+                "f_tens_k": 0.0,
+            }
+        )
+        px = [values[name] for name in schema["px"]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_tvarkraftsgren")["value"], "8.5")
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_panel_format_for_traskruv_med_l_gang_och_slat_hals(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        values.update(
+            {
+                "forbindartyp": "traskruv",
+                "tvarkraftsmodell": "auto",
+                "anslutningstyp": "tra-tra",
+                "materialtyp_1": "konstruktionsvirke",
+                "materialtyp_2": "konstruktionsvirke",
+                "t_1": 120.0,
+                "t_2": 120.0,
+                "rho_k_1": 350.0,
+                "rho_k_2": 350.0,
+                "d": 8.0,
+                "d_h": 12.0,
+                "l": 160.0,
+                "l_gang": 60.0,
+                "f_u": 800.0,
+                "slat_hals": True,
+                "f_tens_k": 0.0,
+            }
+        )
+        px = [values[name] for name in schema["px"]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertEqual(_hamta_post(details["indata"], "slat_hals")["value"], True)
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_tvarkraftsgren")["value"], "8.5")
+
+    def test_panel_format_my_rk_noll_beraknas_automatiskt(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        values["M_y_Rk"] = 0.0
+        px = [values[name] for name in schema["px"]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertTrue(_hamta_post(details["delresultat"], "M_y_Rk")["value"] > 0)
+        self.assertNotIn("M_y_Rk_input", {item["namn"] for item in details["indata"]["items"]})
+
     def test_returnerar_standardiserad_details_for_spik(self):
         details = tvarkraft_dymlingsforband(
             [

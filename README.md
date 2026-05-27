@@ -80,6 +80,11 @@ Stodda falttyper ar:
 For `table` kan en tabell bygga flera parallella listor till `px`, till exempel
 `dz_lista`, `Ek_lista` och `gamma_m_lista`.
 
+For funktioner med flera befintliga `px`-format kan `panel_schema["px"]`
+beskriva ett separat panelvanligt superset-format, sa lange funktionen sjalv
+kan tolka detta format och fortfarande returnerar `details` enligt
+grundkontraktet.
+
 Foreslagen projektstruktur:
 
 - `src/an_calcs/tra` for tra
