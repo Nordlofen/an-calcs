@@ -247,6 +247,84 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
 
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
 
+    def test_spik_med_axialdata_anvander_8_38_och_ersatter_spikmodell(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "spikregler",
+                "skiva-tra",
+                "plywood",
+                "konstruktionsvirke",
+                9.0,
+                220.0,
+                450.0,
+                350.0,
+                0.0,
+                0.0,
+                2.1,
+                5.3,
+                40.0,
+                600.0,
+                "slat",
+                1,
+                1,
+                False,
+                False,
+                {
+                    "f_ax_k": 1.0,
+                    "f_head_k": 8.0,
+                    "f_tens_k": 50000.0,
+                    "alpha_ax": 0.0,
+                },
+            ]
+        )
+
+        delresultat = details["delresultat"]
+        self.assertEqual(_hamta_post(delresultat, "normativ_axialgren")["value"], "8.38")
+        self.assertTrue(_hamta_post(delresultat, "axialdata_aktiv")["value"])
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef")["value"], 31.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_d")["value"], 0.2625, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_w")["value"], 14.240625, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 14.240625, rel_tol=1e-9))
+        self.assertTrue(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_spik_med_nollad_axialdata_stanger_av_linverkan(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "spikregler",
+                "skiva-tra",
+                "plywood",
+                "konstruktionsvirke",
+                9.0,
+                220.0,
+                450.0,
+                350.0,
+                0.0,
+                0.0,
+                2.1,
+                5.3,
+                40.0,
+                600.0,
+                "slat",
+                1,
+                1,
+                False,
+                False,
+                {
+                    "f_ax_k": 0.0,
+                    "f_head_k": 0.0,
+                    "f_tens_k": 0.0,
+                    "alpha_ax": 0.0,
+                },
+            ]
+        )
+
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_axialgren")["value"], "8.38")
+        self.assertFalse(_hamta_post(details["delresultat"], "axialdata_aktiv")["value"])
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
     def test_fastener_designer_benchmark_for_traskruv_i_andtra(self):
         fu_for_my = 10500.0 / (0.30 * 6.0**2.6)
         details = tvarkraft_dymlingsforband(

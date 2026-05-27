@@ -166,6 +166,11 @@ def _validera_gemensamt(data):
 
 
 def _tolka_px_spik(px):
+    px = list(px)
+    axial_props = {}
+    if px and isinstance(px[-1], dict):
+        axial_props = dict(px.pop())
+
     my_rk_input = None
     if len(px) in {20, 21}:
         if len(px) == 21:
@@ -244,6 +249,11 @@ def _tolka_px_spik(px):
         l=float(l),
         f_u=float(f_u),
         my_rk_input=my_rk_input,
+        f_ax_k_input=_optional_float(axial_props["f_ax_k"]) if "f_ax_k" in axial_props else None,
+        f_head_k_input=_optional_float(axial_props["f_head_k"]) if "f_head_k" in axial_props else None,
+        f_tens_k_input=_optional_float(axial_props["f_tens_k"]) if "f_tens_k" in axial_props else None,
+        rho_a_input=_optional_float(axial_props["rho_a"]) if "rho_a" in axial_props else None,
+        alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
         spiktyp=_normalize_text(spiktyp),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
@@ -538,7 +548,7 @@ def _pick_normative_shear_branch(data):
 
 
 def _pick_normative_axial_branch(data):
-    if data.forbindartyp == "spik":
+    if data.forbindartyp == "spik" and not _has_axial_input(data):
         return "8.3.2"
     return "8.38"
 
@@ -733,6 +743,16 @@ def _axial_enabled_threaded_screw(data):
     if data.anslutningstyp == "tra-tra" and not (data.f_head_k_input and data.f_head_k_input > 0):
         return False
     return True
+
+
+def _has_axial_input(data):
+    return (
+        data.f_ax_k_input is not None
+        or data.f_head_k_input is not None
+        or data.f_tens_k_input is not None
+        or data.alpha_ax_input is not None
+        or data.rho_a_input is not None
+    )
 
 
 def _axial_timber_material(data):
@@ -1244,10 +1264,11 @@ def tvarkraft_dymlingsforband(px):
         M_y_Rk
     ]``
 
-    Valfritt kan skruv- och träskruvsformatet också avslutas med en dict för
+    Valfritt kan spik-, skruv- och träskruvsformatet också avslutas med en dict för
     axiella produktparametrar. Denna används bara för att beräkna ``F_ax,Rk``;
-    om dict saknas, eller parametrarna sätts till ``None`` eller ``0``, sätts
-    ``F_ax,Rk = 0`` och linverkan stängs av.
+    för spik ersätter den den interna spikmodellen. För skruv och träskruv
+    sätts ``F_ax,Rk = 0`` och linverkan stängs av om dict saknas, eller om
+    parametrarna sätts till ``None`` eller ``0``.
 
     ``{
         "f_ax_k": ...,
@@ -1456,13 +1477,13 @@ def tvarkraft_dymlingsforband(px):
     fh_2_k = fh_2_data["fh_k"]
 
     my_rk = _yield_moment(data)
-    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} else None
+    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} or (data.forbindartyp == "spik" and _has_axial_input(data)) else None
     f_ax_rk = axial_screw["F_ax_Rk"] if axial_screw is not None else _axial_capacity(data)
     line_effect_active = f_ax_rk > 0.0
     c_rope = _line_effect_ratio(data)
     l_pen = None
     rho_k = None
-    if data.forbindartyp in {"skruv", "traskruv"}:
+    if axial_screw is not None:
         l_pen = axial_screw["l_ef"]
         rho_k = axial_screw["rho_k"]
     elif data.forbindartyp == "spik":
@@ -1532,23 +1553,16 @@ def tvarkraft_dymlingsforband(px):
                 _post("slat_hals", r"\mathrm{slat\_hals}", data.slat_hals, "-", "träskruv med slät hals"),
             ]
         )
-    if data.forbindartyp in {"skruv", "traskruv"}:
-        if (
-            data.f_ax_k_input is not None
-            or data.f_head_k_input is not None
-            or data.f_tens_k_input is not None
-            or data.alpha_ax_input is not None
-            or data.rho_a_input is not None
-        ):
-            indata_items.extend(
-                [
-                    _post("f_ax_k_input", r"f_{ax,k}", data.f_ax_k_input, "N/mm^2", "inmatad utdragshållfasthet vinkelrätt mot fiberriktningen"),
-                    _post("f_head_k_input", r"f_{head,k}", data.f_head_k_input, "N/mm^2", "inmatad genomdragningshållfasthet"),
-                    _post("f_tens_k_input", r"F_{t,Rk}", data.f_tens_k_input, "N", "inmatad dragbärförmåga"),
-                    _post("alpha_ax_input", r"\alpha_{ax}", data.alpha_ax_input, "deg", "inmatad axelvinkel mot fiberriktning"),
-                    _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
-                ]
-            )
+    if _has_axial_input(data):
+        indata_items.extend(
+            [
+                _post("f_ax_k_input", r"f_{ax,k}", data.f_ax_k_input, "N/mm^2", "inmatad utdragshållfasthet vinkelrätt mot fiberriktningen"),
+                _post("f_head_k_input", r"f_{head,k}", data.f_head_k_input, "N/mm^2", "inmatad genomdragningshållfasthet"),
+                _post("f_tens_k_input", r"F_{t,Rk}", data.f_tens_k_input, "N", "inmatad dragbärförmåga"),
+                _post("alpha_ax_input", r"\alpha_{ax}", data.alpha_ax_input, "deg", "inmatad axelvinkel mot fiberriktning"),
+                _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
+            ]
+        )
     if data.my_rk_input is not None:
         indata_items.append(_post("M_y_Rk_input", r"M_{y,Rk}", data.my_rk_input, "Nmm", "inmatat flytmoment"))
 
@@ -1586,9 +1600,9 @@ def tvarkraft_dymlingsforband(px):
 
     delresultat_items.append(_post("M_y_Rk", r"M_{y,Rk}", my_rk, "Nmm", "karakteristiskt flytmoment"))
 
-    if data.forbindartyp in {"skruv", "traskruv"}:
+    if axial_screw is not None:
         delresultat_items.append(
-            _post("axialdata_aktiv", r"\mathrm{axial}", axial_screw["enabled"], "-", "axialdata aktiv för skruv")
+            _post("axialdata_aktiv", r"\mathrm{axial}", axial_screw["enabled"], "-", "axialdata aktiv")
         )
         delresultat_items.append(_post("l_ef", r"l_{ef}", axial_screw["l_ef"], "mm", "effektiv inträngningslängd"))
         delresultat_items.append(_post("k_d", r"k_d", axial_screw["k_d"], "-", "storleksfaktor enligt EC5 8.40"))
@@ -1718,7 +1732,7 @@ def tvarkraft_dymlingsforband(px):
     else:
         ekvationer.append(_ekvation(r"M_{y,Rk} = 0.30 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment, EC5 8.5.1"))
 
-    if data.forbindartyp == "spik":
+    if data.forbindartyp == "spik" and axial_screw is None:
         if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
             ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "spik i ändträ antas inte ta axiell last, EC5 8.3.2"))
         else:
