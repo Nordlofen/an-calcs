@@ -60,6 +60,8 @@ class FastenerInput:
     f_tens_k_input: float | None = None
     rho_a_input: float | None = None
     alpha_ax_input: float | None = None
+    l_g_input: float | None = None
+    l_p_input: float | None = None
     normativ_tvarkraftsgren: str | None = None
     normativ_axialgren: str | None = None
     d_eff: float | None = None
@@ -132,6 +134,8 @@ def _validera_gemensamt(data):
         ("f_head_k", data.f_head_k_input),
         ("f_tens_k", data.f_tens_k_input),
         ("rho_a", data.rho_a_input),
+        ("l_g", data.l_g_input),
+        ("l_p", data.l_p_input),
     ):
         if value is not None:
             _krav_icke_negativ(namn, value)
@@ -254,6 +258,8 @@ def _tolka_px_spik(px):
         f_tens_k_input=_optional_float(axial_props["f_tens_k"]) if "f_tens_k" in axial_props else None,
         rho_a_input=_optional_float(axial_props["rho_a"]) if "rho_a" in axial_props else None,
         alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
+        l_g_input=_optional_float(axial_props["l_g"]) if "l_g" in axial_props else None,
+        l_p_input=_optional_float(axial_props["l_p"]) if "l_p" in axial_props else None,
         spiktyp=_normalize_text(spiktyp),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
@@ -548,8 +554,10 @@ def _pick_normative_shear_branch(data):
 
 
 def _pick_normative_axial_branch(data):
-    if data.forbindartyp == "spik" and not _has_axial_input(data):
+    if data.forbindartyp == "spik" and (data.infastning_1 == "andtra" or data.infastning_2 == "andtra"):
         return "8.3.2"
+    if data.forbindartyp == "spik":
+        return "8.24" if data.spiktyp == "slat" else "8.23"
     return "8.38"
 
 
@@ -743,6 +751,51 @@ def _axial_capacity_spik(data):
     return min(withdrawal, pull_through)
 
 
+def _axial_components_spik(data, t_head):
+    rho = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
+    has_axial_input = _has_axial_input(data)
+    f_ax_k = data.f_ax_k_input if has_axial_input else (20e-6 * rho**2 if data.spiktyp == "slat" else 30e-6 * rho**2)
+    f_head_k = data.f_head_k_input if has_axial_input else 70e-6 * rho**2
+    l_g = data.l_g_input if has_axial_input else _fastener_penetration(data)
+    l_p = data.l_p_input if has_axial_input else 0.0
+    t_pen = max(0.0, min(l_g or 0.0, data.l - data.t_1 - (l_p or 0.0))) if has_axial_input else _fastener_penetration(data)
+
+    off = {
+        "enabled": False,
+        "rho_k": rho,
+        "f_ax_k": f_ax_k,
+        "f_head_k": f_head_k,
+        "l_g": l_g,
+        "l_p": l_p,
+        "t_pen": t_pen,
+        "t_head": t_head,
+        "F_ax_a": 0.0,
+        "F_ax_b": 0.0,
+        "F_ax_Rk": 0.0,
+        "from_input": has_axial_input,
+    }
+
+    if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
+        return off
+    if not (f_ax_k and f_ax_k > 0 and f_head_k and f_head_k > 0 and t_pen > 0):
+        return off
+    if has_axial_input and not (l_g and l_g > 0 and data.l_p_input is not None):
+        return off
+
+    f_ax_a = f_ax_k * data.d * t_pen
+    if data.spiktyp == "slat":
+        f_ax_b = f_ax_k * data.d * t_head + f_head_k * data.d_h**2
+    else:
+        f_ax_b = f_head_k * data.d_h**2
+    return {
+        **off,
+        "enabled": True,
+        "F_ax_a": f_ax_a,
+        "F_ax_b": f_ax_b,
+        "F_ax_Rk": min(f_ax_a, f_ax_b),
+    }
+
+
 def _axial_enabled_threaded_screw(data):
     if data.alpha_ax_input is None:
         return False
@@ -760,6 +813,8 @@ def _has_axial_input(data):
         or data.f_tens_k_input is not None
         or data.alpha_ax_input is not None
         or data.rho_a_input is not None
+        or data.l_g_input is not None
+        or data.l_p_input is not None
     )
 
 
@@ -1273,17 +1328,21 @@ def tvarkraft_dymlingsforband(px):
     ]``
 
     Valfritt kan spik-, skruv- och träskruvsformatet också avslutas med en dict för
-    axiella produktparametrar. Denna används bara för att beräkna ``F_ax,Rk``;
-    för spik ersätter den den interna spikmodellen. För skruv och träskruv
-    sätts ``F_ax,Rk = 0`` och linverkan stängs av om dict saknas, eller om
-    parametrarna sätts till ``None`` eller ``0``.
+    axiella produktparametrar. Denna används bara för att beräkna ``F_ax,Rk``.
+    För spik ersätter ``f_ax_k``, ``f_head_k``, ``l_g`` och ``l_p`` den interna
+    spikmodellen och beräkningen görs enligt spikformlerna för axiallast. Extra
+    skruvnycklar tolereras men ignoreras för spik. För skruv och träskruv sätts
+    ``F_ax,Rk = 0`` och linverkan stängs av om dict saknas, eller om parametrarna
+    sätts till ``None`` eller ``0``.
 
     ``{
         "f_ax_k": ...,
         "f_head_k": ...,
-        "f_tens_k": ...,
-        "alpha_ax": ...,
-        "rho_a": ...   # valfritt, standard 350
+        "l_g": ...,        # spik: verksam längd på spetssidan
+        "l_p": ...,        # spik: spetslängd
+        "f_tens_k": ...,   # skruv/träskruv
+        "alpha_ax": ...,   # skruv/träskruv
+        "rho_a": ...       # skruv/träskruv, valfritt, standard 350
     }``
 
     Exempel med både ``M_y_Rk`` och axialdata:
@@ -1485,18 +1544,24 @@ def tvarkraft_dymlingsforband(px):
     fh_2_k = fh_2_data["fh_k"]
 
     my_rk = _yield_moment(data)
-    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} or (data.forbindartyp == "spik" and _has_axial_input(data)) else None
-    f_ax_rk = axial_screw["F_ax_Rk"] if axial_screw is not None else _axial_capacity(data)
+    axial_nail = _axial_components_spik(data, t_1_eff) if data.forbindartyp == "spik" else None
+    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} else None
+    if axial_nail is not None:
+        f_ax_rk = axial_nail["F_ax_Rk"]
+    elif axial_screw is not None:
+        f_ax_rk = axial_screw["F_ax_Rk"]
+    else:
+        f_ax_rk = _axial_capacity(data)
     line_effect_active = f_ax_rk > 0.0
     c_rope = _line_effect_ratio(data)
     l_pen = None
     rho_k = None
-    if axial_screw is not None:
+    if axial_nail is not None:
+        l_pen = axial_nail["t_pen"]
+        rho_k = axial_nail["rho_k"]
+    elif axial_screw is not None:
         l_pen = axial_screw["l_ef"]
         rho_k = axial_screw["rho_k"]
-    elif data.forbindartyp == "spik":
-        l_pen = _fastener_penetration(data)
-        rho_k = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
 
     if data.anslutningstyp == "stal-tra":
         fh_timber, timber_thickness, steel_thickness = _timber_side_values(data, fh_1_k, fh_2_k)
@@ -1569,6 +1634,8 @@ def tvarkraft_dymlingsforband(px):
                 _post("f_tens_k_input", r"F_{t,Rk}", data.f_tens_k_input, "N", "inmatad dragbärförmåga"),
                 _post("alpha_ax_input", r"\alpha_{ax}", data.alpha_ax_input, "deg", "inmatad axelvinkel mot fiberriktning"),
                 _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
+                _post("l_g_input", r"l_g", data.l_g_input, "mm", "inmatad längd av verksam del på spetssidan"),
+                _post("l_p_input", r"l_p", data.l_p_input, "mm", "inmatad spetslängd"),
             ]
         )
     if data.my_rk_input is not None:
@@ -1608,7 +1675,27 @@ def tvarkraft_dymlingsforband(px):
 
     delresultat_items.append(_post("M_y_Rk", r"M_{y,Rk}", my_rk, "Nmm", "karakteristiskt flytmoment"))
 
-    if axial_screw is not None:
+    if axial_nail is not None:
+        delresultat_items.append(
+            _post("axialdata_aktiv", r"\mathrm{axial}", axial_nail["enabled"], "-", "axialdata aktiv")
+        )
+        delresultat_items.append(_post("rho_k", r"\rho_k", axial_nail["rho_k"], "kg/m^3", "karakteristisk densitet i axialmodell"))
+        delresultat_items.append(_post("l_g", r"l_g", axial_nail["l_g"], "mm", "längd av verksam del på spetssidan"))
+        delresultat_items.append(_post("l_p", r"l_p", axial_nail["l_p"], "mm", "spetslängd"))
+        delresultat_items.append(_post("t_pen", r"t_{pen}", axial_nail["t_pen"], "mm", "inträngningsdjup på spetssidan"))
+        delresultat_items.append(_post("t_head", r"t", axial_nail["t_head"], "mm", "tjocklek för delen med spikhuvudet"))
+        if axial_nail["f_ax_k"] is not None:
+            delresultat_items.append(_post("f_ax_k", r"f_{ax,k}", axial_nail["f_ax_k"], "N/mm^2", "utdragshållfasthet för spetssidan"))
+        if axial_nail["f_head_k"] is not None:
+            delresultat_items.append(_post("f_head_k", r"f_{head,k}", axial_nail["f_head_k"], "N/mm^2", "genomdragningshållfasthet för huvud"))
+        delresultat_items.append(_post("F_ax_a", r"F_{ax,a}", axial_nail["F_ax_a"], "N", "axiell bärförmåga för utdragning"))
+        delresultat_items.append(_post("F_ax_b", r"F_{ax,b}", axial_nail["F_ax_b"], "N", "axiell bärförmåga för huvud/genomdragning"))
+        delresultat_items.append(_post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"))
+        if not axial_nail["enabled"]:
+            delresultat_items.append(
+                _post("axialdata_info", r"\mathrm{axial\_info}", "axialdata saknas, är ofullständiga eller är avstängda", "-", "ingen linverkan tillgodoräknas")
+            )
+    elif axial_screw is not None:
         delresultat_items.append(
             _post("axialdata_aktiv", r"\mathrm{axial}", axial_screw["enabled"], "-", "axialdata aktiv")
         )
@@ -1744,11 +1831,27 @@ def tvarkraft_dymlingsforband(px):
     else:
         ekvationer.append(_ekvation(r"M_{y,Rk} = 0.30 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment, EC5 8.5.1"))
 
-    if data.forbindartyp == "spik" and axial_screw is None:
+    if data.forbindartyp == "spik":
         if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
             ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "spik i ändträ antas inte ta axiell last, EC5 8.3.2"))
+        elif data.spiktyp == "slat":
+            ekvationer.extend(
+                [
+                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjup på spetssidan, EC5 Eq. (8.24)"),
+                    _ekvation(r"F_{ax,a} = f_{ax,k} \cdot d \cdot t_{pen}", "utdragning för slät spik, EC5 Eq. (8.24a)"),
+                    _ekvation(r"F_{ax,b} = f_{ax,k} \cdot d \cdot t + f_{head,k} \cdot d_h^2", "huvudgenomdragning för slät spik, EC5 Eq. (8.24b)"),
+                    _ekvation(r"F_{ax,Rk} = \min(F_{ax,a}, F_{ax,b})", "karakteristisk axialbärförmåga för slät spik, EC5 Eq. (8.24)"),
+                ]
+            )
         else:
-            ekvationer.append(_ekvation(r"F_{ax,Rk} = \min(F_{ax,withdrawal}, F_{head})", "karakteristisk axialbärförmåga, EC5 8.3.2"))
+            ekvationer.extend(
+                [
+                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjup på spetssidan, EC5 Eq. (8.23)"),
+                    _ekvation(r"F_{ax,a} = f_{ax,k} \cdot d \cdot t_{pen}", "utdragning för annan spik än slät, EC5 Eq. (8.23a)"),
+                    _ekvation(r"F_{ax,b} = f_{head,k} \cdot d_h^2", "huvudgenomdragning för annan spik än slät, EC5 Eq. (8.23b)"),
+                    _ekvation(r"F_{ax,Rk} = \min(F_{ax,a}, F_{ax,b})", "karakteristisk axialbärförmåga för annan spik än slät, EC5 Eq. (8.23)"),
+                ]
+            )
     else:
         if axial_screw["enabled"]:
             ekvationer.extend(

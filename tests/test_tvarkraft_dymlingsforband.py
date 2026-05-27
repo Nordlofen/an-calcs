@@ -284,7 +284,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
 
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
 
-    def test_spik_med_axialdata_anvander_8_38_och_ersatter_spikmodell(self):
+    def test_slat_spik_med_axialdata_anvander_eq_8_24(self):
         details = tvarkraft_dymlingsforband(
             [
                 "spik",
@@ -310,20 +310,62 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 {
                     "f_ax_k": 1.0,
                     "f_head_k": 8.0,
-                    "f_tens_k": 50000.0,
-                    "alpha_ax": 0.0,
+                    "l_g": 25.0,
+                    "l_p": 3.0,
                 },
             ]
         )
 
         delresultat = details["delresultat"]
-        self.assertEqual(_hamta_post(delresultat, "normativ_axialgren")["value"], "8.38")
+        self.assertEqual(_hamta_post(delresultat, "normativ_axialgren")["value"], "8.24")
         self.assertTrue(_hamta_post(delresultat, "axialdata_aktiv")["value"])
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "l_ef")["value"], 31.0, rel_tol=1e-9))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "k_d")["value"], 0.2625, rel_tol=1e-9))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_w")["value"], 14.240625, rel_tol=1e-9))
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 14.240625, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "t_pen")["value"], 25.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "t_head")["value"], 9.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_a")["value"], 52.5, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_b")["value"], 243.62, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 52.5, rel_tol=1e-9))
         self.assertTrue(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+        self.assertTrue(any("Eq. (8.24)" in item["etikett"] for item in details["ekvationer"]["items"]))
+
+    def test_profilerad_spik_med_axialdata_anvander_eq_8_23(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "spikregler",
+                "skiva-tra",
+                "plywood",
+                "konstruktionsvirke",
+                9.0,
+                220.0,
+                450.0,
+                350.0,
+                0.0,
+                0.0,
+                2.1,
+                5.3,
+                40.0,
+                600.0,
+                "profilerad",
+                1,
+                1,
+                False,
+                False,
+                {
+                    "f_ax_k": 2.0,
+                    "f_head_k": 1.0,
+                    "l_g": 40.0,
+                    "l_p": 5.0,
+                },
+            ]
+        )
+
+        delresultat = details["delresultat"]
+        self.assertEqual(_hamta_post(delresultat, "normativ_axialgren")["value"], "8.23")
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "t_pen")["value"], 26.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_a")["value"], 109.2, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_b")["value"], 28.09, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "F_ax_Rk")["value"], 28.09, rel_tol=1e-9))
+        self.assertTrue(any("Eq. (8.23)" in item["etikett"] for item in details["ekvationer"]["items"]))
 
     def test_spik_med_nollad_axialdata_stanger_av_linverkan(self):
         details = tvarkraft_dymlingsforband(
@@ -350,14 +392,49 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 False,
                 {
                     "f_ax_k": 0.0,
-                    "f_head_k": 0.0,
-                    "f_tens_k": 0.0,
-                    "alpha_ax": 0.0,
+                    "f_head_k": 8.0,
+                    "l_g": 25.0,
+                    "l_p": 3.0,
                 },
             ]
         )
 
-        self.assertEqual(_hamta_post(details["delresultat"], "normativ_axialgren")["value"], "8.38")
+        self.assertEqual(_hamta_post(details["delresultat"], "normativ_axialgren")["value"], "8.24")
+        self.assertFalse(_hamta_post(details["delresultat"], "axialdata_aktiv")["value"])
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+
+    def test_spik_med_ofullstandig_axialdata_stanger_av_linverkan(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "spikregler",
+                "skiva-tra",
+                "plywood",
+                "konstruktionsvirke",
+                9.0,
+                220.0,
+                450.0,
+                350.0,
+                0.0,
+                0.0,
+                2.1,
+                5.3,
+                40.0,
+                600.0,
+                "slat",
+                1,
+                1,
+                False,
+                False,
+                {
+                    "f_ax_k": 1.0,
+                    "f_head_k": 8.0,
+                    "l_p": 3.0,
+                },
+            ]
+        )
+
         self.assertFalse(_hamta_post(details["delresultat"], "axialdata_aktiv")["value"])
         self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "F_ax_Rk")["value"], 0.0))
         self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
