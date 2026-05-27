@@ -1634,7 +1634,7 @@ def tvarkraft_dymlingsforband(px):
                 _post("f_tens_k_input", r"F_{t,Rk}", data.f_tens_k_input, "N", "inmatad dragbärförmåga"),
                 _post("alpha_ax_input", r"\alpha_{ax}", data.alpha_ax_input, "deg", "inmatad axelvinkel mot fiberriktning"),
                 _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
-                _post("l_g_input", r"l_g", data.l_g_input, "mm", "inmatad längd av verksam del på spetssidan"),
+                _post("l_g_input", r"l_g", data.l_g_input, "mm", "inmatad längd av den icke släta delen i den spetsmottagande virkesdelen"),
                 _post("l_p_input", r"l_p", data.l_p_input, "mm", "inmatad spetslängd"),
             ]
         )
@@ -1680,9 +1680,9 @@ def tvarkraft_dymlingsforband(px):
             _post("axialdata_aktiv", r"\mathrm{axial}", axial_nail["enabled"], "-", "axialdata aktiv")
         )
         delresultat_items.append(_post("rho_k", r"\rho_k", axial_nail["rho_k"], "kg/m^3", "karakteristisk densitet i axialmodell"))
-        delresultat_items.append(_post("l_g", r"l_g", axial_nail["l_g"], "mm", "längd av verksam del på spetssidan"))
+        delresultat_items.append(_post("l_g", r"l_g", axial_nail["l_g"], "mm", "längd av den icke släta delen i den spetsmottagande virkesdelen"))
         delresultat_items.append(_post("l_p", r"l_p", axial_nail["l_p"], "mm", "spetslängd"))
-        delresultat_items.append(_post("t_pen", r"t_{pen}", axial_nail["t_pen"], "mm", "inträngningsdjup på spetssidan"))
+        delresultat_items.append(_post("t_pen", r"t_{pen}", axial_nail["t_pen"], "mm", "inträngningsdjupet eller längden av den icke släta delen i den spetsmottagande virkesdelen"))
         delresultat_items.append(_post("t_head", r"t", axial_nail["t_head"], "mm", "tjocklek för delen med spikhuvudet"))
         if axial_nail["f_ax_k"] is not None:
             delresultat_items.append(_post("f_ax_k", r"f_{ax,k}", axial_nail["f_ax_k"], "N/mm^2", "utdragshållfasthet för spetssidan"))
@@ -1837,7 +1837,7 @@ def tvarkraft_dymlingsforband(px):
         elif data.spiktyp == "slat":
             ekvationer.extend(
                 [
-                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjup på spetssidan, EC5 Eq. (8.24)"),
+                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjupet eller längden av den icke släta delen i den spetsmottagande virkesdelen, EC5 Eq. (8.24)"),
                     _ekvation(r"F_{ax,a} = f_{ax,k} \cdot d \cdot t_{pen}", "utdragning för slät spik, EC5 Eq. (8.24a)"),
                     _ekvation(r"F_{ax,b} = f_{ax,k} \cdot d \cdot t + f_{head,k} \cdot d_h^2", "huvudgenomdragning för slät spik, EC5 Eq. (8.24b)"),
                     _ekvation(r"F_{ax,Rk} = \min(F_{ax,a}, F_{ax,b})", "karakteristisk axialbärförmåga för slät spik, EC5 Eq. (8.24)"),
@@ -1846,7 +1846,7 @@ def tvarkraft_dymlingsforband(px):
         else:
             ekvationer.extend(
                 [
-                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjup på spetssidan, EC5 Eq. (8.23)"),
+                    _ekvation(r"t_{pen} = \min(l_g, l - t_1 - l_p)", "inträngningsdjupet eller längden av den icke släta delen i den spetsmottagande virkesdelen, EC5 Eq. (8.23)"),
                     _ekvation(r"F_{ax,a} = f_{ax,k} \cdot d \cdot t_{pen}", "utdragning för annan spik än slät, EC5 Eq. (8.23a)"),
                     _ekvation(r"F_{ax,b} = f_{head,k} \cdot d_h^2", "huvudgenomdragning för annan spik än slät, EC5 Eq. (8.23b)"),
                     _ekvation(r"F_{ax,Rk} = \min(F_{ax,a}, F_{ax,b})", "karakteristisk axialbärförmåga för annan spik än slät, EC5 Eq. (8.23)"),
