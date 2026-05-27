@@ -567,6 +567,14 @@ def _k_90(materialtyp, d):
     return 1.35 + 0.015 * d
 
 
+def _sheet_embedment_strength_nail(materialtyp, rho_k, d, t):
+    if materialtyp == "plywood":
+        return 0.11 * max(rho_k, 350.0) * d ** (-0.3)
+    if materialtyp in {"osb", "spanskiva"}:
+        return 65.0 * d ** (-0.7) * t ** 0.1
+    raise ValueError("Okänd skivtyp för bäddhållfasthet i spikgrenen.")
+
+
 def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad, infastning):
     if _is_steel(materialtyp):
         return None
@@ -578,7 +586,7 @@ def _embedment_strength(materialtyp, rho_k, alpha, d, d_h, t, branch, forborrad,
 
     if branch == "8.3":
         if _is_sheet(materialtyp):
-            return 0.11 * max(rho_k, 350.0) * d ** (-0.3)
+            return _sheet_embedment_strength_nail(materialtyp, rho_k, d, t)
         if d > 8.0:
             branch = "8.5"
         elif forborrad:
@@ -614,7 +622,7 @@ def _embedment_components(materialtyp, rho_k, alpha, d, d_h, t, branch, forborra
 
     if branch == "8.3":
         if _is_sheet(materialtyp):
-            fh_k = 0.11 * max(rho_k, 350.0) * d ** (-0.3)
+            fh_k = _sheet_embedment_strength_nail(materialtyp, rho_k, d, t)
             return {
                 "fh_k": fh_k,
                 "fh_0_k": fh_k,
@@ -1684,7 +1692,11 @@ def tvarkraft_dymlingsforband(px):
             return []
         if branch_used == "8.3":
             if (idx == 1 and _is_sheet(data.materialtyp_1)) or (idx == 2 and _is_sheet(data.materialtyp_2)):
-                return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]
+                materialtyp = data.materialtyp_1 if idx == 1 else data.materialtyp_2
+                if materialtyp == "plywood":
+                    return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.11 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(3), Eq. (8.20)")]
+                if materialtyp in {"osb", "spanskiva"}:
+                    return [_ekvation(rf"f_{{h,0,{idx},k}} = 65 \cdot d^{{-0.7}} \cdot t_{{{idx},eff}}^{{0.1}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(3), Eq. (8.22)")]
             if data.forborrad:
                 return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot (1 - 0.01 \cdot d) \cdot \rho_{{k,{idx}}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]
             return [_ekvation(rf"f_{{h,0,{idx},k}} = 0.082 \cdot \rho_{{k,{idx}}} \cdot d^{{-0.3}}", f"oreducerad bäddhållfasthet del {idx}, EC5 8.3.1.2(2)")]

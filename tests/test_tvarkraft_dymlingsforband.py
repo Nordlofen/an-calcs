@@ -98,6 +98,43 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "t_min_utan_forborrning")["value"], 28.0))
         self.assertEqual(_hamta_post(slutresultat, "brottmod_styrande")["value"], "f")
 
+    def test_spikregler_for_osb_och_spanskiva_anvander_skivformel(self):
+        for materialtyp in ("osb", "spanskiva"):
+            with self.subTest(materialtyp=materialtyp):
+                details = tvarkraft_dymlingsforband(
+                    [
+                        "spik",
+                        "spikregler",
+                        "skiva-tra",
+                        materialtyp,
+                        "konstruktionsvirke",
+                        9.0,
+                        220.0,
+                        450.0,
+                        350.0,
+                        0.0,
+                        0.0,
+                        2.1,
+                        5.3,
+                        40.0,
+                        600.0,
+                        "slat",
+                        1,
+                        1,
+                        False,
+                        False,
+                    ]
+                )
+
+                expected = 65.0 * 2.1 ** (-0.7) * 9.0**0.1
+                self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "f_h_1_k")["value"], expected))
+                self.assertTrue(
+                    any(
+                        "65 \\cdot d^{-0.7}" in item["latex"] and "Eq. (8.22)" in item["etikett"]
+                        for item in details["ekvationer"]["items"]
+                    )
+                )
+
     def test_traskruv_anvander_deff_0_8d_i_8_7(self):
         details = tvarkraft_dymlingsforband(
             [
