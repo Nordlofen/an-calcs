@@ -2264,8 +2264,34 @@ tvarkraft_dymlingsforband.panel_schema = {
         {"name": "l_g", "type": "float", "label": "Verksam längd spetssida", "symbol": "<i>l</i><sub>g</sub>", "unit": "mm", "default": 50.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
         {"name": "l_p", "type": "float", "label": "Spetslängd", "symbol": "<i>l</i><sub>p</sub>", "unit": "mm", "default": 3.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
         {"name": "t_pen_manuell", "type": "bool", "label": "Manuell t_pen", "symbol": "man. t<sub>pen</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
-        {"name": "t_pen", "type": "float", "label": "t_pen", "symbol": "<i>t</i><sub>pen</sub>", "unit": "mm", "default": 0.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {
+            "name": "t_pen",
+            "type": "float",
+            "label": "t_pen",
+            "symbol": "<i>t</i><sub>pen</sub>",
+            "unit": "mm",
+            "default": 0.0,
+            "visible_if": {
+                "all": [
+                    {"field": "forbindartyp", "equals": "spik"},
+                    {"field": "t_pen_manuell", "equals": True},
+                ]
+            },
+        },
         {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
-        {"name": "l_ef", "type": "float", "label": "l_ef", "symbol": "<i>l</i><sub>ef</sub>", "unit": "mm", "default": 0.0, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
+        {
+            "name": "l_ef",
+            "type": "float",
+            "label": "l_ef",
+            "symbol": "<i>l</i><sub>ef</sub>",
+            "unit": "mm",
+            "default": 0.0,
+            "visible_if": {
+                "all": [
+                    {"field": "forbindartyp", "equals": "traskruv"},
+                    {"field": "l_ef_manuell", "equals": True},
+                ]
+            },
+        },
     ],
 }

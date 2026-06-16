@@ -78,11 +78,27 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(fields["l_g"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
         self.assertEqual(fields["l_p"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
         self.assertEqual(fields["t_pen_manuell"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
-        self.assertEqual(fields["t_pen"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
+        self.assertEqual(
+            fields["t_pen"]["visible_if"],
+            {
+                "all": [
+                    {"field": "forbindartyp", "equals": "spik"},
+                    {"field": "t_pen_manuell", "equals": True},
+                ]
+            },
+        )
         self.assertEqual(fields["l_gang"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
         self.assertEqual(fields["slat_hals"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
         self.assertEqual(fields["l_ef_manuell"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
-        self.assertEqual(fields["l_ef"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
+        self.assertEqual(
+            fields["l_ef"]["visible_if"],
+            {
+                "all": [
+                    {"field": "forbindartyp", "equals": "traskruv"},
+                    {"field": "l_ef_manuell", "equals": True},
+                ]
+            },
+        )
         self.assertEqual(fields["f_tens_k"]["visible_if"], {"field": "forbindartyp", "in": ["skruv", "traskruv"]})
         self.assertFalse(fields["t_pen_manuell"]["default"])
         self.assertEqual(fields["t_pen"]["default"], 0.0)
