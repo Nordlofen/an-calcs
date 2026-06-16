@@ -26,7 +26,7 @@ VALID_SHEAR_MODELS = {"auto", "spikregler", "skruvregler"}
 VALID_CONNECTION_TYPES = {"tra-tra", "stal-tra", "tra-skiva", "skiva-tra"}
 VALID_NAIL_TYPES = {"slat", "profilerad"}
 VALID_INFASTNING_TYPES = {"sidotra", "andtra"}
-PANEL_PX = [
+PANEL_PX_BASE = [
     "forbindartyp",
     "tvarkraftsmodell",
     "anslutningstyp",
@@ -59,6 +59,12 @@ PANEL_PX = [
     "rho_a",
     "l_g",
     "l_p",
+]
+PANEL_PX = PANEL_PX_BASE + [
+    "t_pen_manuell",
+    "t_pen",
+    "l_ef_manuell",
+    "l_ef",
 ]
 
 
@@ -96,6 +102,10 @@ class FastenerInput:
     alpha_ax_input: float | None = None
     l_g_input: float | None = None
     l_p_input: float | None = None
+    t_pen_manuell: bool = False
+    t_pen_input: float | None = None
+    l_ef_manuell: bool = False
+    l_ef_input: float | None = None
     normativ_tvarkraftsgren: str | None = None
     normativ_axialgren: str | None = None
     d_eff: float | None = None
@@ -170,6 +180,8 @@ def _validera_gemensamt(data):
         ("rho_a", data.rho_a_input),
         ("l_g", data.l_g_input),
         ("l_p", data.l_p_input),
+        ("t_pen", data.t_pen_input),
+        ("l_ef", data.l_ef_input),
     ):
         if value is not None:
             _krav_icke_negativ(namn, value)
@@ -294,6 +306,8 @@ def _tolka_px_spik(px):
         alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
         l_g_input=_optional_float(axial_props["l_g"]) if "l_g" in axial_props else None,
         l_p_input=_optional_float(axial_props["l_p"]) if "l_p" in axial_props else None,
+        t_pen_manuell=bool(axial_props.get("t_pen_manuell", False)),
+        t_pen_input=_optional_float(axial_props["t_pen"]) if "t_pen" in axial_props else None,
         spiktyp=_normalize_text(spiktyp),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
@@ -522,6 +536,8 @@ def _tolka_px_traskruv(px):
         f_tens_k_input=_optional_float(axial_props["f_tens_k"]) if "f_tens_k" in axial_props else None,
         rho_a_input=_optional_float(axial_props["rho_a"]) if "rho_a" in axial_props else None,
         alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
+        l_ef_manuell=bool(axial_props.get("l_ef_manuell", False)),
+        l_ef_input=_optional_float(axial_props["l_ef"]) if "l_ef" in axial_props else None,
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
         tvarforskjuten_1d=bool(tvarforskjuten_1d),
@@ -540,6 +556,8 @@ def _panel_float(value):
 
 
 def _tolka_px_panel(px):
+    if len(px) == len(PANEL_PX_BASE):
+        px = list(px) + [False, 0.0, False, 0.0]
     values = dict(zip(PANEL_PX, px))
     forbindartyp = _normalize_text(values["forbindartyp"])
     my_rk = _panel_float(values["M_y_Rk"])
@@ -573,6 +591,10 @@ def _tolka_px_panel(px):
         alpha_ax_input=_optional_float(values["alpha_ax"]) if forbindartyp in {"skruv", "traskruv"} else None,
         l_g_input=_optional_float(values["l_g"]) if forbindartyp == "spik" else None,
         l_p_input=_optional_float(values["l_p"]) if forbindartyp == "spik" else None,
+        t_pen_manuell=bool(values["t_pen_manuell"]) if forbindartyp == "spik" else False,
+        t_pen_input=_optional_float(values["t_pen"]) if forbindartyp == "spik" else None,
+        l_ef_manuell=bool(values["l_ef_manuell"]) if forbindartyp == "traskruv" else False,
+        l_ef_input=_optional_float(values["l_ef"]) if forbindartyp == "traskruv" else None,
         n_rader=int(values["n_rader"]),
         n_per_rad=int(values["n_per_rad"]),
         tvarforskjuten_1d=bool(values["tvarforskjuten_1d"]),
@@ -594,7 +616,7 @@ def _tolka_px(px):
     if not px:
         raise ValueError("px måste innehålla minst ett värde.")
 
-    if len(px) == len(PANEL_PX):
+    if len(px) in {len(PANEL_PX_BASE), len(PANEL_PX)}:
         return _tolka_px_panel(px)
 
     forbindartyp = _normalize_text(px[0])
@@ -851,7 +873,12 @@ def _axial_components_spik(data, t_head):
     f_head_k = data.f_head_k_input if has_axial_input else 70e-6 * rho**2
     l_g = data.l_g_input if has_axial_input else _fastener_penetration(data)
     l_p = data.l_p_input if has_axial_input else 0.0
-    t_pen = max(0.0, min(l_g or 0.0, data.l - data.t_1 - (l_p or 0.0))) if has_axial_input else _fastener_penetration(data)
+    if has_axial_input and data.t_pen_manuell:
+        t_pen = data.t_pen_input if data.t_pen_input and data.t_pen_input > 0 else 0.0
+    elif has_axial_input:
+        t_pen = max(0.0, min(l_g or 0.0, data.l - data.t_1 - (l_p or 0.0)))
+    else:
+        t_pen = _fastener_penetration(data)
 
     off = {
         "enabled": False,
@@ -866,13 +893,14 @@ def _axial_components_spik(data, t_head):
         "F_ax_b": 0.0,
         "F_ax_Rk": 0.0,
         "from_input": has_axial_input,
+        "t_pen_manuell": data.t_pen_manuell,
     }
 
     if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
         return off
     if not (f_ax_k and f_ax_k > 0 and f_head_k and f_head_k > 0 and t_pen > 0):
         return off
-    if has_axial_input and not (l_g and l_g > 0 and data.l_p_input is not None):
+    if has_axial_input and not data.t_pen_manuell and not (l_g and l_g > 0 and data.l_p_input is not None):
         return off
 
     f_ax_a = f_ax_k * data.d * t_pen
@@ -894,6 +922,8 @@ def _axial_enabled_threaded_screw(data):
         return False
     if not (data.f_ax_k_input and data.f_ax_k_input > 0 and data.f_tens_k_input and data.f_tens_k_input > 0):
         return False
+    if data.forbindartyp == "traskruv" and data.l_ef_manuell and not (data.l_ef_input and data.l_ef_input > 0):
+        return False
     if data.anslutningstyp == "tra-tra" and not (data.f_head_k_input and data.f_head_k_input > 0):
         return False
     return True
@@ -908,6 +938,10 @@ def _has_axial_input(data):
         or data.rho_a_input is not None
         or data.l_g_input is not None
         or data.l_p_input is not None
+        or data.t_pen_manuell
+        or data.t_pen_input is not None
+        or data.l_ef_manuell
+        or data.l_ef_input is not None
     )
 
 
@@ -918,6 +952,8 @@ def _axial_timber_material(data):
 
 
 def _axial_effective_thread_length(data):
+    if data.forbindartyp == "traskruv" and data.l_ef_manuell:
+        return data.l_ef_input if data.l_ef_input and data.l_ef_input > 0 else 0.0
     penetration = _fastener_penetration(data)
     if data.forbindartyp == "traskruv" and data.l_gang is not None:
         return min(penetration, data.l_gang)
@@ -928,6 +964,7 @@ def _axial_components_threaded_screw(data):
     off = {
         "enabled": False,
         "l_ef": _axial_effective_thread_length(data),
+        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp == "traskruv" else False,
         "k_d": None,
         "rho_k": None,
         "rho_a": data.rho_a_input or 350.0,
@@ -963,6 +1000,7 @@ def _axial_components_threaded_screw(data):
     return {
         "enabled": True,
         "l_ef": l_ef,
+        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp == "traskruv" else False,
         "k_d": k_d,
         "rho_k": rho_k,
         "rho_a": rho_a,
@@ -1433,6 +1471,10 @@ def tvarkraft_dymlingsforband(px):
         "f_head_k": ...,
         "l_g": ...,        # spik: verksam längd på spetssidan
         "l_p": ...,        # spik: spetslängd
+        "t_pen_manuell": True, # spik: använd manuellt t_pen
+        "t_pen": ...,      # spik: manuellt inträngningsdjup
+        "l_ef_manuell": True, # träskruv: använd manuellt l_ef
+        "l_ef": ...,       # träskruv: manuell effektiv inträngningslängd
         "f_tens_k": ...,   # skruv/träskruv
         "alpha_ax": ...,   # skruv/träskruv
         "rho_a": ...       # skruv/träskruv, valfritt, standard 350
@@ -1729,6 +1771,10 @@ def tvarkraft_dymlingsforband(px):
                 _post("rho_a_input", r"\rho_a", data.rho_a_input, "kg/m^3", "referensdensitet för axialdata"),
                 _post("l_g_input", r"l_g", data.l_g_input, "mm", "inmatad längd av den icke släta delen i den spetsmottagande virkesdelen"),
                 _post("l_p_input", r"l_p", data.l_p_input, "mm", "inmatad spetslängd"),
+                _post("t_pen_manuell", r"\mathrm{t_{pen,man}}", data.t_pen_manuell, "-", "använd manuellt inträngningsdjup för spik"),
+                _post("t_pen_input", r"t_{pen}", data.t_pen_input, "mm", "manuellt inmatat inträngningsdjup för spik"),
+                _post("l_ef_manuell", r"\mathrm{l_{ef,man}}", data.l_ef_manuell, "-", "använd manuell effektiv inträngningslängd för träskruv"),
+                _post("l_ef_input", r"l_{ef}", data.l_ef_input, "mm", "manuellt inmatad effektiv inträngningslängd för träskruv"),
             ]
         )
     if data.my_rk_input is not None:
@@ -1775,7 +1821,9 @@ def tvarkraft_dymlingsforband(px):
         delresultat_items.append(_post("rho_k", r"\rho_k", axial_nail["rho_k"], "kg/m^3", "karakteristisk densitet i axialmodell"))
         delresultat_items.append(_post("l_g", r"l_g", axial_nail["l_g"], "mm", "längd av den icke släta delen i den spetsmottagande virkesdelen"))
         delresultat_items.append(_post("l_p", r"l_p", axial_nail["l_p"], "mm", "spetslängd"))
-        delresultat_items.append(_post("t_pen", r"t_{pen}", axial_nail["t_pen"], "mm", "inträngningsdjupet eller längden av den icke släta delen i den spetsmottagande virkesdelen"))
+        delresultat_items.append(_post("t_pen_manuell", r"\mathrm{t_{pen,man}}", axial_nail["t_pen_manuell"], "-", "manuellt inträngningsdjup används"))
+        t_pen_label = "manuellt inmatat inträngningsdjup för spik" if axial_nail["t_pen_manuell"] else "inträngningsdjupet eller längden av den icke släta delen i den spetsmottagande virkesdelen"
+        delresultat_items.append(_post("t_pen", r"t_{pen}", axial_nail["t_pen"], "mm", t_pen_label))
         delresultat_items.append(_post("t_head", r"t", axial_nail["t_head"], "mm", "tjocklek för delen med spikhuvudet"))
         if axial_nail["f_ax_k"] is not None:
             delresultat_items.append(_post("f_ax_k", r"f_{ax,k}", axial_nail["f_ax_k"], "N/mm^2", "utdragshållfasthet för spetssidan"))
@@ -1792,7 +1840,9 @@ def tvarkraft_dymlingsforband(px):
         delresultat_items.append(
             _post("axialdata_aktiv", r"\mathrm{axial}", axial_screw["enabled"], "-", "axialdata aktiv")
         )
-        delresultat_items.append(_post("l_ef", r"l_{ef}", axial_screw["l_ef"], "mm", "effektiv inträngningslängd"))
+        delresultat_items.append(_post("l_ef_manuell", r"\mathrm{l_{ef,man}}", axial_screw["l_ef_manuell"], "-", "manuell effektiv inträngningslängd används"))
+        l_ef_label = "manuellt inmatad effektiv inträngningslängd för träskruv" if axial_screw["l_ef_manuell"] else "effektiv inträngningslängd"
+        delresultat_items.append(_post("l_ef", r"l_{ef}", axial_screw["l_ef"], "mm", l_ef_label))
         delresultat_items.append(_post("k_d", r"k_d", axial_screw["k_d"], "-", "storleksfaktor enligt EC5 8.40"))
         if axial_screw["rho_k"] is not None:
             delresultat_items.append(_post("rho_k", r"\rho_k", axial_screw["rho_k"], "kg/m^3", "karakteristisk densitet i axialmodell"))
@@ -1819,7 +1869,7 @@ def tvarkraft_dymlingsforband(px):
     if line_effect_active:
         delresultat_items.append(_post("c_rope", r"c_{rope}", c_rope, "-", "linverkskoefficient"))
     if l_pen is not None:
-        delresultat_items.append(_post("l_pen", r"l_{pen}", l_pen, "mm", "inträngningslängd i axialmodell"))
+        delresultat_items.append(_post("l_pen", r"l_{pen}", l_pen, "mm", "inträngningslängd i axialmodell, manuellt inmatad eller automatiskt beräknad"))
     if beta is not None:
         delresultat_items.append(_post("beta", r"\beta", beta, "-", "kvot mellan bäddhållfastheter"))
     if r_t is not None:
@@ -2213,5 +2263,9 @@ tvarkraft_dymlingsforband.panel_schema = {
         {"name": "rho_a", "type": "float", "label": "Referensdensitet axialdata", "symbol": "ρ<sub>a</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
         {"name": "l_g", "type": "float", "label": "Verksam längd spetssida", "symbol": "<i>l</i><sub>g</sub>", "unit": "mm", "default": 50.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
         {"name": "l_p", "type": "float", "label": "Spetslängd", "symbol": "<i>l</i><sub>p</sub>", "unit": "mm", "default": 3.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {"name": "t_pen_manuell", "type": "bool", "label": "Manuell t_pen", "symbol": "man. t<sub>pen</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {"name": "t_pen", "type": "float", "label": "t_pen", "symbol": "<i>t</i><sub>pen</sub>", "unit": "mm", "default": 0.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
+        {"name": "l_ef", "type": "float", "label": "l_ef", "symbol": "<i>l</i><sub>ef</sub>", "unit": "mm", "default": 0.0, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
     ],
 }
