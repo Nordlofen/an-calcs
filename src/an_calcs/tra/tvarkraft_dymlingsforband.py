@@ -593,8 +593,8 @@ def _tolka_px_panel(px):
         l_p_input=_optional_float(values["l_p"]) if forbindartyp == "spik" else None,
         t_pen_manuell=bool(values["t_pen_manuell"]) if forbindartyp == "spik" else False,
         t_pen_input=_optional_float(values["t_pen"]) if forbindartyp == "spik" else None,
-        l_ef_manuell=bool(values["l_ef_manuell"]) if forbindartyp == "traskruv" else False,
-        l_ef_input=_optional_float(values["l_ef"]) if forbindartyp == "traskruv" else None,
+        l_ef_manuell=bool(values["l_ef_manuell"]) if forbindartyp in {"skruv", "traskruv"} else False,
+        l_ef_input=_optional_float(values["l_ef"]) if forbindartyp in {"skruv", "traskruv"} else None,
         n_rader=int(values["n_rader"]),
         n_per_rad=int(values["n_per_rad"]),
         tvarforskjuten_1d=bool(values["tvarforskjuten_1d"]),
@@ -833,15 +833,21 @@ def _timber_timber_shear_candidates(fh1, fh2, t1, t2, diameter, my_rk, line_effe
 def _steel_timber_shear_candidates(fh, t_timber, diameter, my_rk, steel_thickness, line_effect):
     if steel_thickness <= 0.5 * diameter:
         candidates = {
-            "k": 0.4 * fh * min(t_timber, _fastener_penetration_dummy := t_timber) * diameter,
+            "k": 0.4 * fh * t_timber * diameter,
             "l": 1.15 * math.sqrt(2.0 * my_rk * fh * diameter),
         }
     else:
         candidates = {
             "m": fh * t_timber * diameter,
-            "n": 1.15 * math.sqrt(2.0 * my_rk * fh * diameter),
+            "n": 2.3 * math.sqrt(my_rk * fh * diameter),
         }
     return candidates
+
+
+def _steel_plate_class(steel_thickness, diameter):
+    if steel_thickness <= 0.5 * diameter:
+        return "tunn", "8.9"
+    return "tjock", "8.10"
 
 
 def _line_effect_ratio(data):
@@ -868,9 +874,10 @@ def _axial_capacity_spik(data):
 
 def _axial_components_spik(data, t_head):
     rho = data.rho_k_2 if not _is_steel(data.materialtyp_2) else data.rho_k_1
+    head_against_steel = data.anslutningstyp == "stal-tra"
     has_axial_input = _has_axial_input(data)
     f_ax_k = data.f_ax_k_input if has_axial_input else (20e-6 * rho**2 if data.spiktyp == "slat" else 30e-6 * rho**2)
-    f_head_k = data.f_head_k_input if has_axial_input else 70e-6 * rho**2
+    f_head_k = None if head_against_steel else (data.f_head_k_input if has_axial_input else 70e-6 * rho**2)
     l_g = data.l_g_input if has_axial_input else _fastener_penetration(data)
     l_p = data.l_p_input if has_axial_input else 0.0
     if has_axial_input and data.t_pen_manuell:
@@ -890,7 +897,7 @@ def _axial_components_spik(data, t_head):
         "t_pen": t_pen,
         "t_head": t_head,
         "F_ax_a": 0.0,
-        "F_ax_b": 0.0,
+        "F_ax_b": None if head_against_steel else 0.0,
         "F_ax_Rk": 0.0,
         "from_input": has_axial_input,
         "t_pen_manuell": data.t_pen_manuell,
@@ -898,22 +905,29 @@ def _axial_components_spik(data, t_head):
 
     if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
         return off
-    if not (f_ax_k and f_ax_k > 0 and f_head_k and f_head_k > 0 and t_pen > 0):
+    if not (f_ax_k and f_ax_k > 0 and t_pen > 0):
+        return off
+    if not head_against_steel and not (f_head_k and f_head_k > 0):
         return off
     if has_axial_input and not data.t_pen_manuell and not (l_g and l_g > 0 and data.l_p_input is not None):
         return off
 
     f_ax_a = f_ax_k * data.d * t_pen
-    if data.spiktyp == "slat":
+    if head_against_steel:
+        f_ax_b = None
+        f_ax_rk = f_ax_a
+    elif data.spiktyp == "slat":
         f_ax_b = f_ax_k * data.d * t_head + f_head_k * data.d_h**2
+        f_ax_rk = min(f_ax_a, f_ax_b)
     else:
         f_ax_b = f_head_k * data.d_h**2
+        f_ax_rk = min(f_ax_a, f_ax_b)
     return {
         **off,
         "enabled": True,
         "F_ax_a": f_ax_a,
         "F_ax_b": f_ax_b,
-        "F_ax_Rk": min(f_ax_a, f_ax_b),
+        "F_ax_Rk": f_ax_rk,
     }
 
 
@@ -922,7 +936,7 @@ def _axial_enabled_threaded_screw(data):
         return False
     if not (data.f_ax_k_input and data.f_ax_k_input > 0 and data.f_tens_k_input and data.f_tens_k_input > 0):
         return False
-    if data.forbindartyp == "traskruv" and data.l_ef_manuell and not (data.l_ef_input and data.l_ef_input > 0):
+    if data.forbindartyp in {"skruv", "traskruv"} and data.l_ef_manuell and not (data.l_ef_input and data.l_ef_input > 0):
         return False
     if data.anslutningstyp == "tra-tra" and not (data.f_head_k_input and data.f_head_k_input > 0):
         return False
@@ -952,7 +966,7 @@ def _axial_timber_material(data):
 
 
 def _axial_effective_thread_length(data):
-    if data.forbindartyp == "traskruv" and data.l_ef_manuell:
+    if data.forbindartyp in {"skruv", "traskruv"} and data.l_ef_manuell:
         return data.l_ef_input if data.l_ef_input and data.l_ef_input > 0 else 0.0
     penetration = _fastener_penetration(data)
     if data.forbindartyp == "traskruv" and data.l_gang is not None:
@@ -964,7 +978,7 @@ def _axial_components_threaded_screw(data):
     off = {
         "enabled": False,
         "l_ef": _axial_effective_thread_length(data),
-        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp == "traskruv" else False,
+        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp in {"skruv", "traskruv"} else False,
         "k_d": None,
         "rho_k": None,
         "rho_a": data.rho_a_input or 350.0,
@@ -1000,7 +1014,7 @@ def _axial_components_threaded_screw(data):
     return {
         "enabled": True,
         "l_ef": l_ef,
-        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp == "traskruv" else False,
+        "l_ef_manuell": data.l_ef_manuell if data.forbindartyp in {"skruv", "traskruv"} else False,
         "k_d": k_d,
         "rho_k": rho_k,
         "rho_a": rho_a,
@@ -1698,8 +1712,14 @@ def tvarkraft_dymlingsforband(px):
         l_pen = axial_screw["l_ef"]
         rho_k = axial_screw["rho_k"]
 
+    steel_plate_class = None
+    steel_plate_equation = None
+    steel_thickness = None
+    steel_plate_limit = None
     if data.anslutningstyp == "stal-tra":
         fh_timber, timber_thickness, steel_thickness = _timber_side_values(data, fh_1_k, fh_2_k)
+        steel_plate_class, steel_plate_equation = _steel_plate_class(steel_thickness, d_for_calc)
+        steel_plate_limit = 0.5 * d_for_calc
         base_candidates = _steel_timber_shear_candidates(fh_timber, timber_thickness, d_for_calc, my_rk, steel_thickness, 0.0)
     else:
         base_candidates = _timber_timber_shear_candidates(fh_1_k, fh_2_k, t_1_eff, t_2_eff, d_for_calc, my_rk, 0.0)
@@ -1830,7 +1850,8 @@ def tvarkraft_dymlingsforband(px):
         if axial_nail["f_head_k"] is not None:
             delresultat_items.append(_post("f_head_k", r"f_{head,k}", axial_nail["f_head_k"], "N/mm^2", "genomdragningshållfasthet för huvud"))
         delresultat_items.append(_post("F_ax_a", r"F_{ax,a}", axial_nail["F_ax_a"], "N", "axiell bärförmåga för utdragning"))
-        delresultat_items.append(_post("F_ax_b", r"F_{ax,b}", axial_nail["F_ax_b"], "N", "axiell bärförmåga för huvud/genomdragning"))
+        if axial_nail["F_ax_b"] is not None:
+            delresultat_items.append(_post("F_ax_b", r"F_{ax,b}", axial_nail["F_ax_b"], "N", "axiell bärförmåga för huvud/genomdragning"))
         delresultat_items.append(_post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"))
         if not axial_nail["enabled"]:
             delresultat_items.append(
@@ -1874,6 +1895,11 @@ def tvarkraft_dymlingsforband(px):
         delresultat_items.append(_post("beta", r"\beta", beta, "-", "kvot mellan bäddhållfastheter"))
     if r_t is not None:
         delresultat_items.append(_post("R_t", r"R_t", r_t, "-", "kvot mellan effektiva tjocklekar"))
+    if data.anslutningstyp == "stal-tra":
+        delresultat_items.append(_post("platklass", r"\mathrm{plåtklass}", steel_plate_class, "-", "klassning av stålplåt enligt EC5 8.2.3"))
+        delresultat_items.append(_post("t_s", r"t_s", steel_thickness, "mm", "stålplåtens tjocklek"))
+        delresultat_items.append(_post("t_s_grans", r"0.5d", steel_plate_limit, "mm", "gräns mellan tunn och tjock stålplåt"))
+        delresultat_items.append(_post("stal_tra_ekvation", r"\mathrm{Eq.}", steel_plate_equation, "-", "vald stål-trä-ekvation för ett skjuvningsplan"))
 
     delresultat_items.extend(
         [
@@ -2015,18 +2041,18 @@ def tvarkraft_dymlingsforband(px):
     ekvationer.extend(_distance_equations(data))
 
     if data.anslutningstyp == "stal-tra":
-        if data.t_1 <= 0.5 * d_for_calc or data.t_2 <= 0.5 * d_for_calc:
+        if steel_plate_class == "tunn":
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,1} = 0.4 \cdot f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod k, EC5 8.2.3"),
-                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod l, EC5 8.2.3"),
+                    _ekvation(r"F_{v,Rk,k} = 0.4 \cdot f_{h,k} \cdot t \cdot d", "tunn stålplåt, brottmod k, EC5 8.2.3, Eq. (8.9)"),
+                    _ekvation(r"F_{v,Rk,l} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tunn stålplåt, brottmod l, EC5 8.2.3, Eq. (8.9)"),
                 ]
             )
         else:
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,1} = f_{h,k} \cdot t_{timber} \cdot d_{eff}", "brottmod m, EC5 8.2.3"),
-                    _ekvation(r"F_{v,Rk,2} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d_{eff}} + F_{rope}", "brottmod n, EC5 8.2.3"),
+                    _ekvation(r"F_{v,Rk,m} = f_{h,k} \cdot t \cdot d", "tjock stålplåt, brottmod m, EC5 8.2.3, Eq. (8.10)"),
+                    _ekvation(r"F_{v,Rk,n} = 2.3 \cdot \sqrt{M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tjock stålplåt, brottmod n, EC5 8.2.3, Eq. (8.10)"),
                 ]
             )
     else:
@@ -2207,16 +2233,17 @@ tvarkraft_dymlingsforband.panel_schema = {
         },
         {"name": "t_1", "type": "float", "label": "Tjocklek del 1", "symbol": "<i>t</i><sub>1</sub>", "unit": "mm", "default": 15.0},
         {"name": "t_2", "type": "float", "label": "Tjocklek del 2", "symbol": "<i>t</i><sub>2</sub>", "unit": "mm", "default": 220.0},
-        {"name": "rho_k_1", "type": "float", "label": "Densitet del 1", "symbol": "ρ<sub>k,1</sub>", "unit": "kg/m³", "default": 650.0},
-        {"name": "rho_k_2", "type": "float", "label": "Densitet del 2", "symbol": "ρ<sub>k,2</sub>", "unit": "kg/m³", "default": 350.0},
-        {"name": "alpha_1", "type": "float", "label": "Kraftvinkel del 1", "symbol": "α<sub>1</sub>", "unit": "deg", "default": 0.0},
-        {"name": "alpha_2", "type": "float", "label": "Kraftvinkel del 2", "symbol": "α<sub>2</sub>", "unit": "deg", "default": 0.0},
+        {"name": "rho_k_1", "type": "float", "label": "Densitet del 1", "symbol": "ρ<sub>k,1</sub>", "unit": "kg/m³", "default": 650.0, "visible_if": {"field": "materialtyp_1", "not_equals": "stal"}},
+        {"name": "rho_k_2", "type": "float", "label": "Densitet del 2", "symbol": "ρ<sub>k,2</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"field": "materialtyp_2", "not_equals": "stal"}},
+        {"name": "alpha_1", "type": "float", "label": "Kraftvinkel del 1", "symbol": "α<sub>1</sub>", "unit": "deg", "default": 0.0, "visible_if": {"field": "materialtyp_1", "not_equals": "stal"}},
+        {"name": "alpha_2", "type": "float", "label": "Kraftvinkel del 2", "symbol": "α<sub>2</sub>", "unit": "deg", "default": 0.0, "visible_if": {"field": "materialtyp_2", "not_equals": "stal"}},
         {
             "name": "infastning_1",
             "type": "choice",
             "label": "Infästning del 1",
             "symbol": "inf1",
             "default": "sidotra",
+            "visible_if": {"field": "materialtyp_1", "not_equals": "stal"},
             "options": [
                 {"label": "Sidoträ", "value": "sidotra"},
                 {"label": "Ändträ", "value": "andtra"},
@@ -2228,13 +2255,14 @@ tvarkraft_dymlingsforband.panel_schema = {
             "label": "Infästning del 2",
             "symbol": "inf2",
             "default": "sidotra",
+            "visible_if": {"field": "materialtyp_2", "not_equals": "stal"},
             "options": [
                 {"label": "Sidoträ", "value": "sidotra"},
                 {"label": "Ändträ", "value": "andtra"},
             ],
         },
         {"name": "d", "type": "float", "label": "Diameter", "symbol": "<i>d</i>", "unit": "mm", "default": 2.8},
-        {"name": "d_h", "type": "float", "label": "Huvuddiameter", "symbol": "<i>d</i><sub>h</sub>", "unit": "mm", "default": 6.9},
+        {"name": "d_h", "type": "float", "label": "Huvuddiameter", "symbol": "<i>d</i><sub>h</sub>", "unit": "mm", "default": 6.9, "visible_if": {"field": "anslutningstyp", "not_equals": "stal-tra"}},
         {"name": "l", "type": "float", "label": "Längd", "symbol": "<i>l</i>", "unit": "mm", "default": 68.0},
         {"name": "l_gang", "type": "float", "label": "Gänglängd", "symbol": "<i>l</i><sub>gang</sub>", "unit": "mm", "default": 40.0, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
         {"name": "f_u", "type": "float", "label": "Draghållfasthet", "symbol": "<i>f</i><sub>u</sub>", "unit": "MPa", "default": 600.0},
@@ -2257,7 +2285,7 @@ tvarkraft_dymlingsforband.panel_schema = {
         {"name": "forborrad", "type": "bool", "label": "Förborrad", "symbol": "pre", "default": False},
         {"name": "M_y_Rk", "type": "float", "label": "Manuellt flytmoment", "symbol": "<i>M</i><sub>y,Rk</sub>", "unit": "Nmm", "default": 0.0},
         {"name": "f_ax_k", "type": "float", "label": "Utdragshållfasthet", "symbol": "<i>f</i><sub>ax,k</sub>", "unit": "N/mm²", "default": 8.9},
-        {"name": "f_head_k", "type": "float", "label": "Genomdragshållfasthet", "symbol": "<i>f</i><sub>head,k</sub>", "unit": "N/mm²", "default": 22.0},
+        {"name": "f_head_k", "type": "float", "label": "Genomdragshållfasthet", "symbol": "<i>f</i><sub>head,k</sub>", "unit": "N/mm²", "default": 22.0, "visible_if": {"field": "anslutningstyp", "not_equals": "stal-tra"}},
         {"name": "f_tens_k", "type": "float", "label": "Dragbärförmåga", "symbol": "<i>F</i><sub>t,Rk</sub>", "unit": "N", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
         {"name": "alpha_ax", "type": "float", "label": "Axelvinkel", "symbol": "α<sub>ax</sub>", "unit": "deg", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
         {"name": "rho_a", "type": "float", "label": "Referensdensitet axialdata", "symbol": "ρ<sub>a</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
@@ -2278,7 +2306,7 @@ tvarkraft_dymlingsforband.panel_schema = {
                 ]
             },
         },
-        {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "traskruv"}},
+        {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
         {
             "name": "l_ef",
             "type": "float",
@@ -2288,7 +2316,7 @@ tvarkraft_dymlingsforband.panel_schema = {
             "default": 0.0,
             "visible_if": {
                 "all": [
-                    {"field": "forbindartyp", "equals": "traskruv"},
+                    {"field": "forbindartyp", "in": ["skruv", "traskruv"]},
                     {"field": "l_ef_manuell", "equals": True},
                 ]
             },
