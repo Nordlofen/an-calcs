@@ -1479,6 +1479,40 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a3_t_min")["value"], 144.0))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a4_c_min")["value"], 36.0))
 
+    def test_spik_stal_tra_reducerar_endast_inbordes_minimiavstand(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "spik",
+                "spikregler",
+                "stal-tra",
+                "stal",
+                "konstruktionsvirke",
+                3.0,
+                90.0,
+                0.0,
+                350.0,
+                0.0,
+                0.0,
+                2.8,
+                6.9,
+                55.0,
+                600.0,
+                "profilerad",
+                1,
+                1,
+                False,
+                False,
+                {"f_ax_k": 0.0, "l_g": 31.0, "l_p": 3.1},
+            ]
+        )
+
+        delresultat = details["delresultat"]
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a1_min")["value"], 19.6, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a2_min")["value"], 9.8, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a3_t_min")["value"], 42.0, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "a4_c_min")["value"], 14.0, rel_tol=1e-9))
+        self.assertTrue(any("EC5 8.3.1.4" in item["etikett"] for item in details["ekvationer"]["items"]))
+
     def test_validerar_format_for_spik(self):
         with self.assertRaisesRegex(ValueError, "20, 21, 22 eller 23 värden"):
             tvarkraft_dymlingsforband(["spik"])

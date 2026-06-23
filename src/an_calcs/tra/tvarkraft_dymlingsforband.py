@@ -1106,10 +1106,14 @@ def _required_distances(data):
             continue
         distance_sets.append(_min_distance_set(data.normativ_tvarkraftsgren, effective_diameter, alpha, rho_k, data.forborrad))
 
-    return {
+    distances = {
         key: max(item[key] for item in distance_sets)
         for key in ("a1_min", "a2_min", "a3_t_min", "a3_c_min", "a4_t_min", "a4_c_min")
     }
+    if data.anslutningstyp == "stal-tra" and data.forbindartyp == "spik":
+        distances["a1_min"] *= 0.7
+        distances["a2_min"] *= 0.7
+    return distances
 
 
 def _k_ef_from_ratio(a1_ratio, forborrad):
@@ -1211,7 +1215,12 @@ def _distance_equations(data):
     }
     for key in ("a1_min", "a2_min", "a3_t_min", "a3_c_min", "a4_t_min", "a4_c_min"):
         governing_idx = max(per_side, key=lambda idx: per_side[idx][key])
-        equations.append(_ekvation(_formula(governing_idx, key), f"styrande {labels[key]}, EC5 Tabell 8.2"))
+        formula = _formula(governing_idx, key)
+        label = f"styrande {labels[key]}, EC5 Tabell 8.2"
+        if data.anslutningstyp == "stal-tra" and data.forbindartyp == "spik" and key in {"a1_min", "a2_min"}:
+            formula = rf"{formula} \cdot 0.7"
+            label = f"styrande {labels[key]}, inbördes spikavstånd för stål-trä, EC5 8.3.1.4"
+        equations.append(_ekvation(formula, label))
     return equations
 
 
