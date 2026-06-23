@@ -1163,6 +1163,7 @@ def _effective_number(data, a1_min):
 
 def _distance_equations(data):
     diameter_symbol = "d"
+    steel_timber_nail = data.anslutningstyp == "stal-tra" and data.forbindartyp == "spik"
     per_side = {}
     if not _is_steel(data.materialtyp_1):
         per_side[1] = _min_distance_set(data.normativ_tvarkraftsgren, data.d, data.alpha_1, data.rho_k_1, data.forborrad)
@@ -1217,10 +1218,17 @@ def _distance_equations(data):
         governing_idx = max(per_side, key=lambda idx: per_side[idx][key])
         formula = _formula(governing_idx, key)
         label = f"styrande {labels[key]}, EC5 Tabell 8.2"
-        if data.anslutningstyp == "stal-tra" and data.forbindartyp == "spik" and key in {"a1_min", "a2_min"}:
+        if steel_timber_nail and key in {"a1_min", "a2_min"}:
             formula = rf"{formula} \cdot 0.7"
             label = f"styrande {labels[key]}, inbördes spikavstånd för stål-trä, EC5 8.3.1.4"
         equations.append(_ekvation(formula, label))
+    if steel_timber_nail:
+        equations.append(
+            _ekvation(
+                r"k_{\mathrm{stål-trä,spik}} = 0.7",
+                "reduktionsfaktor för minsta inbördes spikavstånd i stål-trä, EC5 8.3.1.4",
+            )
+        )
     return equations
 
 

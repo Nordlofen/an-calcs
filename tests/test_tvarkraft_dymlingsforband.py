@@ -1511,7 +1511,11 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a2_min")["value"], 9.8, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a3_t_min")["value"], 42.0, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "a4_c_min")["value"], 14.0, rel_tol=1e-9))
-        self.assertTrue(any("EC5 8.3.1.4" in item["etikett"] for item in details["ekvationer"]["items"]))
+        ekvationer = details["ekvationer"]["items"]
+        self.assertTrue(any(item["latex"].startswith("a_{1,min}") and r"\cdot 0.7" in item["latex"] for item in ekvationer))
+        self.assertTrue(any(item["latex"].startswith("a_{2,min}") and r"\cdot 0.7" in item["latex"] for item in ekvationer))
+        self.assertTrue(any("k_{\\mathrm{stål-trä,spik}} = 0.7" in item["latex"] for item in ekvationer))
+        self.assertTrue(any("EC5 8.3.1.4" in item["etikett"] for item in ekvationer))
 
     def test_validerar_format_for_spik(self):
         with self.assertRaisesRegex(ValueError, "20, 21, 22 eller 23 värden"):
