@@ -118,7 +118,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(fields["alpha_2"]["visible_if"], {"field": "materialtyp_2", "not_equals": "stal"})
         self.assertEqual(fields["infastning_1"]["visible_if"], {"field": "materialtyp_1", "not_equals": "stal"})
         self.assertEqual(fields["infastning_2"]["visible_if"], {"field": "materialtyp_2", "not_equals": "stal"})
-        self.assertEqual(fields["d_h"]["visible_if"], {"field": "anslutningstyp", "not_equals": "stal-tra"})
+        self.assertEqual(fields["d_h"]["visible_if"], {"all": [{"field": "anslutningstyp", "not_equals": "stal-tra"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(fields["spiktyp"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
         self.assertEqual(fields["l_g"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(fields["l_p"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
@@ -133,8 +133,8 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 ]
             },
         )
-        self.assertEqual(fields["l_gang"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
-        self.assertEqual(fields["slat_hals"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
+        self.assertEqual(fields["l_gang"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "traskruv"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
+        self.assertEqual(fields["slat_hals"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "traskruv"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(fields["l_ef_manuell"]["visible_if"], {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(
             fields["l_ef"]["visible_if"],
@@ -146,6 +146,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 ]
             },
         )
+        self.assertEqual(fields["f_u"]["visible_if"], {"field": "M_y_Rk", "equals": 0.0})
         self.assertEqual(fields["f_tens_k"]["visible_if"], {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(fields["f_head_k"]["visible_if"], {"all": [{"field": "anslutningstyp", "not_equals": "stal-tra"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(fields["t_il"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
@@ -1620,6 +1621,8 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(_hamta_post(delresultat, "axialdata_info")["value"], "F.4.2.1 innehåller ingen linverkan")
         ekvationer = details["ekvationer"]["items"]
         self.assertTrue(any("F.43" in item["etikett"] for item in ekvationer))
+        for latex_prefix in ("b_{1,c.1}", "b_{1,c.2}", "b_{1,c.3}", "b_{1,c.4}"):
+            self.assertTrue(any(item["latex"].startswith(latex_prefix) for item in ekvationer))
         self.assertTrue(any(item["latex"] == "F_{rope} = 0" for item in ekvationer))
 
     def test_traskruv_tra_mellanlager_tra_annex_f_anvander_d_inte_d_eff(self):
