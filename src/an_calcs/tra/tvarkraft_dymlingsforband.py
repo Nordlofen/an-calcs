@@ -23,7 +23,7 @@ SHEET_TYPES = {"plywood", "osb", "spanskiva"}
 STEEL_TYPE = "stal"
 VALID_FASTENER_TYPES = {"spik", "skruv", "traskruv"}
 VALID_SHEAR_MODELS = {"auto", "spikregler", "skruvregler"}
-VALID_CONNECTION_TYPES = {"tra-tra", "stal-tra", "tra-skiva", "skiva-tra"}
+VALID_CONNECTION_TYPES = {"tra-tra", "stal-tra", "tra-skiva", "skiva-tra", "tra-mellanlager-tra"}
 VALID_NAIL_TYPES = {"slat", "profilerad"}
 VALID_INFASTNING_TYPES = {"sidotra", "andtra"}
 PANEL_PX_BASE = [
@@ -60,11 +60,18 @@ PANEL_PX_BASE = [
     "l_g",
     "l_p",
 ]
-PANEL_PX = PANEL_PX_BASE + [
+PANEL_PX_AXIAL = PANEL_PX_BASE + [
     "t_pen_manuell",
     "t_pen",
     "l_ef_manuell",
     "l_ef",
+]
+PANEL_PX = PANEL_PX_AXIAL + [
+    "t_il",
+    "f_h_il_k",
+    "k_mod_1",
+    "k_mod_2",
+    "k_mod_il",
 ]
 
 
@@ -106,6 +113,11 @@ class FastenerInput:
     t_pen_input: float | None = None
     l_ef_manuell: bool = False
     l_ef_input: float | None = None
+    t_il: float | None = None
+    f_h_il_k: float | None = None
+    k_mod_1: float | None = None
+    k_mod_2: float | None = None
+    k_mod_il: float | None = None
     normativ_tvarkraftsgren: str | None = None
     normativ_axialgren: str | None = None
     d_eff: float | None = None
@@ -147,6 +159,16 @@ def _optional_float(value):
     return float(value)
 
 
+def _interlayer_kwargs(props):
+    return {
+        "t_il": _optional_float(props["t_il"]) if "t_il" in props else None,
+        "f_h_il_k": _optional_float(props["f_h_il_k"]) if "f_h_il_k" in props else None,
+        "k_mod_1": _optional_float(props["k_mod_1"]) if "k_mod_1" in props else None,
+        "k_mod_2": _optional_float(props["k_mod_2"]) if "k_mod_2" in props else None,
+        "k_mod_il": _optional_float(props["k_mod_il"]) if "k_mod_il" in props else None,
+    }
+
+
 def _normalize_text(value):
     return str(value).strip().lower()
 
@@ -155,7 +177,7 @@ def _validera_gemensamt(data):
     if data.tvarkraftsmodell not in VALID_SHEAR_MODELS:
         raise ValueError("tvarkraftsmodell måste vara 'auto', 'spikregler' eller 'skruvregler'.")
     if data.anslutningstyp not in VALID_CONNECTION_TYPES:
-        raise ValueError("anslutningstyp måste vara 'tra-tra', 'stal-tra', 'tra-skiva' eller 'skiva-tra'.")
+        raise ValueError("anslutningstyp måste vara 'tra-tra', 'stal-tra', 'tra-skiva', 'skiva-tra' eller 'tra-mellanlager-tra'.")
     if data.materialtyp_1 not in WOOD_TYPES | SHEET_TYPES | {STEEL_TYPE}:
         raise ValueError("materialtyp_1 är ogiltig.")
     if data.materialtyp_2 not in WOOD_TYPES | SHEET_TYPES | {STEEL_TYPE}:
@@ -182,9 +204,18 @@ def _validera_gemensamt(data):
         ("l_p", data.l_p_input),
         ("t_pen", data.t_pen_input),
         ("l_ef", data.l_ef_input),
+        ("f_h_il_k", data.f_h_il_k),
     ):
         if value is not None:
             _krav_icke_negativ(namn, value)
+    for namn, value in (
+        ("t_il", data.t_il),
+        ("k_mod_1", data.k_mod_1),
+        ("k_mod_2", data.k_mod_2),
+        ("k_mod_il", data.k_mod_il),
+    ):
+        if value is not None:
+            _krav_storre_an_noll(namn, value)
     if data.alpha_ax_input is not None and (data.alpha_ax_input < 0 or data.alpha_ax_input > 90):
         raise ValueError("alpha_ax måste ligga mellan 0 och 90 grader.")
 
@@ -213,6 +244,21 @@ def _validera_gemensamt(data):
     elif data.anslutningstyp == "skiva-tra":
         if not _is_sheet(data.materialtyp_1) or not _is_wood(data.materialtyp_2):
             raise ValueError("skiva-tra kräver skiva i del 1 och trä i del 2.")
+    elif data.anslutningstyp == "tra-mellanlager-tra":
+        if not (_is_wood(data.materialtyp_1) and _is_wood(data.materialtyp_2)):
+            raise ValueError("tra-mellanlager-tra kräver trä i del 1 och trä i del 2.")
+        if data.forbindartyp not in {"spik", "traskruv"}:
+            raise ValueError("tra-mellanlager-tra stöds bara för spik och traskruv.")
+        for namn, value in (
+            ("t_il", data.t_il),
+            ("k_mod_1", data.k_mod_1),
+            ("k_mod_2", data.k_mod_2),
+            ("k_mod_il", data.k_mod_il),
+        ):
+            if value is None:
+                raise ValueError(f"{namn} krävs för tra-mellanlager-tra.")
+        if data.f_h_il_k is None:
+            raise ValueError("f_h_il_k krävs för tra-mellanlager-tra.")
 
 
 def _tolka_px_spik(px):
@@ -308,6 +354,7 @@ def _tolka_px_spik(px):
         l_p_input=_optional_float(axial_props["l_p"]) if "l_p" in axial_props else None,
         t_pen_manuell=bool(axial_props.get("t_pen_manuell", False)),
         t_pen_input=_optional_float(axial_props["t_pen"]) if "t_pen" in axial_props else None,
+        **_interlayer_kwargs(axial_props),
         spiktyp=_normalize_text(spiktyp),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
@@ -407,6 +454,7 @@ def _tolka_px_skruv(px):
         f_tens_k_input=_optional_float(axial_props["f_tens_k"]) if "f_tens_k" in axial_props else None,
         rho_a_input=_optional_float(axial_props["rho_a"]) if "rho_a" in axial_props else None,
         alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
+        **_interlayer_kwargs(axial_props),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
         tvarforskjuten_1d=bool(tvarforskjuten_1d),
@@ -538,6 +586,7 @@ def _tolka_px_traskruv(px):
         alpha_ax_input=_optional_float(axial_props["alpha_ax"]) if "alpha_ax" in axial_props else None,
         l_ef_manuell=bool(axial_props.get("l_ef_manuell", False)),
         l_ef_input=_optional_float(axial_props["l_ef"]) if "l_ef" in axial_props else None,
+        **_interlayer_kwargs(axial_props),
         n_rader=int(n_rader),
         n_per_rad=int(n_per_rad),
         tvarforskjuten_1d=bool(tvarforskjuten_1d),
@@ -558,6 +607,8 @@ def _panel_float(value):
 def _tolka_px_panel(px):
     if len(px) == len(PANEL_PX_BASE):
         px = list(px) + [False, 0.0, False, 0.0]
+    if len(px) == len(PANEL_PX_AXIAL):
+        px = list(px) + [0.0, 0.0, 1.0, 1.0, 1.0]
     values = dict(zip(PANEL_PX, px))
     forbindartyp = _normalize_text(values["forbindartyp"])
     my_rk = _panel_float(values["M_y_Rk"])
@@ -595,6 +646,11 @@ def _tolka_px_panel(px):
         t_pen_input=_optional_float(values["t_pen"]) if forbindartyp == "spik" else None,
         l_ef_manuell=bool(values["l_ef_manuell"]) if forbindartyp in {"skruv", "traskruv"} else False,
         l_ef_input=_optional_float(values["l_ef"]) if forbindartyp in {"skruv", "traskruv"} else None,
+        t_il=_optional_float(values["t_il"]) if _normalize_text(values["anslutningstyp"]) == "tra-mellanlager-tra" else None,
+        f_h_il_k=_optional_float(values["f_h_il_k"]) if _normalize_text(values["anslutningstyp"]) == "tra-mellanlager-tra" else None,
+        k_mod_1=_optional_float(values["k_mod_1"]) if _normalize_text(values["anslutningstyp"]) == "tra-mellanlager-tra" else None,
+        k_mod_2=_optional_float(values["k_mod_2"]) if _normalize_text(values["anslutningstyp"]) == "tra-mellanlager-tra" else None,
+        k_mod_il=_optional_float(values["k_mod_il"]) if _normalize_text(values["anslutningstyp"]) == "tra-mellanlager-tra" else None,
         n_rader=int(values["n_rader"]),
         n_per_rad=int(values["n_per_rad"]),
         tvarforskjuten_1d=bool(values["tvarforskjuten_1d"]),
@@ -616,7 +672,7 @@ def _tolka_px(px):
     if not px:
         raise ValueError("px måste innehålla minst ett värde.")
 
-    if len(px) in {len(PANEL_PX_BASE), len(PANEL_PX)}:
+    if len(px) in {len(PANEL_PX_BASE), len(PANEL_PX_AXIAL), len(PANEL_PX)}:
         return _tolka_px_panel(px)
 
     forbindartyp = _normalize_text(px[0])
@@ -669,6 +725,8 @@ def _pick_normative_shear_branch(data):
 
 
 def _pick_normative_axial_branch(data):
+    if data.anslutningstyp == "tra-mellanlager-tra":
+        return "ingen"
     if data.forbindartyp == "spik" and (data.infastning_1 == "andtra" or data.infastning_2 == "andtra"):
         return "8.3.2"
     if data.forbindartyp == "spik":
@@ -850,6 +908,48 @@ def _steel_plate_class(steel_thickness, diameter):
     return "tjock", "8.10"
 
 
+def _movable_interlayer_shear_components(data, fh1, fh2, t1, t2, diameter, my_rk):
+    k1_fh1 = data.k_mod_1 * fh1
+    beta_f = data.k_mod_2 * fh2 / k1_fh1
+    delta_f = data.k_mod_il * data.f_h_il_k / k1_fh1
+    t_il = data.t_il
+    my_term = my_rk / (k1_fh1 * diameter)
+
+    root_c1 = (2.0 * t_il + t1 + t2) ** 2 + (1.0 + 1.0 / beta_f) * (delta_f * t_il**2 + t1**2) + (1.0 + beta_f) * t2**2
+    b_c1 = beta_f / (1.0 + beta_f) * (-(2.0 * t_il + t1 + t2) + math.sqrt(root_c1))
+
+    root_c2 = (t_il + t1 / 2.0) ** 2 + (2.0 / beta_f + 1.0) * (t1**2 / 4.0 + delta_f * t_il**2 / 4.0 + my_term)
+    b_c2 = 2.0 * beta_f / (2.0 + beta_f) * (-(t_il + t1 / 2.0) + math.sqrt(root_c2))
+
+    root_c3 = (t_il + t2 / 2.0) ** 2 + t2**2 / 4.0 * (1.0 + 2.0 * beta_f) + (1.0 / beta_f + 2.0) * (my_term + delta_f * t_il**2 / 4.0)
+    b_c3 = 2.0 * beta_f / (1.0 + 2.0 * beta_f) * (-(t_il + t2 / 2.0) + math.sqrt(root_c3))
+
+    root_c4 = beta_f**2 * t_il**2 + beta_f * (beta_f + 1.0) * (4.0 * my_term + delta_f * t_il**2 / 2.0)
+    b_c4 = 1.0 / (1.0 + beta_f) * (beta_f * t_il + math.sqrt(root_c4))
+
+    b_1_components = {
+        "c1": b_c1,
+        "c2": b_c2,
+        "c3": b_c3,
+        "c4": b_c4,
+    }
+    b_1_mode = min(b_1_components, key=b_1_components.get)
+    b_1 = b_1_components[b_1_mode]
+    candidates = {
+        "a": fh1 * t1 * diameter,
+        "b": fh2 * t2 * diameter,
+        "c": fh1 * b_1 * diameter,
+    }
+    return {
+        "beta_F": beta_f,
+        "delta_F": delta_f,
+        "b_1_components": b_1_components,
+        "b_1": b_1,
+        "b_1_mode": b_1_mode,
+        "candidates": candidates,
+    }
+
+
 def _line_effect_ratio(data):
     if data.forbindartyp == "traskruv":
         return 1.0
@@ -944,6 +1044,8 @@ def _axial_enabled_threaded_screw(data):
 
 
 def _has_axial_input(data):
+    if data.anslutningstyp == "tra-mellanlager-tra":
+        return False
     return (
         data.f_ax_k_input is not None
         or data.f_head_k_input is not None
@@ -1710,15 +1812,18 @@ def tvarkraft_dymlingsforband(px):
     fh_2_k = fh_2_data["fh_k"]
 
     my_rk = _yield_moment(data)
-    axial_nail = _axial_components_spik(data, t_1_eff) if data.forbindartyp == "spik" else None
-    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} else None
+    movable_interlayer = data.anslutningstyp == "tra-mellanlager-tra"
+    axial_nail = _axial_components_spik(data, t_1_eff) if data.forbindartyp == "spik" and not movable_interlayer else None
+    axial_screw = _axial_components_threaded_screw(data) if data.forbindartyp in {"skruv", "traskruv"} and not movable_interlayer else None
     if axial_nail is not None:
         f_ax_rk = axial_nail["F_ax_Rk"]
     elif axial_screw is not None:
         f_ax_rk = axial_screw["F_ax_Rk"]
+    elif movable_interlayer:
+        f_ax_rk = 0.0
     else:
         f_ax_rk = _axial_capacity(data)
-    line_effect_active = f_ax_rk > 0.0
+    line_effect_active = f_ax_rk > 0.0 and not movable_interlayer
     c_rope = _line_effect_ratio(data)
     l_pen = None
     rho_k = None
@@ -1733,7 +1838,11 @@ def tvarkraft_dymlingsforband(px):
     steel_plate_equation = None
     steel_thickness = None
     steel_plate_limit = None
-    if data.anslutningstyp == "stal-tra":
+    interlayer_components = None
+    if movable_interlayer:
+        interlayer_components = _movable_interlayer_shear_components(data, fh_1_k, fh_2_k, t_1_eff, t_2_eff, data.d, my_rk)
+        base_candidates = interlayer_components["candidates"]
+    elif data.anslutningstyp == "stal-tra":
         fh_timber, timber_thickness, steel_thickness = _timber_side_values(data, fh_1_k, fh_2_k)
         steel_plate_class, steel_plate_equation = _steel_plate_class(steel_thickness, d_for_calc)
         steel_plate_limit = 0.5 * d_for_calc
@@ -1743,7 +1852,7 @@ def tvarkraft_dymlingsforband(px):
 
     beta = None
     r_t = None
-    if data.anslutningstyp != "stal-tra" and fh_1_k and fh_2_k:
+    if data.anslutningstyp not in {"stal-tra", "tra-mellanlager-tra"} and fh_1_k and fh_2_k:
         beta = fh_2_k / fh_1_k
         if t_1_eff > 0:
             r_t = t_2_eff / t_1_eff
@@ -1751,7 +1860,7 @@ def tvarkraft_dymlingsforband(px):
     line_effect_modes = {"c", "d", "e", "f", "l", "n"}
     candidates = {}
     for namn, value in base_candidates.items():
-        if namn in line_effect_modes:
+        if namn in line_effect_modes and line_effect_active:
             candidates[namn] = value + _line_effect(data, value, f_ax_rk)
         else:
             candidates[namn] = value
@@ -1816,6 +1925,16 @@ def tvarkraft_dymlingsforband(px):
         )
     if data.my_rk_input is not None:
         indata_items.append(_post("M_y_Rk_input", r"M_{y,Rk}", data.my_rk_input, "Nmm", "inmatat flytmoment"))
+    if movable_interlayer:
+        indata_items.extend(
+            [
+                _post("t_il", r"t_{il}", data.t_il, "mm", "mellanlagrets tjocklek"),
+                _post("f_h_il_k", r"f_{h,il,k}", data.f_h_il_k, "N/mm^2", "inmatad bäddhållfasthet för mellanlager"),
+                _post("k_mod_1", r"k_{mod,1}", data.k_mod_1, "-", "kmod för trädel 1 i Annex F"),
+                _post("k_mod_2", r"k_{mod,2}", data.k_mod_2, "-", "kmod för trädel 2 i Annex F"),
+                _post("k_mod_il", r"k_{mod,il}", data.k_mod_il, "-", "kmod för mellanlager i Annex F"),
+            ]
+        )
 
     delresultat_items = [
         _post("normativ_tvarkraftsgren", r"\mathrm{gren}_v", data.normativ_tvarkraftsgren, "-", "vald tvärkraftsgren"),
@@ -1903,6 +2022,26 @@ def tvarkraft_dymlingsforband(px):
             )
     else:
         delresultat_items.append(_post("F_ax_Rk", r"F_{ax,Rk}", f_ax_rk, "N", "karakteristisk axialbärförmåga"))
+
+    if movable_interlayer:
+        delresultat_items.extend(
+            [
+                _post("axialdata_info", r"\mathrm{axial\_info}", "F.4.2.1 innehåller ingen linverkan", "-", "ingen axial bärförmåga eller linverkan tillgodoräknas"),
+                _post("t_il", r"t_{il}", data.t_il, "mm", "mellanlagrets tjocklek"),
+                _post("f_h_il_k", r"f_{h,il,k}", data.f_h_il_k, "N/mm^2", "bäddhållfasthet för mellanlager"),
+                _post("k_mod_1", r"k_{mod,1}", data.k_mod_1, "-", "kmod för trädel 1 i Annex F"),
+                _post("k_mod_2", r"k_{mod,2}", data.k_mod_2, "-", "kmod för trädel 2 i Annex F"),
+                _post("k_mod_il", r"k_{mod,il}", data.k_mod_il, "-", "kmod för mellanlager i Annex F"),
+                _post("beta_F", r"\beta_F", interlayer_components["beta_F"], "-", "kvot enligt EC5:2025 Annex F Eq. F.45"),
+                _post("delta_F", r"\delta_F", interlayer_components["delta_F"], "-", "kvot enligt EC5:2025 Annex F Eq. F.46"),
+                _post("b_1_c1", r"b_{1,c.1}", interlayer_components["b_1_components"]["c1"], "mm", "delmode c.1 enligt EC5:2025 Annex F Eq. F.44"),
+                _post("b_1_c2", r"b_{1,c.2}", interlayer_components["b_1_components"]["c2"], "mm", "delmode c.2 enligt EC5:2025 Annex F Eq. F.44"),
+                _post("b_1_c3", r"b_{1,c.3}", interlayer_components["b_1_components"]["c3"], "mm", "delmode c.3 enligt EC5:2025 Annex F Eq. F.44"),
+                _post("b_1_c4", r"b_{1,c.4}", interlayer_components["b_1_components"]["c4"], "mm", "delmode c.4 enligt EC5:2025 Annex F Eq. F.44"),
+                _post("b_1", r"b_1", interlayer_components["b_1"], "mm", "minsta b1-värde enligt EC5:2025 Annex F Eq. F.44"),
+                _post("b_1_mode", r"\mathrm{mode}_{b1}", interlayer_components["b_1_mode"], "-", "styrande delmode för b1"),
+            ]
+        )
 
     if line_effect_active:
         delresultat_items.append(_post("c_rope", r"c_{rope}", c_rope, "-", "linverkskoefficient"))
@@ -2017,7 +2156,14 @@ def tvarkraft_dymlingsforband(px):
     else:
         ekvationer.append(_ekvation(r"M_{y,Rk} = 0.30 \cdot f_u \cdot d^{2.6}", "karakteristiskt flytmoment, EC5 8.5.1"))
 
-    if data.forbindartyp == "spik":
+    if movable_interlayer:
+        ekvationer.extend(
+            [
+                _ekvation(r"F_{ax,Rk} = 0", "F.4.2.1 innehåller ingen axial bärförmåga eller linverkan"),
+                _ekvation(r"F_{rope} = 0", "ingen linverkan i EC5:2025 Annex F.4.2.1"),
+            ]
+        )
+    elif data.forbindartyp == "spik":
         if data.infastning_1 == "andtra" or data.infastning_2 == "andtra":
             ekvationer.append(_ekvation(r"F_{ax,Rk} = 0", "spik i ändträ antas inte ta axiell last, EC5 8.3.2"))
         elif data.spiktyp == "slat":
@@ -2057,7 +2203,18 @@ def tvarkraft_dymlingsforband(px):
 
     ekvationer.extend(_distance_equations(data))
 
-    if data.anslutningstyp == "stal-tra":
+    if movable_interlayer:
+        ekvationer.extend(
+            [
+                _ekvation(r"\beta_F = \frac{k_{mod,2} \cdot f_{h,2,k}}{k_{mod,1} \cdot f_{h,1,k}}", "kvot mellan trädelar, EC5:2025 Annex F Eq. F.45"),
+                _ekvation(r"\delta_F = \frac{k_{mod,il} \cdot f_{h,il,k}}{k_{mod,1} \cdot f_{h,1,k}}", "kvot för rörligt mellanlager, EC5:2025 Annex F Eq. F.46"),
+                _ekvation(r"b_1 = \min(b_{1,c.1}, b_{1,c.2}, b_{1,c.3}, b_{1,c.4})", "b1 för rörligt mellanlager, EC5:2025 Annex F Eq. F.44"),
+                _ekvation(r"F_{v,Rk,a} = f_{h,1,k} \cdot t_{1,eff} \cdot d", "karakteristisk variant av mode a, EC5:2025 Annex F Eq. F.43"),
+                _ekvation(r"F_{v,Rk,b} = f_{h,2,k} \cdot t_{2,eff} \cdot d", "karakteristisk variant av mode b, EC5:2025 Annex F Eq. F.43"),
+                _ekvation(r"F_{v,Rk,c} = f_{h,1,k} \cdot b_1 \cdot d", "karakteristisk variant av mode c, EC5:2025 Annex F Eq. F.43"),
+            ]
+        )
+    elif data.anslutningstyp == "stal-tra":
         if steel_plate_class == "tunn":
             ekvationer.extend(
                 [
@@ -2099,7 +2256,10 @@ def tvarkraft_dymlingsforband(px):
     if line_effect_active:
         ekvationer.append(_ekvation(r"F_{rope} = \min(F_{ax,Rk}/4, c_{rope} \cdot F_{Johansen})", "begränsad linverkan i aktuella brottmoder, EC5 8.2.2(2), Eqs. (8.6)-(8.7)"))
 
-    fv_ref = "EC5 8.2.3" if data.anslutningstyp == "stal-tra" else "EC5 8.2.2, Eq. (8.6)"
+    if movable_interlayer:
+        fv_ref = "EC5:2025 Annex F Eq. F.43, karakteristisk variant"
+    else:
+        fv_ref = "EC5 8.2.3" if data.anslutningstyp == "stal-tra" else "EC5 8.2.2, Eq. (8.6)"
     ekvationer.append(_ekvation(r"F_{v,Rk} = \min(F_{v,Rk,i})", f"styrande karakteristisk tvärkraftsbärförmåga, {fv_ref}"))
 
     k_ef_eq = _k_ef_equation(data, min_distances["a1_min"])
@@ -2210,6 +2370,7 @@ tvarkraft_dymlingsforband.panel_schema = {
                 {"label": "Stål-trä", "value": "stal-tra"},
                 {"label": "Trä-skiva", "value": "tra-skiva"},
                 {"label": "Skiva-trä", "value": "skiva-tra"},
+                {"label": "Trä-mellanlager-trä", "value": "tra-mellanlager-tra"},
             ],
         },
         {
@@ -2301,14 +2462,14 @@ tvarkraft_dymlingsforband.panel_schema = {
         {"name": "tvarforskjuten_1d", "type": "bool", "label": "Tvärförskjuten minst 1d", "symbol": "zigzag", "default": False},
         {"name": "forborrad", "type": "bool", "label": "Förborrad", "symbol": "pre", "default": False},
         {"name": "M_y_Rk", "type": "float", "label": "Manuellt flytmoment", "symbol": "<i>M</i><sub>y,Rk</sub>", "unit": "Nmm", "default": 0.0},
-        {"name": "f_ax_k", "type": "float", "label": "Utdragshållfasthet", "symbol": "<i>f</i><sub>ax,k</sub>", "unit": "N/mm²", "default": 8.9},
-        {"name": "f_head_k", "type": "float", "label": "Genomdragshållfasthet", "symbol": "<i>f</i><sub>head,k</sub>", "unit": "N/mm²", "default": 22.0, "visible_if": {"field": "anslutningstyp", "not_equals": "stal-tra"}},
-        {"name": "f_tens_k", "type": "float", "label": "Dragbärförmåga", "symbol": "<i>F</i><sub>t,Rk</sub>", "unit": "N", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
-        {"name": "alpha_ax", "type": "float", "label": "Axelvinkel", "symbol": "α<sub>ax</sub>", "unit": "deg", "default": 0.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
-        {"name": "rho_a", "type": "float", "label": "Referensdensitet axialdata", "symbol": "ρ<sub>a</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
-        {"name": "l_g", "type": "float", "label": "Verksam längd spetssida", "symbol": "<i>l</i><sub>g</sub>", "unit": "mm", "default": 50.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
-        {"name": "l_p", "type": "float", "label": "Spetslängd", "symbol": "<i>l</i><sub>p</sub>", "unit": "mm", "default": 3.0, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
-        {"name": "t_pen_manuell", "type": "bool", "label": "Manuell t_pen", "symbol": "man. t<sub>pen</sub>", "default": False, "visible_if": {"field": "forbindartyp", "equals": "spik"}},
+        {"name": "f_ax_k", "type": "float", "label": "Utdragshållfasthet", "symbol": "<i>f</i><sub>ax,k</sub>", "unit": "N/mm²", "default": 8.9, "visible_if": {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}},
+        {"name": "f_head_k", "type": "float", "label": "Genomdragshållfasthet", "symbol": "<i>f</i><sub>head,k</sub>", "unit": "N/mm²", "default": 22.0, "visible_if": {"all": [{"field": "anslutningstyp", "not_equals": "stal-tra"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "f_tens_k", "type": "float", "label": "Dragbärförmåga", "symbol": "<i>F</i><sub>t,Rk</sub>", "unit": "N", "default": 0.0, "visible_if": {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "alpha_ax", "type": "float", "label": "Axelvinkel", "symbol": "α<sub>ax</sub>", "unit": "deg", "default": 0.0, "visible_if": {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "rho_a", "type": "float", "label": "Referensdensitet axialdata", "symbol": "ρ<sub>a</sub>", "unit": "kg/m³", "default": 350.0, "visible_if": {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "l_g", "type": "float", "label": "Verksam längd spetssida", "symbol": "<i>l</i><sub>g</sub>", "unit": "mm", "default": 50.0, "visible_if": {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "l_p", "type": "float", "label": "Spetslängd", "symbol": "<i>l</i><sub>p</sub>", "unit": "mm", "default": 3.0, "visible_if": {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
+        {"name": "t_pen_manuell", "type": "bool", "label": "Manuell t_pen", "symbol": "man. t<sub>pen</sub>", "default": False, "visible_if": {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
         {
             "name": "t_pen",
             "type": "float",
@@ -2320,10 +2481,11 @@ tvarkraft_dymlingsforband.panel_schema = {
                 "all": [
                     {"field": "forbindartyp", "equals": "spik"},
                     {"field": "t_pen_manuell", "equals": True},
+                    {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"},
                 ]
             },
         },
-        {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"field": "forbindartyp", "in": ["skruv", "traskruv"]}},
+        {"name": "l_ef_manuell", "type": "bool", "label": "Manuell l_ef", "symbol": "man. l<sub>ef</sub>", "default": False, "visible_if": {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]}},
         {
             "name": "l_ef",
             "type": "float",
@@ -2335,8 +2497,14 @@ tvarkraft_dymlingsforband.panel_schema = {
                 "all": [
                     {"field": "forbindartyp", "in": ["skruv", "traskruv"]},
                     {"field": "l_ef_manuell", "equals": True},
+                    {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"},
                 ]
             },
         },
+        {"name": "t_il", "type": "float", "label": "Mellanlagertjocklek", "symbol": "<i>t</i><sub>il</sub>", "unit": "mm", "default": 13.0, "visible_if": {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"}},
+        {"name": "f_h_il_k", "type": "float", "label": "Bäddhållfasthet mellanlager", "symbol": "<i>f</i><sub>h,il,k</sub>", "unit": "N/mm²", "default": 0.0, "visible_if": {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"}},
+        {"name": "k_mod_1", "type": "float", "label": "kmod del 1", "symbol": "<i>k</i><sub>mod,1</sub>", "default": 1.0, "visible_if": {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"}},
+        {"name": "k_mod_2", "type": "float", "label": "kmod del 2", "symbol": "<i>k</i><sub>mod,2</sub>", "default": 1.0, "visible_if": {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"}},
+        {"name": "k_mod_il", "type": "float", "label": "kmod mellanlager", "symbol": "<i>k</i><sub>mod,il</sub>", "default": 1.0, "visible_if": {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"}},
     ],
 }

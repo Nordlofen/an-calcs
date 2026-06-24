@@ -15,6 +15,39 @@ def _hamta_post(section, namn):
     raise AssertionError(f"Kunde inte hitta post med namn={namn!r}")
 
 
+def _expected_movable_interlayer(fh1, fh2, t1, t2, t_il, d, my_rk, f_h_il_k, k_mod_1, k_mod_2, k_mod_il):
+    k1_fh1 = k_mod_1 * fh1
+    beta = k_mod_2 * fh2 / k1_fh1
+    delta = k_mod_il * f_h_il_k / k1_fh1
+    my_term = my_rk / (k1_fh1 * d)
+
+    c1 = beta / (1.0 + beta) * (
+        -(2.0 * t_il + t1 + t2)
+        + math.sqrt((2.0 * t_il + t1 + t2) ** 2 + (1.0 + 1.0 / beta) * (delta * t_il**2 + t1**2) + (1.0 + beta) * t2**2)
+    )
+    c2 = 2.0 * beta / (2.0 + beta) * (
+        -(t_il + t1 / 2.0)
+        + math.sqrt((t_il + t1 / 2.0) ** 2 + (2.0 / beta + 1.0) * (t1**2 / 4.0 + delta * t_il**2 / 4.0 + my_term))
+    )
+    c3 = 2.0 * beta / (1.0 + 2.0 * beta) * (
+        -(t_il + t2 / 2.0)
+        + math.sqrt((t_il + t2 / 2.0) ** 2 + t2**2 / 4.0 * (1.0 + 2.0 * beta) + (1.0 / beta + 2.0) * (my_term + delta * t_il**2 / 4.0))
+    )
+    c4 = 1.0 / (1.0 + beta) * (
+        beta * t_il
+        + math.sqrt(beta**2 * t_il**2 + beta * (beta + 1.0) * (4.0 * my_term + delta * t_il**2 / 2.0))
+    )
+    b_values = {"c1": c1, "c2": c2, "c3": c3, "c4": c4}
+    b_1_mode = min(b_values, key=b_values.get)
+    b_1 = b_values[b_1_mode]
+    candidates = {
+        "a": fh1 * t1 * d,
+        "b": fh2 * t2 * d,
+        "c": fh1 * b_1 * d,
+    }
+    return beta, delta, b_values, b_1_mode, b_1, candidates
+
+
 class TestTvarkraftDymlingsforband(unittest.TestCase):
     def test_panel_schema_har_ratt_px_ordning_och_default_kan_beraknas(self):
         schema = tvarkraft_dymlingsforband.panel_schema
@@ -63,6 +96,11 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
                 "t_pen",
                 "l_ef_manuell",
                 "l_ef",
+                "t_il",
+                "f_h_il_k",
+                "k_mod_1",
+                "k_mod_2",
+                "k_mod_il",
             ],
         )
         self.assertEqual(_hamta_post(details["indata"], "forbindartyp")["value"], "spik")
@@ -82,32 +120,39 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(fields["infastning_2"]["visible_if"], {"field": "materialtyp_2", "not_equals": "stal"})
         self.assertEqual(fields["d_h"]["visible_if"], {"field": "anslutningstyp", "not_equals": "stal-tra"})
         self.assertEqual(fields["spiktyp"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
-        self.assertEqual(fields["l_g"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
-        self.assertEqual(fields["l_p"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
-        self.assertEqual(fields["t_pen_manuell"]["visible_if"], {"field": "forbindartyp", "equals": "spik"})
+        self.assertEqual(fields["l_g"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
+        self.assertEqual(fields["l_p"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
+        self.assertEqual(fields["t_pen_manuell"]["visible_if"], {"all": [{"field": "forbindartyp", "equals": "spik"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(
             fields["t_pen"]["visible_if"],
             {
                 "all": [
                     {"field": "forbindartyp", "equals": "spik"},
                     {"field": "t_pen_manuell", "equals": True},
+                    {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"},
                 ]
             },
         )
         self.assertEqual(fields["l_gang"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
         self.assertEqual(fields["slat_hals"]["visible_if"], {"field": "forbindartyp", "equals": "traskruv"})
-        self.assertEqual(fields["l_ef_manuell"]["visible_if"], {"field": "forbindartyp", "in": ["skruv", "traskruv"]})
+        self.assertEqual(fields["l_ef_manuell"]["visible_if"], {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
         self.assertEqual(
             fields["l_ef"]["visible_if"],
             {
                 "all": [
                     {"field": "forbindartyp", "in": ["skruv", "traskruv"]},
                     {"field": "l_ef_manuell", "equals": True},
+                    {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"},
                 ]
             },
         )
-        self.assertEqual(fields["f_tens_k"]["visible_if"], {"field": "forbindartyp", "in": ["skruv", "traskruv"]})
-        self.assertEqual(fields["f_head_k"]["visible_if"], {"field": "anslutningstyp", "not_equals": "stal-tra"})
+        self.assertEqual(fields["f_tens_k"]["visible_if"], {"all": [{"field": "forbindartyp", "in": ["skruv", "traskruv"]}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
+        self.assertEqual(fields["f_head_k"]["visible_if"], {"all": [{"field": "anslutningstyp", "not_equals": "stal-tra"}, {"field": "anslutningstyp", "not_equals": "tra-mellanlager-tra"}]})
+        self.assertEqual(fields["t_il"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
+        self.assertEqual(fields["f_h_il_k"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
+        self.assertEqual(fields["k_mod_1"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
+        self.assertEqual(fields["k_mod_2"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
+        self.assertEqual(fields["k_mod_il"]["visible_if"], {"field": "anslutningstyp", "equals": "tra-mellanlager-tra"})
         self.assertFalse(fields["t_pen_manuell"]["default"])
         self.assertEqual(fields["t_pen"]["default"], 0.0)
         self.assertFalse(fields["l_ef_manuell"]["default"])
@@ -231,12 +276,22 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
     def test_gammalt_panel_format_utan_manuella_axialfalt_stods(self):
         schema = tvarkraft_dymlingsforband.panel_schema
         values = {field["name"]: field["default"] for field in schema["fields"]}
-        px = [values[name] for name in schema["px"][:-4]]
+        px = [values[name] for name in schema["px"][:-9]]
 
         details = tvarkraft_dymlingsforband(px)
 
         self.assertEqual(_hamta_post(details["indata"], "forbindartyp")["value"], "spik")
         self.assertFalse(_hamta_post(details["delresultat"], "t_pen_manuell")["value"])
+
+    def test_gammalt_panel_format_utan_annex_f_falt_stods(self):
+        schema = tvarkraft_dymlingsforband.panel_schema
+        values = {field["name"]: field["default"] for field in schema["fields"]}
+        px = [values[name] for name in schema["px"][:-5]]
+
+        details = tvarkraft_dymlingsforband(px)
+
+        self.assertEqual(_hamta_post(details["indata"], "forbindartyp")["value"], "spik")
+        self.assertTrue(_hamta_post(details["slutresultat"], "F_v_Rk_enkel")["value"] > 0)
 
     def test_panel_format_my_rk_noll_beraknas_automatiskt(self):
         schema = tvarkraft_dymlingsforband.panel_schema
@@ -1516,6 +1571,146 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(any(item["latex"].startswith("a_{2,min}") and r"\cdot 0.7" in item["latex"] for item in ekvationer))
         self.assertTrue(any("k_{\\mathrm{stål-trä,spik}} = 0.7" in item["latex"] for item in ekvationer))
         self.assertTrue(any("EC5 8.3.1.4" in item["etikett"] for item in ekvationer))
+
+    def test_spik_tra_mellanlager_tra_annex_f_utan_linverkan(self):
+        px = [
+            "spik",
+            "spikregler",
+            "tra-mellanlager-tra",
+            "konstruktionsvirke",
+            "konstruktionsvirke",
+            45.0,
+            70.0,
+            350.0,
+            420.0,
+            0.0,
+            0.0,
+            4.0,
+            8.0,
+            90.0,
+            600.0,
+            "profilerad",
+            1,
+            1,
+            False,
+            False,
+            5000.0,
+            {"t_il": 13.0, "f_h_il_k": 0.0, "k_mod_1": 0.8, "k_mod_2": 0.7, "k_mod_il": 0.8},
+        ]
+
+        details = tvarkraft_dymlingsforband(px)
+        delresultat = details["delresultat"]
+        fh1 = _hamta_post(delresultat, "f_h_1_k")["value"]
+        fh2 = _hamta_post(delresultat, "f_h_2_k")["value"]
+        beta, delta, b_values, b_1_mode, b_1, candidates = _expected_movable_interlayer(
+            fh1, fh2, 45.0, 70.0, 13.0, 4.0, 5000.0, 0.0, 0.8, 0.7, 0.8
+        )
+
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "delta_F")["value"], 0.0, abs_tol=1e-12))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "beta_F")["value"], beta, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "b_1")["value"], b_1, rel_tol=1e-9))
+        self.assertEqual(_hamta_post(delresultat, "b_1_mode")["value"], b_1_mode)
+        for key, expected in b_values.items():
+            self.assertTrue(math.isclose(_hamta_post(delresultat, f"b_1_{key}")["value"], expected, rel_tol=1e-9))
+        expected_mode = min(candidates, key=candidates.get)
+        self.assertEqual(_hamta_post(details["slutresultat"], "brottmod_styrande")["value"], expected_mode)
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "F_v_Rk_enkel")["value"], candidates[expected_mode], rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "F_ax_Rk")["value"], 0.0))
+        self.assertFalse(_hamta_post(details["slutresultat"], "linverkan_aktiv")["value"])
+        self.assertEqual(_hamta_post(delresultat, "axialdata_info")["value"], "F.4.2.1 innehåller ingen linverkan")
+        ekvationer = details["ekvationer"]["items"]
+        self.assertTrue(any("F.43" in item["etikett"] for item in ekvationer))
+        self.assertTrue(any(item["latex"] == "F_{rope} = 0" for item in ekvationer))
+
+    def test_traskruv_tra_mellanlager_tra_annex_f_anvander_d_inte_d_eff(self):
+        details = tvarkraft_dymlingsforband(
+            [
+                "traskruv",
+                "auto",
+                "tra-mellanlager-tra",
+                "konstruktionsvirke",
+                "konstruktionsvirke",
+                60.0,
+                80.0,
+                350.0,
+                390.0,
+                0.0,
+                0.0,
+                8.0,
+                14.0,
+                160.0,
+                70.0,
+                800.0,
+                False,
+                1,
+                1,
+                False,
+                True,
+                12000.0,
+                {"t_il": 15.0, "f_h_il_k": 2.0, "k_mod_1": 0.8, "k_mod_2": 0.9, "k_mod_il": 0.7},
+            ]
+        )
+
+        delresultat = details["delresultat"]
+        fh1 = _hamta_post(delresultat, "f_h_1_k")["value"]
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "d_eff")["value"], 6.4, rel_tol=1e-9))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 8.0, rel_tol=1e-9))
+        self.assertFalse(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 6.4, rel_tol=1e-9))
+
+    def test_validerar_tra_mellanlager_tra(self):
+        common = [
+            "skruv",
+            "auto",
+            "tra-mellanlager-tra",
+            "konstruktionsvirke",
+            "konstruktionsvirke",
+            45.0,
+            70.0,
+            350.0,
+            420.0,
+            0.0,
+            0.0,
+            6.0,
+            12.0,
+            90.0,
+            600.0,
+            1,
+            1,
+            False,
+            True,
+            {"t_il": 13.0, "f_h_il_k": 0.0, "k_mod_1": 0.8, "k_mod_2": 0.7, "k_mod_il": 0.8},
+        ]
+        with self.assertRaisesRegex(ValueError, "bara för spik och traskruv"):
+            tvarkraft_dymlingsforband(common)
+
+        spik = [
+            "spik",
+            "spikregler",
+            "tra-mellanlager-tra",
+            "konstruktionsvirke",
+            "konstruktionsvirke",
+            45.0,
+            70.0,
+            350.0,
+            420.0,
+            0.0,
+            0.0,
+            4.0,
+            8.0,
+            90.0,
+            600.0,
+            "profilerad",
+            1,
+            1,
+            False,
+            False,
+        ]
+        with self.assertRaisesRegex(ValueError, "t_il krävs"):
+            tvarkraft_dymlingsforband(spik + [{"f_h_il_k": 0.0, "k_mod_1": 0.8, "k_mod_2": 0.7, "k_mod_il": 0.8}])
+        with self.assertRaisesRegex(ValueError, "k_mod_1 måste vara > 0"):
+            tvarkraft_dymlingsforband(spik + [{"t_il": 13.0, "f_h_il_k": 0.0, "k_mod_1": 0.0, "k_mod_2": 0.7, "k_mod_il": 0.8}])
+        details = tvarkraft_dymlingsforband(spik + [{"t_il": 13.0, "f_h_il_k": 0.0, "k_mod_1": 0.8, "k_mod_2": 0.7, "k_mod_il": 0.8}])
+        self.assertTrue(math.isclose(_hamta_post(details["delresultat"], "f_h_il_k")["value"], 0.0))
 
     def test_validerar_format_for_spik(self):
         with self.assertRaisesRegex(ValueError, "20, 21, 22 eller 23 värden"):
