@@ -700,6 +700,8 @@ def _fastener_penetration(data):
 def _effective_thicknesses(data):
     t_1_eff = data.t_1
     t_2_eff = data.t_2
+    if data.anslutningstyp == "tra-mellanlager-tra":
+        t_2_eff = max(0.0, data.l - data.t_1 - (data.t_il or 0.0))
     if data.infastning_2 == "andtra" and not _is_steel(data.materialtyp_2):
         t_2_eff = _fastener_penetration(data)
     return t_1_eff, t_2_eff

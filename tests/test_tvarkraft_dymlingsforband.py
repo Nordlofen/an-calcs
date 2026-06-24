@@ -1603,11 +1603,13 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         delresultat = details["delresultat"]
         fh1 = _hamta_post(delresultat, "f_h_1_k")["value"]
         fh2 = _hamta_post(delresultat, "f_h_2_k")["value"]
+        t_2_eff = 90.0 - 45.0 - 13.0
         beta, delta, b_values, b_1_mode, b_1, candidates = _expected_movable_interlayer(
-            fh1, fh2, 45.0, 70.0, 13.0, 4.0, 5000.0, 0.0, 0.8, 0.7, 0.8
+            fh1, fh2, 45.0, t_2_eff, 13.0, 4.0, 5000.0, 0.0, 0.8, 0.7, 0.8
         )
 
         self.assertTrue(math.isclose(_hamta_post(delresultat, "delta_F")["value"], 0.0, abs_tol=1e-12))
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "t_2_eff")["value"], t_2_eff, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "beta_F")["value"], beta, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "b_1")["value"], b_1, rel_tol=1e-9))
         self.assertEqual(_hamta_post(delresultat, "b_1_mode")["value"], b_1_mode)
@@ -1656,6 +1658,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
 
         delresultat = details["delresultat"]
         fh1 = _hamta_post(delresultat, "f_h_1_k")["value"]
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "t_2_eff")["value"], 85.0, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "d_eff")["value"], 6.4, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 8.0, rel_tol=1e-9))
         self.assertFalse(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 6.4, rel_tol=1e-9))
