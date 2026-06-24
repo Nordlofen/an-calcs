@@ -1044,7 +1044,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertEqual(_hamta_post(delresultat, "stal_tra_ekvation")["value"], "8.9")
         self.assertTrue(math.isclose(_hamta_post(delresultat, "t_s")["value"], 1.0, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "t_s_grans")["value"], 1.4, rel_tol=1e-9))
-        self.assertEqual(_hamta_post(details["slutresultat"], "brottmod_styrande")["value"], "l")
+        self.assertEqual(_hamta_post(details["slutresultat"], "brottmod_styrande")["value"], "b")
         self.assertTrue(any("Eq. (8.9)" in item["etikett"] for item in details["ekvationer"]["items"]))
 
     def test_spik_stal_tra_tjock_plat_anvander_ec5_8_10(self):
@@ -1077,8 +1077,9 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         delresultat = details["delresultat"]
         self.assertEqual(_hamta_post(delresultat, "platklass")["value"], "tjock")
         self.assertEqual(_hamta_post(delresultat, "stal_tra_ekvation")["value"], "8.10")
-        self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_n")["value"], 1107.0351693479427, rel_tol=1e-9))
-        self.assertEqual(_hamta_post(details["slutresultat"], "brottmod_styrande")["value"], "n")
+        self.assertIn("brottmod_d", {item["namn"] for item in delresultat["items"]})
+        self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_e")["value"], 1107.0351693479427, rel_tol=1e-9))
+        self.assertEqual(_hamta_post(details["slutresultat"], "brottmod_styrande")["value"], "e")
         self.assertTrue(any("Eq. (8.10)" in item["etikett"] for item in details["ekvationer"]["items"]))
 
     def test_spik_stal_tra_axialkapacitet_ar_endast_utdragning(self):

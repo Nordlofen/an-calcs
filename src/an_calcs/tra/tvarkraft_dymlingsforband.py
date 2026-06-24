@@ -893,13 +893,14 @@ def _timber_timber_shear_candidates(fh1, fh2, t1, t2, diameter, my_rk, line_effe
 def _steel_timber_shear_candidates(fh, t_timber, diameter, my_rk, steel_thickness, line_effect):
     if steel_thickness <= 0.5 * diameter:
         candidates = {
-            "k": 0.4 * fh * t_timber * diameter,
-            "l": 1.15 * math.sqrt(2.0 * my_rk * fh * diameter),
+            "a": 0.4 * fh * t_timber * diameter,
+            "b": 1.15 * math.sqrt(2.0 * my_rk * fh * diameter),
         }
     else:
         candidates = {
-            "m": fh * t_timber * diameter,
-            "n": 2.3 * math.sqrt(my_rk * fh * diameter),
+            "c": fh * t_timber * diameter,
+            "d": fh * t_timber * diameter * (math.sqrt(2.0 + 4.0 * my_rk / (fh * diameter * t_timber**2)) - 1.0),
+            "e": 2.3 * math.sqrt(my_rk * fh * diameter),
         }
     return candidates
 
@@ -1859,7 +1860,10 @@ def tvarkraft_dymlingsforband(px):
         if t_1_eff > 0:
             r_t = t_2_eff / t_1_eff
 
-    line_effect_modes = {"c", "d", "e", "f", "l", "n"}
+    if data.anslutningstyp == "stal-tra":
+        line_effect_modes = {"b"} if steel_plate_class == "tunn" else {"d", "e"}
+    else:
+        line_effect_modes = {"c", "d", "e", "f"}
     candidates = {}
     for namn, value in base_candidates.items():
         if namn in line_effect_modes and line_effect_active:
@@ -2224,15 +2228,16 @@ def tvarkraft_dymlingsforband(px):
         if steel_plate_class == "tunn":
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,k} = 0.4 \cdot f_{h,k} \cdot t \cdot d", "tunn stålplåt, brottmod k, EC5 8.2.3, Eq. (8.9)"),
-                    _ekvation(r"F_{v,Rk,l} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tunn stålplåt, brottmod l, EC5 8.2.3, Eq. (8.9)"),
+                    _ekvation(r"F_{v,Rk,a} = 0.4 \cdot f_{h,k} \cdot t \cdot d", "tunn stålplåt, brottmod a, EC5 8.2.3, Eq. (8.9)"),
+                    _ekvation(r"F_{v,Rk,b} = 1.15 \cdot \sqrt{2 \cdot M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tunn stålplåt, brottmod b, EC5 8.2.3, Eq. (8.9)"),
                 ]
             )
         else:
             ekvationer.extend(
                 [
-                    _ekvation(r"F_{v,Rk,m} = f_{h,k} \cdot t \cdot d", "tjock stålplåt, brottmod m, EC5 8.2.3, Eq. (8.10)"),
-                    _ekvation(r"F_{v,Rk,n} = 2.3 \cdot \sqrt{M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tjock stålplåt, brottmod n, EC5 8.2.3, Eq. (8.10)"),
+                    _ekvation(r"F_{v,Rk,c} = f_{h,k} \cdot t \cdot d", "tjock stålplåt, brottmod c, EC5 8.2.3, Eq. (8.10)"),
+                    _ekvation(r"F_{v,Rk,d} = f_{h,k} \cdot t \cdot d \cdot \left(\sqrt{2 + \frac{4 \cdot M_{y,Rk}}{f_{h,k} \cdot d \cdot t^2}} - 1\right) + F_{rope}", "tjock stålplåt, brottmod d, EC5 8.2.3, Eq. (8.10)"),
+                    _ekvation(r"F_{v,Rk,e} = 2.3 \cdot \sqrt{M_{y,Rk} \cdot f_{h,k} \cdot d} + F_{rope}", "tjock stålplåt, brottmod e, EC5 8.2.3, Eq. (8.10)"),
                 ]
             )
     else:
