@@ -134,11 +134,14 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         )
 
         forces = details["krafter"]["member_forces"]
+        global_equilibrium = details["krafter"]["global_equilibrium"]
         self.assertEqual(details["krafter"]["pile_loads"], {"N4": 1000.0, "N5": 1000.0, "N6": 1000.0})
         self.assertLess(forces["N4"]["N1-N4"], 0.0)
         self.assertLess(forces["N5"]["N3-N5"], 0.0)
         self.assertLess(forces["N6"]["N2-N6"], 0.0)
         self.assertGreater(forces["N4"]["N4-N5"], 0.0)
+        self.assertIn("N45", global_equilibrium["member_forces"])
+        self.assertIn("R1z", global_equilibrium["top_reactions"])
         self.assertEqual(_hamta_post(details["slutresultat"], "N1-N4")["unit"], "kN")
 
     def test_formaterar_printtext(self):
@@ -156,8 +159,10 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         text = format_trepalsfundament_resultat(details)
         self.assertIn("=== VINKLAR mellan sträva och dragband  ===", text)
         self.assertIn("=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ===", text)
-        self.assertIn("=== NODJÄMVIKT (pålnoder) ===", text)
+        self.assertIn("=== GLOBAL JÄMVIKT (1 kraft per stav) ===", text)
+        self.assertIn("=== LOKAL NODJÄMVIKT (pålnoder) ===", text)
         self.assertIn("Rz per påle = 1000.0", text)
+        self.assertIn("residual-norm", text)
         self.assertIn("N4:", text)
         self.assertIn("N1-N4:", text)
 

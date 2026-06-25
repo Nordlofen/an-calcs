@@ -136,6 +136,71 @@ def _solve3(a, b):
     return solution
 
 
+def _solve_linear(a, b):
+    n = len(b)
+    m = [list(row) + [float(bi)] for row, bi in zip(a, b)]
+
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda row: abs(m[row][col]))
+        if abs(m[pivot][col]) <= 1e-12:
+            raise ValueError("Linjärt ekvationssystem är singulärt.")
+        if pivot != col:
+            m[col], m[pivot] = m[pivot], m[col]
+
+        pivot_value = m[col][col]
+        for j in range(col, n + 1):
+            m[col][j] /= pivot_value
+
+        for row in range(n):
+            if row == col:
+                continue
+            factor = m[row][col]
+            if factor == 0:
+                continue
+            for j in range(col, n + 1):
+                m[row][j] -= factor * m[col][j]
+
+    return [m[row][n] for row in range(n)]
+
+
+def _rank(matrix, tol=1e-9):
+    rows = [list(row) for row in matrix]
+    if not rows:
+        return 0
+
+    n_rows = len(rows)
+    n_cols = len(rows[0])
+    rank = 0
+    for col in range(n_cols):
+        pivot = max(range(rank, n_rows), key=lambda row: abs(rows[row][col]))
+        if abs(rows[pivot][col]) <= tol:
+            continue
+        rows[rank], rows[pivot] = rows[pivot], rows[rank]
+        pivot_value = rows[rank][col]
+        for j in range(col, n_cols):
+            rows[rank][j] /= pivot_value
+        for row in range(n_rows):
+            if row == rank:
+                continue
+            factor = rows[row][col]
+            for j in range(col, n_cols):
+                rows[row][j] -= factor * rows[rank][j]
+        rank += 1
+        if rank == n_rows:
+            break
+    return rank
+
+
+def _least_squares(a, b):
+    n_cols = len(a[0])
+    ata = [[sum(row[i] * row[j] for row in a) for j in range(n_cols)] for i in range(n_cols)]
+    atb = [sum(row[i] * bi for row, bi in zip(a, b)) for i in range(n_cols)]
+    x = _solve_linear(ata, atb)
+    residuals = [sum(row[i] * x[i] for i in range(n_cols)) - bi for row, bi in zip(a, b)]
+    residual_norm = math.sqrt(sum(r * r for r in residuals))
+    return x, residual_norm, _rank(a)
+
+
 def _parse_pile_loads(px):
     if "pile_loads" in px:
         value = px["pile_loads"]
@@ -192,6 +257,81 @@ def _nodjamvikt_all_piles(nodes, pile_loads):
             {"N2-N6": nodes["N2"], "N6-N4": nodes["N4"], "N6-N5": nodes["N5"]},
             pile_loads["N6"],
         ),
+    }
+
+
+def _global_jamvikt(nodes, pile_loads):
+    if pile_loads is None:
+        return None
+
+    unknowns = [
+        "N14",
+        "N35",
+        "N26",
+        "N45",
+        "N56",
+        "N46",
+        "R1x",
+        "R1y",
+        "R1z",
+        "R2x",
+        "R2y",
+        "R2z",
+        "R3x",
+        "R3y",
+        "R3z",
+    ]
+    members = {
+        "N14": ("N1", "N4"),
+        "N35": ("N3", "N5"),
+        "N26": ("N2", "N6"),
+        "N45": ("N4", "N5"),
+        "N56": ("N5", "N6"),
+        "N46": ("N4", "N6"),
+    }
+    support_reactions = {
+        "R1x": ("N1", 0),
+        "R1y": ("N1", 1),
+        "R1z": ("N1", 2),
+        "R2x": ("N2", 0),
+        "R2y": ("N2", 1),
+        "R2z": ("N2", 2),
+        "R3x": ("N3", 0),
+        "R3y": ("N3", 1),
+        "R3z": ("N3", 2),
+    }
+
+    rows = []
+    rhs = []
+    for node in ("N1", "N2", "N3", "N4", "N5", "N6"):
+        for axis in range(3):
+            row = [0.0] * len(unknowns)
+
+            for force_name, (start, end) in members.items():
+                idx = unknowns.index(force_name)
+                if node == start:
+                    row[idx] += _unit_vector(nodes[start], nodes[end])[axis]
+                elif node == end:
+                    row[idx] += _unit_vector(nodes[end], nodes[start])[axis]
+
+            for reaction_name, (reaction_node, reaction_axis) in support_reactions.items():
+                if node == reaction_node and axis == reaction_axis:
+                    row[unknowns.index(reaction_name)] = 1.0
+
+            external = 0.0
+            if node in pile_loads and axis == 2:
+                external = pile_loads[node]
+
+            rows.append(row)
+            rhs.append(-external)
+
+    values, residual_norm, rank = _least_squares(rows, rhs)
+    result = dict(zip(unknowns, values))
+    return {
+        "member_forces": {name: result[name] for name in ("N14", "N35", "N26", "N45", "N56", "N46")},
+        "top_reactions": {name: result[name] for name in ("R1x", "R1y", "R1z", "R2x", "R2y", "R2z", "R3x", "R3y", "R3z")},
+        "rank": rank,
+        "residual_norm": residual_norm,
     }
 
 
@@ -526,6 +666,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     lengths = {f"{a}{b}": _distance(nodes[a], nodes[b]) for a, b in MEMBERS}
     original_lengths = {f"{a}{b}": _distance(original_nodes[a], original_nodes[b]) for a, b in MEMBERS}
     forces = _nodjamvikt_all_piles(nodes, data["pile_loads"])
+    global_forces = _global_jamvikt(nodes, data["pile_loads"])
 
     return {
         "metodbeskrivning": {
@@ -659,6 +800,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         "krafter": {
             "pile_loads": data["pile_loads"],
             "member_forces": forces,
+            "global_equilibrium": global_forces,
             "sign_convention": "positiv = drag, negativ = tryck",
         },
     }
@@ -797,6 +939,7 @@ def format_trepalsfundament_resultat(details):
     strut_angles = geometri.get("strut_horizontal_angles", {})
     pile_loads = krafter.get("pile_loads")
     forces = krafter.get("member_forces")
+    global_equilibrium = krafter.get("global_equilibrium")
 
     lines = [
         "=== VINKLAR mellan sträva och dragband  ===",
@@ -815,9 +958,27 @@ def format_trepalsfundament_resultat(details):
             ]
         )
 
+    if global_equilibrium is not None:
+        member_forces = global_equilibrium["member_forces"]
+        top_reactions = global_equilibrium["top_reactions"]
+        lines.extend(
+            [
+                "",
+                "=== GLOBAL JÄMVIKT (1 kraft per stav) ===",
+                f"Rank(A) = {global_equilibrium['rank']}  | residual-norm = {global_equilibrium['residual_norm']:.3e}",
+                "",
+                "Stavkrafter (positiv = drag, negativ = tryck):",
+            ]
+        )
+        for name in ("N14", "N35", "N26", "N45", "N56", "N46"):
+            lines.append(f"  {name}: {member_forces[name]:.1f}")
+        lines.extend(["", "Stödreaktioner i toppen (N1,N2,N3):"])
+        for name in ("R1x", "R1y", "R1z", "R2x", "R2y", "R2z", "R3x", "R3y", "R3z"):
+            lines.append(f"  {name}: {top_reactions[name]:.1f}")
+
     if forces is not None:
         same_load = pile_loads and len({round(value, 12) for value in pile_loads.values()}) == 1
-        lines.extend(["", "=== NODJÄMVIKT (pålnoder) ==="])
+        lines.extend(["", "=== LOKAL NODJÄMVIKT (pålnoder) ==="])
         if same_load:
             lines.append(f"Rz per påle = {next(iter(pile_loads.values())):.1f} (uppåt, +z)")
         else:
