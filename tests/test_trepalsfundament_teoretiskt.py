@@ -40,6 +40,7 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
                 "slutresultat",
                 "ekvationer",
                 "geometri",
+                "krafter",
             },
         )
         self.assertEqual(details["geometri"]["nodes"]["N4"], [0.0, 0.0, -1.0])
@@ -119,6 +120,26 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
             self.assertTrue(math.isclose(angle, 58.0, abs_tol=1e-4))
         self.assertTrue(math.isclose(geometri["angles"]["a45"], 52.515938496025086, abs_tol=1e-4))
         self.assertTrue(math.isclose(geometri["angle_deltas"]["a45"], -5.484061503986531, abs_tol=1e-4))
+
+    def test_beraknar_stavkrafter_nar_palaster_anges(self):
+        details = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "Rz": 1000.0,
+            }
+        )
+
+        forces = details["krafter"]["member_forces"]
+        self.assertEqual(details["krafter"]["pile_loads"], {"N4": 1000.0, "N5": 1000.0, "N6": 1000.0})
+        self.assertLess(forces["N4"]["N1-N4"], 0.0)
+        self.assertLess(forces["N5"]["N3-N5"], 0.0)
+        self.assertLess(forces["N6"]["N2-N6"], 0.0)
+        self.assertGreater(forces["N4"]["N4-N5"], 0.0)
+        self.assertEqual(_hamta_post(details["slutresultat"], "N1-N4")["unit"], "kN")
 
     def test_validerar_indata(self):
         with self.assertRaisesRegex(ValueError, "d45 måste vara > 0"):

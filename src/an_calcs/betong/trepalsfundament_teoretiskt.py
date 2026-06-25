@@ -44,6 +44,14 @@ def _distance(a, b):
     return math.sqrt(sum(x * x for x in v))
 
 
+def _unit_vector(a, b):
+    v = _sub(b, a)
+    length = math.sqrt(sum(x * x for x in v))
+    if length <= 1e-12:
+        raise ValueError("Två noder sammanfaller, riktning kan inte beräknas.")
+    return [x / length for x in v]
+
+
 def _angle_deg(v1, v2):
     n1 = math.sqrt(sum(x * x for x in v1))
     n2 = math.sqrt(sum(x * x for x in v2))
@@ -88,6 +96,87 @@ def _compute_angles(nodes):
         "a56": _angle_deg(s5, _sub(n6, n5)),
         "a64": _angle_deg(s6, _sub(n4, n6)),
         "a65": _angle_deg(s6, _sub(n5, n6)),
+    }
+
+
+def _det3(m):
+    return (
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    )
+
+
+def _solve3(a, b):
+    det_a = _det3(a)
+    if abs(det_a) <= 1e-12:
+        raise ValueError("Nodjämvikt kan inte lösas eftersom riktningsmatrisen är singulär.")
+
+    solution = []
+    for col in range(3):
+        m = [row[:] for row in a]
+        for row in range(3):
+            m[row][col] = b[row]
+        solution.append(_det3(m) / det_a)
+    return solution
+
+
+def _parse_pile_loads(px):
+    if "pile_loads" in px:
+        value = px["pile_loads"]
+    elif "Rz" in px:
+        value = px["Rz"]
+    elif any(name in px for name in ("Rz4", "Rz5", "Rz6")):
+        value = {
+            "N4": px.get("Rz4", 0.0),
+            "N5": px.get("Rz5", 0.0),
+            "N6": px.get("Rz6", 0.0),
+        }
+    else:
+        return None
+
+    if isinstance(value, dict):
+        return {name: float(value.get(name, value.get(name.lower(), 0.0))) for name in ("N4", "N5", "N6")}
+    if isinstance(value, (list, tuple)):
+        if len(value) != 3:
+            raise ValueError("pile_loads måste innehålla tre värden för N4, N5 och N6.")
+        return {"N4": float(value[0]), "N5": float(value[1]), "N6": float(value[2])}
+
+    load = float(value)
+    return {"N4": load, "N5": load, "N6": load}
+
+
+def _nodjamvikt(node, connected_nodes, rz):
+    directions = [_unit_vector(node, other) for other in connected_nodes.values()]
+    a = [
+        [directions[0][0], directions[1][0], directions[2][0]],
+        [directions[0][1], directions[1][1], directions[2][1]],
+        [directions[0][2], directions[1][2], directions[2][2]],
+    ]
+    # Positiv Rz ar uppatriktad palreaktion. Stavkrafter definieras positiva i drag.
+    b = [0.0, 0.0, -float(rz)]
+    return dict(zip(connected_nodes.keys(), _solve3(a, b)))
+
+
+def _nodjamvikt_all_piles(nodes, pile_loads):
+    if pile_loads is None:
+        return None
+    return {
+        "N4": _nodjamvikt(
+            nodes["N4"],
+            {"N1-N4": nodes["N1"], "N4-N5": nodes["N5"], "N4-N6": nodes["N6"]},
+            pile_loads["N4"],
+        ),
+        "N5": _nodjamvikt(
+            nodes["N5"],
+            {"N3-N5": nodes["N3"], "N5-N4": nodes["N4"], "N5-N6": nodes["N6"]},
+            pile_loads["N5"],
+        ),
+        "N6": _nodjamvikt(
+            nodes["N6"],
+            {"N2-N6": nodes["N2"], "N6-N4": nodes["N4"], "N6-N5": nodes["N5"]},
+            pile_loads["N6"],
+        ),
     }
 
 
@@ -255,6 +344,7 @@ def _parse_px(px):
             "move_node": px.get("move_node"),
             "delta_x": float(px.get("delta_x", px.get("Delta_x", 0.0))),
             "delta_y": float(px.get("delta_y", px.get("Delta_y", 0.0))),
+            "pile_loads": _parse_pile_loads(px),
             "direct_geometry": direct_geometry,
         }
 
@@ -275,6 +365,7 @@ def _parse_px(px):
             "move_node": move_node,
             "delta_x": float(delta_x),
             "delta_y": float(delta_y),
+            "pile_loads": None,
             "direct_geometry": False,
         }
 
@@ -303,6 +394,7 @@ def _parse_px(px):
         "move_node": move_node,
         "delta_x": float(delta_x),
         "delta_y": float(delta_y),
+        "pile_loads": None,
         "direct_geometry": True,
     }
 
@@ -354,7 +446,13 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
             "move_node": "N4",
             "Delta_x": -100.0,
             "Delta_y": 0.0,
+            "pile_loads": {"N4": Rz4, "N5": Rz5, "N6": Rz6},
         }
+
+    Pålasterna är valfria. Om de anges beräknas lokal nodjämvikt i N4, N5
+    och N6. ``Rz`` kan anges som en gemensam uppåtriktad pålreaktion för alla
+    tre pålar, eller ``pile_loads`` som dict/lista med separata värden.
+    Krafttecken: positiv normalkraft = drag, negativ normalkraft = tryck.
 
     Äldre direktgeometriformat stöds fortfarande:
         px = [N1, N2, N3, d45, x_mid, y0, x6, y6, h]
@@ -368,6 +466,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     Enhetskonvention:
         - koordinater och avstånd i mm
         - vinklar i grader
+        - pålaster och stavkrafter i kN
 
     Returvärde:
         dict
@@ -384,6 +483,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         ...     "move_node": "N4",
         ...     "Delta_x": -100.0,
         ...     "Delta_y": 0.0,
+        ...     "Rz": 1000.0,
         ... }
         >>> details = trepalsfundament_teoretiskt_innan_slagning(px)
         >>> fig = plot_trepalsfundament_3d(details)
@@ -409,6 +509,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     angle_deltas = {name: angles[name] - original_angles[name] for name in angles}
     lengths = {f"{a}{b}": _distance(nodes[a], nodes[b]) for a, b in MEMBERS}
     original_lengths = {f"{a}{b}": _distance(original_nodes[a], original_nodes[b]) for a, b in MEMBERS}
+    forces = _nodjamvikt_all_piles(nodes, data["pile_loads"])
 
     return {
         "metodbeskrivning": {
@@ -449,6 +550,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _post("move_node", r"N_{flytt}", data["move_node"], "", "felslagen nod"),
                 _post("delta_x", r"\Delta x", data["delta_x"], "mm", "felslagning i x-led"),
                 _post("delta_y", r"\Delta y", data["delta_y"], "mm", "felslagning i y-led"),
+                _post("pile_loads", r"R_z", data["pile_loads"], "kN", "uppåtriktade pålreaktioner"),
             ],
         },
         "delresultat": {
@@ -488,6 +590,21 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _post("da56", r"\Delta\alpha_{56}", angle_deltas["a56"], "deg", "vinkelförändring a56"),
                 _post("da64", r"\Delta\alpha_{64}", angle_deltas["a64"], "deg", "vinkelförändring a64"),
                 _post("da65", r"\Delta\alpha_{65}", angle_deltas["a65"], "deg", "vinkelförändring a65"),
+                *(
+                    []
+                    if forces is None
+                    else [
+                        _post("N1-N4", r"N_{14}", forces["N4"]["N1-N4"], "kN", "trycksträva N1-N4, positiv = drag"),
+                        _post("N3-N5", r"N_{35}", forces["N5"]["N3-N5"], "kN", "trycksträva N3-N5, positiv = drag"),
+                        _post("N2-N6", r"N_{26}", forces["N6"]["N2-N6"], "kN", "trycksträva N2-N6, positiv = drag"),
+                        _post("N4-N5_vid_N4", r"N_{45,N4}", forces["N4"]["N4-N5"], "kN", "dragband N4-N5 från jämvikt i N4"),
+                        _post("N4-N6_vid_N4", r"N_{46,N4}", forces["N4"]["N4-N6"], "kN", "dragband N4-N6 från jämvikt i N4"),
+                        _post("N5-N4_vid_N5", r"N_{54,N5}", forces["N5"]["N5-N4"], "kN", "dragband N5-N4 från jämvikt i N5"),
+                        _post("N5-N6_vid_N5", r"N_{56,N5}", forces["N5"]["N5-N6"], "kN", "dragband N5-N6 från jämvikt i N5"),
+                        _post("N6-N4_vid_N6", r"N_{64,N6}", forces["N6"]["N6-N4"], "kN", "dragband N6-N4 från jämvikt i N6"),
+                        _post("N6-N5_vid_N6", r"N_{65,N6}", forces["N6"]["N6-N5"], "kN", "dragband N6-N5 från jämvikt i N6"),
+                    ]
+                ),
             ],
         },
         "ekvationer": {
@@ -500,6 +617,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _ekvation(r"N_4=(x_{mid}-d_{45}/2,\ y_0,\ -h)", "nedre nod N4"),
                 _ekvation(r"N_5=(x_{mid}+d_{45}/2,\ y_0,\ -h)", "nedre nod N5"),
                 _ekvation(r"N_6=(x_6,\ y_6,\ -h)", "nedre nod N6"),
+                _ekvation(r"\sum \vec{F}_{nod}=0", "lokal nodjämvikt i pålnod"),
             ],
         },
         "geometri": {
@@ -517,6 +635,11 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
             "alpha_target": data["alpha_target"],
             "optimizer": optimizer,
             "opt_error": opt_error,
+        },
+        "krafter": {
+            "pile_loads": data["pile_loads"],
+            "member_forces": forces,
+            "sign_convention": "positiv = drag, negativ = tryck",
         },
     }
 
