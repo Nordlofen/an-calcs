@@ -106,12 +106,138 @@ def _move_node(nodes, move_node, delta_x, delta_y):
     return moved
 
 
+def _node_set_from_params(data, params):
+    x_mid, y0, x6, y6, h = params
+    nodes = {
+        "N1": data["N1"],
+        "N2": data["N2"],
+        "N3": data["N3"],
+    }
+    nodes.update(_build_bottom_nodes(data["d45"], x_mid, y0, x6, y6, h))
+    return nodes
+
+
+def _target_residuals(data, params):
+    nodes = _node_set_from_params(data, params)
+    angles = _compute_angles(nodes)
+    return [angles[name] - data["alpha_target"] for name in ("a45", "a46", "a54", "a56", "a64", "a65")]
+
+
+def _objective(data, params):
+    if params[4] <= 0:
+        return float("inf")
+    try:
+        residuals = _target_residuals(data, params)
+    except ValueError:
+        return float("inf")
+    return sum(r * r for r in residuals)
+
+
+def _initial_params(data):
+    n1 = data["N1"]
+    n2 = data["N2"]
+    n3 = data["N3"]
+    target_rad = math.radians(data["alpha_target"])
+    h0 = max(data["d45"] * math.tan(target_rad) / 2.0, data["d45"] * 0.25, 1.0)
+    return [
+        (n1[0] + n3[0]) / 2.0,
+        (n1[1] + n3[1]) / 2.0,
+        n2[0],
+        n2[1],
+        h0,
+    ]
+
+
+def _nelder_mead(data, start, max_iter=900, tol=1e-8):
+    n = len(start)
+    scale = max(data["d45"], max(abs(v) for point in (data["N1"], data["N2"], data["N3"]) for v in point), 1.0)
+    steps = [0.25 * scale, 0.25 * scale, 0.25 * scale, 0.25 * scale, 0.25 * scale]
+    simplex = [start[:]]
+    for i, step in enumerate(steps):
+        point = start[:]
+        point[i] += step
+        simplex.append(point)
+
+    values = [_objective(data, point) for point in simplex]
+
+    for _ in range(max_iter):
+        order = sorted(range(n + 1), key=lambda i: values[i])
+        simplex = [simplex[i] for i in order]
+        values = [values[i] for i in order]
+
+        spread = max(abs(values[i] - values[0]) for i in range(1, n + 1))
+        size = max(math.sqrt(sum((simplex[i][j] - simplex[0][j]) ** 2 for j in range(n))) for i in range(1, n + 1))
+        if spread < tol and size < tol:
+            break
+
+        centroid = [sum(simplex[i][j] for i in range(n)) / n for j in range(n)]
+        worst = simplex[-1]
+
+        reflected = [centroid[j] + (centroid[j] - worst[j]) for j in range(n)]
+        reflected[4] = max(reflected[4], 1e-9)
+        reflected_value = _objective(data, reflected)
+
+        if values[0] <= reflected_value < values[-2]:
+            simplex[-1] = reflected
+            values[-1] = reflected_value
+            continue
+
+        if reflected_value < values[0]:
+            expanded = [centroid[j] + 2.0 * (reflected[j] - centroid[j]) for j in range(n)]
+            expanded[4] = max(expanded[4], 1e-9)
+            expanded_value = _objective(data, expanded)
+            if expanded_value < reflected_value:
+                simplex[-1] = expanded
+                values[-1] = expanded_value
+            else:
+                simplex[-1] = reflected
+                values[-1] = reflected_value
+            continue
+
+        contracted = [centroid[j] + 0.5 * (worst[j] - centroid[j]) for j in range(n)]
+        contracted[4] = max(contracted[4], 1e-9)
+        contracted_value = _objective(data, contracted)
+        if contracted_value < values[-1]:
+            simplex[-1] = contracted
+            values[-1] = contracted_value
+            continue
+
+        best = simplex[0]
+        for i in range(1, n + 1):
+            simplex[i] = [best[j] + 0.5 * (simplex[i][j] - best[j]) for j in range(n)]
+            simplex[i][4] = max(simplex[i][4], 1e-9)
+            values[i] = _objective(data, simplex[i])
+
+    best_i = min(range(n + 1), key=lambda i: values[i])
+    return simplex[best_i], values[best_i]
+
+
+def _optimize_bottom_params(data):
+    start = _initial_params(data)
+
+    try:
+        from scipy.optimize import least_squares
+    except ImportError:
+        params, error = _nelder_mead(data, start)
+        return params, "nelder-mead", error
+
+    def residuals(params):
+        if params[4] <= 0:
+            return [1e6 + abs(params[4])] * 6
+        return _target_residuals(data, list(params))
+
+    result = least_squares(residuals, start, bounds=([-math.inf, -math.inf, -math.inf, -math.inf, 1e-9], math.inf))
+    params = [float(value) for value in result.x]
+    return params, "scipy.least_squares", sum(r * r for r in residuals(params))
+
+
 def _parse_px(px):
     if px is None:
         raise ValueError("px måste anges.")
 
     if isinstance(px, dict):
-        required = ("N1", "N2", "N3", "d45", "x_mid", "y0", "x6", "y6", "h")
+        direct_geometry = all(name in px for name in ("x_mid", "y0", "x6", "y6", "h"))
+        required = ("N1", "N2", "N3", "d45") + (() if direct_geometry else ("alpha_target",))
         missing = [name for name in required if name not in px]
         if missing:
             raise ValueError(f"px saknar värden: {', '.join(missing)}.")
@@ -120,19 +246,43 @@ def _parse_px(px):
             "N2": _as_point("N2", px["N2"]),
             "N3": _as_point("N3", px["N3"]),
             "d45": float(px["d45"]),
-            "x_mid": float(px["x_mid"]),
-            "y0": float(px["y0"]),
-            "x6": float(px["x6"]),
-            "y6": float(px["y6"]),
-            "h": float(px["h"]),
+            "alpha_target": None if direct_geometry else float(px["alpha_target"]),
+            "x_mid": float(px["x_mid"]) if direct_geometry else None,
+            "y0": float(px["y0"]) if direct_geometry else None,
+            "x6": float(px["x6"]) if direct_geometry else None,
+            "y6": float(px["y6"]) if direct_geometry else None,
+            "h": float(px["h"]) if direct_geometry else None,
             "move_node": px.get("move_node"),
-            "delta_x": float(px.get("delta_x", 0.0)),
-            "delta_y": float(px.get("delta_y", 0.0)),
+            "delta_x": float(px.get("delta_x", px.get("Delta_x", 0.0))),
+            "delta_y": float(px.get("delta_y", px.get("Delta_y", 0.0))),
+            "direct_geometry": direct_geometry,
+        }
+
+    if len(px) in (5, 8):
+        n1, n2, n3, d45, alpha_target = px[:5]
+        move_node, delta_x, delta_y = (None, 0.0, 0.0) if len(px) == 5 else px[5:8]
+        return {
+            "N1": _as_point("N1", n1),
+            "N2": _as_point("N2", n2),
+            "N3": _as_point("N3", n3),
+            "d45": float(d45),
+            "alpha_target": float(alpha_target),
+            "x_mid": None,
+            "y0": None,
+            "x6": None,
+            "y6": None,
+            "h": None,
+            "move_node": move_node,
+            "delta_x": float(delta_x),
+            "delta_y": float(delta_y),
+            "direct_geometry": False,
         }
 
     if len(px) not in (9, 12):
         raise ValueError(
-            "px måste innehålla 9 eller 12 värden: "
+            "px måste innehålla 5, 8, 9 eller 12 värden: "
+            "[N1, N2, N3, d45, alpha_target], "
+            "[N1, N2, N3, d45, alpha_target, move_node, delta_x, delta_y], "
             "[N1, N2, N3, d45, x_mid, y0, x6, y6, h] eller "
             "[N1, N2, N3, d45, x_mid, y0, x6, y6, h, move_node, delta_x, delta_y]."
         )
@@ -144,6 +294,7 @@ def _parse_px(px):
         "N2": _as_point("N2", n2),
         "N3": _as_point("N3", n3),
         "d45": float(d45),
+        "alpha_target": None,
         "x_mid": float(x_mid),
         "y0": float(y0),
         "x6": float(x6),
@@ -152,6 +303,7 @@ def _parse_px(px):
         "move_node": move_node,
         "delta_x": float(delta_x),
         "delta_y": float(delta_y),
+        "direct_geometry": True,
     }
 
 
@@ -167,10 +319,15 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         - N4, N5 och N6 är nedre pål-/dragbandsnoder.
         - Stavar skapas mellan N1-N4, N3-N5, N2-N6, N4-N5, N5-N6 och N4-N6.
 
-    N4 och N5 byggs symmetriskt kring ``x_mid`` med avståndet ``d45`` mellan
-    noderna. N4, N5 och N6 placeras i samma bottenplan ``z = -h``. Funktionen
-    beräknar sedan vinklarna mellan respektive trycksträva och dragbanden i
-    bottenplanet:
+    Normal indata är de tre övre noderna, målvinkeln ``alpha_target`` och det
+    kända avståndet ``d45`` mellan N4 och N5. Funktionen optimerar då
+    bottennoderna så att de sex nodvinklarna hamnar så nära målvinkeln som
+    möjligt. N4 och N5 byggs symmetriskt kring en optimerad ``x_mid`` med
+    avståndet ``d45`` mellan noderna. N4, N5 och N6 placeras i samma
+    bottenplan ``z = -h``.
+
+    Funktionen beräknar vinklarna mellan respektive trycksträva och dragbanden
+    i bottenplanet:
 
         - a45 och a46 vid N4
         - a54 och a56 vid N5
@@ -181,14 +338,32 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     Ursprunglig geometri sparas i ``details["geometri"]["original_nodes"]``.
     Vinkelförändringar relativt ursprungsgeometrin sparas som ``angle_deltas``.
 
-    Parameterformat utan felslagning:
+    Rekommenderat parameterformat utan felslagning:
+        px = [N1, N2, N3, d45, alpha_target]
+
+    Rekommenderat parameterformat med felslagning:
+        px = [N1, N2, N3, d45, alpha_target, move_node, delta_x, delta_y]
+
+    Alternativt kan px vara en dict:
+        px = {
+            "N1": [x1, y1, z1],
+            "N2": [x2, y2, z2],
+            "N3": [x3, y3, z3],
+            "d45": avstand_mellan_N4_och_N5,
+            "alpha_target": malvinkel,
+            "move_node": "N4",
+            "Delta_x": -100.0,
+            "Delta_y": 0.0,
+        }
+
+    Äldre direktgeometriformat stöds fortfarande:
         px = [N1, N2, N3, d45, x_mid, y0, x6, y6, h]
 
-    Parameterformat med felslagning:
+    Äldre direktgeometriformat med felslagning:
         px = [N1, N2, N3, d45, x_mid, y0, x6, y6, h, move_node, delta_x, delta_y]
 
-    Alternativt kan px vara en dict med samma namngivna värden. ``move_node``
-    kan vara "N4", "N5" eller "N6". ``delta_x`` och ``delta_y`` anges i mm.
+    ``move_node`` kan vara "N4", "N5" eller "N6". ``delta_x``/``Delta_x``
+    och ``delta_y``/``Delta_y`` anges i mm.
 
     Enhetskonvention:
         - koordinater och avstånd i mm
@@ -204,15 +379,11 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         ...     "N1": [0.0, 0.0, 0.0],
         ...     "N2": [1000.0, 2000.0, 0.0],
         ...     "N3": [2000.0, 0.0, 0.0],
-        ...     "d45": 2000.0,
-        ...     "x_mid": 1000.0,
-        ...     "y0": 0.0,
-        ...     "x6": 1000.0,
-        ...     "y6": 2000.0,
-        ...     "h": 1000.0,
+        ...     "d45": 1080.0,
+        ...     "alpha_target": 58.0,
         ...     "move_node": "N4",
-        ...     "delta_x": -100.0,
-        ...     "delta_y": 0.0,
+        ...     "Delta_x": -100.0,
+        ...     "Delta_y": 0.0,
         ... }
         >>> details = trepalsfundament_teoretiskt_innan_slagning(px)
         >>> fig = plot_trepalsfundament_3d(details)
@@ -220,21 +391,17 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     """
     data = _parse_px(px)
 
-    original_nodes = {
-        "N1": data["N1"],
-        "N2": data["N2"],
-        "N3": data["N3"],
-    }
-    original_nodes.update(
-        _build_bottom_nodes(
-            data["d45"],
-            data["x_mid"],
-            data["y0"],
-            data["x6"],
-            data["y6"],
-            data["h"],
-        )
-    )
+    if data["direct_geometry"]:
+        params = [data["x_mid"], data["y0"], data["x6"], data["y6"], data["h"]]
+        optimizer = "direkt geometri"
+        opt_error = None
+    else:
+        if not (0 < data["alpha_target"] < 90):
+            raise ValueError("alpha_target måste vara > 0 och < 90 grader.")
+        params, optimizer, opt_error = _optimize_bottom_params(data)
+        data["x_mid"], data["y0"], data["x6"], data["y6"], data["h"] = params
+
+    original_nodes = _node_set_from_params(data, params)
 
     nodes = _move_node(original_nodes, data["move_node"], data["delta_x"], data["delta_y"])
     original_angles = _compute_angles(original_nodes)
@@ -278,11 +445,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _post("N2", r"N_2", nodes["N2"], "mm", "övre nod 2"),
                 _post("N3", r"N_3", nodes["N3"], "mm", "övre nod 3"),
                 _post("d45", r"d_{45}", data["d45"], "mm", "låst avstånd mellan N4 och N5"),
-                _post("x_mid", r"x_{mid}", data["x_mid"], "mm", "mittkoordinat för N4-N5"),
-                _post("y0", r"y_0", data["y0"], "mm", "y-koordinat för N4 och N5"),
-                _post("x6", r"x_6", data["x6"], "mm", "x-koordinat för N6"),
-                _post("y6", r"y_6", data["y6"], "mm", "y-koordinat för N6"),
-                _post("h", r"h", data["h"], "mm", "djup till bottenplanet"),
+                _post("alpha_target", r"\alpha_{target}", data["alpha_target"], "deg", "målvinkel"),
                 _post("move_node", r"N_{flytt}", data["move_node"], "", "felslagen nod"),
                 _post("delta_x", r"\Delta x", data["delta_x"], "mm", "felslagning i x-led"),
                 _post("delta_y", r"\Delta y", data["delta_y"], "mm", "felslagning i y-led"),
@@ -297,6 +460,13 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _post("N4_orig", r"N_{4,orig}", original_nodes["N4"], "mm", "ursprunglig nedre nod 4"),
                 _post("N5_orig", r"N_{5,orig}", original_nodes["N5"], "mm", "ursprunglig nedre nod 5"),
                 _post("N6_orig", r"N_{6,orig}", original_nodes["N6"], "mm", "ursprunglig nedre nod 6"),
+                _post("x_mid", r"x_{mid}", data["x_mid"], "mm", "beräknad mittkoordinat för N4-N5"),
+                _post("y0", r"y_0", data["y0"], "mm", "beräknad y-koordinat för N4 och N5"),
+                _post("x6", r"x_6", data["x6"], "mm", "beräknad x-koordinat för N6"),
+                _post("y6", r"y_6", data["y6"], "mm", "beräknad y-koordinat för N6"),
+                _post("h", r"h", data["h"], "mm", "beräknat djup till bottenplanet"),
+                _post("optimizer", r"\mathrm{optimizer}", optimizer, "", "metod för bottengeometri"),
+                _post("opt_error", r"e_{opt}", opt_error, "deg^2", "summerat kvadratiskt vinkelfel"),
                 *[
                     _post(name, name, value, "mm", f"stavlängd {name}")
                     for name, value in lengths.items()
@@ -344,6 +514,9 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
             "move_node": data["move_node"],
             "delta_x": data["delta_x"],
             "delta_y": data["delta_y"],
+            "alpha_target": data["alpha_target"],
+            "optimizer": optimizer,
+            "opt_error": opt_error,
         },
     }
 

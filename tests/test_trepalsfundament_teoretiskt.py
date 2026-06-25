@@ -96,6 +96,30 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         self.assertTrue(geometri["angle_deltas"]["a45"] != 0.0)
         self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "da45")["value"], geometri["angle_deltas"]["a45"]))
 
+    def test_optimerar_bottennoder_fran_topnoder_malvinkel_och_d45(self):
+        details = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "move_node": "N4",
+                "Delta_x": -100.0,
+                "Delta_y": 0.0,
+            }
+        )
+
+        geometri = details["geometri"]
+        original_angles = geometri["original_angles"]
+        self.assertEqual(_hamta_post(details["indata"], "d45")["unit"], "mm")
+        self.assertEqual(_hamta_post(details["indata"], "alpha_target")["value"], 58.0)
+        self.assertLess(geometri["opt_error"], 1e-8)
+        for angle in original_angles.values():
+            self.assertTrue(math.isclose(angle, 58.0, abs_tol=1e-4))
+        self.assertTrue(math.isclose(geometri["angles"]["a45"], 52.515938496025086, abs_tol=1e-4))
+        self.assertTrue(math.isclose(geometri["angle_deltas"]["a45"], -5.484061503986531, abs_tol=1e-4))
+
     def test_validerar_indata(self):
         with self.assertRaisesRegex(ValueError, "d45 måste vara > 0"):
             trepalsfundament_teoretiskt_innan_slagning(
