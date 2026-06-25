@@ -46,6 +46,9 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         self.assertEqual(details["geometri"]["nodes"]["N5"], [2.0, 0.0, -1.0])
         self.assertEqual(details["geometri"]["nodes"]["N6"], [1.0, 2.0, -1.0])
         self.assertEqual(len(details["geometri"]["members"]), 6)
+        self.assertEqual(_hamta_post(details["indata"], "N1")["unit"], "mm")
+        self.assertEqual(_hamta_post(details["indata"], "d45")["unit"], "mm")
+        self.assertEqual(_hamta_post(details["delresultat"], "N4")["unit"], "mm")
 
     def test_beraknar_vinklar(self):
         details = trepalsfundament_teoretiskt_innan_slagning(

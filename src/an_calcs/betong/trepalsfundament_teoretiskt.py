@@ -157,7 +157,29 @@ def _parse_px(px):
 
 def trepalsfundament_teoretiskt_innan_slagning(px):
     """
-    Beräknar teoretisk 3D-geometri och nodvinklar for ett 3-palsfundament.
+    Beräknar teoretisk 3D-geometri och nodvinklar for ett 3-palsfundament
+    innan slagning, med valfri felslagning av en nedre nod.
+
+    Modellen är en geometrisk STM-/fackverksmodell med tre övre noder och tre
+    nedre noder:
+
+        - N1, N2 och N3 är övre noder.
+        - N4, N5 och N6 är nedre pål-/dragbandsnoder.
+        - Stavar skapas mellan N1-N4, N3-N5, N2-N6, N4-N5, N5-N6 och N4-N6.
+
+    N4 och N5 byggs symmetriskt kring ``x_mid`` med avståndet ``d45`` mellan
+    noderna. N4, N5 och N6 placeras i samma bottenplan ``z = -h``. Funktionen
+    beräknar sedan vinklarna mellan respektive trycksträva och dragbanden i
+    bottenplanet:
+
+        - a45 och a46 vid N4
+        - a54 och a56 vid N5
+        - a64 och a65 vid N6
+
+    Om ``move_node`` anges flyttas vald nedre nod efter att den teoretiska
+    geometrin byggts. ``delta_x`` och ``delta_y`` appliceras bara på vald nod.
+    Ursprunglig geometri sparas i ``details["geometri"]["original_nodes"]``.
+    Vinkelförändringar relativt ursprungsgeometrin sparas som ``angle_deltas``.
 
     Parameterformat utan felslagning:
         px = [N1, N2, N3, d45, x_mid, y0, x6, y6, h]
@@ -166,17 +188,35 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         px = [N1, N2, N3, d45, x_mid, y0, x6, y6, h, move_node, delta_x, delta_y]
 
     Alternativt kan px vara en dict med samma namngivna värden. ``move_node``
-    kan vara "N4", "N5" eller "N6". ``delta_x`` och ``delta_y`` anges i
-    samma längdenhet som koordinaterna.
+    kan vara "N4", "N5" eller "N6". ``delta_x`` och ``delta_y`` anges i mm.
 
     Enhetskonvention:
-        - koordinater och avstånd i m
+        - koordinater och avstånd i mm
         - vinklar i grader
 
     Returvärde:
         dict
             Standardiserad details-dictionary med extra sektionen ``geometri``,
             avsedd att skickas vidare till ``plot_trepalsfundament_3d``.
+
+    Exempel:
+        >>> px = {
+        ...     "N1": [0.0, 0.0, 0.0],
+        ...     "N2": [1000.0, 2000.0, 0.0],
+        ...     "N3": [2000.0, 0.0, 0.0],
+        ...     "d45": 2000.0,
+        ...     "x_mid": 1000.0,
+        ...     "y0": 0.0,
+        ...     "x6": 1000.0,
+        ...     "y6": 2000.0,
+        ...     "h": 1000.0,
+        ...     "move_node": "N4",
+        ...     "delta_x": -100.0,
+        ...     "delta_y": 0.0,
+        ... }
+        >>> details = trepalsfundament_teoretiskt_innan_slagning(px)
+        >>> fig = plot_trepalsfundament_3d(details)
+        >>> fig.show()
     """
     data = _parse_px(px)
 
@@ -234,31 +274,31 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
         "indata": {
             "title": "Indata",
             "items": [
-                _post("N1", r"N_1", nodes["N1"], "m", "övre nod 1"),
-                _post("N2", r"N_2", nodes["N2"], "m", "övre nod 2"),
-                _post("N3", r"N_3", nodes["N3"], "m", "övre nod 3"),
-                _post("d45", r"d_{45}", data["d45"], "m", "låst avstånd mellan N4 och N5"),
-                _post("x_mid", r"x_{mid}", data["x_mid"], "m", "mittkoordinat för N4-N5"),
-                _post("y0", r"y_0", data["y0"], "m", "y-koordinat för N4 och N5"),
-                _post("x6", r"x_6", data["x6"], "m", "x-koordinat för N6"),
-                _post("y6", r"y_6", data["y6"], "m", "y-koordinat för N6"),
-                _post("h", r"h", data["h"], "m", "djup till bottenplanet"),
+                _post("N1", r"N_1", nodes["N1"], "mm", "övre nod 1"),
+                _post("N2", r"N_2", nodes["N2"], "mm", "övre nod 2"),
+                _post("N3", r"N_3", nodes["N3"], "mm", "övre nod 3"),
+                _post("d45", r"d_{45}", data["d45"], "mm", "låst avstånd mellan N4 och N5"),
+                _post("x_mid", r"x_{mid}", data["x_mid"], "mm", "mittkoordinat för N4-N5"),
+                _post("y0", r"y_0", data["y0"], "mm", "y-koordinat för N4 och N5"),
+                _post("x6", r"x_6", data["x6"], "mm", "x-koordinat för N6"),
+                _post("y6", r"y_6", data["y6"], "mm", "y-koordinat för N6"),
+                _post("h", r"h", data["h"], "mm", "djup till bottenplanet"),
                 _post("move_node", r"N_{flytt}", data["move_node"], "", "felslagen nod"),
-                _post("delta_x", r"\Delta x", data["delta_x"], "m", "felslagning i x-led"),
-                _post("delta_y", r"\Delta y", data["delta_y"], "m", "felslagning i y-led"),
+                _post("delta_x", r"\Delta x", data["delta_x"], "mm", "felslagning i x-led"),
+                _post("delta_y", r"\Delta y", data["delta_y"], "mm", "felslagning i y-led"),
             ],
         },
         "delresultat": {
             "title": "Delresultat",
             "items": [
-                _post("N4", r"N_4", nodes["N4"], "m", "nedre nod 4"),
-                _post("N5", r"N_5", nodes["N5"], "m", "nedre nod 5"),
-                _post("N6", r"N_6", nodes["N6"], "m", "nedre nod 6"),
-                _post("N4_orig", r"N_{4,orig}", original_nodes["N4"], "m", "ursprunglig nedre nod 4"),
-                _post("N5_orig", r"N_{5,orig}", original_nodes["N5"], "m", "ursprunglig nedre nod 5"),
-                _post("N6_orig", r"N_{6,orig}", original_nodes["N6"], "m", "ursprunglig nedre nod 6"),
+                _post("N4", r"N_4", nodes["N4"], "mm", "nedre nod 4"),
+                _post("N5", r"N_5", nodes["N5"], "mm", "nedre nod 5"),
+                _post("N6", r"N_6", nodes["N6"], "mm", "nedre nod 6"),
+                _post("N4_orig", r"N_{4,orig}", original_nodes["N4"], "mm", "ursprunglig nedre nod 4"),
+                _post("N5_orig", r"N_{5,orig}", original_nodes["N5"], "mm", "ursprunglig nedre nod 5"),
+                _post("N6_orig", r"N_{6,orig}", original_nodes["N6"], "mm", "ursprunglig nedre nod 6"),
                 *[
-                    _post(name, name, value, "m", f"stavlängd {name}")
+                    _post(name, name, value, "mm", f"stavlängd {name}")
                     for name, value in lengths.items()
                 ],
             ],
@@ -326,7 +366,7 @@ def plot_trepalsfundament_3d(details, title="3-pålsfundament - teoretiskt innan
     delta_y = geometri.get("delta_y", 0.0)
 
     if move_node is not None and title == "3-pålsfundament - teoretiskt innan slagning":
-        title = f"3-pålsfundament - efter felslagning ({move_node}, dx={delta_x:g}, dy={delta_y:g})"
+        title = f"3-pålsfundament - efter felslagning ({move_node}, dx={delta_x:g} mm, dy={delta_y:g} mm)"
 
     fig = go.Figure()
 
@@ -424,9 +464,9 @@ def plot_trepalsfundament_3d(details, title="3-pålsfundament - teoretiskt innan
         height=700,
         scene=dict(
             aspectmode="data",
-            xaxis=dict(title="X", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
-            yaxis=dict(title="Y", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
-            zaxis=dict(title="Z", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
+            xaxis=dict(title="X [mm]", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
+            yaxis=dict(title="Y [mm]", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
+            zaxis=dict(title="Z [mm]", showticklabels=False, showgrid=True, gridcolor="black", showbackground=False),
         ),
     )
 
