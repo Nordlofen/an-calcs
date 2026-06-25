@@ -203,6 +203,41 @@ def _move_node(nodes, move_node, delta_x, delta_y):
     return moved
 
 
+def _translate_to_origin_xy(nodes, origin_node):
+    if origin_node is None:
+        return {name: point[:] for name, point in nodes.items()}, [0.0, 0.0, 0.0]
+    if origin_node not in nodes:
+        raise ValueError("origin_node måste vara en nod som finns i modellen.")
+
+    shift = [-nodes[origin_node][0], -nodes[origin_node][1], 0.0]
+    return (
+        {
+            name: [point[0] + shift[0], point[1] + shift[1], point[2]]
+            for name, point in nodes.items()
+        },
+        shift,
+    )
+
+
+def _apply_xy_shift(nodes, shift):
+    return {
+        name: [point[0] + shift[0], point[1] + shift[1], point[2]]
+        for name, point in nodes.items()
+    }
+
+
+def _origin_shift(nodes, original_nodes, origin_node, origin_mode):
+    if origin_node is None:
+        return [0.0, 0.0, 0.0]
+    if origin_mode not in ("current", "original"):
+        raise ValueError("origin_mode måste vara 'current' eller 'original'.")
+
+    reference_nodes = original_nodes if origin_mode == "original" else nodes
+    if origin_node not in reference_nodes:
+        raise ValueError("origin_node måste vara en nod som finns i modellen.")
+    return [-reference_nodes[origin_node][0], -reference_nodes[origin_node][1], 0.0]
+
+
 def _solve_local_node(node, connected_nodes, rz):
     directions = [_unit_vector(node, other) for other in connected_nodes.values()]
     a = [
@@ -299,6 +334,8 @@ def _parse_px(px):
         "move_node": px.get("move_node"),
         "delta_x": float(px.get("delta_x", px.get("Delta_x", 0.0))),
         "delta_y": float(px.get("delta_y", px.get("Delta_y", 0.0))),
+        "origin_node": px.get("origin_node"),
+        "origin_mode": px.get("origin_mode", "current"),
         "pile_loads": _parse_pile_loads(px),
         "direct_geometry": direct_geometry,
     }
@@ -318,6 +355,10 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
     Valfri felslagning anges med ``move_node`` = "N5", "N6", "N7" eller "N8"
     samt ``Delta_x``/``Delta_y`` i mm. Valfria pålaster anges med ``Rz`` för
     samma last i alla pålar eller ``pile_loads`` för separata värden.
+    ``origin_node`` kan anges för att flytta hela modellen så att vald nod får
+    x=0 och y=0 i den redovisade geometrin. ``origin_mode="current"`` använder
+    slutlig/felslagen position. ``origin_mode="original"`` använder teoretiskt
+    tilltänkt position.
     """
     data = _parse_px(px)
     if data["direct_geometry"]:
@@ -332,6 +373,9 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
 
     original_nodes = _node_set_from_params(data, params)
     nodes = _move_node(original_nodes, data["move_node"], data["delta_x"], data["delta_y"])
+    origin_shift = _origin_shift(nodes, original_nodes, data["origin_node"], data["origin_mode"])
+    nodes = _apply_xy_shift(nodes, origin_shift)
+    original_nodes = _apply_xy_shift(original_nodes, origin_shift)
     original_angles = _compute_angles(original_nodes)
     angles = _compute_angles(nodes)
     angle_deltas = {name: angles[name] - original_angles[name] for name in angles}
@@ -357,6 +401,8 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
                 _post("move_node", r"N_{flytt}", data["move_node"], "", "felslagen nod"),
                 _post("delta_x", r"\Delta x", data["delta_x"], "mm", "felslagning i x-led"),
                 _post("delta_y", r"\Delta y", data["delta_y"], "mm", "felslagning i y-led"),
+                _post("origin_node", r"N_{origo}", data["origin_node"], "", "nod som placeras i plan-origo"),
+                _post("origin_mode", r"\mathrm{origo}", data["origin_mode"], "", "current = slutlig nod, original = teoretisk nod"),
                 _post("pile_loads", r"R_z", data["pile_loads"], "kN", "uppåtriktade pålreaktioner"),
             ],
         },
@@ -399,6 +445,9 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
             "move_node": data["move_node"],
             "delta_x": data["delta_x"],
             "delta_y": data["delta_y"],
+            "origin_node": data["origin_node"],
+            "origin_mode": data["origin_mode"],
+            "origin_shift": origin_shift,
             "alpha_target": data["alpha_target"],
             "optimizer": optimizer,
             "opt_error": opt_error,

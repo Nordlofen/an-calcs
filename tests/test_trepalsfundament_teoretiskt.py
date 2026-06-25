@@ -99,6 +99,49 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         self.assertTrue(geometri["angle_deltas"]["a45"] != 0.0)
         self.assertTrue(math.isclose(_hamta_post(details["slutresultat"], "da45")["value"], geometri["angle_deltas"]["a45"]))
 
+    def test_origin_node_flyttar_redovisad_geometri_till_plan_origo(self):
+        details = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "move_node": "N4",
+                "Delta_x": -100.0,
+                "Delta_y": 0.0,
+                "origin_node": "N4",
+            }
+        )
+
+        geometri = details["geometri"]
+        self.assertTrue(math.isclose(geometri["nodes"]["N4"][0], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["nodes"]["N4"][1], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N4"][0], 100.0, abs_tol=1e-6))
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N4"][1], 0.0, abs_tol=1e-6))
+
+    def test_origin_mode_original_anvander_teoretisk_position_som_origo(self):
+        details = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "move_node": "N4",
+                "Delta_x": -100.0,
+                "Delta_y": 0.0,
+                "origin_node": "N4",
+                "origin_mode": "original",
+            }
+        )
+
+        geometri = details["geometri"]
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N4"][0], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N4"][1], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["nodes"]["N4"][0], -100.0, abs_tol=1e-6))
+        self.assertTrue(math.isclose(geometri["nodes"]["N4"][1], 0.0, abs_tol=1e-6))
+
     def test_optimerar_bottennoder_fran_topnoder_malvinkel_och_d45(self):
         details = trepalsfundament_teoretiskt_innan_slagning(
             {

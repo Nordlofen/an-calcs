@@ -64,6 +64,47 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
         self.assertIn("=== LOKAL NODJÄMVIKT (pålnoder) ===", text)
         self.assertIn("N5:", text)
 
+    def test_origin_node_flyttar_redovisad_geometri_till_plan_origo(self):
+        details = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d56": 1200.0,
+                "alpha_target": 58.0,
+                "origin_node": "N5",
+            }
+        )
+
+        geometri = details["geometri"]
+        self.assertTrue(math.isclose(geometri["nodes"]["N5"][0], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["nodes"]["N5"][1], 0.0, abs_tol=1e-9))
+        self.assertEqual(geometri["origin_node"], "N5")
+
+    def test_origin_mode_original_anvander_teoretisk_position_som_origo(self):
+        details = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d56": 1200.0,
+                "alpha_target": 58.0,
+                "move_node": "N5",
+                "Delta_x": -50.0,
+                "Delta_y": 0.0,
+                "origin_node": "N5",
+                "origin_mode": "original",
+            }
+        )
+
+        geometri = details["geometri"]
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N5"][0], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["original_nodes"]["N5"][1], 0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(geometri["nodes"]["N5"][0], -50.0, abs_tol=1e-6))
+        self.assertTrue(math.isclose(geometri["nodes"]["N5"][1], 0.0, abs_tol=1e-6))
+
     def test_gemensam_formatter_fungerar_for_3_och_4_palar(self):
         details_3p = trepalsfundament_teoretiskt_innan_slagning(
             {
