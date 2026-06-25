@@ -2,10 +2,12 @@ import math
 import pathlib
 import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from an_calcs.betong import format_trepalsfundament_resultat, trepalsfundament_teoretiskt_innan_slagning
+from an_calcs.betong import print_palsfundament_resultat, trepalsfundament_teoretiskt_innan_slagning
 
 
 def _hamta_post(section, namn):
@@ -156,7 +158,10 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
             }
         )
 
-        text = format_trepalsfundament_resultat(details)
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            print_palsfundament_resultat(details)
+        text = buffer.getvalue()
         self.assertIn("=== VINKLAR mellan sträva och dragband  ===", text)
         self.assertIn("=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ===", text)
         self.assertIn("=== GLOBAL JÄMVIKT (1 kraft per stav) ===", text)

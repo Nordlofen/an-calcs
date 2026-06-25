@@ -2,13 +2,14 @@ import math
 import pathlib
 import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from an_calcs.betong import (
-    format_fyrpalsfundament_resultat,
-    format_palsfundament_resultat,
     fyrpalsfundament_teoretiskt_innan_slagning,
+    print_palsfundament_resultat,
     trepalsfundament_teoretiskt_innan_slagning,
 )
 
@@ -55,7 +56,10 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
         self.assertIn("N15", details["krafter"]["global_equilibrium"]["member_forces"])
         self.assertIn("N5", details["krafter"]["member_forces"])
 
-        text = format_fyrpalsfundament_resultat(details)
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            print_palsfundament_resultat(details)
+        text = buffer.getvalue()
         self.assertIn("=== GLOBAL JÄMVIKT (1 kraft per stav) ===", text)
         self.assertIn("=== LOKAL NODJÄMVIKT (pålnoder) ===", text)
         self.assertIn("N5:", text)
@@ -83,8 +87,15 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
             }
         )
 
-        self.assertIn("a45", format_palsfundament_resultat(details_3p))
-        self.assertIn("a56", format_palsfundament_resultat(details_4p))
+        buffer_3p = StringIO()
+        with redirect_stdout(buffer_3p):
+            print_palsfundament_resultat(details_3p)
+        buffer_4p = StringIO()
+        with redirect_stdout(buffer_4p):
+            print_palsfundament_resultat(details_4p)
+
+        self.assertIn("a45", buffer_3p.getvalue())
+        self.assertIn("a56", buffer_4p.getvalue())
 
 
 if __name__ == "__main__":

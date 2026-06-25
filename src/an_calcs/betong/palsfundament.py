@@ -150,7 +150,7 @@ def plot_palsfundament_3d(details, title=None):
     return fig
 
 
-def format_palsfundament_resultat(details):
+def _format_palsfundament_resultat(details):
     """Returnerar en kompakt textsammanställning för 3- eller 4-pålsfundament."""
     geometri = details["geometri"]
     krafter = details.get("krafter", {})
@@ -207,6 +207,5 @@ def format_palsfundament_resultat(details):
 
 
 def print_palsfundament_resultat(details):
-    """Skriver ut samma text som ``format_palsfundament_resultat`` returnerar."""
-    print(format_palsfundament_resultat(details))
-
+    """Skriver ut en kompakt textsammanställning för 3- eller 4-pålsfundament."""
+    print(_format_palsfundament_resultat(details))

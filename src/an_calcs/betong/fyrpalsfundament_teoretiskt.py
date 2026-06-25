@@ -461,58 +461,7 @@ def plot_fyrpalsfundament_3d(details, title="4-pålsfundament - teoretiskt innan
     return fig
 
 
-def format_fyrpalsfundament_resultat(details):
-    """Returnerar en kompakt textsammanställning av vinklar och stavkrafter."""
-    geometri = details["geometri"]
-    krafter = details.get("krafter", {})
-    angles = geometri["angles"]
-    strut_angles = geometri.get("strut_horizontal_angles", {})
-    pile_loads = krafter.get("pile_loads")
-    local_forces = krafter.get("member_forces")
-    global_equilibrium = krafter.get("global_equilibrium")
-
-    lines = ["=== VINKLAR mellan sträva och dragband  ==="]
-    for name in ("a56", "a58", "a65", "a67", "a76", "a78", "a87", "a85"):
-        lines.append(f"{name} = {angles[name]:.2f}°")
-
-    lines.extend(["", "=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ==="])
-    for name, label in (("alpha15", "α15 (N1-N5)"), ("alpha26", "α26 (N2-N6)"), ("alpha37", "α37 (N3-N7)"), ("alpha48", "α48 (N4-N8)")):
-        lines.append(f"{label} = {strut_angles[name]:.2f}°")
-
-    if global_equilibrium is not None:
-        lines.extend(["", "=== GLOBAL JÄMVIKT (1 kraft per stav) ===", f"Rank(A) = {global_equilibrium['rank']}  | residual-norm = {global_equilibrium['residual_norm']:.3e}", "", "Stavkrafter (positiv = drag, negativ = tryck):"])
-        for name in ("N15", "N26", "N37", "N48", "N56", "N67", "N78", "N85"):
-            lines.append(f"  {name}: {global_equilibrium['member_forces'][name]:.1f}")
-        lines.extend(["", "Stödreaktioner i toppen (N1,N2,N3,N4):"])
-        for name in (f"R{i}{axis}" for i in range(1, 5) for axis in ("x", "y", "z")):
-            lines.append(f"  {name}: {global_equilibrium['top_reactions'][name]:.1f}")
-
-    if local_forces is not None:
-        same_load = pile_loads and len({round(value, 12) for value in pile_loads.values()}) == 1
-        lines.extend(["", "=== LOKAL NODJÄMVIKT (pålnoder) ==="])
-        if same_load:
-            lines.append(f"Rz per påle = {next(iter(pile_loads.values())):.1f} (uppåt, +z)")
-        else:
-            lines.append("Rz per påle (uppåt, +z):")
-            for node in BOTTOM_NODES:
-                lines.append(f"  {node}: {pile_loads[node]:.1f}")
-        lines.append("")
-        for node in BOTTOM_NODES:
-            lines.append(f"{node}:")
-            for member, value in local_forces[node].items():
-                lines.append(f"  {member}: {value:.1f}")
-            lines.append("")
-
-    return "\n".join(lines).rstrip()
-
-
-def print_fyrpalsfundament_resultat(details):
-    """Skriver ut samma text som ``format_fyrpalsfundament_resultat`` returnerar."""
-    print(format_fyrpalsfundament_resultat(details))
-
-
 from .palsfundament import (
-    format_palsfundament_resultat as format_fyrpalsfundament_resultat,
     plot_palsfundament_3d as plot_fyrpalsfundament_3d,
     print_palsfundament_resultat as print_fyrpalsfundament_resultat,
 )

@@ -931,78 +931,7 @@ def plot_trepalsfundament_3d(details, title="3-pålsfundament - teoretiskt innan
     return fig
 
 
-def format_trepalsfundament_resultat(details):
-    """Returnerar en kompakt textsammanställning av vinklar och stavkrafter."""
-    geometri = details["geometri"]
-    krafter = details.get("krafter", {})
-    angles = geometri["angles"]
-    strut_angles = geometri.get("strut_horizontal_angles", {})
-    pile_loads = krafter.get("pile_loads")
-    forces = krafter.get("member_forces")
-    global_equilibrium = krafter.get("global_equilibrium")
-
-    lines = [
-        "=== VINKLAR mellan sträva och dragband  ===",
-    ]
-    for name in ("a45", "a46", "a54", "a56", "a64", "a65"):
-        lines.append(f"{name} = {angles[name]:.2f}°")
-
-    if strut_angles:
-        lines.extend(
-            [
-                "",
-                "=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ===",
-                f"α14 (N1-N4) = {strut_angles['alpha14']:.2f}°",
-                f"α35 (N3-N5) = {strut_angles['alpha35']:.2f}°",
-                f"α26 (N2-N6) = {strut_angles['alpha26']:.2f}°",
-            ]
-        )
-
-    if global_equilibrium is not None:
-        member_forces = global_equilibrium["member_forces"]
-        top_reactions = global_equilibrium["top_reactions"]
-        lines.extend(
-            [
-                "",
-                "=== GLOBAL JÄMVIKT (1 kraft per stav) ===",
-                f"Rank(A) = {global_equilibrium['rank']}  | residual-norm = {global_equilibrium['residual_norm']:.3e}",
-                "",
-                "Stavkrafter (positiv = drag, negativ = tryck):",
-            ]
-        )
-        for name in ("N14", "N35", "N26", "N45", "N56", "N46"):
-            lines.append(f"  {name}: {member_forces[name]:.1f}")
-        lines.extend(["", "Stödreaktioner i toppen (N1,N2,N3):"])
-        for name in ("R1x", "R1y", "R1z", "R2x", "R2y", "R2z", "R3x", "R3y", "R3z"):
-            lines.append(f"  {name}: {top_reactions[name]:.1f}")
-
-    if forces is not None:
-        same_load = pile_loads and len({round(value, 12) for value in pile_loads.values()}) == 1
-        lines.extend(["", "=== LOKAL NODJÄMVIKT (pålnoder) ==="])
-        if same_load:
-            lines.append(f"Rz per påle = {next(iter(pile_loads.values())):.1f} (uppåt, +z)")
-        else:
-            lines.append("Rz per påle (uppåt, +z):")
-            for node in ("N4", "N5", "N6"):
-                lines.append(f"  {node}: {pile_loads[node]:.1f}")
-        lines.append("")
-
-        for node in ("N4", "N5", "N6"):
-            lines.append(f"{node}:")
-            for member, value in forces[node].items():
-                lines.append(f"  {member}: {value:.1f}")
-            lines.append("")
-
-    return "\n".join(lines).rstrip()
-
-
-def print_trepalsfundament_resultat(details):
-    """Skriver ut samma text som ``format_trepalsfundament_resultat`` returnerar."""
-    print(format_trepalsfundament_resultat(details))
-
-
 from .palsfundament import (
-    format_palsfundament_resultat as format_trepalsfundament_resultat,
     plot_palsfundament_3d as plot_trepalsfundament_3d,
     print_palsfundament_resultat as print_trepalsfundament_resultat,
 )
