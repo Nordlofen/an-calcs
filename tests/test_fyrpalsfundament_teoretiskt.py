@@ -7,7 +7,7 @@ from io import StringIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from an_calcs.betong import (
+from an_calcs.betong.palfundament import (
     fyrpalsfundament_teoretiskt_innan_slagning,
     print_palsfundament_resultat,
     trepalsfundament_teoretiskt_innan_slagning,

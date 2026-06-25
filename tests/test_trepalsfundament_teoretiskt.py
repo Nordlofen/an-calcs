@@ -7,7 +7,7 @@ from io import StringIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from an_calcs.betong import print_palsfundament_resultat, trepalsfundament_teoretiskt_innan_slagning
+from an_calcs.betong.palfundament import print_palsfundament_resultat, trepalsfundament_teoretiskt_innan_slagning
 
 
 def _hamta_post(section, namn):
