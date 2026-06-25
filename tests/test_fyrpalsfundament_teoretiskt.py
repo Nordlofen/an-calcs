@@ -22,7 +22,7 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
                 "N2": [1000.0, 0.0, 0.0],
                 "N3": [1000.0, 1000.0, 0.0],
                 "N4": [0.0, 1000.0, 0.0],
-                "d56": 1200.0,
+                "d": 1200.0,
                 "alpha_target": 58.0,
             }
         )
@@ -35,7 +35,7 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
         for angle in details["geometri"]["original_angles"].values():
             self.assertTrue(math.isclose(angle, 58.0, abs_tol=1e-4))
 
-    def test_felslagning_och_krafter_redovisas(self):
+    def test_d56_fungerar_som_bakatkompatibelt_alias_for_d(self):
         details = fyrpalsfundament_teoretiskt_innan_slagning(
             {
                 "N1": [0.0, 0.0, 0.0],
@@ -43,6 +43,21 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
                 "N3": [1000.0, 1000.0, 0.0],
                 "N4": [0.0, 1000.0, 0.0],
                 "d56": 1200.0,
+                "alpha_target": 58.0,
+            }
+        )
+
+        self.assertEqual(details["indata"]["items"][4]["namn"], "d")
+        self.assertEqual(details["indata"]["items"][4]["value"], 1200.0)
+
+    def test_felslagning_och_krafter_redovisas(self):
+        details = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d": 1200.0,
                 "alpha_target": 58.0,
                 "move_node": "N5",
                 "Delta_x": -50.0,
@@ -71,7 +86,7 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
                 "N2": [1000.0, 0.0, 0.0],
                 "N3": [1000.0, 1000.0, 0.0],
                 "N4": [0.0, 1000.0, 0.0],
-                "d56": 1200.0,
+                "d": 1200.0,
                 "alpha_target": 58.0,
                 "origin_node": "N5",
             }
@@ -89,7 +104,7 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
                 "N2": [1000.0, 0.0, 0.0],
                 "N3": [1000.0, 1000.0, 0.0],
                 "N4": [0.0, 1000.0, 0.0],
-                "d56": 1200.0,
+                "d": 1200.0,
                 "alpha_target": 58.0,
                 "move_node": "N5",
                 "Delta_x": -50.0,
@@ -122,7 +137,7 @@ class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
                 "N2": [1000.0, 0.0, 0.0],
                 "N3": [1000.0, 1000.0, 0.0],
                 "N4": [0.0, 1000.0, 0.0],
-                "d56": 1200.0,
+                "d": 1200.0,
                 "alpha_target": 58.0,
                 "Rz": 1000.0,
             }

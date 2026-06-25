@@ -24,13 +24,13 @@ TIES = [("N5", "N6"), ("N6", "N7"), ("N7", "N8"), ("N8", "N5")]
 MEMBERS = STRUTS + TIES
 
 
-def _build_bottom_nodes(d56, cx, cy, theta_deg, h):
-    if d56 <= 0:
-        raise ValueError("d56 måste vara > 0.")
+def _build_bottom_nodes(d, cx, cy, theta_deg, h):
+    if d <= 0:
+        raise ValueError("d måste vara > 0.")
     if h <= 0:
         raise ValueError("h måste vara > 0.")
 
-    half = d56 / 2.0
+    half = d / 2.0
     theta = math.radians(theta_deg)
     c = math.cos(theta)
     s = math.sin(theta)
@@ -50,7 +50,7 @@ def _build_bottom_nodes(d56, cx, cy, theta_deg, h):
 def _node_set_from_params(data, params):
     cx, cy, theta_deg, h = params
     nodes = {name: data[name] for name in TOP_NODES}
-    nodes.update(_build_bottom_nodes(data["d56"], cx, cy, theta_deg, h))
+    nodes.update(_build_bottom_nodes(data["d"], cx, cy, theta_deg, h))
     return nodes
 
 
@@ -95,13 +95,13 @@ def _objective(data, params):
 def _initial_params(data):
     cx = sum(data[name][0] for name in TOP_NODES) / 4.0
     cy = sum(data[name][1] for name in TOP_NODES) / 4.0
-    h0 = max(data["d56"] * math.tan(math.radians(data["alpha_target"])) / 2.0, data["d56"] * 0.25, 1.0)
+    h0 = max(data["d"] * math.tan(math.radians(data["alpha_target"])) / 2.0, data["d"] * 0.25, 1.0)
     return [cx, cy, 0.0, h0]
 
 
 def _nelder_mead(data, start, max_iter=800, tol=1e-8):
     n = len(start)
-    scale = max(data["d56"], max(abs(v) for name in TOP_NODES for v in data[name]), 1.0)
+    scale = max(data["d"], max(abs(v) for name in TOP_NODES for v in data[name]), 1.0)
     steps = [0.25 * scale, 0.25 * scale, 10.0, 0.25 * scale]
     simplex = [start[:]]
     for i, step in enumerate(steps):
@@ -315,7 +315,8 @@ def _parse_px(px):
         raise ValueError("4-pålsfunktionen förväntar px som dict.")
 
     direct_geometry = all(name in px for name in ("cx", "cy", "theta", "h"))
-    required = ("N1", "N2", "N3", "N4", "d56") + (() if direct_geometry else ("alpha_target",))
+    d_value = px.get("d", px.get("d56"))
+    required = ("N1", "N2", "N3", "N4") + (() if d_value is not None else ("d",)) + (() if direct_geometry else ("alpha_target",))
     missing = [name for name in required if name not in px]
     if missing:
         raise ValueError(f"px saknar värden: {', '.join(missing)}.")
@@ -325,7 +326,7 @@ def _parse_px(px):
         "N2": _as_point("N2", px["N2"]),
         "N3": _as_point("N3", px["N3"]),
         "N4": _as_point("N4", px["N4"]),
-        "d56": float(px["d56"]),
+        "d": float(d_value),
         "alpha_target": None if direct_geometry else float(px["alpha_target"]),
         "cx": float(px["cx"]) if direct_geometry else None,
         "cy": float(px["cy"]) if direct_geometry else None,
@@ -346,19 +347,71 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
     Beräknar teoretisk 3D-geometri, vinklar och valfria stavkrafter för ett
     4-pålsfundament innan slagning.
 
-    Indata är fyra topnoder ``N1``-``N4``, känt pålavstånd ``d56`` i mm och
-    målvinkeln ``alpha_target`` i grader. Bottennoderna ``N5``-``N8`` antas
-    ligga i en kvadratisk pålgrupp där sidan ``N5-N6`` har längden ``d56``.
-    Funktionen optimerar centrum, rotation och höjd så att vinklarna mellan
-    varje trycksträva och respektive dragband hamnar nära ``alpha_target``.
+    Modellen är en geometrisk STM-/fackverksmodell:
 
-    Valfri felslagning anges med ``move_node`` = "N5", "N6", "N7" eller "N8"
-    samt ``Delta_x``/``Delta_y`` i mm. Valfria pålaster anges med ``Rz`` för
-    samma last i alla pålar eller ``pile_loads`` för separata värden.
-    ``origin_node`` kan anges för att flytta hela modellen så att vald nod får
-    x=0 och y=0 i den redovisade geometrin. ``origin_mode="current"`` använder
-    slutlig/felslagen position. ``origin_mode="original"`` använder teoretiskt
-    tilltänkt position.
+        - N1, N2, N3 och N4 är övre noder.
+        - N5, N6, N7 och N8 är nedre pålnoder.
+        - Trycksträvor: N1-N5, N2-N6, N3-N7 och N4-N8.
+        - Dragband: N5-N6, N6-N7, N7-N8 och N8-N5.
+
+    Normal indata är fyra topnoder, centrumavståndet ``d`` mellan intilliggande
+    pålar och målvinkeln ``alpha_target``. Bottennoderna antas ligga i en
+    kvadratisk pålgrupp där alla sidavstånd är ``d``. Funktionen optimerar
+    centrum, rotation och höjd så att vinklarna mellan varje trycksträva och
+    respektive dragband hamnar nära ``alpha_target``.
+
+    Parameterformat:
+        px = {
+            "N1": [x1, y1, z1],
+            "N2": [x2, y2, z2],
+            "N3": [x3, y3, z3],
+            "N4": [x4, y4, z4],
+            "d": cc_avstand_mellan_palar,
+            "alpha_target": malvinkel,
+        }
+
+    Felslagning:
+        ``move_node`` kan vara "N5", "N6", "N7" eller "N8".
+        ``Delta_x``/``Delta_y`` anges i mm och appliceras efter att den
+        teoretiska bottengeometrin tagits fram.
+
+    Origo:
+        ``origin_node`` kan anges för att flytta hela redovisningen i plan.
+        ``origin_mode="current"`` placerar slutlig/felslagen nod i origo.
+        ``origin_mode="original"`` placerar teoretiskt tilltänkt nod i origo.
+
+    Pålaster:
+        ``Rz`` anger samma uppåtriktade pålreaktion för alla fyra pålar.
+        ``pile_loads`` kan användas för separata värden, till exempel
+        ``{"N5": 900, "N6": 878, "N7": 1050, "N8": 950}``.
+
+    Enhetskonvention:
+        - koordinater, ``d`` och felslagning i mm
+        - vinklar i grader
+        - pålaster och stavkrafter i kN
+
+    Returvärde:
+        Standardiserad ``details``-dictionary med extra sektionerna
+        ``geometri`` och ``krafter``. Använd tillsammans med
+        ``print_palsfundament_resultat(details)`` och
+        ``plot_palsfundament_3d(details)``.
+
+    Exempel:
+        >>> px = {
+        ...     "N1": [0.0, 0.0, 0.0],
+        ...     "N2": [200.0, 0.0, 0.0],
+        ...     "N3": [200.0, 200.0, 0.0],
+        ...     "N4": [0.0, 200.0, 0.0],
+        ...     "d": 1200.0,
+        ...     "alpha_target": 58.0,
+        ...     "move_node": "N5",
+        ...     "Delta_x": -50.0,
+        ...     "Delta_y": 0.0,
+        ...     "origin_node": "N5",
+        ...     "origin_mode": "original",
+        ...     "pile_loads": {"N5": 900.0, "N6": 878.0, "N7": 1050.0, "N8": 950.0},
+        ... }
+        >>> details = fyrpalsfundament_teoretiskt_innan_slagning(px)
     """
     data = _parse_px(px)
     if data["direct_geometry"]:
@@ -396,7 +449,7 @@ def fyrpalsfundament_teoretiskt_innan_slagning(px):
             "title": "Indata",
             "items": [
                 *[_post(name, name, nodes[name], "mm", f"övre nod {name}") for name in TOP_NODES],
-                _post("d56", r"d_{56}", data["d56"], "mm", "låst avstånd mellan N5 och N6"),
+                _post("d", r"d", data["d"], "mm", "cc-avstånd mellan pålar"),
                 _post("alpha_target", r"\alpha_{target}", data["alpha_target"], "deg", "målvinkel"),
                 _post("move_node", r"N_{flytt}", data["move_node"], "", "felslagen nod"),
                 _post("delta_x", r"\Delta x", data["delta_x"], "mm", "felslagning i x-led"),
