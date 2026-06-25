@@ -999,3 +999,10 @@ def format_trepalsfundament_resultat(details):
 def print_trepalsfundament_resultat(details):
     """Skriver ut samma text som ``format_trepalsfundament_resultat`` returnerar."""
     print(format_trepalsfundament_resultat(details))
+
+
+from .palsfundament import (
+    format_palsfundament_resultat as format_trepalsfundament_resultat,
+    plot_palsfundament_3d as plot_trepalsfundament_3d,
+    print_palsfundament_resultat as print_trepalsfundament_resultat,
+)

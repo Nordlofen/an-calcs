@@ -1,0 +1,91 @@
+import math
+import pathlib
+import sys
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+
+from an_calcs.betong import (
+    format_fyrpalsfundament_resultat,
+    format_palsfundament_resultat,
+    fyrpalsfundament_teoretiskt_innan_slagning,
+    trepalsfundament_teoretiskt_innan_slagning,
+)
+
+
+class TestFyrpalsfundamentTeoretiskt(unittest.TestCase):
+    def test_optimerar_kvadratisk_bottengeometri_med_lika_sidavstand(self):
+        details = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d56": 1200.0,
+                "alpha_target": 58.0,
+            }
+        )
+
+        original_nodes = details["geometri"]["original_nodes"]
+        for a, b in (("N5", "N6"), ("N6", "N7"), ("N7", "N8"), ("N8", "N5")):
+            distance = math.dist(original_nodes[a], original_nodes[b])
+            self.assertTrue(math.isclose(distance, 1200.0, abs_tol=1e-6))
+
+        for angle in details["geometri"]["original_angles"].values():
+            self.assertTrue(math.isclose(angle, 58.0, abs_tol=1e-4))
+
+    def test_felslagning_och_krafter_redovisas(self):
+        details = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d56": 1200.0,
+                "alpha_target": 58.0,
+                "move_node": "N5",
+                "Delta_x": -50.0,
+                "Delta_y": 0.0,
+                "Rz": 1000.0,
+            }
+        )
+
+        self.assertEqual(details["geometri"]["move_node"], "N5")
+        self.assertEqual(details["krafter"]["pile_loads"], {"N5": 1000.0, "N6": 1000.0, "N7": 1000.0, "N8": 1000.0})
+        self.assertIn("N15", details["krafter"]["global_equilibrium"]["member_forces"])
+        self.assertIn("N5", details["krafter"]["member_forces"])
+
+        text = format_fyrpalsfundament_resultat(details)
+        self.assertIn("=== GLOBAL JÄMVIKT (1 kraft per stav) ===", text)
+        self.assertIn("=== LOKAL NODJÄMVIKT (pålnoder) ===", text)
+        self.assertIn("N5:", text)
+
+    def test_gemensam_formatter_fungerar_for_3_och_4_palar(self):
+        details_3p = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "Rz": 1000.0,
+            }
+        )
+        details_4p = fyrpalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [1000.0, 0.0, 0.0],
+                "N3": [1000.0, 1000.0, 0.0],
+                "N4": [0.0, 1000.0, 0.0],
+                "d56": 1200.0,
+                "alpha_target": 58.0,
+                "Rz": 1000.0,
+            }
+        )
+
+        self.assertIn("a45", format_palsfundament_resultat(details_3p))
+        self.assertIn("a56", format_palsfundament_resultat(details_4p))
+
+
+if __name__ == "__main__":
+    unittest.main()
