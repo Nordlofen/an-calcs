@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from an_calcs.betong import trepalsfundament_teoretiskt_innan_slagning
+from an_calcs.betong import format_trepalsfundament_resultat, trepalsfundament_teoretiskt_innan_slagning
 
 
 def _hamta_post(section, namn):
@@ -140,6 +140,26 @@ class TestTrepalsfundamentTeoretiskt(unittest.TestCase):
         self.assertLess(forces["N6"]["N2-N6"], 0.0)
         self.assertGreater(forces["N4"]["N4-N5"], 0.0)
         self.assertEqual(_hamta_post(details["slutresultat"], "N1-N4")["unit"], "kN")
+
+    def test_formaterar_printtext(self):
+        details = trepalsfundament_teoretiskt_innan_slagning(
+            {
+                "N1": [0.0, 0.0, 0.0],
+                "N2": [100.0, 200.0, 0.0],
+                "N3": [200.0, 0.0, 0.0],
+                "d45": 1080.0,
+                "alpha_target": 58.0,
+                "Rz": 1000.0,
+            }
+        )
+
+        text = format_trepalsfundament_resultat(details)
+        self.assertIn("=== VINKLAR mellan sträva och dragband  ===", text)
+        self.assertIn("=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ===", text)
+        self.assertIn("=== NODJÄMVIKT (pålnoder) ===", text)
+        self.assertIn("Rz per påle = 1000.0", text)
+        self.assertIn("N4:", text)
+        self.assertIn("N1-N4:", text)
 
     def test_validerar_indata(self):
         with self.assertRaisesRegex(ValueError, "d45 måste vara > 0"):

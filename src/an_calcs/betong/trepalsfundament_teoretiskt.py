@@ -62,6 +62,13 @@ def _angle_deg(v1, v2):
     return math.degrees(math.acos(c))
 
 
+def _angle_to_horizontal_deg(v):
+    horizontal = math.hypot(v[0], v[1])
+    if horizontal <= 1e-12 and abs(v[2]) <= 1e-12:
+        raise ValueError("Vinkel mot horisontalplan kan inte beräknas för nollvektor.")
+    return math.degrees(math.atan2(abs(v[2]), horizontal))
+
+
 def _build_bottom_nodes(d45, x_mid, y0, x6, y6, h):
     if d45 <= 0:
         raise ValueError("d45 måste vara > 0.")
@@ -96,6 +103,14 @@ def _compute_angles(nodes):
         "a56": _angle_deg(s5, _sub(n6, n5)),
         "a64": _angle_deg(s6, _sub(n4, n6)),
         "a65": _angle_deg(s6, _sub(n5, n6)),
+    }
+
+
+def _compute_strut_horizontal_angles(nodes):
+    return {
+        "alpha14": _angle_to_horizontal_deg(_sub(nodes["N1"], nodes["N4"])),
+        "alpha35": _angle_to_horizontal_deg(_sub(nodes["N3"], nodes["N5"])),
+        "alpha26": _angle_to_horizontal_deg(_sub(nodes["N2"], nodes["N6"])),
     }
 
 
@@ -506,6 +521,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
     nodes = _move_node(original_nodes, data["move_node"], data["delta_x"], data["delta_y"])
     original_angles = _compute_angles(original_nodes)
     angles = _compute_angles(nodes)
+    strut_horizontal_angles = _compute_strut_horizontal_angles(nodes)
     angle_deltas = {name: angles[name] - original_angles[name] for name in angles}
     lengths = {f"{a}{b}": _distance(nodes[a], nodes[b]) for a, b in MEMBERS}
     original_lengths = {f"{a}{b}": _distance(original_nodes[a], original_nodes[b]) for a, b in MEMBERS}
@@ -584,6 +600,9 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
                 _post("a56", r"\alpha_{56}", angles["a56"], "deg", "vinkel vid N5 mot N6"),
                 _post("a64", r"\alpha_{64}", angles["a64"], "deg", "vinkel vid N6 mot N4"),
                 _post("a65", r"\alpha_{65}", angles["a65"], "deg", "vinkel vid N6 mot N5"),
+                _post("alpha14", r"\alpha_{14}", strut_horizontal_angles["alpha14"], "deg", "sträva N1-N4 mot horisontalplan"),
+                _post("alpha35", r"\alpha_{35}", strut_horizontal_angles["alpha35"], "deg", "sträva N3-N5 mot horisontalplan"),
+                _post("alpha26", r"\alpha_{26}", strut_horizontal_angles["alpha26"], "deg", "sträva N2-N6 mot horisontalplan"),
                 _post("da45", r"\Delta\alpha_{45}", angle_deltas["a45"], "deg", "vinkelförändring a45"),
                 _post("da46", r"\Delta\alpha_{46}", angle_deltas["a46"], "deg", "vinkelförändring a46"),
                 _post("da54", r"\Delta\alpha_{54}", angle_deltas["a54"], "deg", "vinkelförändring a54"),
@@ -626,6 +645,7 @@ def trepalsfundament_teoretiskt_innan_slagning(px):
             "members": [list(member) for member in MEMBERS],
             "angles": angles,
             "original_angles": original_angles,
+            "strut_horizontal_angles": strut_horizontal_angles,
             "angle_deltas": angle_deltas,
             "lengths": lengths,
             "original_lengths": original_lengths,
@@ -767,3 +787,54 @@ def plot_trepalsfundament_3d(details, title="3-pålsfundament - teoretiskt innan
     )
 
     return fig
+
+
+def format_trepalsfundament_resultat(details):
+    """Returnerar en kompakt textsammanställning av vinklar och stavkrafter."""
+    geometri = details["geometri"]
+    krafter = details.get("krafter", {})
+    angles = geometri["angles"]
+    strut_angles = geometri.get("strut_horizontal_angles", {})
+    pile_loads = krafter.get("pile_loads")
+    forces = krafter.get("member_forces")
+
+    lines = [
+        "=== VINKLAR mellan sträva och dragband  ===",
+    ]
+    for name in ("a45", "a46", "a54", "a56", "a64", "a65"):
+        lines.append(f"{name} = {angles[name]:.2f}°")
+
+    if strut_angles:
+        lines.extend(
+            [
+                "",
+                "=== STRÄVOR: VINKEL MOT HORISONTALPLAN (xy) ===",
+                f"α14 (N1-N4) = {strut_angles['alpha14']:.2f}°",
+                f"α35 (N3-N5) = {strut_angles['alpha35']:.2f}°",
+                f"α26 (N2-N6) = {strut_angles['alpha26']:.2f}°",
+            ]
+        )
+
+    if forces is not None:
+        same_load = pile_loads and len({round(value, 12) for value in pile_loads.values()}) == 1
+        lines.extend(["", "=== NODJÄMVIKT (pålnoder) ==="])
+        if same_load:
+            lines.append(f"Rz per påle = {next(iter(pile_loads.values())):.1f} (uppåt, +z)")
+        else:
+            lines.append("Rz per påle (uppåt, +z):")
+            for node in ("N4", "N5", "N6"):
+                lines.append(f"  {node}: {pile_loads[node]:.1f}")
+        lines.append("")
+
+        for node in ("N4", "N5", "N6"):
+            lines.append(f"{node}:")
+            for member, value in forces[node].items():
+                lines.append(f"  {member}: {value:.1f}")
+            lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def print_trepalsfundament_resultat(details):
+    """Skriver ut samma text som ``format_trepalsfundament_resultat`` returnerar."""
+    print(format_trepalsfundament_resultat(details))
