@@ -1663,6 +1663,7 @@ class TestTvarkraftDymlingsforband(unittest.TestCase):
         self.assertTrue(math.isclose(_hamta_post(delresultat, "d_eff")["value"], 6.4, rel_tol=1e-9))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 8.0, rel_tol=1e-9))
         self.assertFalse(math.isclose(_hamta_post(delresultat, "brottmod_a")["value"], fh1 * 60.0 * 6.4, rel_tol=1e-9))
+        self.assertTrue(any(item["latex"] == r"d_{eff} = 0.8 \cdot d" for item in details["ekvationer"]["items"]))
 
     def test_validerar_tra_mellanlager_tra(self):
         common = [

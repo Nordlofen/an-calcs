@@ -2094,7 +2094,7 @@ def tvarkraft_dymlingsforband(px):
     if data.infastning_2 == "andtra" and not _is_steel(data.materialtyp_2):
         ekvationer.append(_ekvation(r"t_{2,eff} = l - t_1", "effektiv tjocklek del 2 vid ändträ, EC5 8.2.2"))
 
-    if data.forbindartyp == "traskruv" and data.normativ_tvarkraftsgren in {"8.2", "8.7"}:
+    if data.forbindartyp == "traskruv":
         ekvationer.append(_ekvation(r"d_{eff} = 0.8 \cdot d", "effektiv diameter för träskruv, EC5 8.7.1"))
 
     def _k90_eq(materialtyp, idx):
