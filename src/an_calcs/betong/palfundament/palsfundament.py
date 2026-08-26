@@ -50,6 +50,8 @@ def plot_palsfundament_3d(details, title=None):
     move_node = geometri.get("move_node")
     delta_x = geometri.get("delta_x", 0.0)
     delta_y = geometri.get("delta_y", 0.0)
+    theoretical_piles_xy = geometri.get("theoretical_piles_xy")
+    theoretical_piles_z = geometri.get("theoretical_piles_z")
 
     if title is None:
         pile_count = len([name for name in nodes if name.startswith("N")]) // 2
@@ -115,6 +117,23 @@ def plot_palsfundament_3d(details, title=None):
                 showlegend=False,
             )
         )
+
+    if theoretical_piles_xy is not None:
+        if theoretical_piles_z is None:
+            theoretical_piles_z = min(point[2] for point in nodes.values())
+        for xy in theoretical_piles_xy:
+            fig.add_trace(
+                go.Scatter3d(
+                    x=[xy[0]],
+                    y=[xy[1]],
+                    z=[theoretical_piles_z],
+                    mode="markers+text",
+                    marker=dict(size=7, symbol="circle-open"),
+                    text=["T"],
+                    textposition="top center",
+                    showlegend=False,
+                )
+            )
 
     grouped_angles = {}
     for name in sorted(angles, key=_angle_sort_key):

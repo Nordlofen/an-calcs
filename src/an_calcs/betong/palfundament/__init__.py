@@ -3,6 +3,7 @@
 from .fyrpalsfundament_teoretiskt import fyrpalsfundament_teoretiskt_innan_slagning
 from .palsfundament import plot_palsfundament_3d, print_palsfundament_resultat
 from .trepalsfundament_teoretiskt import trepalsfundament_teoretiskt_innan_slagning
+from .tvapalsfundament_inmatning_efter_slagning import tvapalsfundament_inmätning_efter_slagning
 from .tvapalsfundament_teoretiskt import tvapalsfundament_teoretiskt_innan_slagning
 
 __all__ = [
@@ -10,5 +11,6 @@ __all__ = [
     "plot_palsfundament_3d",
     "print_palsfundament_resultat",
     "trepalsfundament_teoretiskt_innan_slagning",
+    "tvapalsfundament_inmätning_efter_slagning",
     "tvapalsfundament_teoretiskt_innan_slagning",
 ]
