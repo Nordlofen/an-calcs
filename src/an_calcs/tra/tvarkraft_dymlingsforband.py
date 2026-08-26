@@ -2093,6 +2093,8 @@ def tvarkraft_dymlingsforband(px):
 
     if data.infastning_2 == "andtra" and not _is_steel(data.materialtyp_2):
         ekvationer.append(_ekvation(r"t_{2,eff} = l - t_1", "effektiv tjocklek del 2 vid ändträ, EC5 8.2.2"))
+    if movable_interlayer:
+        ekvationer.append(_ekvation(r"t_{2,eff} = l - t_1 - t_{il}", "effektiv inträngningslängd i del 2, EC5:2025 Annex F.4.2.1"))
 
     if data.forbindartyp == "traskruv":
         ekvationer.append(_ekvation(r"d_{eff} = 0.8 \cdot d", "effektiv diameter för träskruv, EC5 8.7.1"))
