@@ -391,7 +391,12 @@ def bojstyvhet_betongpalar(px):
                 _ekvation(r"I_{II}=\frac{bx^3}{12}+bx\left(\frac{x}{2}-x_{tp}\right)^2+A_{s,rad}\left[\beta_1(d'-x_{tp})^2+\beta_2(d-x_{tp})^2\right]", "figur B7.14, endast för lösning av tryckzonen"),
                 _ekvation(r"M_{Nmm}=10^6|M|,\qquad M_{tp}=M_{Nmm}+N_{d,N}\left(x_{tp}-\frac{b}{2}\right)", "momentomvandling och förskjutning från pålens mittaxel"),
                 _ekvation(r"\frac{N_{d,N}}{A_{II}}-\frac{M_{tp}}{I_{II}}(x-x_{tp})=0", "nollspänning i tryckzonens underkant; löses för 0<x<b"),
-                _ekvation(r"x=b\quad\text{om}\quad\frac{N_{d,N}}{A_{II}(b)}-\frac{M_{Nmm}}{I_{II}(b)}\frac{b}{2}\geq 0", "hela betonghöjden används vid helt tryckt eller obelastat snitt"),
+                _ekvation(
+                    r"x=b\quad\text{om}\quad\sigma_{min}=\frac{N_{d,N}}{A_{II}(b)}-\frac{M_{Nmm}}{I_{II}(b)}\frac{b}{2}\geq 0",
+                    "Hela betonghöjden används om spänningen vid den minst tryckta kanten "
+                    "är noll eller tryckande. Annars bestäms x < b genom iteration så att "
+                    "spänningen vid tryckzonens underkant blir noll.",
+                ),
                 _ekvation(r"I_{c,egen}=\frac{bx^3}{12},\qquad I_{c,Steiner}=bx\left(\frac{x}{2}-x_{tp}\right)^2", "betongdelens eget tröghetsmoment och förskjutningsbidrag"),
                 _ekvation(r"I_c=I_{c,egen}+I_{c,Steiner}", "betongens tröghetsmoment kring gemensam axel, utan armeringsavdrag"),
                 _ekvation(r"I_\phi = \frac{\pi\phi_h^4}{64}", "ett järns tröghetsmoment"),
