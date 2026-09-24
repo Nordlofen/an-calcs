@@ -7,6 +7,7 @@ _PX_NAMN = (
     "b", "c_nom", "phi_b", "phi_h", "l_0", "N_d",
     "f_ck", "f_cd", "E_cd", "E_s", "phi_eff", "M",
 )
+_OVERRIDE_NAMN = ("K_c_override", "K_c_manuell", "K_s_override", "K_s_manuell")
 _RHO_MIN = 0.002
 
 
@@ -27,25 +28,41 @@ def _ekvation(latex, etikett):
     return {"latex": latex, "etikett": etikett}
 
 
+def _andligt_tal(namn, value):
+    if isinstance(value, bool):
+        raise ValueError(f"{namn} måste vara ett ändligt tal, inte ett booleskt värde.")
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{namn} måste vara ett ändligt tal.") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{namn} måste vara ett ändligt tal.")
+    return value
+
+
+def _tolka_override(namn, aktiverad, value):
+    if not isinstance(aktiverad, bool):
+        raise ValueError(f"{namn}_override måste vara True eller False.")
+    if not aktiverad:
+        return None
+    value = _andligt_tal(namn + "_manuell", value)
+    if value < 0:
+        raise ValueError(f"{namn}_manuell måste vara >= 0.")
+    return value
+
+
 def _tolka_px(px):
     if not isinstance(px, (list, tuple)):
         raise ValueError("px för bojstyvhet_betongpalar måste vara en lista eller tuple.")
-    if len(px) != len(_PX_NAMN):
+    if len(px) not in (len(_PX_NAMN), len(_PX_NAMN) + len(_OVERRIDE_NAMN)):
         raise ValueError(
-            "px för bojstyvhet_betongpalar måste innehålla exakt 12 värden; "
-            "M [kN*m] läggs sist efter phi_eff."
+            "px för bojstyvhet_betongpalar måste innehålla exakt 12 eller 16 värden; "
+            "de fyra valfria värdena är K_c_override, K_c_manuell, K_s_override, K_s_manuell."
         )
 
     values = []
     for namn, value in zip(_PX_NAMN, px):
-        if isinstance(value, bool):
-            raise ValueError(f"{namn} måste vara ett ändligt tal, inte ett booleskt värde.")
-        try:
-            value = float(value)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError(f"{namn} måste vara ett ändligt tal.") from exc
-        if not math.isfinite(value):
-            raise ValueError(f"{namn} måste vara ett ändligt tal.")
+        value = _andligt_tal(namn, value)
         if namn in {"c_nom", "N_d", "phi_eff"}:
             if value < 0:
                 forklaring = " N_d anges positiv i tryck." if namn == "N_d" else ""
@@ -53,7 +70,11 @@ def _tolka_px(px):
         elif namn != "M" and value <= 0:
             raise ValueError(f"{namn} måste vara > 0.")
         values.append(value)
-    return values
+    K_c_manuell = K_s_manuell = None
+    if len(px) == len(_PX_NAMN) + len(_OVERRIDE_NAMN):
+        K_c_manuell = _tolka_override("K_c", px[12], px[13])
+        K_s_manuell = _tolka_override("K_s", px[14], px[15])
+    return values, K_c_manuell, K_s_manuell
 
 
 def _tryckzon(b, d_prim, A_s_rad, alpha, N_d_N, M_Nmm):
@@ -136,6 +157,8 @@ def bojstyvhet_betongpalar(px):
     Parameterformat (lista eller tuple):
         px = [b, c_nom, phi_b, phi_h, l_0, N_d,
               f_ck, f_cd, E_cd, E_s, phi_eff, M]
+        Valfritt tillägg för manuella faktorer (Panel använder detta format):
+        px += [K_c_override, K_c_manuell, K_s_override, K_s_manuell]
 
     Parametrar:
         b : float
@@ -150,7 +173,7 @@ def bojstyvhet_betongpalar(px):
             Knäckningslängd [m]. Omvandlas till mm i slankhetstalet.
         N_d : float
             Dimensionerande normalkraft [kN], positiv i tryck, >= 0.
-            Noll tillåts som gränsfall och ger EI_c = 0 enligt modellen.
+            Noll tillåts som gränsfall och ger EI_c = 0 med automatiskt K_c.
         f_ck : float
             Karakteristisk cylindertryckhållfasthet [MPa].
         f_cd : float
@@ -165,6 +188,13 @@ def bojstyvhet_betongpalar(px):
             Böjande moment [kN*m] kring hela pålens geometriska mittaxel,
             i samma lastkombination som N_d. Båda tecken tillåts; symmetrin
             gör att abs(M) används, med koordinater från mest tryckt kant.
+        K_c_override, K_s_override : bool, optional
+            True aktiverar respektive manuell faktor; annars används
+            K_c = k1*k2/(1+phi_eff) respektive K_s = 1.
+        K_c_manuell, K_s_manuell : float, optional
+            Ändliga faktorer >= 0 utan övre gräns. Ersätter standardvärdet
+            direkt i EI, utan ytterligare reduktion eller begränsning.
+            Ett inaktivt manuellt värde ignoreras. Tolv indata ger automatläge.
 
     Returvärde:
         Standardiserad details-dictionary för an_print.CalcBlock och Panel.
@@ -180,10 +210,12 @@ def bojstyvhet_betongpalar(px):
         försummas och armeringsraderna representeras av koncentrerade areor.
         Ic = b*x**3/12 + b*x*(x/2-x_tp)**2, utan armeringsavdrag.
         Is beräknas kring samma x_tp, inklusive järnens egna tröghetsmoment.
-        Kc behålls som ytterligare reduktion även efter tryckzonsberäkningen.
+        Kc används som ytterligare reduktion efter tryckzonsberäkningen.
+        Kc och Ks kan ersättas var för sig med manuella faktorer.
         Detta är en modifierad modell, inte den oförändrade nominella metoden.
         Ac, rho och slankheten baseras fortsatt på hela tvärsnittet.
-        Kryptalet påverkar endast Kc. Koefficienterna kräver rho >= 0.002.
+        Kryptalet påverkar endast automatiskt Kc. Tryckzonen påverkas inte
+        av manuella K-faktorer. Kravet rho >= 0.002 behålls i alla lägen.
         Helt tryckt eller obelastat snitt använder x=b (verksam betonghöjd,
         inte neutralaxelns läge utanför snittet). M är indata; funktionen
         beräknar inte andra ordningens moment eller betongens sprickmoment.
@@ -192,7 +224,8 @@ def bojstyvhet_betongpalar(px):
         px = [300, 30, 8, 20, 3, 300, 30, 20, 30000, 200000, 2, 30]
         details = bojstyvhet_betongpalar(px)
     """
-    b, c_nom, phi_b, phi_h, l_0, N_d, f_ck, f_cd, E_cd, E_s, phi_eff, M = _tolka_px(px)
+    values, K_c_manuell, K_s_manuell = _tolka_px(px)
+    b, c_nom, phi_b, phi_h, l_0, N_d, f_ck, f_cd, E_cd, E_s, phi_eff, M = values
 
     n_phi = 4
     l_phi = b / 2.0 - c_nom - phi_b - phi_h / 2.0
@@ -238,8 +271,24 @@ def bojstyvhet_betongpalar(px):
     k_1 = math.sqrt(f_ck / 20.0)
     k_2_obegransad = n * lambda_ / 170.0
     k_2 = min(k_2_obegransad, 0.20)
-    K_s = 1.0
-    K_c = k_1 * k_2 / (1.0 + phi_eff)
+    K_s_auto = 1.0
+    K_c_auto = k_1 * k_2 / (1.0 + phi_eff)
+    K_c = K_c_auto if K_c_manuell is None else K_c_manuell
+    K_s = K_s_auto if K_s_manuell is None else K_s_manuell
+    override_indata = []
+    for namn, latex, value in (
+        ("K_c_manuell", r"K_{c,man}", K_c_manuell),
+        ("K_s_manuell", r"K_{s,man}", K_s_manuell),
+    ):
+        if value is not None:
+            override_indata.append(_post(namn, latex, value, "", "manuellt angiven faktor", decimals=5))
+    faktorbeskrivning = (
+        ("Kc är manuellt angivet och ersätter det beräknade värdet. " if K_c_manuell is not None
+         else "Kc beräknas automatiskt som k1*k2/(1+phi_eff). ")
+        + ("Ks är manuellt angivet och ersätter standardvärdet 1. " if K_s_manuell is not None
+           else "Ks använder standardvärdet 1. ")
+        + "Valda faktorer används direkt i styvhetsbidragen och påverkar inte tryckzonen."
+    )
 
     # MPa * mm^4 = N*mm^2; 1 kN*m^2 = 10^9 N*mm^2.
     EI_c = K_c * E_cd * I_c / 1e9
@@ -264,7 +313,7 @@ def bojstyvhet_betongpalar(px):
                     "rubrik": "Källa",
                     "text": (
                         "Underlagets avsnitt 5.6, Nominell böjstyvhet påle, s. 11. "
-                        "Koefficienter enligt ekv. (5.23)-(5.26), summa enligt (5.22) "
+                        "Automatiska koefficienter enligt ekv. (5.23)-(5.26), summa enligt (5.22) "
                         "och hörngeometri enligt (5.29). Tryckzonsmodellen hämtas från "
                         "det kompletterande bildunderlaget, figur B7.14, med "
                         "transformerat tröghetsmoment på sida B236."
@@ -288,12 +337,14 @@ def bojstyvhet_betongpalar(px):
                         "och dragfri betong. Koordinater mäts från mest tryckt kant. "
                         "Armeringen behandlas som koncentrerade areor vid lösning av x; "
                         "järnens egna tröghetsmoment ingår däremot i slutligt Is. "
-                        "Kc behålls som ytterligare reduktion för bland annat sprickning. "
-                        "Kryptalet påverkar endast Kc. Kombinationen är en modifiering "
+                        "Kc används som ytterligare reduktion för bland annat sprickning. "
+                        "Kc och Ks kan anges manuellt. Kryptalet påverkar endast automatiskt Kc. "
+                        "Kombinationen är en modifiering "
                         "av den nominella metoden. Momentet är indata; andra ordningens "
                         "moment och betongens sprickmoment beräknas inte."
                     ),
                 },
+                {"rubrik": "Val av faktorer", "text": faktorbeskrivning},
                 {"rubrik": "Beräknat tvärsnittstillstånd", "text": snittbeskrivning},
                 {
                     "rubrik": "Enheter",
@@ -321,6 +372,7 @@ def bojstyvhet_betongpalar(px):
                 _post("E_cd", r"E_{cd}", E_cd, "MPa", "dimensionerande elasticitetsmodul, betong"),
                 _post("E_s", r"E_s", E_s, "MPa", "elasticitetsmodul, armering"),
                 _post("phi_eff", r"\varphi_{eff}", phi_eff, "", "effektivt kryptal"),
+                *override_indata,
             ],
         },
         "delresultat": {
@@ -357,8 +409,10 @@ def bojstyvhet_betongpalar(px):
                 _post("k_1", r"k_1", k_1, "", "hållfasthetsfaktor"),
                 _post("k_2_obegransad", r"k_{2,obegr}", k_2_obegransad, "", "normalkrafts- och slankhetsfaktor före begränsning", decimals=5),
                 _post("k_2", r"k_2", k_2, "", "normalkrafts- och slankhetsfaktor, högst 0,20", decimals=5),
-                _post("K_c", r"K_c", K_c, "", "bibehållen ytterligare reduktionsfaktor för betongen", decimals=5),
-                _post("K_s", r"K_s", K_s, "", "faktor för armeringens bidrag", decimals=0),
+                _post("K_c_auto", r"K_{c,auto}", K_c_auto, "", "betongfaktor enligt grundmodellen före eventuellt manuellt val", decimals=5),
+                _post("K_s_auto", r"K_{s,auto}", K_s_auto, "", "armeringsfaktor enligt grundmodellen före eventuellt manuellt val", decimals=0),
+                _post("K_c", r"K_c", K_c, "", "använd betongfaktor, manuellt angiven" if K_c_manuell is not None else "använd betongfaktor, automatiskt beräknad", decimals=5),
+                _post("K_s", r"K_s", K_s, "", "använd armeringsfaktor, manuellt angiven" if K_s_manuell is not None else "använd armeringsfaktor, standardvärde", decimals=5),
             ],
         },
         "slutresultat": {
@@ -406,9 +460,11 @@ def bojstyvhet_betongpalar(px):
                 _ekvation(r"n = \frac{N_{d,N}}{A_c f_{cd}}", "relativ normalkraft, N och mm används"),
                 _ekvation(r"k_1 = \sqrt{\frac{f_{ck}}{20}}", "hållfasthetsfaktor med f_ck i MPa, ekv. (5.25)"),
                 _ekvation(r"k_2 = \min\left(\frac{n\lambda}{170},\,0{,}20\right)", "begränsad faktor, ekv. (5.26)"),
-                _ekvation(r"K_s = 1,\qquad K_c = \frac{k_1 k_2}{1+\varphi_{eff}}", "koefficienter, ekv. (5.23)-(5.24)"),
+                _ekvation(r"K_{s,auto} = 1,\qquad K_{c,auto} = \frac{k_1 k_2}{1+\varphi_{eff}}", "grundmodellens koefficienter före eventuellt manuellt val, ekv. (5.23)-(5.24)"),
+                _ekvation(r"K_c = K_{c,man}" if K_c_manuell is not None else r"K_c = K_{c,auto}", "manuellt angiven betongfaktor används" if K_c_manuell is not None else "automatiskt beräknad betongfaktor används"),
+                _ekvation(r"K_s = K_{s,man}" if K_s_manuell is not None else r"K_s = K_{s,auto}", "manuellt angiven armeringsfaktor används" if K_s_manuell is not None else "standardvärdet för armeringsfaktorn används"),
                 _ekvation(r"EI_c = \frac{K_c E_{cd} I_c}{10^9},\qquad EI_s = \frac{K_s E_s I_s}{10^9}", "bidrag i kN*m² från MPa och mm⁴"),
-                _ekvation(r"EI = EI_c + EI_s", "modifierad nominell böjstyvhet i kN*m² med bibehållet Kc"),
+                _ekvation(r"EI = EI_c + EI_s", "modifierad nominell böjstyvhet i kN*m² med valda Kc och Ks"),
             ],
         },
     }
@@ -416,7 +472,7 @@ def bojstyvhet_betongpalar(px):
 
 bojstyvhet_betongpalar.panel_schema = {
     "title": "Böjstyvhet - Betongpålar",
-    "px": list(_PX_NAMN),
+    "px": list(_PX_NAMN + _OVERRIDE_NAMN),
     "fields": [
         {"name": "b", "type": "float", "label": "Pålsida", "symbol": "<i>b</i>", "unit": "mm", "default": 300.0},
         {"name": "c_nom", "type": "float", "label": "Täckskikt till bygelns utsida", "symbol": "<i>c</i><sub>nom</sub>", "unit": "mm", "default": 30.0},
@@ -430,5 +486,9 @@ bojstyvhet_betongpalar.panel_schema = {
         {"name": "E_cd", "type": "float", "label": "Dimensionerande E-modul, betong", "symbol": "<i>E</i><sub>cd</sub>", "unit": "MPa", "default": 30000.0},
         {"name": "E_s", "type": "float", "label": "E-modul, armering", "symbol": "<i>E</i><sub>s</sub>", "unit": "MPa", "default": 200000.0},
         {"name": "phi_eff", "type": "float", "label": "Effektivt kryptal", "symbol": "ϕ<sub>eff</sub>", "unit": "", "default": 2.0},
+        {"name": "K_c_override", "type": "bool", "label": "Ange Kc manuellt", "symbol": "<i>K</i><sub>c</sub>", "default": False},
+        {"name": "K_c_manuell", "type": "float", "label": "Manuellt Kc", "symbol": "<i>K</i><sub>c,man</sub>", "unit": "", "default": 1.0, "visible_if": {"field": "K_c_override", "equals": True}},
+        {"name": "K_s_override", "type": "bool", "label": "Ange Ks manuellt", "symbol": "<i>K</i><sub>s</sub>", "default": False},
+        {"name": "K_s_manuell", "type": "float", "label": "Manuellt Ks", "symbol": "<i>K</i><sub>s,man</sub>", "unit": "", "default": 1.0, "visible_if": {"field": "K_s_override", "equals": True}},
     ],
 }

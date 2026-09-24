@@ -105,7 +105,8 @@ avsnitt 5.6 i [underlaget, sida 11](https://kth.diva-portal.org/smash/get/diva2%
 Tryckzonen bestäms med modellen i det kompletterande bildunderlaget,
 figur B7.14 (transformerat tröghetsmoment på sida B236). Betongens och
 armeringens tröghetsmoment beräknas sedan separat kring den gemensamma
-transformerade tyngdpunkten `x_tp`. `K_c` behålls som ytterligare reduktion.
+transformerade tyngdpunkten `x_tp`. `K_c` används som ytterligare reduktion.
+`K_c` och `K_s` kan även ersättas var för sig med manuella värden.
 
 Användning i notebook med Panel:
 
@@ -120,6 +121,11 @@ panel
 Materialvärdena och det effektiva kryptalet anges direkt i Panel.
 Startvärdena är ett beräkningsexempel och ska anpassas till aktuellt fall.
 Antalet huvudarmeringsjärn är alltid fyra och behöver inte matas in.
+I standardläget beräknas `K_c = k_1*k_2/(1+phi_eff)` och `K_s = 1`.
+Markera **Ange Kc manuellt** eller **Ange Ks manuellt** i Panel för att visa
+respektive värdefält. Ett manuellt värde ersätter faktorn direkt i `EI`.
+Tillåtna värden är ändliga tal från noll och uppåt, utan övre gräns.
+Avmarkera valet för att återgå till automatläget; ett dolt manuellt värde ignoreras.
 
 | Ordning i `px` | Storhet | Enhet |
 | --- | --- | --- |
@@ -140,6 +146,15 @@ Antalet huvudarmeringsjärn är alltid fyra och behöver inte matas in.
 ger samma styvhet för det symmetriska tvärsnittet; koordinaterna räknas från
 mest tryckt kant. I Panel visas momentfältet intill normalkraften.
 Äldre direkta anrop med elva värden behöver kompletteras med `M` sist i `px`.
+Anrop med tolv värden fortsätter att använda automatläget. För manuella faktorer
+läggs fyra värden till (Panel använder alltid detta utökade format):
+
+| Ordning i `px` | Storhet | Typ |
+| --- | --- | --- |
+| 13 | `K_c_override` – aktivera manuellt Kc | `True`/`False` |
+| 14 | `K_c_manuell` – manuell betongfaktor | tal ≥ 0 |
+| 15 | `K_s_override` – aktivera manuellt Ks | `True`/`False` |
+| 16 | `K_s_manuell` – manuell armeringsfaktor | tal ≥ 0 |
 
 Direkt anrop och redovisning med CalcBlock:
 
@@ -153,13 +168,25 @@ cb = CalcBlock(details)
 cb.SR(visa=True, etikett=True)
 ```
 
-Exemplet ger `x = 184,300 mm`, `x_tp = 100,278 mm`, `EI_c = 66,615`,
+Exempel på manuella faktorer:
+
+```python
+# Ersätt Kc med 0.25 och Ks med 0.75.
+details = bojstyvhet_betongpalar(px + [True, 0.25, True, 0.75])
+# Ersätt endast Ks; det inaktiva värdet för Kc ignoreras.
+details = bojstyvhet_betongpalar(px + [False, None, True, 0.75])
+```
+
+Exemplet med automatiska faktorer ger `x = 184,300 mm`, `x_tp = 100,278 mm`, `EI_c = 66,615`,
 `EI_s = 3242,440` och totalt `EI = 3309,056 kN·m²`.
 Slutresultatet innehåller styvhetsbidragen och tryckzonens höjd `x` i mm.
 På samma rad anges `reducerad (x < b)` eller `oreducerad (x = b)` i etiketten
 efter `tryckzonens höjd`. Visa etiketter för SR för att se kommentaren.
 Tryckzon, transformerade snittkonstanter, tröghetsmoment, enhetsomvandlingar, koefficienter och
 använda ekvationer redovisas i samma `details`-struktur via Panel eller CalcBlock.
+Aktiva manuella faktorer visas under Indata. Delresultat visar både grundmodellens
+`K_c_auto`/`K_s_auto` och de använda `K_c`/`K_s`. Metodbeskrivningen och ekvationerna
+anger om respektive faktor är automatisk eller manuellt vald.
 
 Tryckzonsberäkningen använder linjärelastiska material, dragfri betong och
 modulkvoten `alpha = E_s/E_cd`. Två järn finns i vardera armeringsraden.
@@ -185,16 +212,20 @@ EI  = (K_c*E_cd*I_c + K_s*E_s*I_s)/10^9  [kN·m²]
 Slutligt `I_c` beräknas utan armeringsavdrag och slutligt `I_s` inkluderar
 järnens egna tröghetsmoment. Förskjutningen av beräkningsaxeln kan öka
 armeringens bidrag; lägre betongbidrag innebär därför inte nödvändigtvis
-lägre total styvhet. `K_c` använder effektivt kryptal som tidigare.
-Kryptalet påverkar inte tryckzonslösningen. Detta är en modifierad modell,
+lägre total styvhet. Automatiskt `K_c` använder effektivt kryptal som tidigare.
+Manuellt `K_c` ersätter hela denna faktor, utan ytterligare krypreduktion eller
+begränsning. Tryckzonslösningen påverkas varken av kryptalet eller K-faktorerna.
+Detta är en modifierad modell,
 inte den oförändrade nominella Eurokodmetoden.
 
 `A_c`, armeringsinnehållet och slankheten baseras fortsatt på hela pålen.
-Metoden kräver `A_s/A_c >= 0,002` och begränsar `k_2` till högst `0,20`.
+Metoden kräver `A_s/A_c >= 0,002` även vid manuella faktorer.
+`k_2` begränsas till högst `0,20` vid beräkning av grundmodellens `K_c_auto`.
 Vid helt tryckt tvärsnitt används hela höjden `x=b` och `x_tp=b/2`.
 Här betecknar `x` verksam betonghöjd, inte neutralaxelns läge utanför snittet.
 `N_d = 0` tillåts: vid ren böjning löses tryckzonen utan division med normalkraft,
-men `K_c=0` ger endast armeringens slutliga styvhetsbidrag enligt modellen.
+men automatiskt `K_c=0` ger endast armeringens slutliga styvhetsbidrag.
+Ett manuellt `K_c` används även i detta fall.
 Vid `N_d=M=0` används hela betonghöjden som beräkningskonvention.
 Funktionen beräknar varken andra ordningens moment eller betongens sprickmoment.
 Ogiltiga indata, överlappande järn och för lågt armeringsinnehåll ger `ValueError`,

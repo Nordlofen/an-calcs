@@ -14,6 +14,8 @@ from an_calcs.betong import bojstyvhet_betongpalar
 EXEMPEL_PX = [300, 30, 8, 20, 3, 300, 30, 20, 30000, 200000, 2, 30]
 PX_NAMN = ["b", "c_nom", "phi_b", "phi_h", "l_0", "N_d",
            "f_ck", "f_cd", "E_cd", "E_s", "phi_eff", "M"]
+OVERRIDE_NAMN = ["K_c_override", "K_c_manuell", "K_s_override", "K_s_manuell"]
+PANEL_PX = EXEMPEL_PX + [False, 1.0, False, 1.0]
 
 
 def _poster(details, section):
@@ -217,6 +219,68 @@ class TestBojstyvhetBetongpalar(unittest.TestCase):
         self.assertAlmostEqual(sr["EI_s"]["value"], 1621.2200203725767, places=8)
         self.assertEqual(_poster(details, "indata")["f_cd"]["value"], 10)
 
+    def test_manuella_faktorer_ersatter_varje_bidrag_utan_att_andra_tryckzonen(self):
+        ref = _poster(bojstyvhet_betongpalar(EXEMPEL_PX), "delresultat")
+        # Enskilda val, noll, bråktal och värden över 1 ska användas direkt.
+        for K_c, K_s in ((0.3, None), (None, 0.5), (0, None), (None, 0), (0, 0), (2, 1.5)):
+            with self.subTest(K_c=K_c, K_s=K_s):
+                px = EXEMPEL_PX + [K_c is not None, K_c, K_s is not None, K_s]
+                details = bojstyvhet_betongpalar(px)
+                dr = _poster(details, "delresultat")
+                sr = _poster(details, "slutresultat")
+                valt_K_c = ref["K_c"]["value"] if K_c is None else K_c
+                valt_K_s = 1 if K_s is None else K_s
+                self.assertEqual(dr["K_c"]["value"], valt_K_c)
+                self.assertEqual(dr["K_s"]["value"], valt_K_s)
+                self.assertEqual(dr["K_c_auto"]["value"], ref["K_c"]["value"])
+                self.assertEqual(dr["K_s_auto"]["value"], 1)
+                for namn in ("x", "x_tp", "I_c", "I_s", "A_II", "I_II"):
+                    self.assertEqual(dr[namn]["value"], ref[namn]["value"])
+                expected_c = valt_K_c * 30000 * ref["I_c"]["value"] / 1e9
+                expected_s = valt_K_s * 200000 * ref["I_s"]["value"] / 1e9
+                self.assertAlmostEqual(sr["EI_c"]["value"], expected_c)
+                self.assertAlmostEqual(sr["EI_s"]["value"], expected_s)
+                self.assertAlmostEqual(sr["EI"]["value"], expected_c + expected_s)
+                idata = _poster(details, "indata")
+                self.assertEqual("K_c_manuell" in idata, K_c is not None)
+                self.assertEqual("K_s_manuell" in idata, K_s is not None)
+
+    def test_manuellt_kc_ersatter_aven_vid_noll_normalkraft_och_krypning(self):
+        for N_d in (0, 4000):
+            bidrag = []
+            for phi_eff in (0, 5):
+                details = bojstyvhet_betongpalar(
+                    _exempel(N_d=N_d, phi_eff=phi_eff) + [True, 1.25, False, None]
+                )
+                dr = _poster(details, "delresultat")
+                sr = _poster(details, "slutresultat")
+                self.assertEqual(dr["K_c"]["value"], 1.25)
+                self.assertGreater(sr["EI_c"]["value"], 0)
+                bidrag.append(sr["EI_c"]["value"])
+            self.assertEqual(bidrag[0], bidrag[1])
+
+    def test_inaktiva_overridevarden_ignoreras_och_tolv_varden_fungerar(self):
+        expected = bojstyvhet_betongpalar(EXEMPEL_PX)
+        for tail in ([False, 1, False, 1], [False, None, False, "ignoreras"],
+                     [False, math.nan, False, -5]):
+            self.assertEqual(bojstyvhet_betongpalar(EXEMPEL_PX + tail), expected)
+
+    def test_ogiltiga_manuella_faktorer_och_aktiveringsflaggor(self):
+        for index, namn in ((0, "K_c"), (2, "K_s")):
+            for value in (math.nan, math.inf, -math.inf, None, "fel", True, 10**1000):
+                tail = [False, 1, False, 1]
+                tail[index:index + 2] = [True, value]
+                with self.subTest(namn=namn, value=str(value)[:20]):
+                    with self.assertRaisesRegex(ValueError, namn + "_manuell måste vara ett ändligt tal"):
+                        bojstyvhet_betongpalar(EXEMPEL_PX + tail)
+            tail[index:index + 2] = [True, -0.1]
+            with self.assertRaisesRegex(ValueError, namn + "_manuell måste vara >= 0"):
+                bojstyvhet_betongpalar(EXEMPEL_PX + tail)
+            for flag in (0, 1, "False", None):
+                tail[index:index + 2] = [flag, 1]
+                with self.assertRaisesRegex(ValueError, namn + "_override måste vara True eller False"):
+                    bojstyvhet_betongpalar(EXEMPEL_PX + tail)
+
     def test_armeringsinnehall_vid_och_under_gransen(self):
         phi_grans = 300 * math.sqrt(0.002 / math.pi)
         details = bojstyvhet_betongpalar(_exempel(phi_h=phi_grans))
@@ -257,7 +321,7 @@ class TestBojstyvhetBetongpalar(unittest.TestCase):
             with self.subTest(px=px):
                 with self.assertRaisesRegex(ValueError, "lista eller tuple"):
                     bojstyvhet_betongpalar(px)
-        for px in ([], EXEMPEL_PX[:-1], EXEMPEL_PX + [4]):
+        for px in ([], EXEMPEL_PX[:-1], EXEMPEL_PX + [4], PANEL_PX[:-1], PANEL_PX + [1]):
             with self.subTest(px=px):
                 with self.assertRaisesRegex(ValueError, "exakt 12"):
                     bojstyvhet_betongpalar(px)
@@ -286,15 +350,16 @@ class TestBojstyvhetBetongpalar(unittest.TestCase):
     def test_panel_schema_ger_ratt_px_och_berakningsbara_defaultvarden(self):
         schema = bojstyvhet_betongpalar.panel_schema
         self.assertEqual(schema["title"], "Böjstyvhet - Betongpålar")
-        self.assertEqual(schema["px"], PX_NAMN)
+        self.assertEqual(schema["px"], PX_NAMN + OVERRIDE_NAMN)
         fields = {field["name"]: field for field in schema["fields"]}
-        self.assertEqual(set(fields), set(PX_NAMN))
+        self.assertEqual(set(fields), set(PX_NAMN + OVERRIDE_NAMN))
         self.assertEqual(fields["l_0"]["unit"], "m")
         self.assertEqual(fields["N_d"]["unit"], "kN")
         self.assertEqual(fields["M"]["unit"], "kN*m")
-        self.assertTrue(all(field["type"] == "float" for field in fields.values()))
+        for namn, field in fields.items():
+            self.assertEqual(field["type"], "bool" if namn.endswith("_override") else "float")
         px = [fields[namn]["default"] for namn in schema["px"]]
-        self.assertEqual(px, EXEMPEL_PX)
+        self.assertEqual(px, PANEL_PX)
         self.assertAlmostEqual(
             _poster(bojstyvhet_betongpalar(px), "slutresultat")["EI"]["value"],
             3309.0555004187724, places=8,
@@ -322,6 +387,16 @@ class TestBojstyvhetPresentation(unittest.TestCase):
         self.assertIn("0.013963", cb.latex_dr)
         self.assertIn("(5.29)", cb.html_ekv)
 
+        cb = CalcBlock(bojstyvhet_betongpalar(EXEMPEL_PX + [True, 0.25, True, 0.75]))
+        cb.ID(visa=False, etikett=True)
+        cb.DR(visa=False, etikett=True)
+        cb.EKV(visa=False, etikett=True)
+        self.assertIn("0.75000", cb.latex_dr)
+        self.assertIn("manuellt angiven", cb.html_dr)
+        self.assertIn(r"K_c & = & K_{c,man}", cb.latex_ekv)
+        self.assertIn(r"K_s & = & K_{s,man}", cb.latex_ekv)
+        self.assertIn("0.25000", cb.html_id)
+
     @unittest.skipUnless(importlib.util.find_spec("ipywidgets"), "ipywidgets behövs för Panel")
     def test_panel_bygger_falt_beraknar_och_uppdaterar(self):
         from an_print import Panel
@@ -332,15 +407,35 @@ class TestBojstyvhetPresentation(unittest.TestCase):
             # Bygg riktiga redovisningsblock utan att skriva till terminalens display.
             for block in panel._block_widgets.values():
                 block["visa"].value = False
-            self.assertEqual(panel.to_px(), EXEMPEL_PX)
+            self.assertEqual(panel.to_px(), PANEL_PX)
             details = panel.calculate()
             self.assertIs(panel.details, details)
             self.assertIn("3309.056", panel.cb.latex_sr)
             panel._field_widgets["M"].value = 0
             panel.calculate()
-            self.assertEqual(panel.px[-1], 0)
+            self.assertEqual(panel.px[11], 0)
             self.assertIn("2901.857", panel.cb.latex_sr)
             panel._field_widgets["M"].value = -30
+            panel.calculate()
+            self.assertIn("3309.056", panel.cb.latex_sr)
+            fields = {f["name"]: f for f in panel.schema["fields"]}
+            self.assertFalse(panel._field_is_visible(fields["K_c_manuell"]))
+            self.assertFalse(panel._field_is_visible(fields["K_s_manuell"]))
+            panel._field_widgets["K_c_override"].value = True
+            panel._field_widgets["K_c_manuell"].value = 0.25
+            panel._field_widgets["K_s_override"].value = True
+            panel._field_widgets["K_s_manuell"].value = 0.75
+            details = panel.calculate()
+            self.assertTrue(panel._field_is_visible(fields["K_c_manuell"]))
+            self.assertTrue(panel._field_is_visible(fields["K_s_manuell"]))
+            self.assertEqual(panel.px[12:], [True, 0.25, True, 0.75])
+            dr = _poster(details, "delresultat")
+            sr = _poster(details, "slutresultat")
+            self.assertAlmostEqual(sr["EI_c"]["value"], 0.25 * 30000 * dr["I_c"]["value"] / 1e9)
+            self.assertAlmostEqual(sr["EI_s"]["value"], 0.75 * 200000 * dr["I_s"]["value"] / 1e9)
+            self.assertIn(r"K_s & = & K_{s,man}", panel.cb.latex_ekv)
+            panel._field_widgets["K_c_override"].value = False
+            panel._field_widgets["K_s_override"].value = False
             panel.calculate()
             self.assertIn("3309.056", panel.cb.latex_sr)
             panel._field_widgets["N_d"].value = 2000
