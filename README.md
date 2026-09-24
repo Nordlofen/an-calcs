@@ -187,6 +187,10 @@ använda ekvationer redovisas i samma `details`-struktur via Panel eller CalcBlo
 Aktiva manuella faktorer visas under Indata. Delresultat visar både grundmodellens
 `K_c_auto`/`K_s_auto` och de använda `K_c`/`K_s`. Metodbeskrivningen och ekvationerna
 anger om respektive faktor är automatisk eller manuellt vald.
+Delresultat visar även `sigma_min_b` i MPa, märkt `sigma_min(x=b)`:
+minsta kantspänning beräknad med hela tvärsnittets transformerade snittkonstanter
+före eventuell reduktion av tryckzonen. Positivt värde betyder tryck och negativt
+värde drag. Värdet sparas före iterationen även när slutligt `x` blir mindre än `b`.
 
 Tryckzonsberäkningen använder linjärelastiska material, dragfri betong och
 modulkvoten `alpha = E_s/E_cd`. Två järn finns i vardera armeringsraden.

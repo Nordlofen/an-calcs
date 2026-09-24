@@ -107,6 +107,8 @@ def _tryckzon(b, d_prim, A_s_rad, alpha, N_d_N, M_Nmm):
     # I helt tryckt eller obelastat snitt används hela betonghöjden x=b.
     u = 1.0
     area, z, inertia, beta_1, beta_2 = snitt(u)
+    # Spara kantspänningen i MPa för hela snittet innan iterationen ändrar det.
+    sigma_min_b = N_d_N / (area * b**2) - M_Nmm * (b / 2.0) / (inertia * b**4)
     lastskala = max(N_d_N, M_Nmm / b)
     iterationer = 0
     sprucket = False
@@ -139,6 +141,7 @@ def _tryckzon(b, d_prim, A_s_rad, alpha, N_d_N, M_Nmm):
         "x_tp": z * b,
         "A_II": area * b**2,
         "I_II": inertia * b**4,
+        "sigma_min_b": sigma_min_b,
         "beta_1": beta_1,
         "beta_2": beta_2,
         "iterationer": iterationer,
@@ -387,6 +390,7 @@ def bojstyvhet_betongpalar(px):
                 _post("d", "d", d, "mm", "bortre armeringsrad från mest tryckt kant"),
                 _post("A_s_rad", r"A_{s,rad}", A_s_rad, "mm^2", "armeringsarea per rad, två järn"),
                 _post("alpha", r"\alpha", alpha, "", "modulkvot Es/Ecd för tryckzonsmodellen"),
+                _post("sigma_min_b", r"\sigma_{min}(x=b)", snitt["sigma_min_b"], "MPa", "minsta kantspänning för hela snittet före reduktion; positivt = tryck, negativt = drag", decimals=3),
                 _post("x", "x", x, "mm", "verksam betonghöjd; x=b vid helt tryckt eller obelastat snitt", decimals=3),
                 _post("x_tp", r"x_{tp}", x_tp, "mm", "transformerad tyngdpunkt från mest tryckt kant", decimals=3),
                 _post("beta_1", r"\beta_1", snitt["beta_1"], "", "transformationsfaktor för närmaste armeringsrad"),

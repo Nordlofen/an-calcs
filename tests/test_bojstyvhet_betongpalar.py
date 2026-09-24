@@ -88,6 +88,30 @@ class TestBojstyvhetBetongpalar(unittest.TestCase):
             self.assertEqual(dr["I_c"]["value"], 675000000)
             self.assertAlmostEqual(sr["EI"]["value"], 2901.856569390636, places=8)
 
+    def test_sigma_min_b_avser_hela_snittet_aven_efter_reduktion(self):
+        # Hela snittet: Ac=90000, As=400*pi, alpha=20/3, hävarm=102.
+        area = 90000 + (20 / 3 - 1) * 400 * math.pi
+        inertia = 675000000 + (20 / 3 - 1) * 400 * math.pi * 102**2
+        for N_d, M in ((300, 0), (300, 30), (300, -30), (0, 30), (0, 0)):
+            with self.subTest(N_d=N_d, M=M):
+                dr = _poster(bojstyvhet_betongpalar(_exempel(N_d=N_d, M=M)), "delresultat")
+                sigma = dr["sigma_min_b"]
+                expected = N_d * 1000 / area - abs(M) * 1e6 * 150 / inertia
+                self.assertAlmostEqual(sigma["value"], expected, places=12)
+                self.assertEqual(sigma["unit"], "MPa")
+                self.assertEqual(sigma["latex"], r"\sigma_{min}(x=b)")
+                if expected < 0:
+                    self.assertLess(dr["x"]["value"], 300)
+                    # Slutliga tryckzonens kantspänning är nära noll, men
+                    # sigma_min_b ska fortfarande visa det negativa startvärdet.
+                    sigma_x = N_d * 1000 / dr["A_II"]["value"] - (
+                        dr["M_tp"]["value"] / dr["I_II"]["value"]
+                        * (dr["x"]["value"] - dr["x_tp"]["value"])
+                    )
+                    self.assertAlmostEqual(sigma_x, 0, places=9)
+                else:
+                    self.assertEqual(dr["x"]["value"], 300)
+
     def test_betong_och_armering_kring_samma_axel_med_bibehallen_kc(self):
         details = bojstyvhet_betongpalar(EXEMPEL_PX)
         dr = {k: p["value"] for k, p in _poster(details, "delresultat").items()}
@@ -382,6 +406,8 @@ class TestBojstyvhetPresentation(unittest.TestCase):
         self.assertIn("3309.056", cb.latex_sr)
         self.assertIn("184.300", cb.latex_dr)
         self.assertIn("100.278", cb.latex_dr)
+        self.assertIn(r"\sigma_{min}(x=b)", cb.latex_dr)
+        self.assertIn("σ<sub>min</sub>(x=b)", cb.html_dr)
         self.assertIn("x_{tp}", cb.latex_ekv)
         self.assertIn("ytterligare reduktion", cb.html_mb)
         self.assertIn("0.013963", cb.latex_dr)
