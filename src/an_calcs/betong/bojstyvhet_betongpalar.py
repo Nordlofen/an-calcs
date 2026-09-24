@@ -1,11 +1,11 @@
-"""Nominell böjstyvhet för kvadratiska betongpålar med fyra hörnjärn."""
+"""Modifierad nominell böjstyvhet med lastberoende tryckzon och fyra hörnjärn."""
 
 import math
 
 
 _PX_NAMN = (
     "b", "c_nom", "phi_b", "phi_h", "l_0", "N_d",
-    "f_ck", "f_cd", "E_cd", "E_s", "phi_eff",
+    "f_ck", "f_cd", "E_cd", "E_s", "phi_eff", "M",
 )
 _RHO_MIN = 0.002
 
@@ -31,7 +31,10 @@ def _tolka_px(px):
     if not isinstance(px, (list, tuple)):
         raise ValueError("px för bojstyvhet_betongpalar måste vara en lista eller tuple.")
     if len(px) != len(_PX_NAMN):
-        raise ValueError("px för bojstyvhet_betongpalar måste innehålla exakt 11 värden.")
+        raise ValueError(
+            "px för bojstyvhet_betongpalar måste innehålla exakt 12 värden; "
+            "M [kN*m] läggs sist efter phi_eff."
+        )
 
     values = []
     for namn, value in zip(_PX_NAMN, px):
@@ -47,15 +50,84 @@ def _tolka_px(px):
             if value < 0:
                 forklaring = " N_d anges positiv i tryck." if namn == "N_d" else ""
                 raise ValueError(f"{namn} måste vara >= 0." + forklaring)
-        elif value <= 0:
+        elif namn != "M" and value <= 0:
             raise ValueError(f"{namn} måste vara > 0.")
         values.append(value)
     return values
 
 
+def _tryckzon(b, d_prim, A_s_rad, alpha, N_d_N, M_Nmm):
+    """Löser N-M-jämvikt med dragfri betong och koncentrerade armeringsareor.
+
+    Koordinater räknas från den mest tryckta kanten. Normalisering med b
+    och lastens storlek gör toleransen oberoende av enheter och lastnivå.
+    Inga K-faktorer eller kryptalsreduktioner används i denna delmodell.
+    """
+    a = A_s_rad / b**2
+    y_1 = d_prim / b
+    y_2 = 1.0 - y_1
+
+    def snitt(u):
+        # Betong undanträngs endast av en armeringsrad inne i tryckzonen.
+        beta_1 = alpha - (1.0 if y_1 <= u else 0.0)
+        beta_2 = alpha - (1.0 if y_2 <= u else 0.0)
+        area = u + (beta_1 + beta_2) * a
+        if not math.isfinite(area) or area <= 0:
+            raise ValueError("Tryckzonsmodellen måste ge en positiv transformerad area.")
+        z = (u**2 / 2.0 + a * (beta_1 * y_1 + beta_2 * y_2)) / area
+        inertia = (
+            u**3 / 12.0 + u * (u / 2.0 - z)**2
+            + a * (beta_1 * (y_1 - z)**2 + beta_2 * (y_2 - z)**2)
+        )
+        if not math.isfinite(inertia) or inertia <= 0:
+            raise ValueError("Tryckzonsmodellen måste ge ett positivt transformerat tröghetsmoment.")
+        return area, z, inertia, beta_1, beta_2
+
+    # I helt tryckt eller obelastat snitt används hela betonghöjden x=b.
+    u = 1.0
+    area, z, inertia, beta_1, beta_2 = snitt(u)
+    lastskala = max(N_d_N, M_Nmm / b)
+    iterationer = 0
+    sprucket = False
+    if lastskala > 0:
+        n_last = N_d_N / lastskala
+        m_last = (M_Nmm / b) / lastskala
+
+        def rest(u, area, z, inertia):
+            # M anges kring b/2. Flytta momentet till snittets tyngdpunkt z.
+            m_tp = m_last + n_last * (z - 0.5)
+            return n_last * inertia - m_tp * area * (u - z)
+
+        if rest(u, area, z, inertia) < 0:
+            sprucket = True
+            lo, hi = 0.0, 1.0
+            for iterationer in range(1, 101):
+                u = (lo + hi) / 2.0
+                area, z, inertia, beta_1, beta_2 = snitt(u)
+                if rest(u, area, z, inertia) > 0:
+                    lo = u
+                else:
+                    hi = u
+                if hi - lo <= 1e-13:
+                    break
+            else:
+                raise ValueError("Tryckzonens höjd x kunde inte bestämmas med angiven tolerans.")
+
+    return {
+        "x": u * b,
+        "x_tp": z * b,
+        "A_II": area * b**2,
+        "I_II": inertia * b**4,
+        "beta_1": beta_1,
+        "beta_2": beta_2,
+        "iterationer": iterationer,
+        "sprucket": sprucket,
+    }
+
+
 def bojstyvhet_betongpalar(px):
     """
-    Beräknar nominell böjstyvhet EI för en kvadratisk betongpåle.
+    Beräknar modifierad nominell böjstyvhet EI med lastberoende tryckzon.
 
     Pålen har exakt fyra likadana huvudarmeringsjärn, symmetriskt placerade
     i hörnen innanför byglarna. Böjning avser en huvudaxel parallell med en
@@ -63,7 +135,7 @@ def bojstyvhet_betongpalar(px):
 
     Parameterformat (lista eller tuple):
         px = [b, c_nom, phi_b, phi_h, l_0, N_d,
-              f_ck, f_cd, E_cd, E_s, phi_eff]
+              f_ck, f_cd, E_cd, E_s, phi_eff, M]
 
     Parametrar:
         b : float
@@ -89,6 +161,10 @@ def bojstyvhet_betongpalar(px):
             Dimensioneringsvärde för armeringens elasticitetsmodul [MPa].
         phi_eff : float
             Effektivt kryptal [-], >= 0.
+        M : float
+            Böjande moment [kN*m] kring hela pålens geometriska mittaxel,
+            i samma lastkombination som N_d. Båda tecken tillåts; symmetrin
+            gör att abs(M) används, med koordinater från mest tryckt kant.
 
     Returvärde:
         Standardiserad details-dictionary för an_print.CalcBlock och Panel.
@@ -99,15 +175,24 @@ def bojstyvhet_betongpalar(px):
         Underlagets avsnitt 5.6, "Nominell böjstyvhet påle", ekv. (5.22)-
         (5.27) och (5.29), s. 11:
         https://kth.diva-portal.org/smash/get/diva2%3A1597682/FULLTEXT01.pdf
-        Ac och Ic avser hela betongtvärsnittets geometri utan avdrag för
-        armering. Materialvärden och effektivt kryptal anges direkt.
-        Koefficienterna förutsätter rho = As/Ac >= 0.002.
+        Modifiering: x och x_tp bestäms genom elastisk N-M-jämvikt enligt
+        användarens underlag, figur B7.14, med alpha = Es/Ecd. Dragbetong
+        försummas och armeringsraderna representeras av koncentrerade areor.
+        Ic = b*x**3/12 + b*x*(x/2-x_tp)**2, utan armeringsavdrag.
+        Is beräknas kring samma x_tp, inklusive järnens egna tröghetsmoment.
+        Kc behålls som ytterligare reduktion även efter tryckzonsberäkningen.
+        Detta är en modifierad modell, inte den oförändrade nominella metoden.
+        Ac, rho och slankheten baseras fortsatt på hela tvärsnittet.
+        Kryptalet påverkar endast Kc. Koefficienterna kräver rho >= 0.002.
+        Helt tryckt eller obelastat snitt använder x=b (verksam betonghöjd,
+        inte neutralaxelns läge utanför snittet). M är indata; funktionen
+        beräknar inte andra ordningens moment eller betongens sprickmoment.
 
     Exempel:
-        px = [300, 30, 8, 20, 3, 300, 30, 20, 30000, 200000, 2]
+        px = [300, 30, 8, 20, 3, 300, 30, 20, 30000, 200000, 2, 30]
         details = bojstyvhet_betongpalar(px)
     """
-    b, c_nom, phi_b, phi_h, l_0, N_d, f_ck, f_cd, E_cd, E_s, phi_eff = _tolka_px(px)
+    b, c_nom, phi_b, phi_h, l_0, N_d, f_ck, f_cd, E_cd, E_s, phi_eff, M = _tolka_px(px)
 
     n_phi = 4
     l_phi = b / 2.0 - c_nom - phi_b - phi_h / 2.0
@@ -117,7 +202,6 @@ def bojstyvhet_betongpalar(px):
         raise ValueError("Huvudarmeringsjärnen överlappar: 2*l_phi måste vara >= phi_h.")
 
     A_c = b**2
-    I_c = b**4 / 12.0
     A_s = n_phi * math.pi * phi_h**2 / 4.0
     rho = A_s / A_c
     # Accepterar avrundningsfel vid den exakta gränsen, inte lägre armeringshalt.
@@ -127,11 +211,28 @@ def bojstyvhet_betongpalar(px):
             "Metoden kräver rho >= 0,002."
         )
 
+    d_prim = c_nom + phi_b + phi_h / 2.0
+    d = b - d_prim
+    A_s_rad = A_s / 2.0
+    alpha = E_s / E_cd
+    N_d_N = N_d * 1000.0
+    M_Nmm = abs(M) * 1e6
+    snitt = _tryckzon(b, d_prim, A_s_rad, alpha, N_d_N, M_Nmm)
+    x, x_tp = snitt["x"], snitt["x_tp"]
+    I_c_egen = b * x**3 / 12.0
+    I_c_steiner = b * x * (x / 2.0 - x_tp)**2
+    I_c = I_c_egen + I_c_steiner
     I_phi = math.pi * phi_h**4 / 64.0
-    I_s = n_phi * I_phi + A_s * l_phi**2
+    I_s = n_phi * I_phi + A_s_rad * ((d_prim - x_tp)**2 + (d - x_tp)**2)
+    M_tp = M_Nmm + N_d_N * (x_tp - b / 2.0)
+    if N_d_N == 0 and M_Nmm == 0:
+        snittbeskrivning = "Obelastat snitt: hela betonghöjden används, x=b."
+    elif snitt["sprucket"]:
+        snittbeskrivning = "Delvis tryckt snitt: x bestäms genom iteration med dragfri betong."
+    else:
+        snittbeskrivning = "Helt tryckt snitt: hela betonghöjden används, x=b."
     i = b / math.sqrt(12.0)
     l_0_mm = l_0 * 1000.0
-    N_d_N = N_d * 1000.0
     lambda_ = l_0_mm / i
     n = N_d_N / (A_c * f_cd)
     k_1 = math.sqrt(f_ck / 20.0)
@@ -152,34 +253,53 @@ def bojstyvhet_betongpalar(px):
                 {
                     "rubrik": "Beräkning",
                     "text": (
-                        "Nominell böjstyvhet för en kvadratisk betongpåle med fyra "
+                        "Modifierad nominell böjstyvhet för en kvadratisk betongpåle med fyra "
                         "likadana huvudarmeringsjärn, symmetriskt placerade i hörnen. "
-                        "Betongens och armeringens bidrag summeras. Böjningen avser "
-                        "en huvudaxel parallell med en tvärsnittssida."
+                        "Tryckzonen bestäms av normalkraft och moment. Betongens och "
+                        "armeringens bidrag beräknas kring samma transformerade tyngdpunkt. "
+                        "Böjningen avser en huvudaxel parallell med en tvärsnittssida."
                     ),
                 },
                 {
                     "rubrik": "Källa",
                     "text": (
                         "Underlagets avsnitt 5.6, Nominell böjstyvhet påle, s. 11. "
-                        "Ekvationerna (5.22)-(5.27) och (5.29). Underlaget hänvisar "
-                        "till eurokoderna (SIS, 2008); ekvationsnumren avser underlaget."
+                        "Koefficienter enligt ekv. (5.23)-(5.26), summa enligt (5.22) "
+                        "och hörngeometri enligt (5.29). Tryckzonsmodellen hämtas från "
+                        "det kompletterande bildunderlaget, figur B7.14, med "
+                        "transformerat tröghetsmoment på sida B236."
                     ),
                 },
                 {
                     "rubrik": "Förutsättningar",
                     "text": (
-                        "Armeringsinnehållet As/Ac ska vara minst 0,002. Ac och Ic "
-                        "beräknas utan avdrag för armeringen. Täckskiktet mäts till "
-                        "bygelns utsida. Materialvärden och effektivt kryptal anges "
-                        "direkt. Normalkraften anges positiv i tryck."
+                        "Armeringsinnehållet As/Ac ska vara minst 0,002. Ac och "
+                        "slankheten avser hela pålen. Slutligt Ic avser tryckzonen "
+                        "utan avdrag för armeringen, inklusive förskjutning till x_tp. "
+                        "Täckskiktet mäts till bygelns utsida. Materialvärden anges direkt. "
+                        "Normalkraften anges positiv i tryck och momentet kring pålens "
+                        "mittaxel, i samma lastkombination. Symmetrin medger båda momenttecken."
                     ),
                 },
+                {
+                    "rubrik": "Tryckzon och modellval",
+                    "text": (
+                        "Tryckzonen löses med linjärelastiska material, alpha=Es/Ecd "
+                        "och dragfri betong. Koordinater mäts från mest tryckt kant. "
+                        "Armeringen behandlas som koncentrerade areor vid lösning av x; "
+                        "järnens egna tröghetsmoment ingår däremot i slutligt Is. "
+                        "Kc behålls som ytterligare reduktion för bland annat sprickning. "
+                        "Kryptalet påverkar endast Kc. Kombinationen är en modifiering "
+                        "av den nominella metoden. Momentet är indata; andra ordningens "
+                        "moment och betongens sprickmoment beräknas inte."
+                    ),
+                },
+                {"rubrik": "Beräknat tvärsnittstillstånd", "text": snittbeskrivning},
                 {
                     "rubrik": "Enheter",
                     "text": (
                         "Tvärsnittsmått anges i mm, knäckningslängd i m, normalkraft "
-                        "i kN och materialvärden i MPa. Beräkningen använder N och mm. "
+                        "i kN, moment i kN*m och materialvärden i MPa. Beräkningen använder N och mm. "
                         "Böjstyvheten omvandlas från N*mm² till kN*m² genom division med 10⁹."
                     ),
                 },
@@ -195,6 +315,7 @@ def bojstyvhet_betongpalar(px):
                 _post("n_phi", r"n_\phi", n_phi, "", "antal hörnjärn, fast förutsättning", decimals=0),
                 _post("l_0", r"l_0", l_0, "m", "knäckningslängd"),
                 _post("N_d", r"N_d", N_d, "kN", "dimensionerande tryckkraft"),
+                _post("M", "M", M, "kN*m", "böjande moment kring hela pålens mittaxel"),
                 _post("f_ck", r"f_{ck}", f_ck, "MPa", "karakteristisk cylindertryckhållfasthet"),
                 _post("f_cd", r"f_{cd}", f_cd, "MPa", "dimensionerande betongtryckhållfasthet"),
                 _post("E_cd", r"E_{cd}", E_cd, "MPa", "dimensionerande elasticitetsmodul, betong"),
@@ -205,15 +326,30 @@ def bojstyvhet_betongpalar(px):
         "delresultat": {
             "title": "Delresultat",
             "items": [
-                _post("A_c", r"A_c", A_c, "mm^2", "betongtvärsnittets area"),
-                _post("I_c", r"I_c", I_c, "mm^4", "betongtvärsnittets tröghetsmoment"),
+                _post("A_c", r"A_c", A_c, "mm^2", "hela betongtvärsnittets area"),
                 _post("A_s", r"A_s", A_s, "mm^2", "total huvudarmeringsarea"),
                 _post("rho", r"\rho", rho, "", "geometriskt armeringsinnehåll", decimals=6),
                 _post("rho_min", r"\rho_{min}", _RHO_MIN, "", "metodens minsta armeringsinnehåll"),
                 _post("l_phi", r"l_\phi", l_phi, "mm", "hävarm för fyra hörnjärn"),
+                _post("d_prim", "d'", d_prim, "mm", "närmaste armeringsrad från mest tryckt kant"),
+                _post("d", "d", d, "mm", "bortre armeringsrad från mest tryckt kant"),
+                _post("A_s_rad", r"A_{s,rad}", A_s_rad, "mm^2", "armeringsarea per rad, två järn"),
+                _post("alpha", r"\alpha", alpha, "", "modulkvot Es/Ecd för tryckzonsmodellen"),
+                _post("x", "x", x, "mm", "verksam betonghöjd; x=b vid helt tryckt eller obelastat snitt", decimals=3),
+                _post("x_tp", r"x_{tp}", x_tp, "mm", "transformerad tyngdpunkt från mest tryckt kant", decimals=3),
+                _post("beta_1", r"\beta_1", snitt["beta_1"], "", "transformationsfaktor för närmaste armeringsrad"),
+                _post("beta_2", r"\beta_2", snitt["beta_2"], "", "transformationsfaktor för bortre armeringsrad"),
+                _post("A_II", r"A_{II}", snitt["A_II"], "mm^2", "transformerad area i tryckzonsmodellen"),
+                _post("I_II", r"I_{II}", snitt["I_II"], "mm^4", "transformerat tröghetsmoment, används endast för tryckzonen"),
+                _post("M_Nmm", r"M_{Nmm}", M_Nmm, "N*mm", "momentbelopp omräknat till N*mm"),
+                _post("M_tp", r"M_{tp}", M_tp, "N*mm", "moment kring transformerad tyngdpunkt i tryckzonsmodellen"),
+                _post("iterationer", r"n_{iter}", snitt["iterationer"], "", "antal bisektionssteg; noll om hela betonghöjden används", decimals=0),
+                _post("I_c_egen", r"I_{c,egen}", I_c_egen, "mm^4", "tryckzonens tröghetsmoment kring egen tyngdpunkt"),
+                _post("I_c_steiner", r"I_{c,Steiner}", I_c_steiner, "mm^4", "förskjutningsbidrag till gemensam axel"),
+                _post("I_c", r"I_c", I_c, "mm^4", "betongens tröghetsmoment kring x_tp"),
                 _post("I_phi", r"I_\phi", I_phi, "mm^4", "ett järns tröghetsmoment kring egen tyngdpunkt"),
-                _post("I_s", r"I_s", I_s, "mm^4", "armeringens tröghetsmoment kring betongens tyngdpunkt"),
-                _post("i", "i", i, "mm", "tröghetsradie", decimals=3),
+                _post("I_s", r"I_s", I_s, "mm^4", "armeringens tröghetsmoment kring samma x_tp"),
+                _post("i", "i", i, "mm", "hela betongtvärsnittets tröghetsradie", decimals=3),
                 _post("l_0_mm", r"l_{0,mm}", l_0_mm, "mm", "knäckningslängd omräknad till mm"),
                 _post("N_d_N", r"N_{d,N}", N_d_N, "N", "tryckkraft omräknad till N", decimals=1),
                 _post("lambda", r"\lambda", lambda_, "", "slankhetstal"),
@@ -221,27 +357,39 @@ def bojstyvhet_betongpalar(px):
                 _post("k_1", r"k_1", k_1, "", "hållfasthetsfaktor"),
                 _post("k_2_obegransad", r"k_{2,obegr}", k_2_obegransad, "", "normalkrafts- och slankhetsfaktor före begränsning", decimals=5),
                 _post("k_2", r"k_2", k_2, "", "normalkrafts- och slankhetsfaktor, högst 0,20", decimals=5),
-                _post("K_c", r"K_c", K_c, "", "faktor för betongens bidrag", decimals=5),
+                _post("K_c", r"K_c", K_c, "", "bibehållen ytterligare reduktionsfaktor för betongen", decimals=5),
                 _post("K_s", r"K_s", K_s, "", "faktor för armeringens bidrag", decimals=0),
             ],
         },
         "slutresultat": {
             "title": "Slutresultat",
             "items": [
-                _post("EI_c", r"EI_c", EI_c, "kN*m^2", "betongens bidrag till nominell böjstyvhet"),
-                _post("EI_s", r"EI_s", EI_s, "kN*m^2", "armeringens bidrag till nominell böjstyvhet"),
-                _post("EI", r"EI", EI, "kN*m^2", "total nominell böjstyvhet"),
+                _post("EI_c", r"EI_c", EI_c, "kN*m^2", "betongens bidrag efter tryckzonsberäkning och Kc"),
+                _post("EI_s", r"EI_s", EI_s, "kN*m^2", "armeringens bidrag kring gemensam axel"),
+                _post("EI", r"EI", EI, "kN*m^2", "total modifierad nominell böjstyvhet"),
             ],
         },
         "ekvationer": {
             "title": "Ekvationer",
             "items": [
-                _ekvation(r"A_c = b^2,\qquad I_c = \frac{b^4}{12}", "kvadratiskt tvärsnitt"),
+                _ekvation(r"A_c = b^2", "hela kvadratiska tvärsnittet för relativ normalkraft och armeringsinnehåll"),
                 _ekvation(r"n_\phi = 4,\qquad A_s = n_\phi\frac{\pi\phi_h^2}{4}", "fyra likadana huvudarmeringsjärn"),
                 _ekvation(r"\rho = \frac{A_s}{A_c} \geq 0{,}002", "giltighetsvillkor för koefficienterna"),
                 _ekvation(r"l_\phi = \frac{b}{2} - c_{nom} - \phi_b - \frac{\phi_h}{2}", "hävarm för fyra järn, ekv. (5.29)"),
+                _ekvation(r"d' = c_{nom}+\phi_b+\frac{\phi_h}{2},\qquad d = b-d',\qquad A_{s,rad}=\frac{A_s}{2}", "två armeringsrader från mest tryckt kant"),
+                _ekvation(r"\alpha = \frac{E_s}{E_{cd}}", "modulkvot vid lösning av tryckzonen, utan K-faktorer eller krypreduktion"),
+                _ekvation(r"\beta_j=\alpha-1", "för en armeringsrad inne i tryckzonen: y_j ≤ x, där y_1=d' och y_2=d"),
+                _ekvation(r"\beta_j=\alpha", "för en armeringsrad utanför tryckzonen: y_j > x"),
+                _ekvation(r"A_{II}=bx+(\beta_1+\beta_2)A_{s,rad}", "transformerad area"),
+                _ekvation(r"x_{tp}=\frac{bx^2/2+A_{s,rad}(\beta_1d'+\beta_2d)}{A_{II}}", "transformerad tyngdpunkt"),
+                _ekvation(r"I_{II}=\frac{bx^3}{12}+bx\left(\frac{x}{2}-x_{tp}\right)^2+A_{s,rad}\left[\beta_1(d'-x_{tp})^2+\beta_2(d-x_{tp})^2\right]", "figur B7.14, endast för lösning av tryckzonen"),
+                _ekvation(r"M_{Nmm}=10^6|M|,\qquad M_{tp}=M_{Nmm}+N_{d,N}\left(x_{tp}-\frac{b}{2}\right)", "momentomvandling och förskjutning från pålens mittaxel"),
+                _ekvation(r"\frac{N_{d,N}}{A_{II}}-\frac{M_{tp}}{I_{II}}(x-x_{tp})=0", "nollspänning i tryckzonens underkant; löses för 0<x<b"),
+                _ekvation(r"x=b\quad\text{om}\quad\frac{N_{d,N}}{A_{II}(b)}-\frac{M_{Nmm}}{I_{II}(b)}\frac{b}{2}\geq 0", "hela betonghöjden används vid helt tryckt eller obelastat snitt"),
+                _ekvation(r"I_{c,egen}=\frac{bx^3}{12},\qquad I_{c,Steiner}=bx\left(\frac{x}{2}-x_{tp}\right)^2", "betongdelens eget tröghetsmoment och förskjutningsbidrag"),
+                _ekvation(r"I_c=I_{c,egen}+I_{c,Steiner}", "betongens tröghetsmoment kring gemensam axel, utan armeringsavdrag"),
                 _ekvation(r"I_\phi = \frac{\pi\phi_h^4}{64}", "ett järns tröghetsmoment"),
-                _ekvation(r"I_s = n_\phi I_\phi + A_s l_\phi^2", "armeringens tröghetsmoment, ekv. (5.27)"),
+                _ekvation(r"I_s = n_\phi I_\phi + A_{s,rad}\left[(d'-x_{tp})^2+(d-x_{tp})^2\right]", "armeringens tröghetsmoment kring samma gemensamma axel"),
                 _ekvation(r"l_{0,mm} = 1000\,l_0,\qquad N_{d,N} = 1000\,N_d", "omvandling från m och kN till mm och N"),
                 _ekvation(r"i = \frac{b}{\sqrt{12}},\qquad \lambda = \frac{l_{0,mm}}{i}", "tröghetsradie och slankhetstal"),
                 _ekvation(r"n = \frac{N_{d,N}}{A_c f_{cd}}", "relativ normalkraft, N och mm används"),
@@ -249,7 +397,7 @@ def bojstyvhet_betongpalar(px):
                 _ekvation(r"k_2 = \min\left(\frac{n\lambda}{170},\,0{,}20\right)", "begränsad faktor, ekv. (5.26)"),
                 _ekvation(r"K_s = 1,\qquad K_c = \frac{k_1 k_2}{1+\varphi_{eff}}", "koefficienter, ekv. (5.23)-(5.24)"),
                 _ekvation(r"EI_c = \frac{K_c E_{cd} I_c}{10^9},\qquad EI_s = \frac{K_s E_s I_s}{10^9}", "bidrag i kN*m² från MPa och mm⁴"),
-                _ekvation(r"EI = EI_c + EI_s", "total nominell böjstyvhet i kN*m², ekv. (5.22)"),
+                _ekvation(r"EI = EI_c + EI_s", "modifierad nominell böjstyvhet i kN*m² med bibehållet Kc"),
             ],
         },
     }
@@ -265,6 +413,7 @@ bojstyvhet_betongpalar.panel_schema = {
         {"name": "phi_h", "type": "float", "label": "Huvudarmering, 4 hörnjärn", "symbol": "φ<sub>h</sub>", "unit": "mm", "default": 20.0},
         {"name": "l_0", "type": "float", "label": "Knäckningslängd", "symbol": "<i>l</i><sub>0</sub>", "unit": "m", "default": 3.0},
         {"name": "N_d", "type": "float", "label": "Dimensionerande tryckkraft", "symbol": "<i>N</i><sub>d</sub>", "unit": "kN", "default": 300.0},
+        {"name": "M", "type": "float", "label": "Böjmoment kring pålens mittaxel", "symbol": "<i>M</i>", "unit": "kN*m", "default": 30.0},
         {"name": "f_ck", "type": "float", "label": "Karakteristisk cylindertryckhållfasthet", "symbol": "<i>f</i><sub>ck</sub>", "unit": "MPa", "default": 30.0},
         {"name": "f_cd", "type": "float", "label": "Dimensionerande betongtryckhållfasthet", "symbol": "<i>f</i><sub>cd</sub>", "unit": "MPa", "default": 20.0},
         {"name": "E_cd", "type": "float", "label": "Dimensionerande E-modul, betong", "symbol": "<i>E</i><sub>cd</sub>", "unit": "MPa", "default": 30000.0},
