@@ -95,3 +95,61 @@ Foreslagen projektstruktur:
 - `tests/` for tester
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
+
+## Böjstyvhet - Betongpålar
+
+`an_calcs.betong.bojstyvhet_betongpalar` beräknar nominell böjstyvhet för en
+kvadratisk betongpåle med fyra likadana huvudarmeringsjärn i hörnen.
+Beräkningen följer avsnitt 5.6, ekvationerna (5.22)-(5.27) och (5.29), i
+[underlaget, sida 11](https://kth.diva-portal.org/smash/get/diva2%3A1597682/FULLTEXT01.pdf).
+
+Användning i notebook med Panel:
+
+```python
+from an_calcs.betong import bojstyvhet_betongpalar
+from an_print import Panel
+
+panel = Panel(bojstyvhet_betongpalar)
+panel
+```
+
+Materialvärdena och det effektiva kryptalet anges direkt i Panel.
+Startvärdena är ett beräkningsexempel och ska anpassas till aktuellt fall.
+Antalet huvudarmeringsjärn är alltid fyra och behöver inte matas in.
+
+| Ordning i `px` | Storhet | Enhet |
+| --- | --- | --- |
+| 1 | `b` – pålsida | mm |
+| 2 | `c_nom` – täckskikt till bygelns utsida | mm |
+| 3 | `phi_b` – bygeldiameter | mm |
+| 4 | `phi_h` – huvudarmeringsdiameter | mm |
+| 5 | `l_0` – knäckningslängd | m |
+| 6 | `N_d` – dimensionerande normalkraft, positiv i tryck | kN |
+| 7 | `f_ck` – karakteristisk cylindertryckhållfasthet | MPa |
+| 8 | `f_cd` – dimensionerande betongtryckhållfasthet | MPa |
+| 9 | `E_cd` – dimensionerande elasticitetsmodul för betong | MPa |
+| 10 | `E_s` – elasticitetsmodul för armering | MPa |
+| 11 | `phi_eff` – effektivt kryptal | – |
+
+Direkt anrop och redovisning med CalcBlock:
+
+```python
+from an_calcs.betong import bojstyvhet_betongpalar
+from an_print import CalcBlock
+
+px = [300, 30, 8, 20, 3, 300, 30, 20, 30000, 200000, 2]
+details = bojstyvhet_betongpalar(px)
+cb = CalcBlock(details)
+cb.SR(visa=True, etikett=True)
+```
+
+Exemplet ger `EI_c = 280,763`, `EI_s = 2621,094` och totalt
+`EI = 2901,857 kN·m²`. Alla tre resultat finns i `details["slutresultat"]`.
+Mellanresultat, enhetsomvandlingar, koefficienter och använda ekvationer
+redovisas i samma `details`-struktur och kan visas genom Panel eller CalcBlock.
+
+`A_c` och `I_c` avser hela tvärsnittets geometri utan avdrag för armeringen.
+Metoden kräver `A_s/A_c >= 0,002` och begränsar `k_2` till högst `0,20`.
+Ogiltiga indata, överlappande järn och för lågt armeringsinnehåll ger `ValueError`,
+som Panel visar vid beräkning. `N_d = 0` tillåts som gränsfall och ger endast
+armeringens styvhetsbidrag enligt modellen.
