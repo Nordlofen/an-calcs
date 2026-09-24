@@ -155,7 +155,9 @@ cb.SR(visa=True, etikett=True)
 
 Exemplet ger `x = 184,300 mm`, `x_tp = 100,278 mm`, `EI_c = 66,615`,
 `EI_s = 3242,440` och totalt `EI = 3309,056 kN·m²`.
-Styvhetsbidragen finns i `details["slutresultat"]`. Tryckzon, transformerade
+Slutresultatet innehåller styvhetsbidragen, tryckzonens höjd `x` i mm och
+kommentaren `Reducerad (x < b)` eller `Oreducerad (x = b)`.
+Tryckzon, transformerade
 snittkonstanter, tröghetsmoment, enhetsomvandlingar, koefficienter och
 använda ekvationer redovisas i samma `details`-struktur via Panel eller CalcBlock.
 

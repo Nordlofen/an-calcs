@@ -277,7 +277,10 @@ class TestBojstyvhetBetongpalar(unittest.TestCase):
             self.assertEqual(len(items), len({post["namn"] for post in items}))
             for post in items:
                 self.assertTrue({"namn", "latex", "value", "unit", "etikett"} <= set(post))
-                self.assertTrue(math.isfinite(post["value"]))
+                if isinstance(post["value"], str):
+                    self.assertTrue(post["value"])
+                else:
+                    self.assertTrue(math.isfinite(post["value"]))
         self.assertEqual(_poster(details, "indata")["n_phi"]["value"], 4)
         self.assertIn("(5.29)", str(details["ekvationer"]))
         self.assertNotIn("(5.28)", str(details["ekvationer"]))

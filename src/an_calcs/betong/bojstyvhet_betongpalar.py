@@ -367,6 +367,11 @@ def bojstyvhet_betongpalar(px):
                 _post("EI_c", r"EI_c", EI_c, "kN*m^2", "betongens bidrag efter tryckzonsberäkning och Kc"),
                 _post("EI_s", r"EI_s", EI_s, "kN*m^2", "armeringens bidrag kring gemensam axel"),
                 _post("EI", r"EI", EI, "kN*m^2", "total modifierad nominell böjstyvhet"),
+                _post("x", "x", x, "mm", "tryckzonens höjd", decimals=3),
+                _post(
+                    "tryckzon_status", r"\text{Tryckzon}",
+                    "Reducerad (x < b)" if snitt["sprucket"] else "Oreducerad (x = b)",
+                ),
             ],
         },
         "ekvationer": {
