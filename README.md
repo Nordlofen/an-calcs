@@ -180,6 +180,13 @@ får eget littera och kan ändras oberoende av originalet. Reglaget
 och förminskas tillsammans med ritningen när du zoomar. Positioner och
 grundstorlek sparas i projektet.
 
+**Markera flera** (eller Shift-klick) väljer ett urval av etiketter.
+**Ändra markerade** öppnar gemensamma indata: välj endast de fält som ska
+ersättas, exempelvis isolering, väggbredd eller pelarsulornas bₓ/bᵧ.
+Övriga värden behålls per sula. **Tillämpa och beräkna** räknar om urvalet
+och redovisar eventuella fel per sula. Lastfält kräver samma sultyp i urvalet.
+Se [gemensam redigering](docs/grundplan.md#ändra-flera-sulor-samtidigt).
+
 **Spara projekt** öppnar en ruta med obligatoriska fält för **Projekt**
 och **Fall (key)**. Välj en befintlig sparfil/key eller ange en ny, exempelvis
 `26017 - Norrbodahöjden`. Filändelsen `.json` läggs till om den saknas.

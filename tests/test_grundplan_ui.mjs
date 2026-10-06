@@ -163,6 +163,138 @@ function slidingFixture(ui, enabled = true) {
   ui.changed();
 }
 
+function bulkFixture(ui, pad = false) {
+  const second = structuredClone(ui.tag);
+  Object.assign(second, {id: "tag2", label: pad ? "PS2" : "VS2", x: .6, y: .6});
+  Object.assign(second.values, {lang: pad ? 0 : 1, b: 2, l: 3, F_vy: 200});
+  ui.data.state.tags.push(second); ui.changed();
+  const marker = id => ui.find(e => e.dataset.tagId === id);
+  const field = name => ui.find(e => e.name === "bulk_" + name);
+  const choose = name => ui.find(e => e.getAttribute("aria-label") === "Ändra " + name);
+  const select = () => {
+    ui.byText("Markera flera").click(); marker("tag1").click(); marker("tag2").click();
+    ui.byText("Ändra markerade").click();
+  };
+  return {second, marker, field, choose, select};
+}
+
+test("multi-selection only sends chosen fields and retains different loads", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  bulk.select();
+  ui.place();
+  assert.equal(ui.sent.length, 0, "Background clicks in selection mode do not add a footing");
+  assert.equal(ui.byClass("gp-selection-count").textContent, "2 markerade");
+  assert.match(bulk.marker("tag1").className, /gp-multi-selected/);
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, false);
+  assert.equal(bulk.field("b").placeholder, "Olika värden");
+  assert.equal(bulk.field("b").value, "");
+  assert.equal(bulk.choose("b").checked, false);
+  const before = structuredClone(ui.data.state);
+  bulk.field("b").value = "0,9"; bulk.field("b").dispatch("input");
+  assert.equal(bulk.choose("b").checked, true);
+  assert.deepEqual(ui.data.state, before, "Typing stays local until Apply");
+  assert.equal(ui.sent.length, 0);
+  ui.byText("Tillämpa och beräkna").click();
+  const request = ui.sent.at(-1);
+  assert.deepEqual(request.ids, ["tag1", "tag2"]);
+  assert.deepEqual(request.values, {b: .9});
+  assert.equal(request.calculate, true);
+  assert.equal(ui.byText("Ändra markerade").disabled, true);
+  assert.equal(bulk.field("b").disabled, true);
+  for (const tag of ui.data.state.tags) tag.values.b = .9;
+  ui.changed(); ui.ack(request, {report: {updated: 2, calculated: 2, errors: []}});
+  assert.deepEqual(ui.data.state.tags.map(tag => tag.values.F_vy), [1, 200]);
+  assert.equal(ui.byText("Ändra markerade").disabled, false);
+  assert.equal(bulk.field("b").value, "0.9");
+  assert.equal(bulk.choose("b").checked, false);
+  ui.byText("2 av 2 sulor beräknade.");
+});
+
+test("Shift pointer clicks toggle selection without dragging or opening single forms", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  ui.marker().click();
+  ui.viewport.dispatch("pointerdown", {target: bulk.marker("tag2"), shiftKey: true, clientX: 300, clientY: 300});
+  ui.finish(300, 300);
+  assert.equal(ui.byClass("gp-selection-count").textContent, "2 markerade", "Active single footing joins shift-selection");
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  ui.viewport.dispatch("pointerdown", {target: bulk.marker("tag2"), shiftKey: true, clientX: 300, clientY: 300});
+  ui.move(500, 500); ui.finish(500, 500);
+  assert.equal(ui.sent.length, 0, "Dragging with a selection modifier cannot move a footing");
+  assert.equal(ui.byClass("gp-selection-count").textContent, "2 markerade");
+  bulk.marker("tag1").dispatch("click", {shiftKey: true});
+  assert.equal(ui.byClass("gp-selection-count").textContent, "1 markerade");
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+  assert.ok(ui.elements().filter(e => e.dataset.tagId).every(e => !e.className.includes("gp-multi-selected")));
+});
+
+test("mixed types allow insulation while blocking differently defined loads and lengths", t => {
+  const ui = setup(t), bulk = bulkFixture(ui, true);
+  bulk.second.values.isolering = true;
+  bulk.select();
+  assert.equal(bulk.field("isolering").value, "");
+  assert.equal(bulk.field("F_vy").disabled, true);
+  assert.equal(bulk.choose("F_vy").disabled, true);
+  assert.equal(bulk.field("l").disabled, true);
+  assert.equal(bulk.field("b").disabled, false);
+  bulk.field("isolering").value = "false"; bulk.field("isolering").dispatch("change");
+  ui.byText("Tillämpa").click();
+  const request = ui.sent.at(-1);
+  assert.deepEqual(request.values, {isolering: false});
+  assert.equal(request.calculate, false);
+  ui.ack(request, {ok: false, error: "Testfel"});
+  assert.equal(bulk.field("isolering").value, "false", "Rejected request preserves the patch for correction");
+  assert.equal(bulk.choose("isolering").checked, true);
+  assert.equal(bulk.field("F_vy").disabled, true);
+});
+
+test("pad dimensions, validation and minimized bulk drafts work independently", t => {
+  const ui = setup(t); ui.tag.values.lang = 0;
+  const bulk = bulkFixture(ui, true); bulk.select();
+  bulk.field("b").value = "invalid"; bulk.field("b").dispatch("input");
+  ui.byText("Tillämpa").click();
+  assert.equal(ui.sent.length, 0);
+  assert.equal(bulk.field("b").validityMessage, "Ange ett tal.");
+  bulk.field("b").value = "1,8"; bulk.field("b").dispatch("input");
+  bulk.field("l").value = "2,4"; bulk.field("l").dispatch("input");
+  ui.byClass("gp-bulk-dialog").children[0].children[1].click();
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  ui.byText("Ändra markerade").click();
+  assert.equal(bulk.field("l").value, "2,4");
+  bulk.choose("b").checked = false; bulk.choose("b").dispatch("change");
+  ui.byText("Tillämpa").click();
+  assert.deepEqual(ui.sent.at(-1).values, {l: 2.4}, "Unchecked fields retain their individual values");
+});
+
+test("batch calculation reports failed footing labels and clears older individual drafts", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  ui.marker().click(); ui.field("b").value = "1,4"; ui.field("b").dispatch("input");
+  ui.tag.values.b = 1.4; ui.changed(); ui.ack(ui.sent.at(-1));
+  bulk.select();
+  bulk.field("b").value = "0,7"; bulk.field("b").dispatch("input");
+  ui.byText("Tillämpa och beräkna").click();
+  const request = ui.sent.at(-1);
+  Object.assign(ui.tag, {values: {...ui.tag.values, b: .7}, status: "calculated"});
+  Object.assign(bulk.second, {values: {...bulk.second.values, b: .7}, status: "error", summary: null, error: "Saknad last"});
+  ui.changed(); ui.ack(request, {report: {updated: 2, calculated: 1,
+    errors: [{id: "tag2", label: "VS2", error: "Saknad last"}]}});
+  ui.byText("VS2: Saknad last");
+  ui.byText("Markera flera").click(); bulk.marker("tag1").click();
+  assert.equal(ui.field("b").value, "0.7", "Successful batch supersedes the old single-footing draft");
+  assert.match(bulk.marker("tag2").className, /gp-tag-error/);
+});
+
+test("standalone HTML exposes no multi-edit controls and modifier clicks remain read-only", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  assert.ok(!ui.elements().some(e => e.textContent === "Markera flera"));
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  ui.marker().dispatch("click", {shiftKey: true});
+  assert.equal(ui.byClass("gp-dialog").hidden, false);
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  assert.ok(!ui.elements().some(e => e.className === "gp-selection-bar"));
+});
+
 test("sliding toggle and directional demands preserve settings while hidden", t => {
   const ui = setup(t);
   slidingFixture(ui, false);

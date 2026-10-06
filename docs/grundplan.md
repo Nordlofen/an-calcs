@@ -506,6 +506,43 @@ Widgeten måste vara ansluten till en aktiv Pythonkernel för att skapa
 taggar, ändra indata, spara och beräkna. Resultat-HTML fungerar utan kernel
 och visar sparade indata och resultat utan möjlighet att räkna om.
 
+## Ändra flera sulor samtidigt
+
+Tryck **Markera flera** och klicka på de etiketter som ska ingå. Klicka igen
+för att avmarkera en etikett. Du kan också använda Shift-klick (eller Ctrl/Cmd-klick)
+utan att först aktivera markeringsläget. Markerade etiketter får en ram och en bock.
+Tryck **Ändra markerade** för gemensam indata.
+
+Kryssa i de fält som ska ersättas, eller skriv direkt i dem så kryssas de i
+automatiskt. **Olika värden** betyder att sulornas befintliga värden skiljer sig;
+inget värde ersätts förrän du väljer fältet och trycker **Tillämpa** eller
+**Tillämpa och beräkna**. Övriga parametrar, littera, sultyp och placering behålls.
+Du kan exempelvis ändra isolering för ett helt urval, bredden för väggsulor eller
+både bₓ och bᵧ för pelarsulor. Isolerprodukt och glidningsindata kan också ändras.
+
+Vid blandat urval av vägg- och pelarsulor kan gemensamma mått som bₓ och
+isoleringsinställningar ändras. Last- och längdfält kräver ett urval med samma
+sultyp, eftersom laster anges per meter för väggsulor och totalt för pelarsulor.
+Fundamenttypen ändras i varje sulas vanliga dialog.
+
+**Tillämpa** gör ändrade beräkningsresultat inaktuella. **Tillämpa och beräkna**
+räknar om varje markerad sula med dess egna kvarvarande värden. Fel redovisas
+med sulans littera; övriga sulor beräknas ändå. Saknade brukslaster och
+isoleringsbärförmågor behöver fyllas i när isolering aktiveras.
+
+Urval och ännu ej tillämpade gemensamma ändringar är tillfälliga. Tillämpade
+värden sparas och exporteras med projektet på vanligt sätt. **Avmarkera** eller
+Escape rensar urvalet; sidbyte rensar också urvalet. Resultat-HTML har ingen
+gemensam redigering.
+
+Från Python kan motsvarande ändring göras med:
+
+```python
+ids = [tagg["id"] for tagg in plan.taggar if tagg["values"]["lang"] == 1]
+rapport = plan.uppdatera_flera(ids, indata={"b": 0.9}, berakna=True)
+rapport  # Antal uppdaterade/beräknade sulor och eventuella fel per sula.
+```
+
 ## Kontrollera installationen
 
 ```sh

@@ -109,6 +109,8 @@ function render({ model, el, readOnly = false }) {
   const sketchStates = new Map();
   const areaPhases = new Map();
   let sketchInline = false, sketchType = null;
+  const selected = new Set(), bulkInputs = new Map();
+  let bulkIds = [], bulkBusy = false, bulkSignature = "";
   const state = () => model.get("state") || { tags: [] };
   const background = () => model.get("background") || {};
   const current = () => state().tags.find((tag) => tag.id === active);
@@ -390,6 +392,23 @@ function render({ model, el, readOnly = false }) {
     modes.set(key, b);
     if (!readOnly) toolbar.append(b);
   }
+  const selectMany = button("Markera flera", () => {
+    if (bulkBusy) return;
+    closeDialog(); closeBulk();
+    setMode(mode === "select" ? "pan" : "select");
+  });
+  selectMany.title = "Klicka på etiketter för att välja eller avmarkera dem. Shift-klick fungerar också.";
+  modes.set("select", selectMany);
+  const selectionBar = node("div", "gp-selection-bar");
+  selectionBar.hidden = true;
+  const selectionCount = node("span", "gp-selection-count");
+  const editMany = button("Ändra markerade", openBulk, "gp-primary");
+  const clearMany = button("Avmarkera", () => {
+    if (bulkBusy) return;
+    selected.clear(); bulkSignature = ""; closeBulk(); renderMarkers(); showSelection();
+  });
+  selectionBar.append(selectionCount, editMany, clearMany);
+  if (!readOnly) toolbar.append(selectMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
     setSliding({enabled: !sliding().enabled});
@@ -463,6 +482,7 @@ function render({ model, el, readOnly = false }) {
     cancelDrag();
     setMode("pan");
     closeDialog();
+    selected.clear(); bulkSignature = ""; closeBulk(); showSelection();
     command("page", { page: Number(pageSelect.value) });
   });
   toolbar.append(pageLabel);
@@ -602,7 +622,28 @@ function render({ model, el, readOnly = false }) {
   if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
   else form.append(labelRow, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
-  board.append(viewport, empty, zoomBar, dialog, sketch);
+  const bulkDialog = node("section", "gp-dialog gp-bulk-dialog");
+  bulkDialog.hidden = true;
+  bulkDialog.setAttribute("role", "dialog");
+  bulkDialog.setAttribute("aria-label", "Ändra markerade sulor");
+  const bulkHeader = node("div", "gp-dialog-header");
+  const bulkTitle = node("strong");
+  const bulkMinimize = button("Minimera", closeBulk);
+  bulkHeader.append(bulkTitle, bulkMinimize);
+  const bulkForm = node("form", "gp-form gp-bulk-form");
+  bulkForm.noValidate = true;
+  const bulkNote = node("p", "gp-basis");
+  const bulkFields = node("div", "gp-bulk-fields");
+  const bulkFeedback = node("div", "gp-bulk-feedback");
+  bulkFeedback.setAttribute("role", "status");
+  const bulkFooter = node("div", "gp-dialog-footer");
+  const applyMany = button("Tillämpa", () => applyBulk(false));
+  const calculateMany = button("Tillämpa och beräkna", () => applyBulk(true), "gp-primary");
+  bulkFooter.append(applyMany, calculateMany);
+  bulkForm.append(bulkNote, bulkFeedback, bulkFields, bulkFooter);
+  bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(true); });
+  bulkDialog.append(bulkHeader, bulkForm);
+  board.append(viewport, empty, zoomBar, dialog, sketch, bulkDialog);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend");
@@ -615,8 +656,9 @@ function render({ model, el, readOnly = false }) {
     legend.append(item);
   }
   const help = node("p", "gp-help",
-    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
+    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Markera flera eller Shift-klicka för gemensamma ändringar. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar);
+  if (!readOnly) root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput);
@@ -641,6 +683,7 @@ function render({ model, el, readOnly = false }) {
       command(action, { name: file.name }, [buffer], (reply) => {
         if (reply.ok) {
           active = null;
+          selected.clear(); bulkIds = []; bulkSignature = ""; closeBulk();
           formId = null;
           dirty.clear();
           drafts.clear();
@@ -676,6 +719,7 @@ function render({ model, el, readOnly = false }) {
     }
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
+    else if (value === "select") showMessage("Klicka på sulornas etiketter för att välja eller avmarkera. Tryck Ändra markerade när urvalet är klart.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
     else showMessage("Dra i ritningen för att panorera. Välj Väggsula eller Pelarsula för att placera en ny sula.");
@@ -837,6 +881,9 @@ function render({ model, el, readOnly = false }) {
     renderMarkers();
   }
   function openDialog(tag) {
+    if (bulkBusy) return;
+    closeBulk();
+    if (!readOnly) { selected.clear(); bulkSignature = ""; showSelection(); }
     active = tag.id;
     formId = null;
     update();
@@ -915,7 +962,10 @@ function render({ model, el, readOnly = false }) {
       const marker = button("", (event) => {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
-        if (!event.detail) openDialog(tag);
+        if (!event.detail) {
+          if (!readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey)) toggleTag(tag);
+          else openDialog(tag);
+        }
       }, "gp-tag gp-tag-" + color);
       marker.dataset.tagId = tag.id;
       marker.title = readOnly ? "Klicka för indata och resultat" : "Dra för att flytta · klicka för indata och kopiering";
@@ -923,6 +973,8 @@ function render({ model, el, readOnly = false }) {
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
+      marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
+      if (!readOnly) marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
       const draft = drafts.get(tag.id);
       const values = draft?.values || tag.values;
       const insulated = values.isolering === true;
@@ -1006,6 +1058,156 @@ function render({ model, el, readOnly = false }) {
       "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
+  const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
+    ["l", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+  function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
+  function showSelection() {
+    selectionBar.hidden = readOnly || !selected.size;
+    selectionCount.textContent = selected.size + " markerade";
+    const titles = selectionTags().map(tag => tag.label).join(", ");
+    selectionCount.title = titles;
+    selectionBar.setAttribute("aria-label", "Markerade sulor: " + titles);
+    editMany.disabled = clearMany.disabled = bulkBusy;
+    selectMany.disabled = bulkBusy || !background().url;
+    pageSelect.disabled = bulkBusy;
+  }
+  function toggleTag(tag) {
+    if (readOnly || bulkBusy) return;
+    // Shift-click on an open single footing adds that footing to the selection.
+    if (active) selected.add(active);
+    closeDialog(); closeBulk();
+    if (selected.has(tag.id)) selected.delete(tag.id); else selected.add(tag.id);
+    bulkSignature = "";
+    showSelection(); renderMarkers();
+  }
+  function closeBulk() {
+    if (bulkBusy) return;
+    bulkDialog.hidden = true;
+  }
+  function openBulk() {
+    if (readOnly || bulkBusy || !selected.size) return;
+    closeDialog();
+    const signature = [...selected].sort().join(":");
+    if (signature !== bulkSignature) {
+      bulkFeedback.replaceChildren();
+      buildBulkFields();
+    }
+    bulkDialog.hidden = false;
+    bulkDialog.style.left = Math.max(8, (board.clientWidth - bulkDialog.offsetWidth) / 2) + "px";
+    bulkDialog.style.top = "8px";
+    bulkMinimize.focus({preventScroll: true});
+  }
+  function buildBulkFields() {
+    const tags = selectionTags();
+    bulkIds = tags.map(tag => tag.id);
+    bulkSignature = [...bulkIds].sort().join(":");
+    bulkInputs.clear(); bulkFields.replaceChildren();
+    bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
+    const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
+    const strip = !mixed && types.has(1);
+    bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
+      + (mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
+        : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulor: laster anges för hela sulan. ")
+      + "Urval: " + tags.map(tag => tag.label).join(", ");
+    for (const [index, [label, names, note]] of groups.entries()) {
+      if (label === "Glidning" && !sliding().enabled) continue;
+      const group = node("details", "gp-group");
+      group.open = index === 0 || label === "Isolering";
+      group.append(node("summary", "", label));
+      if (note) group.append(mathText("p", "gp-field-note", note));
+      for (const name of names) {
+        const field = fieldSchema.get(name);
+        if (!field || name === "lang" || (strip && name === "l") || (!mixed && !strip && name === "glid_L")) continue;
+        const row = node("div", "gp-bulk-field");
+        const choose = node("input");
+        choose.type = "checkbox";
+        choose.setAttribute("aria-label", "Ändra " + field.label);
+        choose.title = "Ändra " + field.label + " för alla markerade sulor";
+        const controlRow = node("div", "gp-field");
+        const input = node(field.type === "bool" ? "select" : "input");
+        input.name = "bulk_" + name;
+        input.setAttribute("aria-label", "Gemensamt värde: " + field.label);
+        const same = tags.every(tag => tag.values[name] === tags[0].values[name]);
+        const value = same ? tags[0].values[name] : null;
+        if (field.type === "bool") {
+          for (const [key, caption] of [["", "Olika värden"], ["true", "Ja"], ["false", "Nej"]]) {
+            const option = node("option", "", caption); option.value = key; input.append(option);
+          }
+          input.value = same ? String(value) : "";
+          controlRow.classList.add("gp-choice-field");
+        } else {
+          input.type = "text";
+          if (field.type !== "text") input.inputMode = "decimal";
+          input.value = same ? value ?? "" : "";
+          input.placeholder = same ? "Ej angivet" : "Olika värden";
+          if (field.type === "text") controlRow.classList.add("gp-text-field");
+        }
+        const caption = node("span", "gp-field-caption", field.label);
+        const symbol = symbolNode(field.display_symbol || {}, "gp-field-symbol");
+        symbol.setAttribute("aria-hidden", "true");
+        const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
+        const unitText = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
+        if (field.type === "text") controlRow.append(caption, input);
+        else if (field.type === "bool") controlRow.append(caption, symbol, input);
+        else controlRow.append(caption, symbol, input, node("span", "gp-unit", unitText));
+        const blocked = mixed && sameTypeFields.has(name);
+        choose.disabled = input.disabled = blocked;
+        if (blocked) row.title = "Välj samma sultyp för att ändra detta fält gemensamt.";
+        const sync = () => { input.setCustomValidity(""); row.classList.toggle("gp-bulk-changed", choose.checked); };
+        choose.addEventListener("change", sync);
+        input.addEventListener(field.type === "bool" ? "change" : "input", () => {
+          choose.checked = true; sync();
+        });
+        row.append(choose, controlRow); group.append(row);
+        bulkInputs.set(name, {choose, input, row, group, blocked});
+      }
+      bulkFields.append(group);
+    }
+  }
+  function applyBulk(recalculate) {
+    if (readOnly || bulkBusy) return;
+    const patch = {};
+    let valid = true;
+    for (const [name, {choose, input, group, blocked}] of bulkInputs) {
+      if (!choose.checked || blocked) continue;
+      const field = fieldSchema.get(name);
+      const raw = input.value.trim().replace(",", ".");
+      const value = field.type === "bool" ? (input.value === "true" ? true : input.value === "false" ? false : null)
+        : field.type === "text" ? input.value : raw === "" ? null : Number(raw);
+      const ok = field.type === "text" || (field.type === "bool" ? value !== null : value !== null && Number.isFinite(value));
+      input.setCustomValidity(ok ? "" : field.type === "bool" ? "Välj Ja eller Nej." : "Ange ett tal.");
+      if (!ok) { valid = false; group.open = true; input.reportValidity(); }
+      patch[name] = value;
+    }
+    if (!valid) return;
+    if (!Object.keys(patch).length) {
+      bulkFeedback.textContent = "Välj minst ett fält att ändra."; return;
+    }
+    const ids = [...bulkIds];
+    bulkBusy = true;
+    applyMany.disabled = calculateMany.disabled = bulkMinimize.disabled = true;
+    for (const entry of bulkInputs.values()) entry.choose.disabled = entry.input.disabled = true;
+    showSelection();
+    bulkFeedback.textContent = recalculate ? "Ändrar och beräknar markerade sulor…" : "Ändrar markerade sulor…";
+    command("bulk_update", {ids, values: patch, calculate: recalculate}, [], reply => {
+      bulkBusy = false;
+      applyMany.disabled = calculateMany.disabled = bulkMinimize.disabled = false;
+      if (reply.ok) {
+        for (const id of ids) { dirty.delete(id); drafts.delete(id); slidingDirty.delete(id); edits.delete(id); }
+        const report = reply.report;
+        const message = recalculate ? report.calculated + " av " + report.updated + " sulor beräknade."
+          : report.updated + " sulor uppdaterade. Ändrade beräkningsindata behöver beräknas på nytt.";
+        buildBulkFields(); bulkFeedback.replaceChildren(node("p", "", message));
+        for (const error of report.errors) bulkFeedback.append(node("p", "gp-error-text", error.label + ": " + error.error));
+        bulkForm.scrollTop = 0;
+        showMessage(message, report.errors.length > 0);
+      } else {
+        bulkFeedback.textContent = reply.error;
+        for (const entry of bulkInputs.values()) entry.choose.disabled = entry.input.disabled = entry.blocked;
+      }
+      update();
+    });
+  }
   function rememberSections(sections) {
     // Read the DOM before rebuilding; native toggle events can arrive after closing.
     for (const { tagId, key, group } of sections) {
@@ -1338,6 +1540,12 @@ function render({ model, el, readOnly = false }) {
   function update() {
     const bg = background();
     const data = state();
+    for (const id of selected) {
+      if (!data.tags.some(tag => tag.id === id && tag.page === bg.page)) selected.delete(id);
+    }
+    if (!bulkDialog.hidden && bulkIds.some(id => !selected.has(id))) {
+      closeBulk(); bulkSignature = "";
+    }
     showHeading();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
     const storage = data.storage;
@@ -1352,6 +1560,7 @@ function render({ model, el, readOnly = false }) {
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
     for (const b of modes.values()) b.disabled = !bg.url;
+    showSelection();
     if (bg.url !== lastBackground) {
       cancelDrag();
       lastBackground = bg.url;
@@ -1411,7 +1620,7 @@ function render({ model, el, readOnly = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || drag || !background().url) return;
+    if (event.button !== 0 || drag || bulkBusy || !background().url) return;
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (overlay) {
       const resize = event.target === axesResize || event.target === legendResize;
@@ -1436,13 +1645,15 @@ function render({ model, el, readOnly = false }) {
     event.preventDefault();
     const position = tag && (positions.get(tag.id) || tag);
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
-      moved: false, pointerId: event.pointerId, id: tag?.id, position };
+      moved: false, pointerId: event.pointerId, id: tag?.id, position,
+      select: !!tag && !readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey) };
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.select) return;
     if (drag.moved) {
       if (drag.overlay) {
         const p = {...drag.position};
@@ -1478,7 +1689,7 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const { moved, id, overlay, page } = drag;
+    const { moved, id, overlay, page, select } = drag;
     drag = null;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
@@ -1489,6 +1700,7 @@ function render({ model, el, readOnly = false }) {
     }
     if (id) {
       const tag = state().tags.find((t) => t.id === id);
+      if (select) { if (!moved && tag) toggleTag(tag); return; }
       if (!moved) { if (tag) openDialog(tag); return; }
       if (readOnly) return;
       const position = positions.get(id);
@@ -1502,7 +1714,7 @@ function render({ model, el, readOnly = false }) {
       });
       return;
     }
-    if (readOnly || moved || mode === "pan") return;
+    if (readOnly || moved || mode === "pan" || mode === "select") return;
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
@@ -1525,12 +1737,14 @@ function render({ model, el, readOnly = false }) {
   viewport.addEventListener("lostpointercapture", cancelDrag);
   let outsidePress = null;
   const insideDialog = target => target?.closest?.(".gp-dialog") === dialog
+    || target?.closest?.(".gp-dialog") === bulkDialog
     || target?.closest?.(".gp-sketch-panel") === sketch;
   const outsideDown = event => {
     outsidePress = null;
-    if (event.button !== 0 || dialog.hidden || insideDialog(event.target)
+    if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden) || insideDialog(event.target)
       || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
-    outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY, tagId: active, moved: false};
+    outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      tagId: active, bulk: !bulkDialog.hidden, moved: false};
   };
   const outsideMove = event => {
     if (outsidePress && outsidePress.pointerId === event.pointerId
@@ -1541,7 +1755,9 @@ function render({ model, el, readOnly = false }) {
     const press = outsidePress;
     outsidePress = null;
     if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 4
-      && active === press.tagId && !insideDialog(event.target)) closeDialog();
+      && active === press.tagId && !insideDialog(event.target)) {
+      if (press.bulk) closeBulk(); else closeDialog();
+    }
   };
   const outsideCancel = () => { outsidePress = null; };
   // Capture outside the widget too; a pan/drag or another tag click stays distinct.
@@ -1549,25 +1765,36 @@ function render({ model, el, readOnly = false }) {
   document.addEventListener("pointermove", outsideMove, true);
   document.addEventListener("pointerup", outsideUp, true);
   document.addEventListener("pointercancel", outsideCancel, true);
-  let dialogDrag = null;
-  dialogHeader.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest("button")) return;
-    dialogDrag = { x: event.clientX, y: event.clientY, left: dialog.offsetLeft, top: dialog.offsetTop };
-    dialogHeader.setPointerCapture(event.pointerId);
-  });
-  dialogHeader.addEventListener("pointermove", (event) => {
-    if (!dialogDrag) return;
-    placeDialog(dialogDrag.left + event.clientX - dialogDrag.x, dialogDrag.top + event.clientY - dialogDrag.y);
-  });
-  dialogHeader.addEventListener("pointerup", () => { dialogDrag = null; });
-  dialogHeader.addEventListener("pointercancel", () => { dialogDrag = null; });
+  for (const [header, panel] of [[dialogHeader, dialog], [bulkHeader, bulkDialog]]) {
+    let dialogDrag = null;
+    header.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button")) return;
+      dialogDrag = { x: event.clientX, y: event.clientY, left: panel.offsetLeft, top: panel.offsetTop };
+      header.setPointerCapture(event.pointerId);
+    });
+    header.addEventListener("pointermove", (event) => {
+      if (!dialogDrag) return;
+      const x = dialogDrag.left + event.clientX - dialogDrag.x, y = dialogDrag.top + event.clientY - dialogDrag.y;
+      if (panel === dialog) placeDialog(x, y);
+      else {
+        panel.style.left = Math.max(8, Math.min(board.clientWidth - panel.offsetWidth - 8, x)) + "px";
+        panel.style.top = Math.max(8, Math.min(board.clientHeight - panel.offsetHeight - 8, y)) + "px";
+      }
+    });
+    header.addEventListener("pointerup", () => { dialogDrag = null; });
+    header.addEventListener("pointercancel", () => { dialogDrag = null; });
+  }
   root.addEventListener("keydown", (event) => {
     event.stopPropagation();
     if (event.key === "Escape" && !savePanel.hidden) {
       if (!saving) { savePanel.hidden = true; saveProject.focus(); }
       return;
     }
-    if (event.key === "Escape") { cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta."); }
+    if (event.key === "Escape") {
+      cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
+      if (!bulkBusy) { selected.clear(); bulkSignature = ""; showSelection(); renderMarkers(); }
+      setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
+    }
   });
   function receive(reply, buffers = []) {
     if (reply.view !== view) return;
@@ -1578,6 +1805,10 @@ function render({ model, el, readOnly = false }) {
   }
   const resizeObserver = new ResizeObserver(() => {
     if (!dialog.hidden) placeDialog(dialog.offsetLeft, dialog.offsetTop);
+    if (!bulkDialog.hidden) {
+      bulkDialog.style.left = Math.max(8, Math.min(board.clientWidth - bulkDialog.offsetWidth - 8, parseFloat(bulkDialog.style.left) || 8)) + "px";
+      bulkDialog.style.top = Math.max(8, Math.min(board.clientHeight - bulkDialog.offsetHeight - 8, parseFloat(bulkDialog.style.top) || 8)) + "px";
+    }
   });
   resizeObserver.observe(board);
   model.on("change:state", update);

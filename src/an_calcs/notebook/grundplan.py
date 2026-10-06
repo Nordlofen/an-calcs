@@ -55,6 +55,9 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
             "display_symbol": DISPLAY_SYMBOLS.get(field["name"], field.get("display_symbol"))}
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
+# These fields have different meanings/units for strips and pads.
+_BULK_SAME_TYPE = {"l", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+                   "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"}
 
 
 def _number(value, name):
@@ -283,7 +286,8 @@ class Grundplan(anywidget.AnyWidget):
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
-                       "load_groups": copy.deepcopy(LOAD_GROUPS)}
+                       "load_groups": copy.deepcopy(LOAD_GROUPS),
+                       "bulk_same_type": sorted(_BULK_SAME_TYPE)}
         self.background = {}
         try:
             projects = self._read_state_file()["projects"] if self._key is not None else {}
@@ -484,6 +488,51 @@ class Grundplan(anywidget.AnyWidget):
         self._details[tagg] = details
         self._publish()
         return copy.deepcopy(details)
+
+    def uppdatera_flera(self, taggar, *, indata, berakna=False):
+        """Ändra endast angivna fält för flera sulor och beräkna dem valfritt.
+
+        Alla id och indatavärden valideras före ändring. Beräkningsfel redovisas
+        per sula; övriga sulor beräknas ändå. Littera och fundamenttyp behålls.
+        """
+        if (not isinstance(taggar, (list, tuple)) or not taggar
+                or any(not isinstance(ident, str) for ident in taggar)
+                or len(set(taggar)) != len(taggar)):
+            raise ValueError("Ange en lista med unika tagg-id för de markerade sulorna.")
+        if (not isinstance(indata, dict) or not indata
+                or set(indata) - (set(_DEFAULTS) - {"lang"})):
+            raise ValueError("Välj minst ett känt indatafält. Fundamenttyp ändras per sula.")
+        if not isinstance(berakna, bool):
+            raise ValueError("berakna måste vara True eller False.")
+        tags = [self._tag(ident) for ident in taggar]
+        types = {tag["values"]["lang"] for tag in tags}
+        if len(types) > 1 and set(indata) & _BULK_SAME_TYPE:
+            raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
+        if (types == {1} and "l" in indata) or (types == {0} and "glid_L" in indata):
+            raise ValueError("b_y gäller pelarsulor och glidlängden L gäller väggsulor.")
+        prepared = [_values({**tag["values"], **indata}, draft=True) for tag in tags]
+        for tag, values in zip(tags, prepared):
+            changed = any(values[name] != value for name, value in tag["values"].items()
+                          if name != "isolerprodukt" and name not in SLIDING_NAMES)
+            tag["values"] = values
+            if changed:
+                tag.update(status="stale", summary=None, error="")
+                self._details.pop(tag["id"], None)
+        report = {"updated": len(tags), "calculated": 0, "errors": []}
+        if berakna:
+            for tag in tags:
+                try:
+                    details, summary = _calculate(tag["values"])
+                except (ValueError, ArithmeticError) as exc:
+                    tag.update(status="error", summary=None, error=str(exc))
+                    self._details.pop(tag["id"], None)
+                    report["errors"].append({"id": tag["id"], "label": tag["label"], "error": str(exc)})
+                else:
+                    tag.update(status="calculated", summary=summary, error="")
+                    self._details[tag["id"]] = details
+                    report["calculated"] += 1
+        self._publish()
+        return report
 
     def ta_bort(self, tagg):
         self._tag(tagg)
@@ -772,6 +821,9 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "calculate":
                 self.uppdatera(content["id"], indata=content["values"], littera=content["label"])
                 self.berakna(content["id"])
+            elif action == "bulk_update":
+                reply["report"] = self.uppdatera_flera(
+                    content["ids"], indata=content["values"], berakna=content.get("calculate", False))
             elif action == "delete":
                 self.ta_bort(content["id"])
             elif action == "page":

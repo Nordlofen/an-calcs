@@ -124,6 +124,10 @@
 .an-grundplan .gp-tag-over::before, .an-grundplan .gp-tag-error::before { background: #b4443d; }
 .an-grundplan .gp-tag-stale { border-style: dashed; border-color: #ac802f; --gp-tag-bg: #fffbef; }
 .an-grundplan .gp-active { outline: 2px solid #266f75; outline-offset: 3px; z-index: 1; }
+.an-grundplan .gp-multi-selected { outline: 2px solid #14695e; outline-offset: 3px; z-index: 1; }
+.an-grundplan .gp-multi-selected::after { content: '✓'; position: absolute; right: -9px; top: -9px; width: 19px; height: 19px; border-radius: 50%; background: #14695e; color: white; text-align: center; font: bold 12px/19px system-ui, sans-serif; }
+.an-grundplan .gp-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 16px 12px; padding: 9px 12px; border: 1px solid #9ebeb7; border-radius: 6px; background: #f0f8f5; }
+.an-grundplan .gp-selection-count { flex: 1; font-weight: 650; }
 .an-grundplan .gp-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 30px; text-align: center; }
 .an-grundplan .gp-empty h4 { font-size: 22px; }
 .an-grundplan .gp-empty p { max-width: 370px; color: var(--gp-muted); }
@@ -133,6 +137,12 @@
 .an-grundplan .gp-dialog { position: absolute; width: 410px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); display: flex; flex-direction: column; border: 1px solid #a2b9ba; border-radius: 10px; background: white; box-shadow: 0 10px 38px #132f3d30; z-index: 4; }
 .an-grundplan .gp-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid var(--gp-line); cursor: move; user-select: none; touch-action: none; }
 .an-grundplan .gp-dialog-header strong { font-size: 16px; }
+.an-grundplan .gp-bulk-dialog { width: 560px; }
+.an-grundplan .gp-bulk-field { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 9px; align-items: center; padding: 2px 4px; border-radius: 4px; }
+.an-grundplan .gp-bulk-field > input { width: 16px; height: 16px; margin: 0; accent-color: var(--gp-accent); }
+.an-grundplan .gp-bulk-changed { background: #edf7f3; }
+.an-grundplan .gp-bulk-feedback { font-size: 11px; padding: 10px 0; overflow-wrap: anywhere; }
+.an-grundplan .gp-bulk-feedback p + p { margin-top: 5px; }
 .an-grundplan .gp-dialog-header button { font-size: 11px; }
 .an-grundplan .gp-form { overflow-y: auto; min-height: 0; padding: 12px 14px 0; }
 .an-grundplan .gp-label-row { display: flex; gap: 16px; align-items: center; }
