@@ -64,6 +64,7 @@
 .an-grundplan .gp-tag-heading { display: flex; align-items: center; gap: 6px; }
 .an-grundplan .gp-tag-insulation { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 400; color: var(--gp-muted); }
 .an-grundplan .gp-tag-insulation svg { display: block; flex-shrink: 0; width: 22px; height: 13px; color: #244951; }
+.an-grundplan .gp-governing { font-size: 10px; }
 .an-grundplan .gp-panning, .an-grundplan .gp-dragging-tag, .an-grundplan .gp-dragging-tag .gp-tag { cursor: grabbing !important; }
 .an-grundplan .gp-tag-ok { border-color: #319477; --gp-tag-bg: #f4fcf8; }
 .an-grundplan .gp-tag-ok::before { background: #238161; }

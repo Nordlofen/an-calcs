@@ -145,7 +145,8 @@ i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
 visar högsta utnyttjandegrad och sulans bredd, eller bredd × längd för pelarsulor.
-Styrande kontroll visas i dialogen och hovringstexten. Utseendet följer med
+För isolerade sulor visas även en tredje rad med styrande kontroll.
+Kontrollen visas också i dialogen och hovringstexten. Utseendet följer med
 i HTML- och PDF-exporten. Se lastantagandena i
 [användningsbeskrivningen](docs/grundplan.md#isolering-under-sulan).
 

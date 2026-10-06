@@ -420,6 +420,7 @@ function render({ model, el, readOnly = false }) {
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
       marker.append(heading, node("span", "gp-tag-result", text));
+      if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
       markers.append(marker);
     }
   }

@@ -159,7 +159,8 @@ class TestGrundplanPdf(unittest.TestCase):
         for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160 % · b 1 m",
                          "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
             self.assertIn(expected, text)
-        self.assertNotIn("Styrande:", text, "The compact PDF labels have exactly two lines")
+        self.assertIn("Styrande: Isolering · bruk", text)
+        self.assertEqual(text.count("Styrande:"), 1, "Only the current insulation result has a governing-check line")
         self.assertEqual(text.count("U "), 2, "Stale or failed results must never be printed as current")
 
     def test_bildens_fulla_upplosning_och_exif_rotation_bevaras(self):

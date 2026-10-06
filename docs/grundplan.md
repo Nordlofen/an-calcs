@@ -56,7 +56,9 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    Andra raden visar högsta utnyttjandegrad och geometri, till exempel
    `U 34,6 % · b 1,8 m` för väggsula eller `U 68,3 % · 1,8 × 2,4 m`
    för pelarsula. Pelarsulans mått anges alltid som bredd × längd.
-   Styrande kontroll visas i dialogen och i etikettens hovringstext.
+   För isolerade sulor visar en tredje rad styrande kontroll, till exempel
+   `Styrande: Isolering · bruk`. Kontrollen finns också i dialogen och
+   i etikettens hovringstext.
    Klicka på taggen igen för att öppna samma indata.
 
 Vyn kommer ihåg vilka indata- och resultatavsnitt som är öppna för varje sula.
@@ -219,7 +221,8 @@ originalfilen behöver inte finnas kvar.
 
 Etiketterna använder sina sparade positioner och reglaget **Etikettstorlek**.
 Zoom, panorering och öppna dialogrutor påverkar inte exporten. Littera,
-isoleringssymbol och text, utnyttjandegrad, geometrimått och statusfärg följer med.
+isoleringssymbol och text, utnyttjandegrad, geometrimått, eventuell styrande
+kontroll och statusfärg följer med.
 Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
 etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
 med vid utskrift, utan popup eller klickfunktion.

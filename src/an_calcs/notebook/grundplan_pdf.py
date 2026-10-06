@@ -52,6 +52,8 @@ def _label(tag):
         geometry = (f'b {_number(summary["b"])} m' if tag["values"]["lang"] == 1
                     else f'{_number(summary["b"])} × {_number(tag["values"]["l"])} m')
         lines.append((f'U {_number(summary["utnyttjandegrad"] * 100, 1)} % · {geometry}', _REGULAR, 11))
+        if summary.get("isolering"):
+            lines.append(("Styrande: " + summary["styrande"], _REGULAR, 10))
     else:
         status = tag["status"] if tag["status"] in ("new", "stale", "error") else "new"
         text = {"new": "Ej beräknad", "stale": "Ändrad · beräkna", "error": "Kontrollera indata"}[status]

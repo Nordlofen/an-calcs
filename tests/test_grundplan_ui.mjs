@@ -497,7 +497,7 @@ test("insulation toggles required capacities and service loads, retaining drafts
   assert.equal(copy.values.f_d_bruk, 80);
 });
 
-test("compact labels show insulation and maximum utilization, with governing checks in the dialog", t => {
+test("labels retain the governing check below insulation, utilization and geometry", t => {
   const ui = setup(t);
   Object.assign(ui.tag.values, { isolering: true, F_vy_bruk: 70, f_d_brott: 200, f_d_bruk: 50 });
   Object.assign(ui.tag.summary, {
@@ -512,7 +512,8 @@ test("compact labels show insulation and maximum utilization, with governing che
   });
   ui.changed();
   assert.match(ui.marker().className, /gp-tag-over/);
-  assert.equal(ui.marker().children.length, 2);
+  assert.equal(ui.marker().children.length, 3);
+  assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Isolering · bruk");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering");
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · b 1 m");
   assert.match(ui.marker().title, /styrande: Isolering · bruk/);
@@ -532,6 +533,7 @@ test("compact labels show insulation and maximum utilization, with governing che
   ui.changed();
   assert.equal(service().open, true, "Kernel refreshes preserve expanded result sections");
   ui.field("b").value = "2"; ui.field("b").dispatch("input");
+  assert.ok(ui.marker().children.every(child => child.className !== "gp-governing"), "An outdated governing check must not be shown as current");
   ui.byClass("gp-form").dispatch("submit");
   const request = ui.sent.at(-1);
   Object.assign(ui.tag, { values: { ...request.values }, status: "calculated" });
