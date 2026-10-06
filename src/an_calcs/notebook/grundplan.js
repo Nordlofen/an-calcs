@@ -1380,7 +1380,8 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
         control.disabled = busy || blocked || (name === "l" && tag.values.lang === 1) || (name === "glid_L" && tag.values.lang === 0);
-        control.title = blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
+        control.title = name === "l" && tag.values.lang === 1 ? "Väggsulor beräknas för en 1 m lång remsa."
+          : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor." : "";
       }
@@ -1405,6 +1406,8 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of controls) {
         const field = fieldSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
+        // Show the calculation's reference length, retaining l for a later switch to a pad footing.
+        if (name === "l" && tag.values.lang === 1) {control.value = "1"; continue;}
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tag.values[name];
         if (field?.type === "bool") control.checked = value ?? false;

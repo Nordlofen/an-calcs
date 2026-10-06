@@ -192,7 +192,8 @@ Littera och fundamenttyp ändras alltid individuellt.
 Blandade sultyper kan redigeras gemensamt för typoberoende fält, exempelvis
 bₓ och isolering. Last- och längdfält kräver samma sultyp och är avstängda
 vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
-för pelarsulor. bᵧ används endast för pelarsulor och glidlängden L endast för
+för pelarsulor. För väggsulor visas bᵧ som en låst referenslängd på 1 m;
+för pelarsulor är bᵧ redigerbart. Glidlängden L används endast för
 väggsulor. Glidningsindata kan förberedas innan global glidningskontroll
 aktiveras. Escape avmarkerar ritning och tabell; sidbyte rensar också urvalet.
 

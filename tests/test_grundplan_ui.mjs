@@ -484,6 +484,24 @@ test("table contains every input and all pages, with type-dependent fields and r
   assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
 });
 
+test("wall table shows a locked one metre reference length while preserving pad dimensions", t => {
+  const ui = setup(t);
+  ui.tag.values.l = 2.4; ui.changed();
+  const length = tableField(ui, ui.tag.id, "l");
+  assert.equal(length.value, "1"); assert.equal(length.disabled, true);
+  assert.match(length.title, /1 m lång remsa/);
+  assert.equal(ui.tag.values.l, 2.4, "The unused pad dimension remains available when changing type");
+  ui.tag.values.lang = 0; ui.changed();
+  assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
+  length.focus();
+  ui.tag.values.lang = 1; ui.changed();
+  assert.equal(length.value, "1", "Switching type must also replace a previously focused length field");
+  assert.equal(length.disabled, true);
+  tableField(ui, ui.tag.id, "lang").focus();
+  ui.tag.values.lang = 0; ui.changed();
+  assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
+});
+
 test("table edits only the chosen field, retains focus and coordinates, and shares drafts with the dialog", t => {
   const ui = setup(t), before = structuredClone(ui.tag);
   const control = tableField(ui, ui.tag.id, "b"); control.focus();
