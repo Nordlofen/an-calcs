@@ -223,8 +223,8 @@
 .an-grundplan .gp-input-table thead { position: sticky; top: 0; z-index: 3; }
 .an-grundplan .gp-input-table th { background: #eef5f3; color: var(--gp-ink); font-weight: 500; }
 .an-grundplan .gp-input-table .gp-table-group { background: #deeee8; font-weight: 700; padding: 8px; border-bottom-color: #b7d1c8; }
-.an-grundplan .gp-table-symbol { display: inline-block; font-size: 15px; margin-right: 5px; }
-.an-grundplan .gp-table-unit { color: var(--gp-muted); font-size: 10px; white-space: nowrap; }
+.an-grundplan .gp-table-symbol { display: block; font-size: 15px; }
+.an-grundplan .gp-table-unit { display: block; margin-top: 3px; color: var(--gp-muted); font-size: 10px; white-space: nowrap; }
 .an-grundplan .gp-input-table td { background: #fff; }
 .an-grundplan .gp-input-table tbody tr:nth-child(even) td { background: #f8faf9; }
 .an-grundplan .gp-input-table tbody .gp-table-row-selected td { background: #e5f3ee; }
