@@ -28,6 +28,7 @@ _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _GEOTECH_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes()).hexdigest()
 _CALCULATOR_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes()).hexdigest()
 _FORMAT = "an-calcs-grundplan"
+_DEFAULT_SUBTITLE = "Sulgrundläggning · jordens bärighet"
 _MAX_FILE_BYTES = 40 * 1024 * 1024
 _MAX_PROJECT_BYTES = 60 * 1024 * 1024
 _MAX_TAGS = 1000
@@ -75,6 +76,12 @@ def _label(value):
     if not isinstance(value, str) or not value.strip() or len(value) > 80:
         raise ValueError("Littera måste innehålla 1–80 tecken.")
     return value.strip()
+
+
+def _heading_text(value, name):
+    if not isinstance(value, str) or len(value) > 200:
+        raise ValueError(f"{name} måste vara en text med högst 200 tecken.")
+    return value
 
 
 def _page_number(page, count):
@@ -195,13 +202,16 @@ class Grundplan(anywidget.AnyWidget):
     state = traitlets.Dict().tag(sync=True)
     background = traitlets.Dict().tag(sync=True)
 
-    def __init__(self, ritning=None, *, sida=1, titel="Grundplan"):
+    def __init__(self, ritning=None, *, sida=1, titel="Grundplan", underrubrik=_DEFAULT_SUBTITLE):
+        title = _heading_text(str(titel), "Rubrik")
+        subtitle = _heading_text(str(underrubrik), "Underrubrik")
         super().__init__()
         self._source = b""
         self._filename = ""
         self._details = {}
         self._tags = []
-        self._title = str(titel)
+        self._title = title
+        self._subtitle = subtitle
         self._label_size = 100
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS)}
@@ -222,6 +232,7 @@ class Grundplan(anywidget.AnyWidget):
         # Never accept client state as calculation evidence.
         self.state = {
             "title": self._title,
+            "subtitle": self._subtitle,
             "tags": copy.deepcopy(self._tags),
             "label_size": self._label_size,
             "calculator_version": _CALCULATOR_VERSION,
@@ -350,6 +361,30 @@ class Grundplan(anywidget.AnyWidget):
         self._label_size = _label_size(value)
         self._publish()
 
+    def _set_heading(self, title, subtitle):
+        title = _heading_text(title, "Rubrik")
+        subtitle = _heading_text(subtitle, "Underrubrik")
+        self._title, self._subtitle = title, subtitle
+        self._publish()
+
+    @property
+    def titel(self):
+        """Projektets rubrik; sparas i JSON och följer med HTML-exporten."""
+        return self._title
+
+    @titel.setter
+    def titel(self, value):
+        self._set_heading(value, self._subtitle)
+
+    @property
+    def underrubrik(self):
+        """Projektets underrubrik. Tom text döljer raden i HTML-exporten."""
+        return self._subtitle
+
+    @underrubrik.setter
+    def underrubrik(self, value):
+        self._set_heading(self._title, value)
+
     def visa_sida(self, sida):
         if not self._source:
             raise ValueError("Öppna en ritning först.")
@@ -361,6 +396,7 @@ class Grundplan(anywidget.AnyWidget):
             "version": 2,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
+            "subtitle": self._subtitle,
             "label_size": self._label_size,
             "drawing": {
                 "name": self._filename,
@@ -433,7 +469,8 @@ class Grundplan(anywidget.AnyWidget):
         pages = [first, *(_render_source(self._source, self._filename, page)
                           for page in range(2, first["page_count"] + 1))]
         return render_html({
-            "state": {"title": self._title, "label_size": self._label_size, "tags": self.taggar},
+            "state": {"title": self._title, "subtitle": self._subtitle,
+                      "label_size": self._label_size, "tags": self.taggar},
             "schema": {"fields": copy.deepcopy(_FIELDS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -482,6 +519,8 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2):
             raise ValueError("Filen är inte ett Grundplan-projekt av version 1 eller 2.")
         label_size = _label_size(document.get("label_size", 100))
+        title = str(document.get("title", "Grundplan"))[:200]
+        subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
         drawing = document["drawing"]
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
@@ -518,7 +557,8 @@ class Grundplan(anywidget.AnyWidget):
         # Replace the current project only after the entire input is validated.
         self._source = source
         self._filename = Path(drawing["name"]).name
-        self._title = str(document.get("title", "Grundplan"))[:200]
+        self._title = title
+        self._subtitle = subtitle
         self._label_size = label_size
         self._tags = valid_tags
         self._details = details_by_id
@@ -551,6 +591,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.visa_sida(content["page"])
             elif action == "label_size":
                 self.etikettstorlek = content["value"]
+            elif action == "heading":
+                self._set_heading(content["title"], content["subtitle"])
             elif action == "drawing":
                 if self._tags:
                     raise ValueError("Starta en ny Grundplan för att byta ritning när taggar finns.")

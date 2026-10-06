@@ -94,7 +94,8 @@ class TestGrundplanHtml(unittest.TestCase):
 
     def test_html_text_och_scriptavslut_behandlas_som_vanlig_text(self):
         text = '</script><img src=x onerror=alert(1)> ÅÄÖ & "\u2028\u2029'
-        self.plan._title = text
+        self.plan.titel = text
+        self.plan.underrubrik = text
         self.tag(littera=text, indata={"isolerprodukt": text})
         html = self.plan._html_bytes().decode("utf-8")
         page = HtmlSnapshot(html)
@@ -102,7 +103,37 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(page.resources, [])
         self.assertNotIn("<img src=x", html)
         self.assertEqual(page.snapshot["state"]["title"], text)
+        self.assertEqual(page.snapshot["state"]["subtitle"], text)
         self.assertEqual(page.snapshot["state"]["tags"][0]["values"]["isolerprodukt"], text)
+
+    def test_rubriker_sparas_ateroppnas_och_exporteras_utan_att_paverka_berakningar(self):
+        ident = self.tag()
+        self.plan.berakna(ident)
+        tags, results = self.plan.taggar, self.plan.resultat
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Must not recalculate")):
+            self.plan._on_message(None, {"action": "heading", "title": "Hus B – grundplan",
+                                        "subtitle": "Uppdrag 123 · Revision A"}, [])
+            snapshot = self.snapshot()
+        self.assertEqual(self.plan.taggar, tags)
+        self.assertEqual(self.plan.resultat, results)
+        self.assertEqual(snapshot["state"]["title"], "Hus B – grundplan")
+        self.assertEqual(snapshot["state"]["subtitle"], "Uppdrag 123 · Revision A")
+        for name in ("title", "subtitle"):
+            self.assertEqual(self.plan.state[name], snapshot["state"][name])
+        path = self.plan.spara(self.root / "projekt.json")
+        reopened = Grundplan.oppna(path)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.titel, self.plan.titel)
+        self.assertEqual(reopened.underrubrik, self.plan.underrubrik)
+        self.assertEqual(HtmlSnapshot(reopened._html_bytes().decode()).snapshot["state"], snapshot["state"])
+        legacy = self.plan._document()
+        del legacy["subtitle"]
+        reopened._load_document(json.dumps(legacy).encode())
+        self.assertEqual(reopened.underrubrik, "Sulgrundläggning · jordens bärighet")
+        reopened.underrubrik = ""
+        reopened.spara(path)
+        reopened._load_document(path.read_bytes())
+        self.assertEqual(reopened.underrubrik, "")
 
     def test_export_raknar_inte_om_och_visar_inga_inaktuella_resultat(self):
         stale = self.tag()

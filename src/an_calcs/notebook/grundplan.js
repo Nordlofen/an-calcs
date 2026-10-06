@@ -13,6 +13,7 @@ function render({ model, el, readOnly = false }) {
   const view = Math.random().toString(36).slice(2);
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
+  let headingDraft = null;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
@@ -35,9 +36,39 @@ function render({ model, el, readOnly = false }) {
     model.send({ action, ...payload, request, view }, undefined, buffers);
   }
   const heading = node("header", "gp-heading");
-  const headingText = node("div");
-  const title = node("h3", "", state().title);
-  headingText.append(title, node("p", "", readOnly ? "Sulgrundläggning · resultat" : "Sulgrundläggning · jordens bärighet"));
+  const headingText = node("div", "gp-heading-text");
+  const title = node(readOnly ? "h3" : "input", "gp-title");
+  const subtitle = node(readOnly ? "p" : "input", "gp-subtitle");
+  function showHeading() {
+    const values = headingDraft || state();
+    for (const [element, value] of [[title, values.title ?? "Grundplan"],
+      [subtitle, values.subtitle ?? "Sulgrundläggning · jordens bärighet"]]) {
+      if (readOnly) element.textContent = value;
+      else if (element.value !== value) element.value = value;
+    }
+    subtitle.hidden = readOnly && !subtitle.textContent;
+  }
+  if (!readOnly) {
+    for (const [input, label] of [[title, "Rubrik"], [subtitle, "Underrubrik"]]) {
+      input.type = "text";
+      input.maxLength = 200;
+      input.placeholder = label;
+      input.setAttribute("aria-label", label);
+      input.title = "Klicka för att redigera " + label.toLowerCase();
+      input.addEventListener("input", () => {
+        const draft = { title: title.value, subtitle: subtitle.value };
+        headingDraft = draft;
+        command("heading", draft, [], () => {
+          // Older acknowledgments must not replace more recent typing.
+          if (headingDraft === draft) {
+            headingDraft = null;
+            showHeading();
+          }
+        });
+      });
+    }
+  }
+  headingText.append(title, subtitle);
   const total = node("span", "gp-count");
   heading.append(headingText, total);
   const toolbar = node("div", "gp-toolbar");
@@ -248,6 +279,7 @@ function render({ model, el, readOnly = false }) {
           positions.clear();
           pendingPositions.clear();
           sectionStates.clear();
+          headingDraft = null;
           inputSections.length = resultSections.length = 0;
           setMode("pan");
           update();
@@ -580,7 +612,7 @@ function render({ model, el, readOnly = false }) {
   function update() {
     const bg = background();
     const data = state();
-    title.textContent = data.title;
+    showHeading();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
     loadDrawing.disabled = data.tags.length > 0;

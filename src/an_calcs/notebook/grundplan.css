@@ -26,10 +26,14 @@
 .an-grundplan button:focus-visible, .an-grundplan input:focus, .an-grundplan select:focus {
   outline: 2px solid #3b9588; outline-offset: 2px;
 }
-.an-grundplan .gp-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 14px; }
-.an-grundplan .gp-heading h3 { font-size: 20px; letter-spacing: -.5px; color: var(--gp-ink); }
-.an-grundplan .gp-heading p { color: var(--gp-muted); margin-top: 3px; }
-.an-grundplan .gp-count { background: #edf4f2; border-radius: 20px; padding: 5px 12px; color: var(--gp-accent); }
+.an-grundplan .gp-heading { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 18px 20px 14px; }
+.an-grundplan .gp-heading-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.an-grundplan .gp-heading .gp-title { font-size: 20px; font-weight: 700; letter-spacing: -.5px; color: var(--gp-ink); }
+.an-grundplan .gp-heading .gp-subtitle { color: var(--gp-muted); margin-top: 3px; }
+.an-grundplan .gp-heading input { display: block; width: 100%; padding: 0; border: 1px solid transparent; background: transparent; }
+.an-grundplan .gp-heading input:hover { border-color: var(--gp-line); }
+.an-grundplan .gp-heading input:focus { background: #f7faf9; }
+.an-grundplan .gp-count { flex-shrink: 0; background: #edf4f2; border-radius: 20px; padding: 5px 12px; color: var(--gp-accent); }
 .an-grundplan .gp-toolbar { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; padding: 0 16px 14px; }
 .an-grundplan .gp-separator { width: 1px; height: 24px; background: var(--gp-line); margin: 0 3px; }
 .an-grundplan .gp-selected { background: #e1f0eb; border-color: #85b4a7; color: #10594f; }

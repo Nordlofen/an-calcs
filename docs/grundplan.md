@@ -29,6 +29,12 @@ plan
 ```
 
 Alternativt `Grundplan("grundplan.pdf", sida=2, titel="Hus A")`.
+Klicka direkt i rubriken eller underrubriken överst för att ändra texten.
+Båda sparas i JSON-projektet och visas med samma innehåll i HTML-exporten.
+Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra
+texterna via `plan.titel` och `plan.underrubrik`. En tom underrubrik döljs
+i HTML-exporten. Ändringarna påverkar inte sulornas beräkningar.
+
 Sökvägar avser kernelns filsystem och arbetsmapp. PDF-sidor numreras från 1.
 PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 

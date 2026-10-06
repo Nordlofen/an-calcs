@@ -96,7 +96,7 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
-  const data = { state: { title: "Test", tags: [tag], label_size: 100 },
+  const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
     schema: { fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
@@ -133,6 +133,31 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
 
+test("heading edits persist before export and pending typing survives older model updates", t => {
+  const ui = setup(t);
+  const title = ui.byClass("gp-title"), subtitle = ui.byClass("gp-subtitle");
+  const original = structuredClone(ui.tag);
+  assert.equal(title.value, "Test");
+  assert.equal(subtitle.value, "Projektets underrubrik");
+  title.value = "Hus B"; title.dispatch("input");
+  const first = ui.sent.at(-1);
+  subtitle.value = "Revision A – ÅÄÖ"; subtitle.dispatch("input");
+  const latest = ui.sent.at(-1);
+  assert.equal(latest.action, "heading");
+  assert.equal(latest.title, "Hus B");
+  assert.equal(latest.subtitle, "Revision A – ÅÄÖ");
+  Object.assign(ui.data.state, {title: first.title, subtitle: first.subtitle});
+  ui.changed(); ui.ack(first);
+  assert.equal(subtitle.value, "Revision A – ÅÄÖ", "Earlier response must not discard the newest text");
+  ui.byText("Exportera HTML").click();
+  assert.equal(ui.sent.at(-1).action, "export_html", "Heading update is sent before the export request");
+  Object.assign(ui.data.state, {title: latest.title, subtitle: latest.subtitle});
+  ui.changed(); ui.ack(latest);
+  assert.equal(title.value, "Hus B");
+  assert.equal(subtitle.value, "Revision A – ÅÄÖ");
+  assert.deepEqual(ui.tag, original);
+});
+
 for (const [format, mime, content, filename] of [
   ["PDF", "application/pdf", "%PDF-1.4\nTest PDF\n", "plan_med_etiketter.pdf"],
   ["HTML", "text/html;charset=utf-8", "<!doctype html><p>ÅÄÖ · resultat</p>", "plan_resultat.html"],
@@ -168,6 +193,10 @@ for (const [format, mime, content, filename] of [
 
 test("standalone result labels open read-only values and remember expanded sections", t => {
   const ui = setup(t, { readOnly: true, standalone: true });
+  assert.equal(ui.byClass("gp-title").tag, "h3");
+  assert.equal(ui.byClass("gp-title").textContent, "Test");
+  assert.equal(ui.byClass("gp-subtitle").tag, "p");
+  assert.equal(ui.byClass("gp-subtitle").textContent, "Projektets underrubrik");
   const original = structuredClone(ui.snapshot);
   ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
   const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
