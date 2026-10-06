@@ -70,6 +70,12 @@ till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 
 ## Lokala axlar och skisser
 
+Indataraderna visar **beskrivning, beteckning, värde och enhet** i separata
+kolumner, som i `Panel()`. Symbolerna har kursiv grundbokstav och nedsänkta
+index, exempelvis bₓ, Mᵧ och γₘ. Även infotext och resultatrader visar
+nedsänkta index, exempelvis f med index d,brott och q med index Ed.
+Samma beteckningar visas i resultat-HTML.
+
 Gränssnittet använder x tvärs en väggsula och y längs den; y-måttet i
 beräkningen är 1 m. Pelarsulan visas med sina fulla mått bₓ × bᵧ. Axlarna
 är lokala och kopplas inte automatiskt till ritningens riktningar.

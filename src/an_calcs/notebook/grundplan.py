@@ -20,7 +20,7 @@ except ImportError as exc:
     ) from exc
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
-from .grundplan_labels import DISPLAY_LABELS, LOAD_GROUPS
+from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 
 
 _ASSETS = Path(__file__).parent
@@ -47,7 +47,8 @@ _EXTRA_FIELDS = [
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
 ]
-_FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"])}
+_FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
+            "display_symbol": DISPLAY_SYMBOLS.get(field["name"])}
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 

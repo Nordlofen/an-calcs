@@ -64,6 +64,33 @@ function render({ model, el, readOnly = false }) {
     if (text !== undefined) element.textContent = text;
     return element;
   };
+  const symbolNode = (notation, className = "") => {
+    const symbol = node("span", "gp-math " + className);
+    if (notation.text) {
+      symbol.textContent = notation.text;
+      symbol.classList.add("gp-field-symbol-plain");
+    } else {
+      if (notation.prefix) symbol.append(node("span", "", notation.prefix));
+      if (notation.base) symbol.append(node("i", "", notation.base));
+      if (notation.subscript) symbol.append(node("sub", "", notation.subscript));
+      if (notation.suffix) symbol.append(node("span", "", notation.suffix));
+    }
+    return symbol;
+  };
+  // Only controlled display text uses this notation; no HTML is parsed.
+  const mathText = (tag, className, text) => {
+    const matches = [...text.matchAll(/([\p{L}]+)_([\p{L}\d]+(?:,[\p{L}\d]+)*)/gu)];
+    if (!matches.length) return node(tag, className, text);
+    const element = node(tag, className);
+    let offset = 0;
+    for (const match of matches) {
+      if (match.index > offset) element.append(node("span", "", text.slice(offset, match.index)));
+      element.append(symbolNode({base: match[1], subscript: match[2]}));
+      offset = match.index + match[0].length;
+    }
+    if (offset < text.length) element.append(node("span", "", text.slice(offset)));
+    return element;
+  };
   const root = node("div", "an-grundplan");
   root.classList.toggle("gp-readonly", readOnly);
   // Keep JupyterLab's cell shortcuts from consuming keys intended for the widget.
@@ -579,7 +606,7 @@ function render({ model, el, readOnly = false }) {
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
-      "Ange färdiga dimensionerande bärförmågor. Kontroll: V / (bₓ,eff × bᵧ,eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
+      "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Kontroll: V / (b_x,eff × b_y,eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
   function rememberSections(sections) {
@@ -605,11 +632,18 @@ function render({ model, el, readOnly = false }) {
     for (const [index, [label, names, note]] of groups.entries()) {
       if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
       const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
-      if (note && !readOnly) group.append(node("p", "gp-field-note", note));
+      if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
         const row = node(readOnly ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
+        const notation = field.display_symbol || {};
+        const symbol = symbolNode(notation, "gp-field-symbol");
+        symbol.setAttribute("aria-hidden", "true");
+        const symbolText = notation.text || (notation.prefix || "") + (notation.base || "")
+          + (notation.subscript ? "_" + notation.subscript : "") + (notation.suffix || "");
+        const accessibleLabel = field.label + (symbolText ? ", " + symbolText : "");
+        if (field.type === "choice") row.classList.add("gp-choice-field");
         if (readOnly) {
           const value = tag.values[name];
           const text = field.type === "bool" ? (value ? "Ja" : "Nej")
@@ -618,17 +652,22 @@ function render({ model, el, readOnly = false }) {
             : value == null ? "—" : number(value, 10);
           const output = node("span", "gp-value", text);
           const unit = node("span", "gp-unit", field.unit);
-          if (["text", "choice", "bool"].includes(field.type)) {
+          if (["text", "bool"].includes(field.type)) {
             row.classList.add("gp-text-field");
             row.append(caption, output);
-          } else row.append(caption, output, unit);
+          } else {
+            row.setAttribute("role", "group");
+            row.setAttribute("aria-label", accessibleLabel);
+            if (field.type === "choice") row.append(caption, symbol, output);
+            else row.append(caption, symbol, output, unit);
+          }
           group.append(row);
           inputs.set(name, { input: output, unit, row, group });
           continue;
         }
         const input = node(field.type === "choice" ? "select" : "input");
         input.name = name;
-        input.setAttribute("aria-label", field.label);
+        input.setAttribute("aria-label", accessibleLabel);
         if (field.type === "choice") {
           for (const option of field.options) {
             const opt = node("option", "", option.value === 1 ? "Väggsula (per meter)" : "Pelarsula");
@@ -653,7 +692,8 @@ function render({ model, el, readOnly = false }) {
         const unit = node("span", "gp-unit", field.unit);
         if (field.type === "bool") row.append(input, caption);
         else if (field.type === "text") row.append(caption, input);
-        else row.append(caption, input, unit);
+        else if (field.type === "choice") row.append(caption, symbol, input);
+        else row.append(caption, symbol, input, unit);
         group.append(row);
         inputs.set(name, { input, unit, row, group });
         input.addEventListener("input", () => edit(field.type !== "text"));
@@ -680,7 +720,7 @@ function render({ model, el, readOnly = false }) {
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
         : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     for (const [name, entry] of inputs) {
-      const unit = fieldSchema.get(name).unit;
+      const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
       if (readOnly) {
@@ -795,22 +835,26 @@ function render({ model, el, readOnly = false }) {
       arrow(270, 26, 301, 26, "#58717a"); text(309, 30, "x");
       arrow(270, 26, 270, 6, "#58717a"); text(261, 12, "y");
       text(160, 230, `bₓ = ${precise(a.bx)} m · bᵧ = ${precise(a.by)} m`);
-      text(160, 248, `Aeff = ${precise(a.area)} m²`, "middle", "#267c69");
+      const areaLabel = make("text", {x: 160, y: 248, "font-size": 12, "text-anchor": "middle", fill: "#267c69"});
+      areaLabel.append(make("tspan", {"font-style": "italic"}, "A"),
+        make("tspan", {"baseline-shift": "sub", "font-size": 9}, "eff"),
+        make("tspan", {}, ` = ${precise(a.area)} m²`));
+      svg.append(areaLabel);
       const legend = node("div", "gp-area-legend");
       for (const [className, caption] of [["outline", "□ Hela sulan"], ["area", "Effektiv area"], ["placement", "○ Placering"],
-        ["moment-x", "→ Mᵧ/V i x-led"], ["moment-y", "→ Mₓ/V i y-led"]]) {
-        legend.append(node("span", "gp-area-key-" + className, caption));
+        ["moment-x", "→ M_y/V i x-led"], ["moment-y", "→ M_x/V i y-led"]]) {
+        legend.append(mathText("span", "gp-area-key-" + className, caption));
       }
       const list = node("dl", "gp-result-list gp-area-numbers");
       for (const [caption, value] of [
         ["V inkl. egentyngd", precise(a.V) + " " + tag.summary.lastenhet],
-        ["Mᵧ → x-led", precise(a.My) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
-        ["Mₓ → y-led", precise(a.Mx) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
-        ["bₓ,eff", precise(a.bx_eff) + " m"], ["bᵧ,eff", precise(a.by_eff) + " m"],
-      ]) list.append(node("dt", "", caption), node("dd", "", value));
+        ["M_y → x-led", precise(a.My) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
+        ["M_x → y-led", precise(a.Mx) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
+        ["b_x,eff", precise(a.bx_eff) + " m"], ["b_y,eff", precise(a.by_eff) + " m"],
+      ]) list.append(mathText("dt", "", caption), node("dd", "", value));
       content.append(svg, legend, list,
-        node("p", "gp-area-equation", `eₓ = ${precise(a.ex_placement)} + (${precise(a.ex_moment)}) = ${precise(a.ex)} m`),
-        node("p", "gp-area-equation", `eᵧ = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`),
+        mathText("p", "gp-area-equation", `e_x = ${precise(a.ex_placement)} + (${precise(a.ex_moment)}) = ${precise(a.ex)} m`),
+        mathText("p", "gp-area-equation", `e_y = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`),
         node("p", "gp-field-note", "e = placering + moment/V. R är lastresultanten och centrum för den effektiva arean. Effektiva mått = sulmått − 2|e|. Tecken enligt beräkningens pilar; x åt höger, y uppåt."),
         node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (tag.values.lang === 1 ? "Väggsulan visas som en 1 m-remsa." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
     };
@@ -844,8 +888,8 @@ function render({ model, el, readOnly = false }) {
       ["Vertikallast V – brott", number(r.last) + " " + r.lastenhet],
       ["Jordens bärförmåga", number(r.barformaga) + " " + r.lastenhet],
       ["Bärförmåga q_bd", number(r.q_bd) + " kPa"],
-      ["Effektivt mått bₓ,eff", number(r.b_ef, 3) + " m"],
-    ]) table.append(node("dt", "", label), node("dd", "", value));
+      ["Effektivt mått b_x,eff", number(r.b_ef, 3) + " m"],
+    ]) table.append(mathText("dt", "", label), node("dd", "", value));
     results.append(headline);
     if (r.isolering) {
       const checks = node("dl", "gp-result-list gp-checks");
@@ -865,14 +909,14 @@ function render({ model, el, readOnly = false }) {
         const list = node("dl", "gp-result-list");
         for (const [name, caption, unit] of [
           ["N", "V inkl. egentyngd", r.lastenhet],
-          ["b_eff", "Effektivt mått bₓ,eff", "m"], ["l_eff", "Effektivt mått bᵧ,eff", "m"],
-          ["A_eff", "Effektiv area", "m²"],
-          ["q_Ed", "Lasteffekt q_Ed", "kPa"], ["f_d", "Bärförmåga f_d." + phase, "kPa"],
-        ]) list.append(node("dt", "", caption), node("dd", "", number(values["isolering_" + name + "_" + phase], 3) + " " + unit));
+          ["b_eff", "Effektivt mått b_x,eff", "m"], ["l_eff", "Effektivt mått b_y,eff", "m"],
+          ["A_eff", "Effektiv area A_eff", "m²"],
+          ["q_Ed", "Lasteffekt q_Ed", "kPa"], ["f_d", "Bärförmåga f_d," + phase, "kPa"],
+        ]) list.append(mathText("dt", "", caption), node("dd", "", number(values["isolering_" + name + "_" + phase], 3) + " " + unit));
         group.append(list);
         results.append(group);
       }
-      results.append(node("p", "gp-result-note", "Isolering: q_Ed = V / (bₓ,eff × bᵧ,eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
+      results.append(mathText("p", "gp-result-note", "Isolering: q_Ed = V / (b_x,eff × b_y,eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
     }
   }
   function update() {
