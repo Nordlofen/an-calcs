@@ -417,7 +417,7 @@ function render({ model, el, readOnly = false }) {
     closeDialog(); closeBulk();
     setMode(mode === "select" ? "pan" : "select");
   });
-  selectMany.title = "Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick växlar markeringen. Klicka i markeringsläget för att välja eller avmarkera.";
+  selectMany.title = "Shift + vänsterdrag ritar en urvalsruta. Shift + klick växlar markeringen. Vanligt klick öppnar objektets redigering.";
   modes.set("select", selectMany);
   const selectionBar = node("div", "gp-selection-bar");
   selectionBar.hidden = true;
@@ -761,7 +761,7 @@ function render({ model, el, readOnly = false }) {
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value === "import") showMessage(importCaption());
-    else if (value === "select") showMessage("Shift + vänsterdrag ritar en urvalsruta. Klicka på etiketter för att välja eller avmarkera. Dra i ritningen för att panorera. Tryck Ändra markerade när urvalet är klart.");
+    else if (value === "select") showMessage("Shift + vänsterdrag ritar en urvalsruta. Shift + klick väljer eller avmarkerar en etikett; vanligt klick öppnar redigering. Tryck Ändra markerade när urvalet är klart.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
     else showMessage("Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
@@ -1049,7 +1049,7 @@ function render({ model, el, readOnly = false }) {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
         if (!event.detail) {
-          if (!readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey)) toggleTag(tag);
+          if (!readOnly && (event.shiftKey || event.ctrlKey || event.metaKey)) toggleTag(tag);
           else openDialog(tag);
         }
       }, "gp-tag gp-tag-" + color);
@@ -1795,7 +1795,7 @@ function render({ model, el, readOnly = false }) {
       placementBlocked: importBusy,
       box: !tag && !readOnly && (event.shiftKey || event.ctrlKey || event.metaKey),
       beforeSelection: new Set(selected),
-      select: !!tag && !readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey) };
+      select: !!tag && !readOnly && (event.shiftKey || event.ctrlKey || event.metaKey) };
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {

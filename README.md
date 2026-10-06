@@ -188,7 +188,8 @@ får eget littera och kan ändras oberoende av originalet. Reglaget
 och förminskas tillsammans med ritningen när du zoomar. Positioner och
 grundstorlek sparas i projektet.
 
-**Markera flera** (eller Shift-klick) väljer ett urval av etiketter.
+**Shift + vänsterdrag** eller **Shift + klick** väljer ett urval av etiketter.
+Ett vanligt klick på en etikett öppnar alltid objektets redigering.
 **Ändra markerade** öppnar gemensamma indata: välj endast de fält som ska
 ersättas, exempelvis isolering, väggbredd eller pelarsulornas bₓ/bᵧ.
 Övriga värden behålls per sula. **Tillämpa och beräkna** räknar om urvalet

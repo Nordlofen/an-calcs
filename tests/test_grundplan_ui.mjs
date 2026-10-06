@@ -334,7 +334,8 @@ function bulkFixture(ui, pad = false) {
   const field = name => ui.find(e => e.name === "bulk_" + name);
   const choose = name => ui.find(e => e.getAttribute("aria-label") === "Ändra " + name);
   const select = () => {
-    ui.byText("Markera flera").click(); marker("tag1").click(); marker("tag2").click();
+    ui.byText("Markera flera").click();
+    marker("tag1").dispatch("click", {shiftKey: true}); marker("tag2").dispatch("click", {shiftKey: true});
     ui.byText("Ändra markerade").click();
   };
   return {second, marker, field, choose, select};
@@ -511,6 +512,54 @@ test("multi-selection only sends chosen fields and retains different loads", t =
   assert.equal(bulk.choose("b").checked, false);
   ui.byText("2 av 2 sulor beräknade.");
 });
+
+for (const entry of ["toolbar", "marquee"]) {
+  test("ordinary left drag moves only the dragged footing after selection entered via " + entry, t => {
+    const ui = setup(t), bulk = bulkFixture(ui);
+    if (entry === "toolbar") ui.byText("Markera flera").click();
+    else marquee(ui, [200, 200], [700, 500]);
+    const original = structuredClone(ui.data.state), selected = selectedIds(ui);
+    ui.start(bulk.marker("tag2"), 520, 390); ui.move(640, 450); ui.finish(640, 450);
+    const request = ui.sent.at(-1);
+    assert.equal(ui.sent.length, 1);
+    assert.equal(request.action, "update"); assert.equal(request.id, "tag2");
+    near(request.x, bulk.second.x + 120 / 800); near(request.y, bulk.second.y + 60 / 600);
+    assert.equal(request.values, undefined, "A position update never replaces loads or geometry");
+    assert.deepEqual(ui.data.state, original, "The project waits for the kernel acknowledgment");
+    assert.deepEqual(selectedIds(ui), selected, "Moving one label does not toggle the group selection");
+    assert.equal(ui.byClass("gp-dialog").hidden, true, "A drag does not open the single-footing form");
+    Object.assign(bulk.second, {x: request.x, y: request.y}); ui.changed(); ui.ack(request);
+    assert.deepEqual(ui.tag, original.tags[0], "The other footing remains unchanged");
+    assert.deepEqual(bulk.second.values, original.tags[1].values);
+    near(parseFloat(bulk.marker("tag2").style.left) / 100, request.x);
+    near(parseFloat(bulk.marker("tag2").style.top) / 100, request.y);
+  });
+
+  for (const activation of ["pointer", "keyboard"]) {
+    test("ordinary " + activation + " click edits a footing after selection entered via " + entry, t => {
+      const ui = setup(t), bulk = bulkFixture(ui);
+      if (entry === "toolbar") ui.byText("Markera flera").click();
+      else marquee(ui, [200, 200], [700, 500]);
+      const original = structuredClone(ui.data.state);
+      if (activation === "pointer") {
+        ui.start(bulk.marker("tag2"), 520, 390); ui.finish(520, 390);
+      } else bulk.marker("tag2").click();
+      assert.equal(ui.byClass("gp-dialog").hidden, false);
+      assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+      assert.equal(ui.label().value, "VS2");
+      assert.equal(ui.field("b").value, "2");
+      assert.equal(ui.field("F_vy").value, "200");
+      assert.deepEqual(selectedIds(ui), [], "Ordinary editing never toggles a multi-selection");
+      assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+      assert.equal(bulk.marker("tag2").getAttribute("aria-pressed"), "false");
+      assert.deepEqual(ui.data.state, original); assert.equal(ui.sent.length, 0);
+      ui.field("b").value = "1,8"; ui.field("b").dispatch("input");
+      ui.byText("Beräkna").click();
+      assert.equal(ui.sent.at(-1).id, "tag2", "The opened form edits this footing only");
+      assert.equal(ui.sent.at(-1).values.b, 1.8);
+    });
+  }
+}
 
 test("Shift pointer clicks toggle selection without dragging or opening single forms", t => {
   const ui = setup(t), bulk = bulkFixture(ui);

@@ -583,13 +583,15 @@ i rutan läggs till, redan markerade avmarkeras och etiketter utanför rutan
 behåller sin markering. Ctrl/Cmd fungerar på samma sätt.
 
 Du kan också använda Shift-klick (eller Ctrl/Cmd-klick) på en enskild etikett
-för att växla dess markering. Alternativt: tryck **Markera flera** och klicka
-på etiketter för att markera eller avmarkera dem. Markerade etiketter får
-en ram och en bock. Tryck **Ändra markerade** för gemensam indata.
+för att växla dess markering. **Markera flera** visar instruktionerna för
+markering. Ett vanligt klick på en etikett öppnar alltid objektets redigering,
+även efter ett urval eller när **Markera flera** är aktivt. Markerade etiketter
+får en ram och en bock. Tryck **Ändra markerade** för gemensam indata.
 
 Vanligt vänsterdrag eller högerdrag panorerar även med ett aktivt urval.
 Det ändrar inga etikettpositioner. Tryck **Avmarkera** för att börja ett nytt urval.
-Dra direkt i en etikett i det vanliga läget för att flytta den.
+Dra direkt i en etikett utan Shift för att flytta den, även när ett urval
+eller **Markera flera** är aktivt.
 
 Kryssa i de fält som ska ersättas, eller skriv direkt i dem så kryssas de i
 automatiskt. **Olika värden** betyder att sulornas befintliga värden skiljer sig;
