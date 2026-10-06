@@ -49,6 +49,10 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    visas också vilken kontroll som styr.
    Klicka på taggen igen för att öppna samma indata.
 
+Vyn kommer ihåg vilka indata- och resultatavsnitt som är öppna för varje sula.
+När du minimerar eller byter etikett och sedan återvänder återställs samma
+utfällda och infällda avsnitt. Dessa visningsval gäller medan planvyn är öppen.
+
 **Flytta:** dra etiketten till önskat läge och släpp. Ett kort klick öppnar
 indata; en dragning flyttar etiketten utan att ändra indata eller resultat.
 Positionen sparas i projektet. Dialogen kan flyttas genom att dra dess rubrik.

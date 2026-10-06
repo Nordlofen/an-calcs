@@ -14,6 +14,7 @@ function render({ model, el }) {
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
+  const sectionStates = new Map(), inputSections = [], resultSections = [];
   const state = () => model.get("state") || { tags: [] };
   const background = () => model.get("background") || {};
   const current = () => state().tags.find((tag) => tag.id === active);
@@ -165,6 +166,7 @@ function render({ model, el }) {
           drafts.delete(tag.id);
           dirty.delete(tag.id);
           edits.delete(tag.id);
+          sectionStates.delete(tag.id);
         }
       });
       closeDialog();
@@ -216,6 +218,8 @@ function render({ model, el }) {
           edits.clear();
           positions.clear();
           pendingPositions.clear();
+          sectionStates.clear();
+          inputSections.length = resultSections.length = 0;
           setMode("pan");
           update();
           showMessage(file.name + " öppnad.");
@@ -274,6 +278,8 @@ function render({ model, el }) {
     placeSheet();
   }
   function closeDialog() {
+    rememberSections(inputSections);
+    rememberSections(resultSections);
     active = null;
     formId = null;
     dialog.hidden = true;
@@ -333,14 +339,28 @@ function render({ model, el }) {
       "Ange färdiga dimensionerande bärförmågor. Kontroll: N / (b_eff × l_eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
+  function rememberSections(sections) {
+    // Read the DOM before rebuilding; native toggle events can arrive after closing.
+    for (const { tagId, key, group } of sections) {
+      if (!sectionStates.has(tagId)) sectionStates.set(tagId, new Map());
+      sectionStates.get(tagId).set(key, group.open);
+    }
+    sections.length = 0;
+  }
+  function makeSection(tagId, key, label, expanded, sections) {
+    const group = node("details", "gp-group");
+    group.open = sectionStates.get(tagId)?.get(key) ?? expanded;
+    group.append(node("summary", "", label));
+    sections.push({ tagId, key, group });
+    return group;
+  }
   function buildFields(tag) {
+    rememberSections(inputSections);
     fieldsBox.replaceChildren();
     inputs.clear();
     const draft = drafts.get(tag.id);
     for (const [index, [label, names, note]] of groups.entries()) {
-      const group = node("details", "gp-group");
-      group.open = index < 2;
-      group.append(node("summary", "", label));
+      const group = makeSection(tag.id, "input:" + names[0], label, index < 2, inputSections);
       if (note) group.append(node("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
@@ -451,6 +471,7 @@ function render({ model, el }) {
   });
   function showResult() {
     const tag = current();
+    rememberSections(resultSections);
     results.replaceChildren();
     if (!tag) return;
     if (dirty.has(tag.id) || tag.status === "stale") {
@@ -488,8 +509,8 @@ function render({ model, el }) {
     if (r.isolering) {
       for (const [phase, label] of [["brott", "Brott"], ["bruk", "Bruk · långtidslast"]]) {
         const values = r.isolering;
-        const group = node("details", "gp-group gp-insulation-result");
-        group.append(node("summary", "", "Isolering – " + label));
+        const group = makeSection(tag.id, "result:" + phase, "Isolering – " + label, false, resultSections);
+        group.classList.add("gp-insulation-result");
         const list = node("dl", "gp-result-list");
         for (const [name, caption, unit] of [
           ["N", "Last inkl. egentyngd", r.lastenhet],
