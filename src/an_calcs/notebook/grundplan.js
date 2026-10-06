@@ -359,9 +359,17 @@ function render({ model, el, readOnly = false }) {
   board.append(viewport, empty, zoomBar, dialog, sketch);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
-  const legend = node("div", "gp-legend", "○ Ej beräknad   ● U ≤ 100 %   ● U > 100 %   ◌ Ändrad");
+  const legend = node("div", "gp-legend");
+  legend.setAttribute("role", "list");
+  legend.setAttribute("aria-label", "Etikettförklaring");
+  for (const [state, label] of [["new", "Ej beräknad"], ["ok", "U ≤ 100 %"],
+    ["over", "U > 100 %"], ["stale", "Ändrad"]]) {
+    const item = node("span", "gp-legend-item gp-tag-" + state, label);
+    item.setAttribute("role", "listitem");
+    legend.append(item);
+  }
   const help = node("p", "gp-help",
-    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
+    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar, board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput);
   el.append(root);
@@ -1060,6 +1068,32 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointercancel", cancelDrag);
   viewport.addEventListener("lostpointercapture", cancelDrag);
+  let outsidePress = null;
+  const insideDialog = target => target?.closest?.(".gp-dialog") === dialog
+    || target?.closest?.(".gp-sketch-panel") === sketch;
+  const outsideDown = event => {
+    outsidePress = null;
+    if (event.button !== 0 || dialog.hidden || insideDialog(event.target)
+      || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
+    outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY, tagId: active, moved: false};
+  };
+  const outsideMove = event => {
+    if (outsidePress && outsidePress.pointerId === event.pointerId
+      && Math.hypot(event.clientX - outsidePress.x, event.clientY - outsidePress.y) > 4) outsidePress.moved = true;
+  };
+  const outsideUp = event => {
+    if (!outsidePress || outsidePress.pointerId !== event.pointerId) return;
+    const press = outsidePress;
+    outsidePress = null;
+    if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 4
+      && active === press.tagId && !insideDialog(event.target)) closeDialog();
+  };
+  const outsideCancel = () => { outsidePress = null; };
+  // Capture outside the widget too; a pan/drag or another tag click stays distinct.
+  document.addEventListener("pointerdown", outsideDown, true);
+  document.addEventListener("pointermove", outsideMove, true);
+  document.addEventListener("pointerup", outsideUp, true);
+  document.addEventListener("pointercancel", outsideCancel, true);
   let dialogDrag = null;
   dialogHeader.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.target.closest("button")) return;
@@ -1092,11 +1126,15 @@ function render({ model, el, readOnly = false }) {
   model.on("msg:custom", receive);
   setMode("pan");
   showMessage(background().url
-    ? (readOnly ? "Klicka på en etikett för indata och resultat. Dra i ritningen för att panorera." : "Välj Väggsula eller Pelarsula och klicka på ritningen.")
+    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera." : "Välj Väggsula eller Pelarsula och klicka på ritningen.")
     : "Öppna en ritning eller ett sparat projekt.");
   update();
   return () => {
     disposed = true;
+    document.removeEventListener("pointerdown", outsideDown, true);
+    document.removeEventListener("pointermove", outsideMove, true);
+    document.removeEventListener("pointerup", outsideUp, true);
+    document.removeEventListener("pointercancel", outsideCancel, true);
     resizeObserver.disconnect();
     model.off("change:state", update);
     model.off("change:background", update);

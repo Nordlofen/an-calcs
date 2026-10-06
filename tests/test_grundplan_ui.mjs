@@ -66,6 +66,9 @@ class Element {
     if (!this.listeners.has(name)) this.listeners.set(name, []);
     this.listeners.get(name).push(fn);
   }
+  removeEventListener(name, fn) {
+    this.listeners.set(name, (this.listeners.get(name) ?? []).filter(listener => listener !== fn));
+  }
   dispatch(name, options = {}) {
     const event = { target: this, button: 0, pointerId: 1, clientX: 0, clientY: 0,
       detail: 0, preventDefault() {}, stopPropagation() {}, ...options };
@@ -95,7 +98,8 @@ const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hâ‚
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
 
 function setup(t, { readOnly = false, standalone = false } = {}) {
-  globalThis.document = { createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] };
+  globalThis.document = Object.assign(new Element("document"), {
+    createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] });
   globalThis.window = { confirm: () => true };
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   globalThis.requestAnimationFrame = fn => fn();
@@ -139,6 +143,41 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+for (const readOnly of [false, true]) test(`outside click minimizes without losing drafts or section state (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  ui.marker().click();
+  const soil = ui.byText("Jord och grundvatten").parent;
+  soil.open = true;
+  if (!readOnly) {
+    ui.field("b").value = "2,";
+    ui.field("b").dispatch("input");
+  }
+  const before = ui.sent.length;
+  const click = target => {
+    document.dispatch("pointerdown", {target, clientX: 500, clientY: 500});
+    document.dispatch("pointerup", {target, clientX: 500, clientY: 500});
+  };
+  click(ui.byClass("gp-form"));
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "Inside clicks keep the form open");
+  ui.byText("Visa definitionsskiss").click();
+  click(ui.byClass("gp-sketch-panel"));
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "The associated sketch remains usable");
+  document.dispatch("pointerdown", {target: ui.viewport, clientX: 500, clientY: 500});
+  document.dispatch("pointermove", {target: ui.viewport, clientX: 510, clientY: 500});
+  document.dispatch("pointerup", {target: ui.viewport, clientX: 500, clientY: 500});
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "A drag returning to its start is still a drag");
+  click(new Element("outside-notebook-cell"));
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, true);
+  assert.equal(ui.sent.length, before, "Minimization does not change stored inputs or request calculation");
+  ui.marker().click();
+  assert.equal(ui.byText("Jord och grundvatten").parent.open, true);
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, false);
+  if (!readOnly) assert.equal(ui.field("b").value, "2,", "Unfinished raw input survives minimization");
+  click(ui.marker());
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "A tag click is handled by the tag itself");
+});
 
 for (const readOnly of [false, true]) test(`nonzero external loads and definitions work in ${readOnly ? "HTML" : "notebook"}`, t => {
   const ui = setup(t, {readOnly});

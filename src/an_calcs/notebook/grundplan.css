@@ -56,9 +56,14 @@
   background: var(--gp-tag-bg); border: 1px solid #8da4aa; box-shadow: 0 2px 7px #18333b24;
   border-radius: 7px; font-size: 11px;
 }
-.an-grundplan .gp-tag::before {
-  content: ""; position: absolute; width: 7px; height: 7px; background: #7f969d; border-radius: 50%; left: 6px; top: 10px;
+.an-grundplan .gp-legend-item {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px; white-space: nowrap;
+  background: var(--gp-tag-bg, #fff); border: 1px solid #8da4aa; border-radius: 5px;
 }
+.an-grundplan .gp-tag::before, .an-grundplan .gp-legend-item::before {
+  content: ""; width: 7px; height: 7px; background: #7f969d; border-radius: 50%; flex-shrink: 0;
+}
+.an-grundplan .gp-tag::before { position: absolute; left: 6px; top: 10px; }
 .an-grundplan .gp-tag strong { font-size: 13px; }
 .an-grundplan .gp-tag:hover { background: var(--gp-tag-bg); }
 .an-grundplan .gp-tag-heading { display: flex; align-items: center; gap: 6px; }
@@ -145,7 +150,7 @@
 .an-grundplan .gp-primary:hover { background: #0e5148; color: #fff; }
 .an-grundplan .gp-delete { color: #994a42; }
 .an-grundplan .gp-status { padding: 9px 16px; min-height: 36px; background: #f7faf9; font-size: 12px; }
-.an-grundplan .gp-legend { padding: 8px 16px 0; color: var(--gp-muted); font-size: 11px; }
+.an-grundplan .gp-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 8px 16px 0; color: var(--gp-muted); font-size: 11px; }
 .an-grundplan .gp-help { padding: 6px 16px 12px; color: var(--gp-muted); font-size: 11px; }
 .an-grundplan.gp-readonly .gp-tag { cursor: pointer; }
 .an-grundplan.gp-readonly .gp-results { border-top: 0; padding-top: 0; }

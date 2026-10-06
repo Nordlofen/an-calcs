@@ -119,6 +119,9 @@ lastkombination finns även i resultat-HTML; PDF innehåller bara etiketterna.
 Vyn kommer ihåg vilka indata- och resultatavsnitt som är öppna för varje sula.
 När du minimerar eller byter etikett och sedan återvänder återställs samma
 utfällda och infällda avsnitt. Dessa visningsval gäller medan planvyn är öppen.
+Ett enkelt klick utanför dialogrutan minimerar den, i både Jupyter och
+resultat-HTML. Även ofärdiga inmatningar behålls. Klick i definitionsskissen
+och dragningar för panorering lämnar dialogen öppen.
 
 **Flytta:** dra etiketten till önskat läge och släpp. Ett kort klick öppnar
 indata; en dragning flyttar etiketten utan att ändra indata eller resultat.
