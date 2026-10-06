@@ -83,9 +83,11 @@ class TestLoadParser(unittest.TestCase):
                 read_loads(raw)
 
     def test_existing_labels_capacity_and_file_size_are_checked_before_import(self):
-        for args in ({"existing_labels": ["W1"]}, {"available": 1}):
+        for args in ({"available": 1}, {"existing_labels": ["W1"], "available": 0}):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 read_loads(encode(document()), **args)
+        self.assertEqual(len(read_loads(encode(document()), existing_labels=["W1"], available=1)), 2)
+        self.assertEqual(len(read_loads(encode(document()), existing_labels=["W1", "P1"], available=0)), 2)
         with self.assertRaises(ValueError):
             read_loads(b" " * (5 * 1024 * 1024 + 1))
 
@@ -101,6 +103,128 @@ class TestLoadPlacement(unittest.TestCase):
         self.file.write_bytes(encode(document()))
         self.plan = Grundplan(self.image)
         self.addCleanup(self.plan.close)
+
+    def place_both(self):
+        self.plan.importera_lasteffekt(self.file)
+        return self.plan.placera_lasteffekt(.2, .3), self.plan.placera_lasteffekt(.6, .7)
+
+    def test_updates_matches_preserving_inputs_placement_and_ids_and_queues_only_new_supports(self):
+        wall, pad = self.place_both()
+        self.plan.uppdatera(wall, indata={"b": .9, "glid_x": True, "glid_mu": .4, "isolerprodukt": "Kommentar"})
+        self.plan.uppdatera(pad, indata={"b": 1.8, "l": 2.1, "M_insp_l": 3})
+        self.plan.berakna(wall)
+        self.plan.berakna(pad)
+        other = self.plan.lagg_till(.1, .1, littera="Other")
+        before = {tag["id"]: copy.deepcopy(tag) for tag in self.plan._tags}
+        data = document()
+        data["supports"][0]["length"]["value"] = 7.5
+        for support in data["supports"]:
+            for result in support["results"]:
+                result["V"] += 10
+        new = copy.deepcopy(data["supports"][0]); new["supportId"] = "W2"
+        data["supports"].append(new)
+        report = self.plan._start_load_import(encode(data), "updated.json")
+        self.assertEqual(report, {"updated": 2, "new": 1, "updated_ids": [wall, pad]})
+        self.assertEqual(len(self.plan.taggar), 3)
+        self.assertEqual(self.plan.lasteffekt_import["total"], 1)
+        self.assertEqual(self.plan.lasteffekt_import["next"]["label"], "W2")
+        for ident in (wall, pad):
+            tag = self.plan._tag(ident)
+            for name in ("id", "label", "x", "y", "page"):
+                self.assertEqual(tag[name], before[ident][name])
+            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"glid_L"} if ident == wall else set())
+            for name, value in before[ident]["values"].items():
+                if name not in updated_fields:
+                    self.assertEqual(tag["values"][name], value)
+            self.assertEqual(tag["status"], "stale")
+            self.assertIsNone(tag["summary"])
+            self.assertNotIn(ident, self.plan.resultat)
+        self.assertEqual(self.plan._tag(wall)["values"]["F_vy"], 90)
+        self.assertEqual(self.plan._tag(wall)["values"]["F_vy_bruk"], 35)
+        self.assertEqual(self.plan._tag(wall)["values"]["V_Ed_EQU"], 40)
+        self.assertEqual(self.plan._tag(wall)["values"]["glid_L"], 7.5)
+        self.assertEqual(self.plan._tag(other), before[other])
+        new_id = self.plan.placera_lasteffekt(.8, .4)
+        self.assertEqual(self.plan._tag(new_id)["label"], "W2")
+        self.assertEqual(len(self.plan.taggar), 4)
+
+    def test_update_only_and_repeated_identical_import_preserve_current_calculation(self):
+        ids = self.place_both()
+        for ident in ids:
+            self.plan.berakna(ident)
+        before = self.plan.taggar, self.plan.resultat
+        for _ in range(2):
+            self.assertIsNone(self.plan.importera_lasteffekt(self.file))
+            self.assertIsNone(self.plan.lasteffekt_import)
+            self.assertEqual((self.plan.taggar, self.plan.resultat), before)
+
+    def test_equ_and_wall_length_update_sliding_without_invalidating_soil_result(self):
+        wall, _ = self.place_both()
+        self.plan.uppdatera(wall, indata={"glid_x": True, "glid_mu": .4})
+        self.plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 100}
+        self.plan.berakna(wall)
+        before = self.plan._tag(wall)["summary"], self.plan.resultat
+        data = document(); data["supports"][0]["length"]["value"] = 10
+        data["supports"][0]["results"][2]["V"] = 50
+        self.plan._start_load_import(encode(data), "equ.json")
+        self.assertEqual((self.plan._tag(wall)["summary"], self.plan.resultat), before)
+        self.assertAlmostEqual(self.plan.glidningsresultat["x"]["H_Rd"], 200)
+
+    def test_ambiguous_labels_type_conflict_and_invalid_late_support_do_not_partially_update(self):
+        self.place_both()
+        data = document(); data["supports"][0]["results"][0]["V"] = 999
+        duplicate = self.plan.lagg_till(.9, .9, littera="P1", typ="pelarsula")
+        before = self.plan.taggar, self.plan.state
+        with self.assertRaisesRegex(ValueError, "matchar flera"):
+            self.plan._start_load_import(encode(data), "ambiguous.json")
+        self.assertEqual((self.plan.taggar, self.plan.state), before)
+        self.plan.ta_bort(duplicate)
+        wrong_type = copy.deepcopy(data)
+        wrong_type["supports"][1] = copy.deepcopy(wrong_type["supports"][0])
+        wrong_type["supports"][1]["supportId"] = "P1"
+        invalid = copy.deepcopy(data); invalid["supports"][1]["results"][0]["unit"] = "N"
+        before = self.plan.taggar, self.plan.state
+        for doc in (wrong_type, invalid):
+            with self.subTest(doc=doc), self.assertRaises(ValueError):
+                self.plan._start_load_import(encode(doc), "bad.json")
+            self.assertEqual((self.plan.taggar, self.plan.state), before)
+            self.assertIsNone(self.plan.lasteffekt_import)
+
+    def test_capacity_counts_only_new_objects_and_rejects_overflow_before_updates(self):
+        self.place_both()
+        with patch("an_calcs.notebook.grundplan._MAX_TAGS", 2):
+            self.assertIsNone(self.plan.importera_lasteffekt(self.file))
+            data = document(); data["supports"][0]["results"][0]["V"] = 999
+            new = copy.deepcopy(data["supports"][1]); new["supportId"] = "P2"
+            data["supports"].append(new)
+            before = self.plan.taggar
+            with self.assertRaisesRegex(ValueError, "1 nya stöd"):
+                self.plan._start_load_import(encode(data), "overflow.json")
+            self.assertEqual(self.plan.taggar, before)
+
+    def test_delete_all_removes_all_pages_results_and_queue_but_keeps_project_and_drawing(self):
+        ident = self.plan.lagg_till(.1, .1, littera="Existing")
+        self.plan.berakna(ident)
+        self.plan.background = {**self.plan.background, "page_count": 2}
+        self.plan.lagg_till(.2, .2, littera="Second", sida=2)
+        self.plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 150,
+                              "placements": {"1": {"symbol": {"x": .1, "y": .5, "size": 160}}}}
+        self.plan._set_heading("Projekt", "Underrubrik")
+        queue = self.plan.importera_lasteffekt(self.file)
+        before = self.plan.background, self.plan._source, self.plan.glidning, self.plan.state["title"], self.plan.state["subtitle"]
+        with patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "delete_all", "request": 3, "view": "test"}, [])
+            self.assertEqual(send.call_args.args[0], {"request": 3, "view": "test", "ok": True, "deleted": 2})
+        self.assertEqual(self.plan.taggar, [])
+        self.assertEqual(self.plan.resultat, {})
+        self.assertIsNone(self.plan.lasteffekt_import)
+        self.assertEqual((self.plan.background, self.plan._source, self.plan.glidning, self.plan.state["title"], self.plan.state["subtitle"]), before)
+        self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 0)
+        with self.assertRaises(ValueError):
+            self.plan._place_load_import(.2, .3, token=queue["token"], index=0)
+        self.assertEqual(self.plan.ta_bort_samtliga(), 0)
+        self.plan.importera_lasteffekt(self.file)
+        self.assertEqual(self.plan.lasteffekt_import["total"], 2)
 
     def test_import_does_not_create_footings_then_clicks_create_independent_uncomputed_values(self):
         existing = self.plan.lagg_till(.1, .1, littera="Existing", indata={"F_vy": 100})

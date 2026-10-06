@@ -186,11 +186,12 @@ test("load import uploads JSON bytes without replacing existing footing drafts",
   await input.listeners.get("change")[0]();
   const request = ui.sent.at(-1);
   assert.equal(request.action, "import_loads");
+  assert.equal(ui.byClass("gp-dialog").hidden, true, "Older dialog loads cannot be submitted during import");
   assert.equal(ui.transfers.at(-1).buffers[0], buffer);
   importFixture(ui); ui.ack(request);
   ui.byText("Placera W1 – väggsula (1 av 2)");
   assert.equal(ui.data.state.tags.length, 1, "Import does not create unplaced objects");
-  assert.equal(ui.byText("Importera Lasteffekt").disabled, true);
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, true);
   ui.byText("Pausa placering").click();
   ui.data.state.load_import.paused = true; ui.changed(); ui.ack(ui.sent.at(-1));
   ui.marker().click();
@@ -213,7 +214,7 @@ test("placement advances once per acknowledged click, shows types and creates no
   assert.equal(ui.byClass("gp-dialog").hidden, true);
   ui.place(500, 400); imported.added(1, ui.sent.at(-1));
   assert.equal(ui.byClass("gp-import-bar").hidden, true);
-  assert.equal(ui.byText("Importera Lasteffekt").disabled, false);
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
   assert.equal(ui.byClass("gp-status").textContent, "Alla 2 importerade sulor är placerade. Anpassa övriga indata och beräkna.");
   const after = ui.sent.length; ui.place(); assert.equal(ui.sent.length, after, "Finished queue returns to panning");
 });
@@ -310,6 +311,116 @@ test("imported footing inputs remain editable including unused Bruk and EQU load
   assert.equal(ui.field("V_Ed_EQU").value, "70");
   assert.equal(ui.field("F_vy_bruk").value, "60");
   assert.equal(wall.values.glid_x, false); assert.equal(wall.values.isolering, false);
+});
+
+test("update-only import replaces old load drafts, preserves geometry drafts and remains repeatable", async t => {
+  const ui = setup(t);
+  ui.data.state.sliding = {enabled: true}; ui.changed(); ui.marker().click();
+  for (const [name, text] of [["F_vy", "99"], ["F_vy_bruk", "40"], ["V_Ed_EQU", "50"], ["glid_L", "3"], ["b", "0,8"]]) {
+    ui.field(name).value = text; ui.field(name).dispatch("input");
+    Object.assign(ui.tag.values, ui.sent.at(-1).values); ui.ack(ui.sent.at(-1));
+  }
+  const beforePosition = [ui.tag.id, ui.tag.x, ui.tag.y, ui.tag.page];
+  const input = ui.find(e => e.getAttribute("aria-label") === "Lasteffektfil");
+  const buffer = new TextEncoder().encode('{"schemaVersion":1}').buffer;
+  input.files = [{name: "updated.json", size: buffer.byteLength, arrayBuffer: async () => buffer}];
+  await input.listeners.get("change")[0]();
+  const request = ui.sent.at(-1);
+  Object.assign(ui.tag.values, {F_vy: 160, F_vy_bruk: 0, V_Ed_EQU: 70, glid_L: 7.5});
+  ui.tag.status = "stale"; ui.tag.summary = null; ui.changed();
+  ui.ack(request, {report: {updated: 1, new: 0, updated_ids: [ui.tag.id]}});
+  assert.equal(ui.byClass("gp-import-bar").hidden, true);
+  assert.equal(ui.byClass("gp-status").textContent, "1 befintliga sulor uppdaterade. Inga nya sulor att placera.");
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
+  ui.marker().click();
+  for (const [name, text] of [["F_vy", "160"], ["F_vy_bruk", "0"], ["V_Ed_EQU", "70"], ["glid_L", "7,5"], ["b", "0,8"]]) {
+    assert.equal(ui.field(name).value, text, name + " reflects the import and preserves unrelated drafts");
+    assert.equal(ui.field(name).disabled, false);
+  }
+  assert.deepEqual([ui.tag.id, ui.tag.x, ui.tag.y, ui.tag.page], beforePosition);
+  ui.field("F_vy").value = "170"; ui.field("F_vy").dispatch("input");
+  assert.equal(ui.sent.at(-1).values.F_vy, 170, "Imported loads remain editable");
+  const count = ui.sent.length; ui.place(700, 500);
+  assert.equal(ui.sent.length, count, "An update-only import returns to panning");
+});
+
+test("mixed import reports updated footings and places only its new queue", async t => {
+  const ui = setup(t), input = ui.find(e => e.getAttribute("aria-label") === "Lasteffektfil");
+  const buffer = new TextEncoder().encode('{}').buffer;
+  input.files = [{name: "mixed.json", size: buffer.byteLength, arrayBuffer: async () => buffer}];
+  await input.listeners.get("change")[0]();
+  const request = ui.sent.at(-1), imported = importFixture(ui);
+  ui.tag.values.F_vy = 250; ui.changed();
+  ui.ack(request, {report: {updated: 1, new: 2, updated_ids: [ui.tag.id]}});
+  assert.equal(ui.byClass("gp-status").textContent, "1 befintliga sulor uppdaterade. 2 nya sulor att placera. Placera W1 – väggsula (1 av 2)");
+  assert.equal(ui.data.state.tags.length, 1);
+  ui.place(); imported.added(0, ui.sent.at(-1));
+  assert.equal(ui.data.state.tags.length, 2);
+  assert.equal(ui.tag.values.F_vy, 250);
+  ui.byText("Placera P1 – pelarsula (2 av 2)");
+});
+
+test("failed import preserves existing drafts and allows retry", async t => {
+  const ui = setup(t); ui.marker().click();
+  ui.field("F_vy").value = "99"; ui.field("F_vy").dispatch("input");
+  const input = ui.find(e => e.getAttribute("aria-label") === "Lasteffektfil");
+  input.files = [{name: "bad.json", size: 2, arrayBuffer: async () => new ArrayBuffer(2)}];
+  await input.listeners.get("change")[0]();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Littera matchar flera sulor"});
+  assert.equal(ui.field("F_vy").value, "99");
+  assert.equal(ui.byClass("gp-status").textContent, "Littera matchar flera sulor");
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
+});
+
+test("delete all requires confirmation and cancellation keeps selection and inputs", t => {
+  const ui = setup(t); ui.start(ui.marker(), 300, 300, {shiftKey: true}); ui.finish(300, 300);
+  const before = structuredClone(ui.data.state), count = ui.sent.length;
+  let prompt;
+  window.confirm = text => {prompt = text; return false;};
+  ui.byText("Radera samtliga sulor").click();
+  assert.match(prompt, /samtliga 1 sulor på alla ritningssidor/);
+  assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, count);
+  assert.deepEqual(selectedIds(ui), ["tag1"]);
+});
+
+test("delete all clears footings, drafts and placement and blocks repeat requests while pending", t => {
+  const ui = setup(t); ui.marker().click(); ui.field("b").value = "0,9"; ui.field("b").dispatch("input");
+  importFixture(ui);
+  let prompt;
+  window.confirm = text => {prompt = text; return true;};
+  ui.byText("Radera samtliga sulor").click();
+  const request = ui.sent.at(-1), count = ui.sent.length;
+  assert.equal(request.action, "delete_all"); assert.match(prompt, /återstående placeringar avbryts/);
+  assert.equal(ui.byText("Radera samtliga sulor").disabled, true);
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, true);
+  ui.byText("Radera samtliga sulor").click(); ui.place();
+  assert.equal(ui.sent.length, count);
+  const bg = structuredClone(ui.data.background);
+  ui.data.state.tags = []; ui.data.state.load_import = null; ui.changed(); ui.ack(request, {deleted: 1});
+  assert.deepEqual(ui.data.background, bg); assert.deepEqual(selectedIds(ui), []);
+  assert.equal(ui.byClass("gp-dialog").hidden, true); assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  assert.equal(ui.byClass("gp-import-bar").hidden, true);
+  assert.equal(ui.byText("Radera samtliga sulor").disabled, true);
+  assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
+  assert.equal(ui.byClass("gp-status").textContent, "Samtliga 1 sulor har raderats.");
+  const n = ui.sent.length; ui.place(); assert.equal(ui.sent.length, n, "No old import/copy gesture survives deletion");
+  ui.data.state.tags = [ui.tag]; ui.changed(); ui.marker().click();
+  assert.equal(ui.field("b").value, "1", "Deleted drafts cannot leak into another footing");
+});
+
+test("delete-all failure leaves the drawing and footing editable", t => {
+  const ui = setup(t), before = structuredClone(ui.data.state);
+  ui.byText("Radera samtliga sulor").click();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Kunde inte radera"});
+  assert.deepEqual(ui.data.state, before);
+  assert.equal(ui.byText("Radera samtliga sulor").disabled, false);
+  assert.equal(ui.byClass("gp-status").textContent, "Kunde inte radera");
+  ui.marker().click(); assert.equal(ui.byClass("gp-dialog").hidden, false);
+});
+
+test("result HTML exposes neither load import nor delete-all controls", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  assert.ok(!ui.elements().some(e => ["Radera samtliga sulor", "Importera/Uppdatera lasteffekt"].includes(e.textContent)));
 });
 
 function slidingFixture(ui, enabled = true) {

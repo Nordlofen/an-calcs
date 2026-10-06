@@ -111,7 +111,7 @@ function render({ model, el, readOnly = false }) {
   let sketchInline = false, sketchType = null;
   const selected = new Set(), bulkInputs = new Map();
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
-  let importBusy = false, lastImportToken = null;
+  let importBusy = false, deleteBusy = false, lastImportToken = null;
   const state = () => model.get("state") || { tags: [] };
   const loadImport = () => state().load_import;
   const background = () => model.get("background") || {};
@@ -189,8 +189,30 @@ function render({ model, el, readOnly = false }) {
       projectInput.click();
     }
   });
-  const loadEffects = button("Importera Lasteffekt", () => loadsInput.click());
-  loadEffects.title = "Läs stödens vertikallaster och placera sulorna med ett klick per stöd.";
+  const loadEffects = button("Importera/Uppdatera lasteffekt", () => loadsInput.click());
+  loadEffects.title = "Uppdatera laster och vägglängd för matchande littera. Placera nya sulor med ett klick per stöd.";
+  const deleteAll = button("Radera samtliga sulor", () => {
+    if (deleteBusy || importBusy || bulkBusy || (!state().tags.length && !loadImport())) return;
+    const count = state().tags.length;
+    if (!window.confirm("Radera samtliga " + count + " sulor på alla ritningssidor?"
+      + (loadImport() ? " Även återstående placeringar avbryts." : ""))) return;
+    deleteBusy = true;
+    cancelDrag(); closeDialog(); closeBulk();
+    update();
+    command("delete_all", {}, [], reply => {
+      deleteBusy = false;
+      if (reply.ok) {
+        selected.clear(); bulkIds = []; bulkSignature = ""; formId = null;
+        dirty.clear(); drafts.clear(); edits.clear(); slidingDirty.clear();
+        positions.clear(); pendingPositions.clear(); sectionStates.clear(); sketchStates.clear(); areaPhases.clear();
+        inputSections.length = resultSections.length = 0;
+        setMode("pan");
+      }
+      update();
+      showMessage(reply.ok ? "Samtliga " + (reply.deleted ?? count) + " sulor har raderats." : reply.error, !reply.ok);
+    });
+  }, "gp-delete");
+  deleteAll.title = "Radera sulorna på alla sidor. Ritning och projektinställningar behålls.";
   const importBar = node("section", "gp-import-bar");
   importBar.hidden = true;
   importBar.setAttribute("aria-label", "Placera importerade sulor");
@@ -404,7 +426,7 @@ function render({ model, el, readOnly = false }) {
     });
     exports.push(entry);
   }
-  if (!readOnly) toolbar.append(loadDrawing, loadProject, loadEffects, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
+  if (!readOnly) toolbar.append(loadDrawing, loadProject, loadEffects, deleteAll, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
   const modes = new Map();
   for (const [key, label] of [["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(mode === key ? "pan" : key));
@@ -697,13 +719,21 @@ function render({ model, el, readOnly = false }) {
   async function upload(input, action) {
     const file = input.files[0];
     if (!file) return;
+    if (deleteBusy || (action === "import_loads" && (importBusy || bulkBusy || loadImport()))) {
+      input.value = "";
+      return;
+    }
     if (file.size > (action === "drawing" ? 40 : action === "import_loads" ? 5 : 60) * 1024 * 1024) {
       showMessage("Filen är för stor.", true);
       input.value = "";
       return;
     }
     showMessage("Öppnar " + file.name + "…");
-    if (action === "import_loads") { importBusy = true; showLoadImport(); }
+    if (action === "import_loads") {
+      importBusy = true;
+      // Keep drafts, but prevent a dialog from submitting older loads during import.
+      cancelDrag(); closeDialog(); closeBulk(); showLoadImport();
+    }
     try {
       const buffer = await file.arrayBuffer();
       if (disposed) return;
@@ -711,11 +741,26 @@ function render({ model, el, readOnly = false }) {
         if (action === "import_loads") {
           importBusy = false;
           if (reply.ok) {
+            for (const id of reply.report?.updated_ids || []) {
+              const tag = state().tags.find(tag => tag.id === id), draft = drafts.get(id);
+              if (tag && draft) {
+                // Keep unfinished geometry text, but never let an old load draft mask imported values.
+                for (const name of ["F_vy", "F_vy_bruk", "V_Ed_EQU", ...(tag.values.lang === 1 ? ["glid_L"] : [])]) {
+                  draft.values[name] = String(tag.values[name]).replace(".", ",");
+                }
+              }
+              edits.set(id, (edits.get(id) || 0) + 1);
+              slidingDirty.delete(id);
+            }
+            formId = null;
             closeDialog(); closeBulk(); selected.clear(); bulkSignature = "";
-            setMode("import"); viewport.focus({preventScroll: true});
+            setMode(loadImport() ? "import" : "pan"); viewport.focus({preventScroll: true});
           }
           update();
           if (!reply.ok) showMessage(reply.error, true);
+          else if (reply.report) showMessage(reply.report.updated + " befintliga sulor uppdaterade. "
+            + (loadImport() ? reply.report.new + " nya sulor att placera. " + importCaption()
+              : "Inga nya sulor att placera."));
           return;
         }
         if (reply.ok) {
@@ -776,8 +821,9 @@ function render({ model, el, readOnly = false }) {
   function showLoadImport() {
     const queue = loadImport();
     importBar.hidden = readOnly || !queue;
-    loadEffects.disabled = !background().url || !!queue || importBusy || bulkBusy;
-    importPause.disabled = importCancel.disabled = importBusy;
+    loadEffects.disabled = !background().url || !!queue || importBusy || bulkBusy || deleteBusy;
+    deleteAll.disabled = (!state().tags.length && !queue) || importBusy || bulkBusy || deleteBusy;
+    importPause.disabled = importCancel.disabled = importBusy || deleteBusy;
     pageSelect.disabled = bulkBusy || importBusy;
     if (!queue) {
       lastImportToken = null;
@@ -968,7 +1014,7 @@ function render({ model, el, readOnly = false }) {
     renderMarkers();
   }
   function openDialog(tag) {
-    if (bulkBusy) return;
+    if (bulkBusy || deleteBusy) return;
     closeBulk();
     if (!readOnly) { selected.clear(); bulkSignature = ""; showSelection(); }
     active = tag.id;
@@ -1759,7 +1805,7 @@ function render({ model, el, readOnly = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (![0, 2].includes(event.button) || drag || !background().url) return;
+    if (![0, 2].includes(event.button) || drag || deleteBusy || !background().url) return;
     if (event.button === 2) {
       event.preventDefault();
       viewport.focus({preventScroll: true});

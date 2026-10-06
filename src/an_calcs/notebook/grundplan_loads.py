@@ -27,7 +27,7 @@ def _number(value, caption):
 
 
 def read_loads(data, *, existing_labels=(), available=1000):
-    """Return a validated placement queue. No support is created by parsing."""
+    """Validate all supports; existing labels are update targets, not new slots."""
     if not data or len(data) > MAX_BYTES:
         raise ValueError("Lasteffektfilen måste vara mellan 1 byte och 5 MB.")
     try:
@@ -40,9 +40,8 @@ def read_loads(data, *, existing_labels=(), available=1000):
     supports = document.get("supports")
     if not isinstance(supports, list) or not supports:
         raise ValueError("Lasteffektfilen måste innehålla en lista supports med minst ett stöd.")
-    if len(supports) > available:
-        raise ValueError(f"Projektet har plats för {available} fler sulor, men filen innehåller {len(supports)} stöd.")
-    labels, items = set(existing_labels), []
+    existing = set(existing_labels)
+    labels, items = set(), []
     for support in supports:
         if not isinstance(support, dict):
             raise ValueError("Varje stöd måste vara ett JSON-objekt.")
@@ -51,7 +50,7 @@ def read_loads(data, *, existing_labels=(), available=1000):
             raise ValueError("supportId måste innehålla 1–80 tecken.")
         label = label.strip()
         if label in labels:
-            raise ValueError(f"Littera {label} finns redan i projektet eller förekommer flera gånger i filen.")
+            raise ValueError(f"Littera {label} förekommer flera gånger i filen.")
         labels.add(label)
         kind = support.get("type")
         if kind not in ("line", "point"):
@@ -82,4 +81,7 @@ def read_loads(data, *, existing_labels=(), available=1000):
                 raise ValueError(f"{label}, {category}: lasten måste anges i {unit} för denna sultyp.")
             values[CATEGORIES[category]] = _number(result.get("V"), f"{label}, {category}: V")
         items.append({"label": label, "kind": "vaggsula" if kind == "line" else "pelarsula", "values": values})
+    new_count = len(labels - existing)
+    if new_count > available:
+        raise ValueError(f"Projektet har plats för {available} fler sulor, men filen innehåller {new_count} nya stöd.")
     return items

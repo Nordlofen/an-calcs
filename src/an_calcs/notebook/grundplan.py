@@ -469,11 +469,12 @@ class Grundplan(anywidget.AnyWidget):
                 "next": copy.deepcopy(queue["items"][queue["index"]])}
 
     def importera_lasteffekt(self, fil):
-        """Läs en JSON-fil och starta en kö för manuell placering i planvyn."""
+        """Uppdatera matchande littera och köa nya stöd för manuell placering."""
         path = Path(fil)
         if path.stat().st_size > _MAX_LOAD_BYTES:
             raise ValueError("Lasteffektfilen får vara högst 5 MB.")
-        return self._start_load_import(path.read_bytes(), path.name)
+        self._start_load_import(path.read_bytes(), path.name)
+        return self.lasteffekt_import
 
     def _start_load_import(self, data, filename):
         if not self.background:
@@ -482,10 +483,37 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Slutför eller avbryt den pågående lasteffektimporten först.")
         items = read_loads(data, existing_labels=(tag["label"] for tag in self._tags),
                            available=_MAX_TAGS - len(self._tags))
-        self._load_import = {"token": uuid.uuid4().hex, "filename": Path(filename).name,
-                             "items": items, "index": 0, "paused": False}
+        by_label = {}
+        for tag in self._tags:
+            by_label.setdefault(tag["label"], []).append(tag)
+        prepared, new_items = [], []
+        # Validate the entire update before changing any footing or starting placement.
+        for item in items:
+            matches = by_label.get(item["label"], [])
+            if not matches:
+                new_items.append(item)
+                continue
+            if len(matches) != 1:
+                raise ValueError(f"Littera {item['label']} matchar flera sulor. Ge dem unika littera före uppdatering.")
+            tag = matches[0]
+            kind = "vaggsula" if tag["values"]["lang"] == 1 else "pelarsula"
+            if kind != item["kind"]:
+                raise ValueError(f"{item['label']}: sultypen i filen skiljer sig från den befintliga sulan. Kontrollera littera och sultyp.")
+            values = _values({**tag["values"], **item["values"]}, draft=True)
+            prepared.append((tag, values))
+        queue = ({"token": uuid.uuid4().hex, "filename": Path(filename).name,
+                  "items": new_items, "index": 0, "paused": False} if new_items else None)
+        for tag, values in prepared:
+            changed = any(values[name] != value for name, value in tag["values"].items()
+                          if name != "isolerprodukt" and name not in SLIDING_NAMES)
+            tag["values"] = values
+            if changed:
+                tag.update(status="stale", summary=None, error="")
+                self._details.pop(tag["id"], None)
+        self._load_import = queue
         self._publish()
-        return self.lasteffekt_import
+        return {"updated": len(prepared), "new": len(new_items),
+                "updated_ids": [tag["id"] for tag, _ in prepared]}
 
     def _control_load_import(self, token, operation):
         if self._load_import is None or token != self._load_import["token"]:
@@ -605,6 +633,15 @@ class Grundplan(anywidget.AnyWidget):
         self._tags = [tag for tag in self._tags if tag["id"] != tagg]
         self._details.pop(tagg, None)
         self._publish()
+
+    def ta_bort_samtliga(self):
+        """Radera alla sulor på alla sidor och avbryt eventuell placeringskö."""
+        count = len(self._tags)
+        self._tags.clear()
+        self._details.clear()
+        self._load_import = None
+        self._publish()
+        return count
 
     @property
     def taggar(self):
@@ -881,7 +918,7 @@ class Grundplan(anywidget.AnyWidget):
                     sida=content.get("page"), indata=content.get("values"),
                 )
             elif action == "import_loads":
-                self._start_load_import(bytes(buffers[0]), content["name"])
+                reply["report"] = self._start_load_import(bytes(buffers[0]), content["name"])
             elif action == "place_import":
                 if not isinstance(content["token"], str) or type(content["index"]) is not int:
                     raise ValueError("Ogiltig placeringsbegäran.")
@@ -902,6 +939,8 @@ class Grundplan(anywidget.AnyWidget):
                     content["ids"], indata=content["values"], berakna=content.get("calculate", False))
             elif action == "delete":
                 self.ta_bort(content["id"])
+            elif action == "delete_all":
+                reply["deleted"] = self.ta_bort_samtliga()
             elif action == "page":
                 self.visa_sida(content["page"])
             elif action == "label_size":

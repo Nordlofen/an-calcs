@@ -95,15 +95,26 @@ till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 
 ## Importera lasteffekter
 
-Öppna först ritningen. Tryck **Importera Lasteffekt** och välj en JSON-fil
+Öppna först ritningen. Tryck **Importera/Uppdatera lasteffekt** och välj en JSON-fil
 med `schemaVersion: 1` och listan `supports`. Hela filen kontrolleras innan
-placeringen startar. Filen får vara högst 5 MB. Littera måste vara unika både
-i filen och jämfört med sulorna som redan finns i projektet.
+några sulor ändras eller placeringen startar. Filen får vara högst 5 MB.
+Littera (`supportId`) måste vara unika i filen. För befintliga sulor matchas
+support-ID mot littera på samtliga ritningssidor. Matchningen är skiftlägeskänslig.
+
+Matchade sulor får nya vertikallaster för Brott, Bruk och EQU samt ny längd L
+för väggsulor. Placering, littera, sultyp och övriga indata behålls. Ändrade
+bärighetslaster gör det gamla beräkningsresultatet inaktuellt; beräkna igen.
+En oförändrad import behåller aktuella resultat. Glidmotståndet uppdateras
+direkt från EQU-lasten och längden. Om ett littera matchar flera befintliga
+sulor, eller filens sultyp skiljer sig från den befintliga, avvisas hela importen.
+Sulor som saknas i filen behålls. Om filen bara innehåller befintliga littera
+är uppdateringen klar direkt, utan en ny placeringsomgång.
 
 Instruktionen visar exempelvis **Placera S.1 – väggsula (1 av 5)**, tillsammans
 med stödets laster och eventuell längd. Klicka på ritningen där etiketten ska
 placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordning.
-Ingen indatadialog öppnas mellan placeringarna. Befintliga sulor behålls.
+Ingen indatadialog öppnas mellan placeringarna. Endast nya littera behöver
+placeras; befintliga sulor behåller sin position.
 Dra på ritningen med vänster eller höger musknapp för att panorera under
 placeringen; ett kort vänsterklick placerar nästa sula. Panorering förbrukar
 inga stöd i kön och fungerar även medan en placering väntar på svar från
@@ -126,7 +137,7 @@ multipliceras inte med längden och inga enheter omvandlas. Längden ändrar
 inte bärighetskontrollens enmetersremsa. Metadata som `model` och `source`
 används inte som sökvägar eller beräkningsindata.
 
-Sulorna får övriga startvärden från Grundplan och är **ej beräknade**.
+Nya sulor får övriga startvärden från Grundplan och är **ej beräknade**.
 Kontrollera geometri, jord, isolering och glidningsinställningar efter
 placeringen, gärna med **Markera flera**. Bidragsriktningarna för glidning är
 inte förvalda. EQU-lasten ska redan innehålla sulans egentyngd; vid beräkning
@@ -141,6 +152,13 @@ ritningen och befintliga sulor. Tryck **Fortsätt placera** för att fortsätta.
 Du kan byta PDF-sida under placeringen. **Avbryt import** avslutar kön och
 behåller redan placerade sulor. **Endast placerade sulor sparas i projektet**;
 återstående kö försvinner vid kernelomstart eller när ett annat projekt öppnas.
+Uppdaterade värden hos befintliga sulor behålls också när importkön avbryts.
+
+**Radera samtliga sulor** tar bort alla sulor och deras beräkningsresultat på
+samtliga ritningssidor efter en bekräftelse med antalet sulor. Eventuell
+placeringskö avbryts. Ritningen, rubriker och projektets globala inställningar
+behålls. Spara projektet för att skriva ändringen till JSON-filen. Från Python
+kan samma åtgärd göras med `plan.ta_bort_samtliga()`.
 
 Importen kan också startas från Python; placera sedan via planvyn:
 
