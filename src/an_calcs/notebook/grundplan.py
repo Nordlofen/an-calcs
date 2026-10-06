@@ -307,7 +307,7 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def etikettstorlek(self):
-        """Etiketternas skärmstorlek i procent (60–180), oberoende av zoom."""
+        """Etiketternas grundstorlek i procent (60–180), vid 100 % ritningszoom."""
         return self._label_size
 
     @etikettstorlek.setter

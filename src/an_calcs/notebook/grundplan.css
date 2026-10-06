@@ -44,7 +44,7 @@
 .an-grundplan .gp-picture { width: 100%; height: 100%; max-width: none; display: block; user-select: none; }
 .an-grundplan .gp-markers { position: absolute; inset: 0; pointer-events: none; }
 .an-grundplan .gp-tag {
-  /* Only the explicit label-size control scales tags; drawing zoom resizes the sheet. */
+  /* Combine the label-size setting with drawing zoom, anchored at the tag's position. */
   position: absolute; pointer-events: auto; transform: translate(-10px, -10px) scale(var(--gp-tag-scale, 1));
   transform-origin: 10px 10px; touch-action: none; user-select: none; cursor: grab;
   text-align: left; display: grid; gap: 2px; white-space: nowrap; padding: 7px 11px 7px 19px;

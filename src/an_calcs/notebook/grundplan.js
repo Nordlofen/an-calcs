@@ -79,6 +79,7 @@ function render({ model, el }) {
   });
   cancelCopy.hidden = true;
   const sizeLabel = node("label", "gp-size-label", "Etikettstorlek ");
+  sizeLabel.title = "Grundstorlek vid 100 % ritningszoom. Etiketterna följer ritningens zoom.";
   const sizeInput = node("input");
   sizeInput.type = "range";
   sizeInput.min = "60";
@@ -184,7 +185,7 @@ function render({ model, el }) {
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend", "○ Ej beräknad   ● U ≤ 100 %   ● U > 100 %   ◌ Ändrad");
   const help = node("p", "gp-help",
-    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Dra i ritningen för att panorera. Etikettstorleken är oberoende av ritningens zoom.");
+    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar, board, status, legend, help, fileInput, projectInput);
   el.append(root);
 
@@ -241,7 +242,7 @@ function render({ model, el }) {
   function showLabelSize(value) {
     sizeInput.value = value;
     sizeText.textContent = value + "%";
-    root.style.setProperty("--gp-tag-scale", String(value / 100));
+    root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
   }
   function setZoom(value) {
     const bg = background();
@@ -253,6 +254,7 @@ function render({ model, el }) {
     panY = cy + (panY - cy) * zoom / previous;
     sheet.style.width = bg.width * zoom + "px";
     sheet.style.height = bg.height * zoom + "px";
+    showLabelSize(sizeDraft ?? state().label_size ?? 100);
     placeSheet();
     zoomText.textContent = Math.round(zoom * 100) + "%";
   }

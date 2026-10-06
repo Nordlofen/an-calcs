@@ -53,9 +53,10 @@ där den nya sulan ska placeras. Alla indata följer med, även ändringar som
 Anpassa last och geometri och tryck **Beräkna**; originalet påverkas inte.
 **Avbryt kopiering** eller Escape avslutar kopieringen utan att skapa en sula.
 
-**Storlek:** reglaget **Etikettstorlek** ändrar samtliga etiketter mellan
-60 och 180 %. Storleken är fast på skärmen när ritningen zoomas in eller ut,
-och inställningen sparas i projektet. Dra ritningen för att panorera fritt,
+**Storlek:** reglaget **Etikettstorlek** ändrar etiketternas grundstorlek mellan
+60 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
+tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
+Dra ritningen för att panorera fritt,
 även när hela ritningen redan ryms i vyn. Knapparna + och − styr zoom;
 **Anpassa** återställer zoom och centrering så att hela ritningen syns.
 Taggarna behåller sina relativa lägen
@@ -129,7 +130,7 @@ details = plan.berakna(tagg_id)
 plan.uppdatera(tagg_id, x=0.45, y=0.3)  # Flytta utan att ändra resultat.
 kopia_id = plan.kopiera(tagg_id, 0.6, 0.4, indata={"F_vy": 150.0})
 plan.berakna(kopia_id)
-plan.etikettstorlek = 120  # Procent av normal skärmstorlek.
+plan.etikettstorlek = 120  # Grundstorlek i procent, vid 100 % ritningszoom.
 
 from an_print import CalcBlock
 CalcBlock(details).SR(visa=True, etikett=True)

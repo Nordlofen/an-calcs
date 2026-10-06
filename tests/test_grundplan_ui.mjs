@@ -201,7 +201,7 @@ test("copy places one independent snapshot with unsynchronized inputs; Escape ca
   assert.equal(ui.byText("Avbryt kopiering").hidden, true);
 });
 
-test("label-size control remains independent of drawing zoom and persists its final value", t => {
+test("labels follow drawing zoom while the size control persists their base size", t => {
   const ui = setup(t);
   const slider = ui.find(element => element.type === "range");
   const root = ui.byClass("an-grundplan");
@@ -211,16 +211,22 @@ test("label-size control remains independent of drawing zoom and persists its fi
   assert.equal(root.style["--gp-tag-scale"], "1.4");
   assert.equal(sheet.style.width, initialWidth);
   ui.byText("+").dispatch("click");
-  assert.notEqual(sheet.style.width, initialWidth);
-  assert.equal(root.style["--gp-tag-scale"], "1.4");
+  near(parseFloat(sheet.style.width) / parseFloat(initialWidth), 1.25);
+  assert.equal(root.style["--gp-tag-scale"], "1.75");
+  assert.equal(slider.value, "140", "Zoom changes rendered size, not the saved base size");
+  assert.equal(ui.sent.length, 0, "Zoom does not overwrite the project setting");
   slider.dispatch("change");
   const first = ui.sent.at(-1);
   assert.equal(first.action, "label_size"); assert.equal(first.value, 140);
   slider.value = 160; slider.dispatch("input"); slider.dispatch("change");
   const second = ui.sent.at(-1);
   ui.data.state.label_size = 140; ui.changed(); ui.ack(first);
-  assert.equal(root.style["--gp-tag-scale"], "1.6", "Older acknowledgment preserves current slider setting");
+  assert.equal(root.style["--gp-tag-scale"], "2", "Older acknowledgment preserves the current size and zoom");
   ui.data.state.label_size = 160; ui.changed(); ui.ack(second);
+  ui.byText("−").dispatch("click");
+  assert.equal(root.style["--gp-tag-scale"], "1.6");
+  ui.byText("−").dispatch("click");
+  near(Number(root.style["--gp-tag-scale"]), 1.28);
   ui.byText("Anpassa").dispatch("click");
   assert.equal(root.style["--gp-tag-scale"], "1.6");
   assert.equal(slider.value, "160");

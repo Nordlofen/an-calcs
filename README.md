@@ -138,8 +138,9 @@ att förstora. PDF-sidor väljs i verktygsraden och har separata markeringar.
 Dra en etikett för att flytta den. **Kopiera sula** i indatadialogen tar med
 alla indata till en ny sula som placeras med ett klick på ritningen. Kopian
 får eget littera och kan ändras oberoende av originalet. Reglaget
-**Etikettstorlek** justerar etiketternas skärmstorlek, som förblir densamma
-när ritningen zoomas. Positioner och etikettstorlek sparas i projektet.
+**Etikettstorlek** justerar etiketternas grundstorlek. Etiketterna förstoras
+och förminskas tillsammans med ritningen när du zoomar. Positioner och
+grundstorlek sparas i projektet.
 
 **Spara projekt** laddar ned en JSON-fil med originalritningen och taggarna.
 **Öppna projekt** återställer den. Spara projektet separat även om notebooken
