@@ -1051,14 +1051,105 @@ test("batch calculation reports failed footing labels and clears older individua
   assert.match(bulk.marker("tag2").className, /gp-tag-error/);
 });
 
-test("standalone HTML exposes no multi-edit controls and modifier clicks remain read-only", t => {
+test("standalone HTML allows local selection without exposing editing controls", t => {
   const ui = setup(t, {readOnly: true, standalone: true});
-  assert.ok(!ui.elements().some(e => e.textContent === "Markera flera"));
-  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  const original = structuredClone(ui.snapshot), replies = [];
+  ui.model.on("msg:custom", reply => replies.push(reply));
+  assert.ok(!ui.elements().some(e => ["Markera flera", "Ändra markerade", "Tillämpa"].includes(e.textContent)));
   ui.marker().dispatch("click", {shiftKey: true});
-  assert.equal(ui.byClass("gp-dialog").hidden, false);
-  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
-  assert.ok(!ui.elements().some(e => e.className === "gp-selection-bar"));
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  assert.deepEqual(selectedIds(ui), ["tag1"]);
+  assert.equal(ui.marker().getAttribute("aria-pressed"), "true");
+  assert.equal(ui.byClass("gp-selection-bar").hidden, false);
+  assert.equal(ui.find(e => e.tag === "tr" && e.dataset.tagId === "tag1").className, "gp-table-row-selected");
+  ui.marker().click();
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "Ordinary click still opens the read-only details");
+  assert.deepEqual(selectedIds(ui), ["tag1"], "Opening details preserves the highlighted rows");
+  assert.ok(!ui.elements().some(e => e.className.includes("gp-bulk-dialog")));
+  ui.byText("Avmarkera").click();
+  assert.deepEqual(selectedIds(ui), []);
+  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+  assert.deepEqual(ui.snapshot, original);
+  assert.equal(replies.length, 0, "Selecting never sends a calculation or mutation command");
+});
+
+const resultTableValue = (ui, id, name) => ui.find(e => e.className === "gp-table-value" && e.dataset.tagId === id && e.dataset.field === name);
+
+test("standalone table includes all fields and formats read-only numbers, booleans, types and literal comments", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  Object.assign(ui.tag.values, {b: .95, l: 2.4, isolering: true, F_vy: -150.5, F_vy_bruk: 0,
+    isolerprodukt: '<img src=x onerror=alert(1)> EPS ÅÄÖ', glid_x: false});
+  const pad = {...structuredClone(ui.tag), id: "pad", label: "PS2", values: {...ui.tag.values, lang: 0, isolering: false},
+    status: "error", summary: null, error: "Ange giltig last"};
+  ui.data.state.tags.push(pad); ui.changed();
+  const original = structuredClone(ui.snapshot);
+  assert.equal(ui.byClass("gp-table-section").hidden, false);
+  ui.byText("Sulor – indata och resultat");
+  for (const tag of ui.data.state.tags) for (const name of ["label", ...names]) {
+    const value = resultTableValue(ui, tag.id, name);
+    assert.equal(value.tag, "span");
+    assert.ok(!value.listeners.has("input") && !value.listeners.has("change"));
+  }
+  assert.equal(resultTableValue(ui, "tag1", "b").textContent, "0,95");
+  assert.equal(resultTableValue(ui, "tag1", "l").textContent, "1");
+  assert.equal(resultTableValue(ui, "pad", "l").textContent, "2,4");
+  assert.equal(resultTableValue(ui, "tag1", "lang").textContent, "Väggsula");
+  assert.equal(resultTableValue(ui, "pad", "lang").textContent, "Pelarsula");
+  assert.equal(resultTableValue(ui, "tag1", "isolering").textContent, "Ja");
+  assert.equal(resultTableValue(ui, "pad", "isolering").textContent, "Nej");
+  assert.equal(resultTableValue(ui, "tag1", "F_vy").textContent, "-150,5");
+  assert.equal(resultTableValue(ui, "tag1", "F_vy_bruk").textContent, "0");
+  assert.equal(resultTableValue(ui, "tag1", "V_Ed_EQU").textContent, "—");
+  assert.equal(resultTableValue(ui, "pad", "glid_L").textContent, "—");
+  assert.equal(resultTableValue(ui, "tag1", "isolerprodukt").textContent, ui.tag.values.isolerprodukt);
+  assert.equal(resultTableValue(ui, "tag1", "isolerprodukt").children.length, 0, "Comment is text, never parsed as HTML");
+  const row = ui.find(e => e.tag === "tr" && e.dataset.tagId === "pad");
+  assert.equal(row.children[2].textContent, "Fel i indata"); assert.equal(row.children[2].title, pad.error);
+  const tableElements = ui.elements().filter(e => e.closest("table"));
+  assert.ok(tableElements.every(e => !["select", "textarea"].includes(e.tag) && (e.tag !== "input" || e.type === "checkbox")));
+  assert.equal(tableElements.filter(e => e.tag === "input").length, 3, "Only row-selection checkboxes are present");
+  assert.deepEqual(ui.snapshot, original);
+});
+
+test("standalone marquee and pointer Shift clicks toggle multiple table highlights without changing data or positions", t => {
+  const ui = setup(t, {readOnly: true, standalone: true}), bulk = bulkFixture(ui);
+  const original = structuredClone(ui.snapshot), before = ui.byClass("gp-picture").getBoundingClientRect(), replies = [];
+  ui.model.on("msg:custom", reply => replies.push(reply));
+  marquee(ui, [200, 200], [700, 500]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  assert.deepEqual(ui.byClass("gp-picture").getBoundingClientRect(), before);
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  for (const id of selectedIds(ui)) {
+    const row = ui.find(e => e.tag === "tr" && e.dataset.tagId === id);
+    assert.equal(row.children[0].children[0].checked, true);
+    assert.ok(row.className.includes("gp-table-row-selected"));
+  }
+  ui.start(bulk.marker("tag2"), 300, 300, {shiftKey: true}); ui.finish(300, 300);
+  assert.deepEqual(selectedIds(ui), ["tag1"]);
+  marquee(ui, [200, 200], [700, 500]);
+  assert.deepEqual(selectedIds(ui), ["tag2"], "A second rectangle toggles overlap using the existing convention");
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.deepEqual(selectedIds(ui), []);
+  assert.equal(ui.byClass("gp-table-selection-info").hidden, true);
+  assert.deepEqual(ui.snapshot, original);
+  assert.equal(replies.length, 0);
+});
+
+test("standalone sorted checkbox ranges synchronize with labels and never edit objects", t => {
+  const ui = setup(t, {readOnly: true, standalone: true}); bulkFixture(ui);
+  ui.tag.label = "S.10"; ui.data.state.tags[1].label = "S.2";
+  ui.data.state.tags.push({...structuredClone(ui.tag), id: "tag3", label: "S.1", summary: {...ui.tag.summary, utnyttjandegrad: 1.2}});
+  ui.changed(); const original = structuredClone(ui.snapshot);
+  tableSortButton(ui, "label").click(); assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1"]);
+  selectTableRow(ui, "S.1"); selectTableRow(ui, "S.10", true, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3"]);
+  selectTableRow(ui, "S.2", false, {shiftKey: true}); assert.deepEqual(selectedIds(ui), ["tag1"]);
+  tableSortButton(ui, "status").click(); assert.equal(tableOrder(ui)[0], "tag3");
+  assert.deepEqual(selectedIds(ui), ["tag1"]);
+  const all = ui.find(e => e.getAttribute("aria-label") === "Markera samtliga tabellrader");
+  all.checked = true; all.dispatch("change"); assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3"]);
+  all.checked = false; all.dispatch("change"); assert.deepEqual(selectedIds(ui), []);
+  assert.deepEqual(ui.snapshot, original);
 });
 
 test("sliding toggle and directional demands preserve settings while hidden", t => {
@@ -1581,7 +1672,7 @@ test("standalone result labels open read-only values and remember expanded secti
   assert.deepEqual(ui.tag.summary, original.state.tags[0].summary);
 });
 
-test("standalone shows only the chosen page, supports label size locally and rejects page and calculation commands", t => {
+test("standalone keeps the exported label size without a slider and rejects page and calculation commands", t => {
   const ui = setup(t, { readOnly: true, standalone: true, page: 2 });
   const original = structuredClone(ui.snapshot);
   const replies = [];
@@ -1590,9 +1681,8 @@ test("standalone shows only the chosen page, supports label size locally and rej
   assert.equal(ui.model.get("background").page, 2);
   assert.equal(ui.byClass("gp-markers").children.length, 1);
   ui.marker().click();
-  const size = ui.byClass("gp-size-label").children[0];
-  size.value = 180; size.dispatch("input"); size.dispatch("change");
-  assert.equal(ui.model.get("state").label_size, 180);
+  assert.equal(ui.elements().some(e => e.className.includes("gp-size-label") || e.tag === "input" && e.type === "range"), false);
+  assert.equal(ui.model.get("state").label_size, original.state.label_size);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
   for (const action of ["calculate", "update", "delete", "copy", "add", "save", "export_pdf", "sliding", "sliding_placement"]) {
     ui.model.send({ action, id: ui.tag.id, values: { b: 55 }, view: "test", request: 1 });

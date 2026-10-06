@@ -29,11 +29,11 @@ def render_html(snapshot):
 {css}
 html, body {{ margin: 0; height: 100%; background: #eaf0f0; }}
 body {{ padding: 12px; box-sizing: border-box; }}
-#grundplan {{ height: 100%; }}
-.an-grundplan.gp-readonly {{ height: 100%; display: flex; flex-direction: column; }}
+#grundplan {{ min-height: 100%; }}
+.an-grundplan.gp-readonly {{ min-height: 100%; display: flex; flex-direction: column; }}
 .gp-readonly .gp-heading, .gp-readonly .gp-toolbar, .gp-readonly .gp-status,
 .gp-readonly .gp-legend {{ flex-shrink: 0; }}
-.gp-readonly .gp-board {{ flex: 1; min-height: 260px; height: auto; }}
+.gp-readonly .gp-board {{ flex: none; height: clamp(360px, 65vh, 860px); }}
 .gp-readonly .gp-legend {{ padding-bottom: 10px; }}
 @media (max-width: 650px) {{
   body {{ padding: 0; }}

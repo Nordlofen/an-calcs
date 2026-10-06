@@ -240,7 +240,9 @@ plan.exportera_pdf("grundplan_med_etiketter.pdf")
 
 **Exportera HTML** ger en fristående resultatvy med zoom, panorering och
 klickbara etiketter. Indata och resultat visas i utfällbara avsnitt;
-beräkningsvärdena kan inte ändras. Den valda ritningssidan bäddas in, så filen
+tabellen följer också med som en låst och sorterbar vy. Markera flera etiketter
+med Shift + klick/drag för att framhäva deras tabellrader. Beräkningsvärdena
+kan inte ändras. Den valda ritningssidan bäddas in, så filen
 kan öppnas utan internet eller Jupyter:
 
 ```python

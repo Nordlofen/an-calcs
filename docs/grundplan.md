@@ -612,8 +612,18 @@ Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera
 stänger dialogen, och samma avsnitt är utfällda när etiketten öppnas igen.
 Dra i ritningen med vänster eller höger musknapp för att panorera,
 använd **Shift + scroll** eller +/− för zoom och **Anpassa** för
-att återställa vyn. Reglaget **Etikettstorlek** fungerar även i HTML-filen.
+att återställa vyn. Etiketterna använder storleken från exporten och följer
+ritningens zoom; HTML-filen har inget reglage för etikettstorlek.
 Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
+
+Tabellen **Sulor – indata och resultat** följer med under ritningen. Alla
+indata och statusvärden visas som låst text. Shift + klick på etiketter eller
+Shift + vänsterdrag framhäver motsvarande tabellrader. Ett nytt Shift + klick
+växlar markeringen; ett nytt urvalsdrag växlar etiketter inom rutan.
+Tabellens kryssrutor, inklusive Shift + klick för radintervall, markerar även
+motsvarande etiketter. Klicka på **Littera** eller **Status / U** för att
+sortera. **Avmarkera** eller Escape rensar urvalet. Markering används endast
+för att framhäva sulor och påverkar inga beräkningsvärden.
 
 Beräkningsvärden och etikettpositioner är låsta i resultatvyn. Exporten
 använder de automatiskt uppdaterade resultaten; felaktiga eller ofullständiga

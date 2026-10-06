@@ -131,7 +131,7 @@ function render({ model, el, readOnly = false }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
-    if (readOnly && !["page", "label_size"].includes(action)) return;
+    if (readOnly && action !== "label_size") return;
     const request = ++sequence;
     pending.set(request, onDone);
     model.send({ action, ...payload, request, view }, undefined, buffers);
@@ -444,7 +444,9 @@ function render({ model, el, readOnly = false }) {
     if (bulkBusy) return;
     selected.clear(); tableAnchor = null; bulkSignature = ""; closeBulk(); renderMarkers(); showSelection();
   });
-  selectionBar.append(selectionCount, editMany, clearMany);
+  selectionBar.append(selectionCount);
+  if (!readOnly) selectionBar.append(editMany);
+  selectionBar.append(clearMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
     setSliding({enabled: !sliding().enabled});
@@ -509,7 +511,7 @@ function render({ model, el, readOnly = false }) {
     });
   });
   if (!readOnly) toolbar.append(cancelCopy);
-  toolbar.append(sizeLabel);
+  if (!readOnly) toolbar.append(sizeLabel);
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
@@ -668,7 +670,8 @@ function render({ model, el, readOnly = false }) {
   bulkForm.append(bulkNote, bulkFeedback, bulkFields, bulkFooter);
   bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(); });
   bulkDialog.append(bulkHeader, bulkForm);
-  board.append(viewport, empty, zoomBar, dialog, sketch, bulkDialog);
+  board.append(viewport, empty, zoomBar, dialog, sketch);
+  if (!readOnly) board.append(bulkDialog);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend");
@@ -686,13 +689,13 @@ function render({ model, el, readOnly = false }) {
   const tableHeader = node("header", "gp-table-heading");
   const tableCount = node("span", "gp-table-count");
   const tableSelectionInfo = node("span", "gp-table-selection-info");
-  tableHeader.append(node("h4", "", "Sulor – indata"), tableCount, tableSelectionInfo);
+  tableHeader.append(node("h4", "", readOnly ? "Sulor – indata och resultat" : "Sulor – indata"), tableCount, tableSelectionInfo);
   const tableFeedback = node("div", "gp-table-feedback");
   tableFeedback.setAttribute("role", "status");
   const tableScroll = node("div", "gp-table-scroll");
   tableScroll.tabIndex = 0;
   tableScroll.setAttribute("role", "region");
-  tableScroll.setAttribute("aria-label", "Redigerbar indatatabell för alla sulor");
+  tableScroll.setAttribute("aria-label", readOnly ? "Indata och resultat för alla sulor" : "Redigerbar indatatabell för alla sulor");
   const inputTable = node("table", "gp-input-table");
   const tableHead = node("thead"), tableBody = node("tbody");
   const tableSelectAll = node("input"); tableSelectAll.type = "checkbox";
@@ -710,15 +713,18 @@ function render({ model, el, readOnly = false }) {
   tableScroll.addEventListener("focusout", () => requestAnimationFrame(() => {if (!disposed) sortTableRows();}));
   inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
   tableSection.append(tableHeader,
-    node("p", "gp-field-note", "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
+    node("p", "gp-field-note", readOnly
+      ? "Värdena är låsta i denna resultatvy. Markera flera etiketter med Shift + klick eller Shift + vänsterdrag för att framhäva deras rader i tabellen. Kryssrutorna markerar även motsvarande etiketter. Klicka på Littera eller Status / U för att sortera. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."
+      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
-  root.append(heading, toolbar);
+  root.append(heading);
+  if (!readOnly) root.append(toolbar);
   if (!readOnly) root.append(importBar);
-  if (!readOnly) root.append(selectionBar);
+  root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput, loadsInput);
-  if (!readOnly) root.append(tableSection);
+  root.append(tableSection);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -820,7 +826,9 @@ function render({ model, el, readOnly = false }) {
     else if (value === "import") showMessage(importCaption());
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
-    else showMessage("Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
+    else showMessage(readOnly
+      ? "Shift + klick eller Shift + vänsterdrag framhäver valda sulor i tabellen. Escape avmarkerar. Dra för att panorera och använd Shift + scroll för att zooma."
+      : "Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
   }
   function importCaption() {
     const queue = loadImport();
@@ -1105,18 +1113,18 @@ function render({ model, el, readOnly = false }) {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
         if (!event.detail) {
-          if (!readOnly && (event.shiftKey || event.ctrlKey || event.metaKey)) toggleTag(tag);
+          if (event.shiftKey || event.ctrlKey || event.metaKey) toggleTag(tag);
           else openDialog(tag);
         }
       }, "gp-tag gp-tag-" + color);
       marker.dataset.tagId = tag.id;
-      marker.title = readOnly ? "Klicka för indata och resultat" : "Dra för att flytta · klicka för indata och kopiering";
+      marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen" : "Dra för att flytta · klicka för indata och kopiering";
       const position = positions.get(tag.id) || tag;
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
       marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
-      if (!readOnly) marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
+      marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
       const draft = drafts.get(tag.id);
       const values = draft?.values || tag.values;
       const insulated = values.isolering === true;
@@ -1250,8 +1258,18 @@ function render({ model, el, readOnly = false }) {
     }
     tableHead.append(groupRow, fieldRow);
   }
-  if (!readOnly) buildTableHeader();
+  buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
+  function tableDisplayValue(name, value, tag) {
+    if (name === "l" && tag.values.lang === 1) return "1";
+    if (name === "glid_L" && tag.values.lang === 0) return "—";
+    if (value == null || value === "") return "—";
+    const field = fieldSchema.get(name);
+    if (field?.type === "bool") return value ? "Ja" : "Nej";
+    if (name === "lang") return Number(value) === 1 ? "Väggsula" : "Pelarsula";
+    if (field?.type === "choice") return field.options?.find(option => String(option.value) === String(value))?.label ?? tableText(value);
+    return tableText(value);
+  }
   function tableTargets(id, name) {
     return state().tags.filter(tag => tag.id === id ||
       (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id)));
@@ -1329,12 +1347,18 @@ function render({ model, el, readOnly = false }) {
       showSelection(); renderMarkers();
     });
     const controls = new Map(), labelCell = node("td", "gp-table-label");
-    const label = node("input"); label.type = "text"; label.maxLength = 80; label.name = "table_label";
+    const label = node(readOnly ? "span" : "input", readOnly ? "gp-table-value" : "");
+    if (!readOnly) {label.type = "text"; label.maxLength = 80; label.name = "table_label";}
     labelCell.append(label); controls.set("label", label);
     const result = node("td", "gp-table-status");
     row.append(labelCell, result);
     for (const name of tableNames) {
       const field = fieldSchema.get(name), cell = node("td", tableFieldClass(field));
+      if (readOnly) {
+        const value = node("span", "gp-table-value");
+        cell.append(value); row.append(cell); controls.set(name, value);
+        continue;
+      }
       const control = node(field.type === "choice" ? "select" : "input");
       control.name = "table_" + name;
       if (field.type === "choice") {
@@ -1349,6 +1373,7 @@ function render({ model, el, readOnly = false }) {
     }
     for (const [name, control] of controls) {
       control.dataset.tagId = tag.id; control.dataset.field = name;
+      if (readOnly) continue;
       const field = fieldSchema.get(name);
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
       control.addEventListener("keydown", event => {
@@ -1362,13 +1387,12 @@ function render({ model, el, readOnly = false }) {
     return {row, controls, result, select};
   }
   function syncTableSelection() {
-    if (readOnly) return;
     const tags = state().tags, busy = bulkBusy || importBusy || deleteBusy;
     tableSelectAll.checked = !!tags.length && tags.every(tag => selected.has(tag.id));
     tableSelectAll.indeterminate = selected.size > 0 && !tableSelectAll.checked;
     tableSelectAll.disabled = !tags.length || busy;
     tableSelectionInfo.hidden = !selected.size;
-    tableSelectionInfo.textContent = selected.size + " markerade · ändra en cell för gemensamt värde";
+    tableSelectionInfo.textContent = selected.size + (readOnly ? " markerade" : " markerade · ändra en cell för gemensamt värde");
     const mixed = new Set(selectionTags().map(tag => tag.values.lang)).size > 1;
     for (const tag of tags) {
       const entry = tableRows.get(tag.id);
@@ -1377,6 +1401,7 @@ function render({ model, el, readOnly = false }) {
       entry.select.setAttribute("aria-label", "Markera " + tag.label + " i tabellen");
       entry.select.title = "Shift + klick markerar eller avmarkerar intervallet från föregående vanliga klick.";
       entry.row.classList.toggle("gp-table-row-selected", selected.has(tag.id));
+      if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
         control.disabled = busy || blocked || (name === "l" && tag.values.lang === 1) || (name === "glid_L" && tag.values.lang === 0);
@@ -1388,7 +1413,6 @@ function render({ model, el, readOnly = false }) {
     }
   }
   function showTable() {
-    if (readOnly) return;
     tableSection.hidden = !background().url;
     const tags = state().tags, ids = new Set(tags.map(tag => tag.id));
     if (!ids.has(tableAnchor)) tableAnchor = null;
@@ -1406,6 +1430,10 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of controls) {
         const field = fieldSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
+        if (readOnly) {
+          control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tag.values[name], tag);
+          continue;
+        }
         // Show the calculation's reference length, retaining l for a later switch to a pad footing.
         if (name === "l" && tag.values.lang === 1) {control.value = "1"; continue;}
         if (control === document.activeElement) continue;
@@ -1418,7 +1446,6 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   function sortTableRows(force = false) {
-    if (readOnly) return;
     for (const [key, head] of tableSortHeads) {
       const direction = tableSort.key === key ? tableSort.direction : "none";
       head.th.setAttribute("aria-sort", direction);
@@ -1426,7 +1453,7 @@ function render({ model, el, readOnly = false }) {
     }
     if (!tableSort.key) return;
     // Wait until editing ends before moving rows, so typing keeps its focus and caret.
-    if (!force && document.activeElement?.closest("tbody") === tableBody) return;
+    if (!readOnly && !force && document.activeElement?.closest("tbody") === tableBody) return;
     const label = tag => drafts.get(tag.id)?.label ?? tag.label;
     const statusKey = tag => {
       const utilization = !dirty.has(tag.id) && tag.summary?.utnyttjandegrad;
@@ -1448,7 +1475,7 @@ function render({ model, el, readOnly = false }) {
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
     if (drag?.box) return;
-    selectionBar.hidden = readOnly || !selected.size;
+    selectionBar.hidden = !selected.size;
     selectionCount.textContent = selected.size + " markerade";
     const titles = selectionTags().map(tag => tag.label).join(", ");
     selectionCount.title = titles;
@@ -1457,9 +1484,9 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   function toggleTag(tag) {
-    if (readOnly || bulkBusy) return;
+    if (bulkBusy) return;
     // Shift-click on an open single footing adds that footing to the selection.
-    if (active) selected.add(active);
+    if (!readOnly && active) selected.add(active);
     closeDialog(); closeBulk();
     if (selected.has(tag.id)) selected.delete(tag.id); else selected.add(tag.id);
     bulkSignature = "";
@@ -2061,9 +2088,9 @@ function render({ model, el, readOnly = false }) {
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
       moved: false, pointerId: event.pointerId, id: tag?.id, position,
       placementBlocked: importBusy,
-      box: !tag && !readOnly && (event.shiftKey || event.ctrlKey || event.metaKey),
+      box: !tag && (event.shiftKey || event.ctrlKey || event.metaKey),
       beforeSelection: new Set(selected),
-      select: !!tag && !readOnly && (event.shiftKey || event.ctrlKey || event.metaKey) };
+      select: !!tag && (event.shiftKey || event.ctrlKey || event.metaKey) };
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {
@@ -2279,7 +2306,7 @@ function render({ model, el, readOnly = false }) {
   model.on("msg:custom", receive);
   setMode("pan");
   showMessage(background().url
-    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra för att panorera och använd Shift + scroll för att zooma." : "Dra för att panorera och använd Shift + scroll för att zooma. Shift + vänsterdrag markerar för flerredigering; välj en sula och klicka för att placera.")
+    ? (readOnly ? "Klicka på en etikett för indata och resultat. Shift + klick eller Shift + vänsterdrag framhäver valda sulor i tabellen. Escape avmarkerar. Dra för att panorera och använd Shift + scroll för att zooma." : "Dra för att panorera och använd Shift + scroll för att zooma. Shift + vänsterdrag markerar för flerredigering; välj en sula och klicka för att placera.")
     : "Öppna en ritning eller ett sparat projekt.");
   update();
   return () => {
