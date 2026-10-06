@@ -41,7 +41,7 @@ class TestGrundplan(unittest.TestCase):
         ])
         self.assertEqual(details, expected)
         self.assertEqual(self.plan.taggar[0]["summary"]["lastenhet"], "kN/m")
-        self.assertEqual(self.plan.taggar[1]["status"], "new")
+        self.assertEqual(self.plan.taggar[1]["status"], "calculated")
         self.plan.berakna(second)
         summary = self.plan.taggar[1]["summary"]
         self.assertEqual(summary["lastenhet"], "kN")
@@ -49,8 +49,8 @@ class TestGrundplan(unittest.TestCase):
         self.plan.uppdatera(first, indata={"b": 1.1})
         self.assertEqual(self.plan.taggar[1]["values"]["b"], 2)
         self.assertIn(second, self.plan.resultat)
-        self.assertNotIn(first, self.plan.resultat)
-        self.assertIsNone(self.plan.taggar[0]["summary"])
+        self.assertIn(first, self.plan.resultat)
+        self.assertEqual(self.plan.taggar[0]["summary"]["b"], 1.1)
 
     def test_vaggsula_ar_en_meters_remsa_och_egentyngd_ingår(self):
         ident = self.add(indata={"F_vy": 100, "b": 0.8, "t": 0.4, "l": 25})
@@ -86,7 +86,7 @@ class TestGrundplan(unittest.TestCase):
         ident = self.insulated()
         self.plan.berakna(ident)
         self.plan.uppdatera(ident, indata={"isolering": False})
-        self.assertIsNone(self.plan._tag(ident)["summary"])
+        self.assertNotIn("isolering", self.plan._tag(ident)["summary"])
         details = self.plan.berakna(ident)
         tag = self.plan._tag(ident)
         expected = allmanna_barighetsekvationen([
@@ -144,7 +144,7 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(loaded._tag(ident)["values"]["isolerprodukt"], "")
         self.assertEqual(loaded._tag(ident)["summary"], summary)
 
-    def test_aldre_projekt_far_isolering_avstangd_och_kraver_omberakning(self):
+    def test_aldre_projekt_far_isolering_avstangd_och_beraknas_automatiskt(self):
         ident = self.add()
         details = self.plan.berakna(ident)
         document = self.plan._document()
@@ -162,9 +162,9 @@ class TestGrundplan(unittest.TestCase):
         self.assertIsNone(tag["values"]["F_vy_bruk"])
         self.assertIsNone(tag["values"]["f_d_brott"])
         self.assertIsNone(tag["values"]["f_d_bruk"])
-        self.assertEqual(tag["status"], "stale")
-        self.assertIsNone(tag["summary"])
-        self.assertEqual(self.plan.resultat, {})
+        self.assertEqual(tag["status"], "calculated")
+        self.assertIsNotNone(tag["summary"])
+        self.assertIn(ident, self.plan.resultat)
         self.plan.berakna(ident)
         self.assertEqual(self.plan.resultat[ident], details)
 
@@ -244,7 +244,7 @@ class TestGrundplan(unittest.TestCase):
             self.addCleanup(loaded.close)
             self.assertEqual(loaded._tag(ident)["summary"], self.plan._tag(ident)["summary"])
 
-    def test_version_2_tar_bort_havarmar_bevarar_moment_och_kraver_omberakning(self):
+    def test_version_2_tar_bort_havarmar_bevarar_moment_och_beraknas_automatiskt(self):
         ident = self.insulated()
         self.plan.uppdatera(ident, indata={"F_hb": 10, "M_insp_l": 5, "M_insp_l_bruk": -3})
         self.plan.berakna(ident)
@@ -254,9 +254,9 @@ class TestGrundplan(unittest.TestCase):
         document["tags"][0]["values"].update(l_h=2, l_h_bruk=3, F_hb_bruk=100, F_hl_bruk=200)
         self.plan._load_document(json.dumps(document).encode())
         self.assertEqual(self.plan._tag(ident)["values"], original_values)
-        self.assertEqual(self.plan._tag(ident)["status"], "stale")
-        self.assertIsNone(self.plan._tag(ident)["summary"])
-        self.assertEqual(self.plan.resultat, {})
+        self.assertEqual(self.plan._tag(ident)["status"], "calculated")
+        self.assertIsNotNone(self.plan._tag(ident)["summary"])
+        self.assertIn(ident, self.plan.resultat)
         self.plan.berakna(ident)
         copied = self.plan.kopiera(ident, .8, .8)
         self.assertEqual(self.plan._tag(copied)["values"], original_values)
@@ -356,10 +356,10 @@ class TestGrundplan(unittest.TestCase):
                 self.assertEqual(copied["values"], source["values"])
                 self.assertIsNot(copied["values"], source["values"])
                 self.assertEqual((copied["x"], copied["y"]), (0.8, 0.9))
-                self.assertEqual(copied["status"], "new")
-                self.assertIsNone(copied["summary"])
+                self.assertEqual(copied["status"], "calculated")
+                self.assertEqual(copied["summary"], source["summary"])
                 self.assertEqual(copied["error"], "")
-                self.assertNotIn(copied_id, self.plan.resultat)
+                self.assertEqual(self.plan.resultat[copied_id], details)
                 self.assertEqual(source, snapshot)
                 self.assertEqual(self.plan.resultat[ident], details)
                 self.plan.uppdatera(copied_id, indata={"F_vy": 400, "b": 2.1})
@@ -385,8 +385,8 @@ class TestGrundplan(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "phi_k"):
             self.plan.berakna(copied_id)
         from_error = self.plan.kopiera(copied_id, 0.7, 0.8)
-        self.assertEqual(self.plan._tag(from_error)["status"], "new")
-        self.assertEqual(self.plan._tag(from_error)["error"], "")
+        self.assertEqual(self.plan._tag(from_error)["status"], "error")
+        self.assertIn("phi_k", self.plan._tag(from_error)["error"])
         self.assertIsNone(self.plan._tag(from_error)["values"]["phi_k"])
 
     def test_ogiltig_kopia_andrar_inte_projektet(self):
@@ -415,14 +415,14 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(loaded.resultat, self.plan.resultat)
         self.assertEqual(loaded.background, self.plan.background)
 
-    def test_annan_berakningsversion_kraver_ny_berakning(self):
+    def test_annan_berakningsversion_beraknas_automatiskt(self):
         ident = self.add()
         self.plan.berakna(ident)
         document = self.plan._document()
         document["calculator_version"] = "old"
         self.plan._load_document(json.dumps(document).encode())
-        self.assertEqual(self.plan.taggar[0]["status"], "stale")
-        self.assertEqual(self.plan.resultat, {})
+        self.assertEqual(self.plan.taggar[0]["status"], "calculated")
+        self.assertIn(ident, self.plan.resultat)
 
     def test_trasigt_projekt_forstor_inte_oppet_projekt(self):
         ident = self.add()
@@ -437,7 +437,7 @@ class TestGrundplan(unittest.TestCase):
     def test_klientens_resultat_ignoreras(self):
         ident = self.add()
         self.plan.state = {"tags": [{"id": ident, "summary": {"utnyttjandegrad": 0}}]}
-        self.assertIsNone(self.plan.taggar[0]["summary"])
+        self.assertGreater(self.plan.taggar[0]["summary"]["utnyttjandegrad"], 0)
         self.plan.berakna(ident)
         self.assertGreater(self.plan.taggar[0]["summary"]["utnyttjandegrad"], 0)
         copied = self.plan.taggar
@@ -484,8 +484,8 @@ class TestGrundplan(unittest.TestCase):
         for ident in (same_page, other_page):
             for field in ("id", "label", "x", "y", "page", "values", "summary"):
                 self.assertEqual(loaded._tag(ident)[field], plan._tag(ident)[field])
-            self.assertNotIn(ident, loaded.resultat)
-            self.assertNotEqual(loaded._tag(ident)["status"], "calculated")
+            self.assertIn(ident, loaded.resultat)
+            self.assertEqual(loaded._tag(ident)["status"], "calculated")
 
     def test_ui_flytta_och_kopiera_med_osparade_indata(self):
         original = self.add()
@@ -510,7 +510,7 @@ class TestGrundplan(unittest.TestCase):
             self.assertTrue(reply["ok"])
             self.assertEqual((reply["view"], reply["request"]), ("test", 11))
             self.assertEqual(self.plan._tag(reply["id"])["values"], draft)
-            self.assertEqual(self.plan._tag(reply["id"])["status"], "new")
+            self.assertEqual(self.plan._tag(reply["id"])["status"], "calculated")
             self.assertEqual(self.plan.taggar[0], source)
             self.plan._on_message(None, {
                 "action": "copy", "id": original, "x": 0.1, "y": 0.2, "page": 2,
@@ -518,7 +518,8 @@ class TestGrundplan(unittest.TestCase):
             }, [])
             self.assertFalse(send.call_args.args[0]["ok"])
             self.assertEqual(len(self.plan.taggar), 2)
-            self.assertEqual(self.plan.resultat, results)
+            self.assertEqual(self.plan.resultat[original], results[original])
+            self.assertIn(reply["id"], self.plan.resultat)
 
     def test_etikettstorlek_sparas_utan_att_paverka_berakningar(self):
         self.assertEqual(self.plan.etikettstorlek, 100)

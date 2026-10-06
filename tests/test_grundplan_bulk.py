@@ -34,14 +34,14 @@ class TestGrundplanBulk(unittest.TestCase):
         with patch.object(self.plan, "_publish", wraps=self.plan._publish) as publish:
             report = self.plan.uppdatera_flera([self.wall1, self.wall2], indata={"b": 1.1})
         publish.assert_called_once()
-        self.assertEqual(report, {"updated": 2, "calculated": 0, "errors": []})
+        self.assertEqual(report, {"updated": 2, "calculated": 2, "errors": []})
         for ident in (self.wall1, self.wall2):
             tag = self.plan._tag(ident)
             self.assertEqual(tag["values"], {**old[ident]["values"], "b": 1.1})
             self.assertEqual(tag["label"], old[ident]["label"])
-            self.assertEqual(tag["status"], "stale")
-            self.assertIsNone(tag["summary"])
-            self.assertNotIn(ident, self.plan.resultat)
+            self.assertEqual(tag["status"], "calculated")
+            self.assertIsNotNone(tag["summary"])
+            self.assertIn(ident, self.plan.resultat)
         self.assertEqual(self.plan._tag(self.pad), pad)
         self.assertIn(self.pad, self.plan.resultat)
 

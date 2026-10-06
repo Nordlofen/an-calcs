@@ -68,7 +68,7 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    Ange brottlasterna under **Laster – Brott**. Om sulan har isolering,
    kryssa i **Underliggande isolering** under **Isolering**, ange `f_d.brott`
    och `f_d.bruk` i kPa samt långtidslasterna under **Laster – Bruk**.
-4. Tryck **Beräkna**. Dialogen visar utnyttjandegrad, dimensionerande last,
+4. Resultatet uppdateras automatiskt när indata ändras. Dialogen visar utnyttjandegrad, dimensionerande last,
    bärförmåga och effektiv area i en planskiss. Med isolering visas tre separata kontroller:
    jord i brott, isolering i brott och isolering i bruk.
 5. Tryck **Minimera**. Första raden visar littera, en symbol och texten
@@ -103,7 +103,7 @@ support-ID mot littera på samtliga ritningssidor. Matchningen är skiftlägesk�
 
 Matchade sulor får nya vertikallaster för Brott, Bruk och EQU samt ny längd L
 för väggsulor. Placering, littera, sultyp och övriga indata behålls. Ändrade
-bärighetslaster gör det gamla beräkningsresultatet inaktuellt; beräkna igen.
+bärighetslaster räknar automatiskt om jord- och isoleringskontrollerna.
 En oförändrad import behåller aktuella resultat. Glidmotståndet uppdateras
 direkt från EQU-lasten och längden. Om ett littera matchar flera befintliga
 sulor, eller filens sultyp skiljer sig från den befintliga, avvisas hela importen.
@@ -137,7 +137,7 @@ multipliceras inte med längden och inga enheter omvandlas. Längden ändrar
 inte bärighetskontrollens enmetersremsa. Metadata som `model` och `source`
 används inte som sökvägar eller beräkningsindata.
 
-Nya sulor får övriga startvärden från Grundplan och är **ej beräknade**.
+Nya sulor får övriga startvärden från Grundplan och beräknas automatiskt vid placering.
 Kontrollera geometri, jord, isolering och glidningsinställningar efter
 placeringen, gärna med **Markera flera**. Bidragsriktningarna för glidning är
 inte förvalda. EQU-lasten ska redan innehålla sulans egentyngd; vid beräkning
@@ -170,6 +170,41 @@ plan
 `plan.lasteffekt_import` visar nästa stöd och aktuell placering. För
 programmatisk placering används `plan.placera_lasteffekt(x, y, sida=1)`,
 med relativa bildkoordinater mellan 0 och 1, där y ökar nedåt.
+
+## Indatatabell och automatisk beräkning
+
+Längst ned i planvyn finns **Sulor – indata**, med en rad per sula på samtliga
+ritningssidor. Tabellen visar littera, ritningssida, status/utnyttjandegrad och
+samtliga indatakategorier. Ändra mått, laster, jorddata, koefficienter,
+isolering och glidning direkt i cellerna, utan en dialog. Decimaler kan anges
+med komma eller punkt. Littera och kolumnrubriker hålls synliga när tabellen
+rullas. Smala kolumner visar beteckning och enhet; håll pekaren över rubriken
+för en fullständig förklaring. Enter går till samma kolumn på nästa rad; Shift + Enter går till
+föregående rad.
+
+Markeringar i ritningen och tabellen följs åt. Välj rader med kryssrutorna,
+eller markera etiketter med Shift + klick/drag på ritningen. Kryssrutan i
+tabellhuvudet väljer alla rader, även från andra sidor. Ändra en cell på en
+markerad rad för att ersätta samma fält på **alla markerade rader**. Övriga
+indata behålls per sula. På en omarkerad rad ändras endast den sulan.
+Littera och fundamenttyp ändras alltid individuellt.
+
+Blandade sultyper kan redigeras gemensamt för typoberoende fält, exempelvis
+bₓ och isolering. Last- och längdfält kräver samma sultyp och är avstängda
+vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
+för pelarsulor. bᵧ används endast för pelarsulor och glidlängden L endast för
+väggsulor. Glidningsindata kan förberedas innan global glidningskontroll
+aktiveras. Escape avmarkerar ritning och tabell; sidbyte rensar också urvalet.
+
+Beräkning sker automatiskt vid placering, kopiering, ändring, lastuppdatering
+och återöppning av projekt. Alla beräkningsknappar är borttagna. Ett fel
+eller ofullständigt värde visas på den berörda sulan och ersätter dess gamla
+resultat; övriga sulor beräknas ändå. Rätta cellen så uppdateras resultatet
+igen. Ändringar följer med när projektet sparas eller exporteras.
+
+Tabellen finns i notebookvyn. Resultat-HTML behåller sin läsvy med
+expanderbara etiketter. Från Python beräknas sulor också automatiskt vid
+`lagg_till()`, `uppdatera()` och som standard vid `uppdatera_flera()`.
 
 ## Lokala axlar och skisser
 
@@ -232,8 +267,8 @@ Positionen sparas i projektet. Dialogen kan flyttas genom att dra dess rubrik.
 
 **Kopiera:** öppna en etikett, tryck **Kopiera sula** och klicka på ritningen
 där den nya sulan ska placeras. Alla indata följer med, även ändringar som
-ännu inte beräknats. Kopian får nästa lediga VS-/PS-littera och egna indata.
-Anpassa last och geometri och tryck **Beräkna**; originalet påverkas inte.
+ännu väntar på uppdatering. Kopian får nästa lediga VS-/PS-littera och egna indata.
+Anpassa last och geometri; kopian beräknas automatiskt och originalet påverkas inte.
 **Avbryt kopiering** eller Escape avslutar kopieringen utan att skapa en sula.
 
 **Storlek:** reglaget **Etikettstorlek** ändrar etiketternas grundstorlek mellan
@@ -302,7 +337,7 @@ och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avs
 fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
 den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
 När glidningsblocket är dolt visas en angiven positiv vägglängd i stället på
-etikettens resultatrad, exempelvis `Ej beräknad · L 6,2 m` eller
+etikettens resultatrad, exempelvis `Kontrollera indata · L 6,2 m` eller
 `U 78 % · bₓ 0,6 m · L 6,2 m`. Detta gäller också PDF och resultat-HTML.
 
 Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
@@ -474,14 +509,13 @@ projektfil/key i gränssnittet senare. Knappen **Spara projekt** skriver lokalt;
 behåller också funktionen för portabel export. En sparad notebook ersätter
 inte projektfilen.
 
-Vid återöppning beräknas tidigare beräknade taggar på nytt från sparade
-indata. Sparade resultat behandlas aldrig som verifierade numeriska data.
-Om beräkningskodens versionsavtryck har ändrats markeras taggarna som
-inaktuella och måste beräknas igen. Ofullständiga indata får sparas som
-utkast.
+Vid återöppning beräknas alla sulor automatiskt från sparade indata med
+aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
+numeriska data. Ofullständiga indata får sparas och visas som fel tills de
+rättas.
 
 Projekt sparas i formatversion 3. Äldre projekt i formatversion 1 och 2 kan
-öppnas, men sulorna måste beräknas igen med **Beräkna**. Deras angivna
+öppnas och beräknas också automatiskt. Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
 utan att räknas om till moment. Dessa borttagna fält ignoreras även om de
 skickas som `indata` från Python. Projekt i formatversion 1 får isoleringen
@@ -516,8 +550,8 @@ Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
 etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
 med vid utskrift, utan popup eller klickfunktion.
 
-Exporten räknar inte om sulorna. Ändrade, ännu inte beräknade eller felaktiga
-sulor visas med sin status i stället för ett aktuellt beräkningsresultat.
+Exporten använder de automatiskt uppdaterade resultaten. Felaktiga eller
+ofullständiga sulor visar sin status i stället för ett beräkningsresultat.
 Indatadialoger och fullständiga beräkningsrapporter ingår inte. Fortsätt spara
 JSON-projektet separat för att kunna redigera sulorna senare.
 
@@ -547,8 +581,8 @@ att återställa vyn. Reglaget **Etikettstorlek** fungerar även i HTML-filen.
 Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
 
 Beräkningsvärden och etikettpositioner är låsta i resultatvyn. Exporten
-räknar inte om sulor: ändrade, ej beräknade eller felaktiga sulor visar sin
-status i stället för ett aktuellt resultat. Använd JSON-projektet i Jupyter
+använder de automatiskt uppdaterade resultaten; felaktiga eller ofullständiga
+sulor visar sin status i stället för ett aktuellt resultat. Använd JSON-projektet i Jupyter
 för fortsatt redigering. Export från ett återöppnat JSON-projekt kräver
 inte att originalritningen finns kvar.
 
@@ -613,8 +647,7 @@ eller **Markera flera** är aktivt.
 
 Kryssa i de fält som ska ersättas, eller skriv direkt i dem så kryssas de i
 automatiskt. **Olika värden** betyder att sulornas befintliga värden skiljer sig;
-inget värde ersätts förrän du väljer fältet och trycker **Tillämpa** eller
-**Tillämpa och beräkna**. Övriga parametrar, littera, sultyp och placering behålls.
+inget värde ersätts förrän du väljer fältet och trycker **Tillämpa**. Övriga parametrar, littera, sultyp och placering behålls.
 Du kan exempelvis ändra isolering för ett helt urval, bredden för väggsulor eller
 både bₓ och bᵧ för pelarsulor. Isolerprodukt och glidningsindata kan också ändras.
 
@@ -623,8 +656,9 @@ isoleringsinställningar ändras. Last- och längdfält kräver ett urval med sa
 sultyp, eftersom laster anges per meter för väggsulor och totalt för pelarsulor.
 Fundamenttypen ändras i varje sulas vanliga dialog.
 
-**Tillämpa** gör ändrade beräkningsresultat inaktuella. **Tillämpa och beräkna**
-räknar om varje markerad sula med dess egna kvarvarande värden. Fel redovisas
+**Tillämpa** uppdaterar och beräknar varje markerad sula automatiskt
+med dess egna kvarvarande värden. I tabellen kan samma ändring göras direkt
+i en cell på en markerad rad, utan dialog. Fel redovisas
 med sulans littera; övriga sulor beräknas ändå. Saknade brukslaster och
 isoleringsbärförmågor behöver fyllas i när isolering aktiveras.
 

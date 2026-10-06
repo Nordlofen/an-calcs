@@ -229,12 +229,12 @@ class TestGrundplanPdf(unittest.TestCase):
         pad = self.tag(plan, littera="Pelarsula", typ="pelarsula", indata={"b": 1.8, "l": 2.4, "F_vy": 100})
         plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160 % · b\nx\n 1 m",
+        for expected in ("U 22,7 %", "U 6,4 %", "Kontrollera indata", "U 160 % · b\nx\n 1 m",
                          "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
             self.assertIn(expected, text)
         self.assertIn("Styrande: Isolering · bruk", text)
         self.assertEqual(text.count("Styrande:"), 1, "Only the current insulation result has a governing-check line")
-        self.assertEqual(text.count("U "), 2, "Stale or failed results must never be printed as current")
+        self.assertEqual(text.count("U "), 4, "All valid objects are current; failed objects never show a utilization")
 
     def test_laster_filtreras_med_ratt_axel_enhet_och_negativa_sma_varden(self):
         from an_calcs.notebook.grundplan_pdf import _fonts, _load_rows

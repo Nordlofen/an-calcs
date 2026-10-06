@@ -171,8 +171,9 @@ class TestGrundplanHtml(unittest.TestCase):
         self.tag()
         with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Must not recalculate")):
             tags = self.snapshot()["state"]["tags"]
-        self.assertEqual([tag["status"] for tag in tags], ["stale", "error", "new"])
-        self.assertTrue(all(tag["summary"] is None for tag in tags))
+        self.assertEqual([tag["status"] for tag in tags], ["calculated", "error", "calculated"])
+        self.assertTrue(all(tags[i]["summary"] is not None for i in (0, 2)))
+        self.assertIsNone(tags[1]["summary"])
         self.assertTrue(tags[1]["error"])
 
     def test_ateroppnad_json_med_rasterbild_kan_exporteras_utan_original(self):

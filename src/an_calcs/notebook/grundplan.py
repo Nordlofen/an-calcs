@@ -439,11 +439,12 @@ class Grundplan(anywidget.AnyWidget):
             "status": "new", "summary": None, "error": "",
         }
         self._tags.append(tag)
+        self._refresh_tag(tag)
         self._publish()
         return tag["id"]
 
     def kopiera(self, tagg, x, y, *, littera=None, sida=None, indata=None):
-        """Kopiera en sulas indata till en ny tagg som behöver beräknas.
+        """Kopiera en sulas indata till en ny tagg och beräkna den automatiskt.
 
         Kopian får ett eget id och nästa lediga VS-/PS-littera. Källans sida
         används om sida utelämnas; indata kan åsidosätta enskilda parametrar.
@@ -510,6 +511,8 @@ class Grundplan(anywidget.AnyWidget):
             if changed:
                 tag.update(status="stale", summary=None, error="")
                 self._details.pop(tag["id"], None)
+            if changed or tag["summary"] is None:
+                self._refresh_tag(tag)
         self._load_import = queue
         self._publish()
         return {"updated": len(prepared), "new": len(new_items),
@@ -549,7 +552,7 @@ class Grundplan(anywidget.AnyWidget):
         return {"id": ident, "label": item["label"], "finished": finished, "total": len(queue["items"])}
 
     def uppdatera(self, tagg, *, indata=None, littera=None, x=None, y=None):
-        """Ändrade beräkningsindata gör taggens gamla resultat inaktuellt."""
+        """Uppdatera indata och beräkna automatiskt; ogiltiga indata visas som fel."""
         tag = self._tag(tagg)
         updated = copy.deepcopy(tag)
         if indata is not None:
@@ -561,30 +564,38 @@ class Grundplan(anywidget.AnyWidget):
                 if not 0 <= _number(value, name) <= 1:
                     raise ValueError(f"{name} måste ligga mellan 0 och 1.")
                 updated[name] = value
-        if any(updated["values"][name] != value for name, value in tag["values"].items()
-               if name != "isolerprodukt" and name not in SLIDING_NAMES):
+        changed = any(updated["values"][name] != value for name, value in tag["values"].items()
+                      if name != "isolerprodukt" and name not in SLIDING_NAMES)
+        if changed:
             updated.update(status="stale", summary=None, error="")
             self._details.pop(tagg, None)
         tag.update(updated)
+        if changed or tag["summary"] is None:
+            self._refresh_tag(tag)
         self._publish()
 
-    def berakna(self, tagg):
-        """Beräkna en tagg och returnera samma details-format som i an_calcs."""
-        tag = self._tag(tagg)
+    def _refresh_tag(self, tag):
+        """En felaktig sula får aldrig behålla ett tidigare godkänt resultat."""
         try:
             details, summary = _calculate(tag["values"])
         except (ValueError, ArithmeticError) as exc:
             tag.update(status="error", summary=None, error=str(exc))
-            self._details.pop(tagg, None)
-            self._publish()
-            raise ValueError(str(exc)) from exc
-        tag.update(status="calculated", summary=summary, error="")
-        self._details[tagg] = details
-        self._publish()
-        return copy.deepcopy(details)
+            self._details.pop(tag["id"], None)
+        else:
+            tag.update(status="calculated", summary=summary, error="")
+            self._details[tag["id"]] = details
 
-    def uppdatera_flera(self, taggar, *, indata, berakna=False):
-        """Ändra endast angivna fält för flera sulor och beräkna dem valfritt.
+    def berakna(self, tagg):
+        """Beräkna en tagg och returnera samma details-format som i an_calcs."""
+        tag = self._tag(tagg)
+        self._refresh_tag(tag)
+        self._publish()
+        if tag["error"]:
+            raise ValueError(tag["error"])
+        return copy.deepcopy(self._details[tagg])
+
+    def uppdatera_flera(self, taggar, *, indata, berakna=True):
+        """Ändra endast angivna fält för flera sulor och beräkna som standard.
 
         Alla id och indatavärden valideras före ändring. Beräkningsfel redovisas
         per sula; övriga sulor beräknas ändå. Littera och fundamenttyp behålls.
@@ -868,7 +879,6 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(tags, list) or len(tags) > _MAX_TAGS:
             raise ValueError("Projektet har för många eller ogiltiga taggar.")
         valid_tags, details_by_id, ids = [], {}, set()
-        same_calculator = document["version"] in (3, 4) and document.get("calculator_version") == _CALCULATOR_VERSION
         for saved in tags:
             ident = saved["id"]
             if not isinstance(ident, str) or not ident or len(ident) > 80 or ident in ids:
@@ -884,13 +894,12 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved["values"], draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
-            if saved.get("calculated") is True and same_calculator:
-                try:
-                    details, summary = _calculate(tag["values"])
-                    tag.update(status="calculated", summary=summary)
-                    details_by_id[ident] = details
-                except (ValueError, ArithmeticError) as exc:
-                    tag.update(status="error", error=str(exc))
+            try:
+                details, summary = _calculate(tag["values"])
+                tag.update(status="calculated", summary=summary)
+                details_by_id[ident] = details
+            except (ValueError, ArithmeticError) as exc:
+                tag.update(status="error", error=str(exc))
             valid_tags.append(tag)
         # Replace the current project only after the entire input is validated.
         self._source = source
@@ -936,7 +945,7 @@ class Grundplan(anywidget.AnyWidget):
                 self.berakna(content["id"])
             elif action == "bulk_update":
                 reply["report"] = self.uppdatera_flera(
-                    content["ids"], indata=content["values"], berakna=content.get("calculate", False))
+                    content["ids"], indata=content["values"], berakna=True)
             elif action == "delete":
                 self.ta_bort(content["id"])
             elif action == "delete_all":

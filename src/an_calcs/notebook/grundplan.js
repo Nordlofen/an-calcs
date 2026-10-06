@@ -203,6 +203,7 @@ function render({ model, el, readOnly = false }) {
       deleteBusy = false;
       if (reply.ok) {
         selected.clear(); bulkIds = []; bulkSignature = ""; formId = null;
+        tableFeedback.replaceChildren();
         dirty.clear(); drafts.clear(); edits.clear(); slidingDirty.clear();
         positions.clear(); pendingPositions.clear(); sectionStates.clear(); sketchStates.clear(); areaPhases.clear();
         inputSections.length = resultSections.length = 0;
@@ -638,8 +639,6 @@ function render({ model, el, readOnly = false }) {
   const results = node("div", "gp-results");
   results.setAttribute("aria-live", "polite");
   const footer = node("div", "gp-dialog-footer");
-  const calculate = node("button", "gp-primary", "Beräkna");
-  calculate.type = "submit";
   const remove = button("Ta bort", () => {
     const tag = current();
     if (tag && window.confirm("Ta bort " + tag.label + "?")) {
@@ -665,7 +664,7 @@ function render({ model, el, readOnly = false }) {
     viewport.focus({ preventScroll: true });
   });
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
-  footer.append(remove, copy, calculate);
+  footer.append(remove, copy);
   if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
   else form.append(labelRow, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
@@ -684,11 +683,10 @@ function render({ model, el, readOnly = false }) {
   const bulkFeedback = node("div", "gp-bulk-feedback");
   bulkFeedback.setAttribute("role", "status");
   const bulkFooter = node("div", "gp-dialog-footer");
-  const applyMany = button("Tillämpa", () => applyBulk(false));
-  const calculateMany = button("Tillämpa och beräkna", () => applyBulk(true), "gp-primary");
-  bulkFooter.append(applyMany, calculateMany);
+  const applyMany = button("Tillämpa", applyBulk, "gp-primary");
+  bulkFooter.append(applyMany);
   bulkForm.append(bulkNote, bulkFeedback, bulkFields, bulkFooter);
-  bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(true); });
+  bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(); });
   bulkDialog.append(bulkHeader, bulkForm);
   board.append(viewport, empty, zoomBar, dialog, sketch, bulkDialog);
   const status = node("div", "gp-status");
@@ -696,20 +694,48 @@ function render({ model, el, readOnly = false }) {
   const legend = node("div", "gp-legend");
   legend.setAttribute("role", "list");
   legend.setAttribute("aria-label", "Etikettförklaring");
-  for (const [state, label] of [["new", "Ej beräknad"], ["ok", "U ≤ 100 %"],
-    ["over", "U > 100 %"], ["stale", "Ändrad"]]) {
+  for (const [state, label] of [["error", "Fel i indata"], ["ok", "U ≤ 100 %"],
+    ["over", "U > 100 %"], ["stale", "Uppdaterar"]]) {
     const item = node("span", "gp-legend-item gp-tag-" + state, label);
     item.setAttribute("role", "listitem");
     legend.append(item);
   }
   const help = node("p", "gp-help",
     "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade. Dra direkt i en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
+  const tableSection = node("section", "gp-table-section");
+  const tableHeader = node("header", "gp-table-heading");
+  const tableCount = node("span", "gp-table-count");
+  const tableSelectionInfo = node("span", "gp-table-selection-info");
+  tableHeader.append(node("h4", "", "Sulor – indata"), tableCount, tableSelectionInfo);
+  const tableFeedback = node("div", "gp-table-feedback");
+  tableFeedback.setAttribute("role", "status");
+  const tableScroll = node("div", "gp-table-scroll");
+  tableScroll.tabIndex = 0;
+  tableScroll.setAttribute("role", "region");
+  tableScroll.setAttribute("aria-label", "Redigerbar indatatabell för alla sulor");
+  const inputTable = node("table", "gp-input-table");
+  const tableHead = node("thead"), tableBody = node("tbody");
+  const tableSelectAll = node("input"); tableSelectAll.type = "checkbox";
+  tableSelectAll.setAttribute("aria-label", "Markera samtliga tabellrader");
+  tableSelectAll.addEventListener("change", () => {
+    if (bulkBusy || deleteBusy || importBusy) return;
+    const checked = tableSelectAll.checked;
+    closeDialog(); closeBulk(); selected.clear(); bulkSignature = "";
+    if (checked) for (const tag of state().tags) selected.add(tag.id);
+    showSelection(); renderMarkers();
+  });
+  const tableRows = new Map();
+  inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
+  tableSection.append(tableHeader,
+    node("p", "gp-field-note", "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
+    tableFeedback, tableScroll);
   root.append(heading, toolbar);
   if (!readOnly) root.append(importBar);
   if (!readOnly) root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput, loadsInput);
+  if (!readOnly) root.append(tableSection);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -741,6 +767,7 @@ function render({ model, el, readOnly = false }) {
         if (action === "import_loads") {
           importBusy = false;
           if (reply.ok) {
+            tableFeedback.replaceChildren();
             for (const id of reply.report?.updated_ids || []) {
               const tag = state().tags.find(tag => tag.id === id), draft = drafts.get(id);
               if (tag && draft) {
@@ -765,6 +792,7 @@ function render({ model, el, readOnly = false }) {
         }
         if (reply.ok) {
           active = null;
+          tableFeedback.replaceChildren();
           selected.clear(); bulkIds = []; bulkSignature = ""; closeBulk();
           formId = null;
           dirty.clear();
@@ -1126,7 +1154,7 @@ function render({ model, el, readOnly = false }) {
         ? " · L " + precise(length) + " m" : "";
       const text = (summary
         ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
-        : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad")) + lengthText;
+        : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
       const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
@@ -1181,6 +1209,7 @@ function render({ model, el, readOnly = false }) {
       }
       markers.append(marker);
     }
+    syncTableSelection();
   }
   const groups = [
     ["Geometri", ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac"]],
@@ -1196,6 +1225,194 @@ function render({ model, el, readOnly = false }) {
       "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
+  const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))]);
+  const groupedNames = new Set(tableGroups.flatMap(([, names]) => names));
+  const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
+  if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
+  const tableNames = tableGroups.flatMap(([, names]) => names);
+  const tableFieldClass = field => ["bool", "choice", "text"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number";
+  function buildTableHeader() {
+    const groupRow = node("tr"), fieldRow = node("tr");
+    const selectHead = node("th", "gp-table-select");
+    selectHead.setAttribute("rowspan", "2"); selectHead.setAttribute("scope", "col");
+    selectHead.append(tableSelectAll); groupRow.append(selectHead);
+    for (const [label, className] of [["Littera", "gp-table-label"], ["Sida", "gp-table-page"], ["Status / U", "gp-table-status"]]) {
+      const th = node("th", className, label);
+      th.setAttribute("rowspan", "2"); th.setAttribute("scope", "col"); groupRow.append(th);
+    }
+    for (const [label, names] of tableGroups) {
+      if (!names.length) continue;
+      const th = node("th", "gp-table-group", label);
+      th.setAttribute("colspan", String(names.length)); th.setAttribute("scope", "colgroup"); groupRow.append(th);
+      for (const name of names) {
+        const field = fieldSchema.get(name), head = node("th", tableFieldClass(field));
+        head.setAttribute("scope", "col");
+        head.title = label + ": " + field.label;
+        head.setAttribute("aria-label", head.title);
+        const notation = field.display_symbol || (name === "glid_x" || name === "glid_y"
+          ? {prefix: "Bidrar ", base: name === "glid_x" ? "X" : "Y", subscript: "g"} : {});
+        if (notation.base || notation.text) head.append(symbolNode(notation, "gp-table-symbol"));
+        else head.append(node("span", "", name === "lang" ? "Typ" : name === "isolerprodukt" ? "Produkt" : field.label));
+        const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
+        if (unit) head.append(node("span", "gp-table-unit", "[" + (["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
+        fieldRow.append(head);
+      }
+    }
+    tableHead.append(groupRow, fieldRow);
+  }
+  if (!readOnly) buildTableHeader();
+  const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
+  function tableTargets(id, name) {
+    return state().tags.filter(tag => tag.id === id ||
+      (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id)));
+  }
+  function tableEdit(id, name, control) {
+    if (readOnly || importBusy || bulkBusy || deleteBusy) return;
+    const tag = state().tags.find(tag => tag.id === id);
+    if (!tag) return;
+    tableFeedback.replaceChildren();
+    const field = fieldSchema.get(name);
+    const raw = field?.type === "bool" ? control.checked : control.value;
+    if (name === "label" && (!raw.trim() || raw.length > 80)) {
+      control.setCustomValidity("Ange ett littera med 1–80 tecken."); control.reportValidity(); return;
+    }
+    const targets = tableTargets(id, name), mixed = new Set(targets.map(tag => tag.values.lang)).size > 1;
+    if (mixed && sameTypeFields.has(name)) {
+      tableFeedback.replaceChildren(node("p", "gp-error-text", "Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält gemensamt."));
+      return;
+    }
+    let value = raw;
+    if (field && !["bool", "text"].includes(field.type)) {
+      const text = raw.trim().replace(",", ".");
+      value = text === "" ? null : Number(text);
+      if (value !== null && !Number.isFinite(value)) value = null;
+      control.setCustomValidity(text !== "" && value === null ? "Ange ett tal." : "");
+    } else control.setCustomValidity("");
+    closeBulk(); bulkSignature = "";
+    const calculationInput = name !== "label" && field.type !== "text" && !slidingNames.has(name);
+    const revisions = new Map();
+    for (const target of targets) {
+      const draft = drafts.get(target.id) || {label: target.label,
+        values: Object.fromEntries([...fieldSchema.keys()].map(key => [key, tableText(target.values[key])]))};
+      if (name === "label") draft.label = raw;
+      else draft.values[name] = raw;
+      drafts.set(target.id, draft);
+      if (calculationInput && value !== target.values[name]) dirty.add(target.id);
+      const revision = (edits.get(target.id) || 0) + 1;
+      edits.set(target.id, revision); revisions.set(target.id, revision);
+      slidingDirty.add(target.id);
+      if (active === target.id) formId = null;
+    }
+    update();
+    const shared = targets.length > 1;
+    const payload = shared ? {ids: targets.map(tag => tag.id), values: {[name]: value}}
+      : {id, ...(name === "label" ? {label: raw.trim()} : {values: {[name]: value}})};
+    command(shared ? "bulk_update" : "update", payload, [], reply => {
+      for (const [targetId, revision] of revisions) if (edits.get(targetId) === revision) {
+        slidingDirty.delete(targetId);
+        if (reply.ok) dirty.delete(targetId);
+      }
+      update();
+      if (!reply.ok) {
+        tableFeedback.replaceChildren(node("p", "gp-error-text", reply.error)); showMessage(reply.error, true);
+      }
+    });
+  }
+  function makeTableRow(tag) {
+    const row = node("tr"); row.dataset.tagId = tag.id;
+    const selectCell = node("td", "gp-table-select"), select = node("input"); select.type = "checkbox";
+    selectCell.append(select); row.append(selectCell);
+    select.addEventListener("change", () => {
+      if (bulkBusy || deleteBusy || importBusy) return;
+      const checked = select.checked;
+      closeDialog(); closeBulk(); bulkSignature = "";
+      if (checked) selected.add(tag.id); else selected.delete(tag.id);
+      showSelection(); renderMarkers();
+    });
+    const controls = new Map(), labelCell = node("td", "gp-table-label");
+    const label = node("input"); label.type = "text"; label.maxLength = 80; label.name = "table_label";
+    labelCell.append(label); controls.set("label", label);
+    const page = node("td", "gp-table-page"), result = node("td", "gp-table-status");
+    row.append(labelCell, page, result);
+    for (const name of tableNames) {
+      const field = fieldSchema.get(name), cell = node("td", tableFieldClass(field));
+      const control = node(field.type === "choice" ? "select" : "input");
+      control.name = "table_" + name;
+      if (field.type === "choice") {
+        for (const option of field.options || []) {
+          const caption = name === "lang" ? Number(option.value) === 1 ? "Väggsula" : "Pelarsula" : option.label ?? String(option.value);
+          const item = node("option", "", caption); item.value = option.value; control.append(item);
+        }
+      } else control.type = field.type === "bool" ? "checkbox" : "text";
+      if (!["bool", "text", "choice"].includes(field.type)) control.inputMode = "decimal";
+      if (field.type === "text") cell.classList.add("gp-table-text");
+      cell.append(control); row.append(cell); controls.set(name, control);
+    }
+    for (const [name, control] of controls) {
+      control.dataset.tagId = tag.id; control.dataset.field = name;
+      const field = fieldSchema.get(name);
+      control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
+      control.addEventListener("keydown", event => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        const tags = state().tags, index = tags.findIndex(tag => tag.id === control.dataset.tagId);
+        tableRows.get(tags[index + (event.shiftKey ? -1 : 1)]?.id)?.controls.get(name)?.focus({preventScroll: false});
+      });
+    }
+    tableBody.append(row);
+    return {row, controls, page, result, select};
+  }
+  function syncTableSelection() {
+    if (readOnly) return;
+    const tags = state().tags, busy = bulkBusy || importBusy || deleteBusy;
+    tableSelectAll.checked = !!tags.length && tags.every(tag => selected.has(tag.id));
+    tableSelectAll.indeterminate = selected.size > 0 && !tableSelectAll.checked;
+    tableSelectAll.disabled = !tags.length || busy;
+    tableSelectionInfo.hidden = !selected.size;
+    tableSelectionInfo.textContent = selected.size + " markerade · ändra en cell för gemensamt värde";
+    const mixed = new Set(selectionTags().map(tag => tag.values.lang)).size > 1;
+    for (const tag of tags) {
+      const entry = tableRows.get(tag.id);
+      if (!entry) continue;
+      entry.select.checked = selected.has(tag.id); entry.select.disabled = busy;
+      entry.select.setAttribute("aria-label", "Markera " + tag.label + " i tabellen");
+      entry.row.classList.toggle("gp-table-row-selected", selected.has(tag.id));
+      for (const [name, control] of entry.controls) {
+        const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
+        control.disabled = busy || blocked || (name === "l" && tag.values.lang === 1) || (name === "glid_L" && tag.values.lang === 0);
+        control.title = blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
+          : name === "label" || name === "lang" ? "Ändras endast för denna sula."
+          : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor." : "";
+      }
+    }
+  }
+  function showTable() {
+    if (readOnly) return;
+    tableSection.hidden = !background().url;
+    const tags = state().tags, ids = new Set(tags.map(tag => tag.id));
+    for (const [id, row] of tableRows) if (!ids.has(id)) {row.row.remove(); tableRows.delete(id);}
+    const errors = tags.filter(tag => tag.status === "error").length;
+    tableCount.textContent = tags.length + " sulor" + (errors ? " · " + errors + " med fel i indata" : "");
+    for (const tag of tags) {
+      if (!tableRows.has(tag.id)) tableRows.set(tag.id, makeTableRow(tag));
+      const {controls, page, result} = tableRows.get(tag.id), draft = drafts.get(tag.id);
+      page.textContent = tag.page;
+      const stale = dirty.has(tag.id), summary = stale ? null : tag.summary;
+      result.textContent = summary ? "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
+        : stale || tag.status === "stale" ? "Uppdaterar…" : tag.status === "error" ? "Fel i indata" : "Kontrollera indata";
+      result.className = "gp-table-status " + (summary ? summary.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail" : "");
+      result.title = tag.error || summary?.styrande || "";
+      for (const [name, control] of controls) {
+        const field = fieldSchema.get(name);
+        control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
+        if (control === document.activeElement) continue;
+        const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tag.values[name];
+        if (field?.type === "bool") control.checked = value ?? false;
+        else control.value = tableText(value);
+      }
+    }
+    syncTableSelection();
+  }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
     ["l", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
@@ -1210,6 +1427,7 @@ function render({ model, el, readOnly = false }) {
     editMany.disabled = clearMany.disabled = bulkBusy;
     selectMany.disabled = bulkBusy || !background().url;
     pageSelect.disabled = bulkBusy || importBusy;
+    syncTableSelection();
   }
   function toggleTag(tag) {
     if (readOnly || bulkBusy) return;
@@ -1305,7 +1523,7 @@ function render({ model, el, readOnly = false }) {
       bulkFields.append(group);
     }
   }
-  function applyBulk(recalculate) {
+  function applyBulk() {
     if (readOnly || bulkBusy) return;
     const patch = {};
     let valid = true;
@@ -1326,19 +1544,18 @@ function render({ model, el, readOnly = false }) {
     }
     const ids = [...bulkIds];
     bulkBusy = true;
-    applyMany.disabled = calculateMany.disabled = bulkMinimize.disabled = true;
+    applyMany.disabled = bulkMinimize.disabled = true;
     for (const entry of bulkInputs.values()) entry.choose.disabled = entry.input.disabled = true;
     showSelection();
     showLoadImport();
-    bulkFeedback.textContent = recalculate ? "Ändrar och beräknar markerade sulor…" : "Ändrar markerade sulor…";
-    command("bulk_update", {ids, values: patch, calculate: recalculate}, [], reply => {
+    bulkFeedback.textContent = "Uppdaterar markerade sulor…";
+    command("bulk_update", {ids, values: patch}, [], reply => {
       bulkBusy = false;
-      applyMany.disabled = calculateMany.disabled = bulkMinimize.disabled = false;
+      applyMany.disabled = bulkMinimize.disabled = false;
       if (reply.ok) {
         for (const id of ids) { dirty.delete(id); drafts.delete(id); slidingDirty.delete(id); edits.delete(id); }
         const report = reply.report;
-        const message = recalculate ? report.calculated + " av " + report.updated + " sulor beräknade."
-          : report.updated + " sulor uppdaterade. Ändrade beräkningsindata behöver beräknas på nytt.";
+        const message = report.calculated + " av " + report.updated + " sulor beräknade automatiskt.";
         buildBulkFields(); bulkFeedback.replaceChildren(node("p", "", message));
         for (const error of report.errors) bulkFeedback.append(node("p", "gp-error-text", error.label + ": " + error.error));
         bulkForm.scrollTop = 0;
@@ -1509,36 +1726,17 @@ function render({ model, el, readOnly = false }) {
     showSliding();
     const label = labelInput.value.trim();
     const id = active, revision = edits.get(id);
-    command("update", { id, values, ...(label ? { label } : {}) }, [], () => {
-      if (edits.get(id) === revision) slidingDirty.delete(id);
-      showSliding(); renderMarkers();
+    command("update", { id, values, ...(label ? { label } : {}) }, [], reply => {
+      if (edits.get(id) === revision) {
+        slidingDirty.delete(id);
+        if (reply.ok) dirty.delete(id);
+      }
+      update();
+      if (!reply.ok) showMessage(reply.error, true);
     });
   }
   labelInput.addEventListener("input", () => edit(false));
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (readOnly) return;
-    const values = readValues();
-    for (const { input, group } of inputs.values()) {
-      if (!input.disabled && input.validity && !input.validity.valid) group.open = true;
-    }
-    if (!form.reportValidity()) return;
-    const id = active;
-    const revision = edits.get(id) || 0;
-    calculate.disabled = true;
-    calculate.textContent = "Beräknar…";
-    command("calculate", { id, values, label: labelInput.value.trim() }, [], (reply) => {
-      calculate.disabled = false;
-      calculate.textContent = "Beräkna";
-      // A result must never clear edits made while the kernel was calculating.
-      if (revision === (edits.get(id) || 0)) {
-        dirty.delete(id);
-        if (reply.ok) drafts.delete(id);
-        update();
-      }
-      if (reply.ok) showMessage("Beräkningen är uppdaterad.");
-    });
-  });
+  form.addEventListener("submit", event => event.preventDefault());
   function areaResult(tag) {
     const group = makeSection(tag.id, "result:area", "Effektiv area – planvy", true, resultSections);
     const phases = tag.summary.effective_area;
@@ -1631,7 +1829,7 @@ function render({ model, el, readOnly = false }) {
     results.replaceChildren();
     if (!tag) return;
     if (dirty.has(tag.id) || tag.status === "stale") {
-      results.append(node("p", "", readOnly ? "Indata ändrade. Inget aktuellt resultat vid exporten." : "Indata ändrade. Beräkna för att uppdatera resultatet."));
+      results.append(node("p", "", readOnly ? "Indata ändrade. Inget aktuellt resultat vid exporten." : "Uppdaterar resultat automatiskt…"));
       return;
     }
     if (tag.error) {
@@ -1640,7 +1838,7 @@ function render({ model, el, readOnly = false }) {
     }
     const r = tag.summary;
     if (!r) {
-      results.append(node("p", "", readOnly ? "Sulan var inte beräknad vid exporten." : "Ingen aktuell beräkning. Kontrollera indata och tryck Beräkna."));
+      results.append(node("p", "", readOnly ? "Sulan var inte beräknad vid exporten." : "Kontrollera indata. Resultatet uppdateras automatiskt."));
       return;
     }
     const headline = node("div", "gp-result-main " + (r.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail"));
@@ -1685,7 +1883,7 @@ function render({ model, el, readOnly = false }) {
     const bg = background();
     const data = state();
     for (const id of selected) {
-      if (!data.tags.some(tag => tag.id === id && tag.page === bg.page)) selected.delete(id);
+      if (!data.tags.some(tag => tag.id === id)) selected.delete(id);
     }
     if (!bulkDialog.hidden && bulkIds.some(id => !selected.has(id))) {
       closeBulk(); bulkSignature = "";
@@ -1744,6 +1942,7 @@ function render({ model, el, readOnly = false }) {
     } else sketch.hidden = true;
     renderMarkers();
     showSliding();
+    showTable();
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -1945,7 +2144,7 @@ function render({ model, el, readOnly = false }) {
         }
         update();
         if (!reply.ok) showMessage(reply.error, true);
-        if (reply.ok && reply.finished) showMessage("Alla " + reply.total + " importerade sulor är placerade. Anpassa övriga indata och beräkna.");
+        if (reply.ok && reply.finished) showMessage("Alla " + reply.total + " importerade sulor är placerade. Anpassa övriga indata; resultaten uppdateras automatiskt.");
       });
       return;
     }
@@ -1960,7 +2159,7 @@ function render({ model, el, readOnly = false }) {
       if (!reply.ok) return;
       const tag = state().tags.find((t) => t.id === reply.id);
       if (tag) openDialog(tag);
-      if (source) showMessage("Kopian har fått egna indata. Anpassa last och geometri och tryck Beräkna.");
+      if (source) showMessage("Kopian har fått egna indata. Anpassa last och geometri; resultatet uppdateras automatiskt.");
     });
   });
   viewport.addEventListener("pointercancel", cancelDrag);

@@ -136,9 +136,9 @@ class TestLoadPlacement(unittest.TestCase):
             for name, value in before[ident]["values"].items():
                 if name not in updated_fields:
                     self.assertEqual(tag["values"][name], value)
-            self.assertEqual(tag["status"], "stale")
-            self.assertIsNone(tag["summary"])
-            self.assertNotIn(ident, self.plan.resultat)
+            self.assertEqual(tag["status"], "calculated")
+            self.assertIsNotNone(tag["summary"])
+            self.assertIn(ident, self.plan.resultat)
         self.assertEqual(self.plan._tag(wall)["values"]["F_vy"], 90)
         self.assertEqual(self.plan._tag(wall)["values"]["F_vy_bruk"], 35)
         self.assertEqual(self.plan._tag(wall)["values"]["V_Ed_EQU"], 40)
@@ -226,7 +226,7 @@ class TestLoadPlacement(unittest.TestCase):
         self.plan.importera_lasteffekt(self.file)
         self.assertEqual(self.plan.lasteffekt_import["total"], 2)
 
-    def test_import_does_not_create_footings_then_clicks_create_independent_uncomputed_values(self):
+    def test_import_does_not_create_footings_then_clicks_create_independent_calculated_values(self):
         existing = self.plan.lagg_till(.1, .1, littera="Existing", indata={"F_vy": 100})
         self.plan.berakna(existing)
         before = self.plan.taggar[0]
@@ -245,8 +245,8 @@ class TestLoadPlacement(unittest.TestCase):
                               tag["values"]["F_vy_bruk"], tag["values"]["V_Ed_EQU"]), (label, kind, brott, bruk, equ))
             self.assertFalse(tag["values"]["isolering"])
             self.assertFalse(tag["values"]["glid_x"] or tag["values"]["glid_y"])
-            self.assertEqual(tag["status"], "new")
-            self.assertIsNone(tag["summary"])
+            self.assertEqual(tag["status"], "calculated")
+            self.assertIsNotNone(tag["summary"])
         self.assertEqual(self.plan._tag(first)["values"]["glid_L"], 6.2)
         self.assertNotEqual(self.plan._tag(first)["values"]["l"], 6.2)
         self.assertIsNone(self.plan._tag(second)["values"]["glid_L"])

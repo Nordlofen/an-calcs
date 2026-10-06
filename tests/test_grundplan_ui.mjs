@@ -215,7 +215,7 @@ test("placement advances once per acknowledged click, shows types and creates no
   ui.place(500, 400); imported.added(1, ui.sent.at(-1));
   assert.equal(ui.byClass("gp-import-bar").hidden, true);
   assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
-  assert.equal(ui.byClass("gp-status").textContent, "Alla 2 importerade sulor är placerade. Anpassa övriga indata och beräkna.");
+  assert.equal(ui.byClass("gp-status").textContent, "Alla 2 importerade sulor är placerade. Anpassa övriga indata; resultaten uppdateras automatiskt.");
   const after = ui.sent.length; ui.place(); assert.equal(ui.sent.length, after, "Finished queue returns to panning");
 });
 
@@ -461,6 +461,170 @@ function marquee(ui, from, to, options = {}) {
 const selectedIds = ui => ui.elements().filter(e => e.dataset.tagId && e.className.includes("gp-multi-selected"))
   .map(e => e.dataset.tagId).sort();
 
+const tableField = (ui, id, name) => ui.find(e => e.name === "table_" + name && e.dataset.tagId === id);
+const selectTableRow = (ui, label, checked = true) => {
+  const control = ui.find(e => e.getAttribute("aria-label") === "Markera " + label + " i tabellen");
+  control.checked = checked; control.dispatch("change"); return control;
+};
+
+test("table contains every input and all pages, with type-dependent fields and result status", t => {
+  const ui = setup(t), second = {...structuredClone(ui.tag), id: "tag2", label: "PS2", page: 2};
+  second.values.lang = 0; second.status = "new"; second.summary = null;
+  ui.data.state.tags.push(second); ui.changed();
+  assert.equal(ui.elements().filter(e => e.tag === "tr" && e.dataset.tagId).length, 2);
+  for (const tag of ui.data.state.tags) {
+    for (const name of names) assert.ok(tableField(ui, tag.id, name));
+    assert.ok(tableField(ui, tag.id, "label"));
+  }
+  assert.equal(tableField(ui, "tag1", "l").disabled, true);
+  assert.equal(tableField(ui, "tag2", "l").disabled, false);
+  assert.equal(tableField(ui, "tag2", "glid_L").disabled, true);
+  assert.equal(tableField(ui, "tag1", "V_Ed_EQU").disabled, false, "Gliding can be preconfigured before enabling the global check");
+  ui.byText("2 sulor"); ui.byText("U 75%");
+  assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
+});
+
+test("table edits only the chosen field, retains focus and coordinates, and shares drafts with the dialog", t => {
+  const ui = setup(t), before = structuredClone(ui.tag);
+  const control = tableField(ui, ui.tag.id, "b"); control.focus();
+  control.value = "0,9"; control.dispatch("input");
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "update"); assert.equal(request.id, ui.tag.id);
+  assert.deepEqual(request.values, {b: .9});
+  ui.tag.values.b = .9; ui.tag.status = "stale"; ui.tag.summary = null;
+  ui.changed(); ui.ack(request);
+  assert.equal(tableField(ui, ui.tag.id, "b"), control, "Model updates cannot rebuild the focused cell");
+  assert.equal(document.activeElement, control); assert.equal(control.value, "0,9");
+  assert.deepEqual([ui.tag.x, ui.tag.y, ui.tag.page], [before.x, before.y, before.page]);
+  ui.marker().click(); assert.equal(ui.field("b").value, "0,9");
+  ui.field("b").value = "1,1"; ui.field("b").dispatch("input");
+  const dialogRequest = ui.sent.at(-1); ui.tag.values.b = 1.1; ui.changed(); ui.ack(dialogRequest);
+  assert.equal(control.value, "1,1", "Dialog edits are reflected in the table");
+});
+
+test("table supports insulation, comments, labels, signed loads and changing foundation type", t => {
+  const ui = setup(t);
+  for (const [name, value, expected] of [["F_vy", "-25,5", -25.5], ["F_vy_bruk", "0", 0],
+      ["isolerprodukt", "EPS S200", "EPS S200"], ["lang", "0", 0]]) {
+    const control = tableField(ui, ui.tag.id, name); control.value = value;
+    control.dispatch(name === "lang" ? "change" : "input");
+    assert.deepEqual(ui.sent.at(-1).values, {[name]: expected});
+    ui.tag.values[name] = expected; ui.changed(); ui.ack(ui.sent.at(-1));
+  }
+  assert.equal(tableField(ui, ui.tag.id, "l").disabled, false);
+  const insulated = tableField(ui, ui.tag.id, "isolering"); insulated.checked = true; insulated.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).values, {isolering: true});
+  const label = tableField(ui, ui.tag.id, "label"); label.value = "PS12"; label.dispatch("input");
+  assert.equal(ui.sent.at(-1).label, "PS12"); assert.equal(ui.sent.at(-1).values, undefined);
+});
+
+test("invalid numeric table text cannot calculate with an old numeric value", t => {
+  const ui = setup(t), control = tableField(ui, ui.tag.id, "b");
+  control.value = "abc"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).values, {b: null});
+  assert.equal(control.validityMessage, "Ange ett tal.");
+  control.value = "1,2"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).values, {b: 1.2}); assert.equal(control.validityMessage, "");
+});
+
+test("table selection and drawing selection stay synchronized through marquee, checkbox and Escape", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  marquee(ui, [200, 200], [420, 320]);
+  const first = ui.find(e => e.getAttribute("aria-label") === "Markera VS1 i tabellen");
+  assert.equal(first.checked, true);
+  assert.equal(first.parent.parent.className.includes("gp-table-row-selected"), true);
+  selectTableRow(ui, "VS2"); assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  const all = ui.find(e => e.getAttribute("aria-label") === "Markera samtliga tabellrader");
+  assert.equal(all.checked, true);
+  bulk.marker("tag1").dispatch("click", {shiftKey: true});
+  assert.equal(first.checked, false); assert.equal(all.indeterminate, true);
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.deepEqual(selectedIds(ui), []); assert.equal(all.checked, false); assert.equal(all.indeterminate, false);
+  assert.equal(ui.byClass("gp-table-selection-info").hidden, true);
+});
+
+test("selected table rows edit directly without a popup, preserving other values and keyboard focus", t => {
+  const ui = setup(t); bulkFixture(ui);
+  const beforeLoads = ui.data.state.tags.map(tag => tag.values.F_vy);
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  const control = tableField(ui, "tag1", "b"); control.focus();
+  control.value = "0,8"; control.dispatch("input"); const request = ui.sent.at(-1);
+  assert.equal(request.action, "bulk_update");
+  assert.deepEqual(request.ids, ["tag1", "tag2"]); assert.deepEqual(request.values, {b: .8});
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  assert.equal(tableField(ui, "tag2", "b").value, "0,8");
+  assert.equal(document.activeElement, control);
+  for (const tag of ui.data.state.tags) {tag.values.b = .8; tag.status = "calculated";}
+  ui.changed(); ui.ack(request, {report: {updated: 2, calculated: 2, errors: []}});
+  assert.equal(tableField(ui, "tag1", "b"), control);
+  assert.ok(!ui.marker().className.includes("gp-tag-stale"), "The automatically calculated result becomes current on acknowledgment");
+  assert.deepEqual(ui.data.state.tags.map(tag => tag.values.F_vy), beforeLoads);
+});
+
+test("select-all table rows includes other pages and survives ordinary state updates", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  bulk.second.page = 2; ui.changed();
+  const all = ui.find(e => e.getAttribute("aria-label") === "Markera samtliga tabellrader");
+  all.checked = true; all.dispatch("change"); ui.changed();
+  assert.equal(all.checked, true); ui.byText("2 markerade");
+  assert.deepEqual(selectedIds(ui), ["tag1"], "Only the current page has a visible marker");
+  const control = tableField(ui, "tag1", "b"); control.value = "0,8"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+});
+
+test("mixed table selection blocks load units and length fields but allows geometry and insulation", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  bulk.second.values.lang = 0; ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  assert.equal(tableField(ui, "tag1", "F_vy").disabled, true);
+  assert.equal(tableField(ui, "tag2", "l").disabled, true);
+  assert.equal(tableField(ui, "tag1", "b").disabled, false);
+  const insulation = tableField(ui, "tag1", "isolering");
+  insulation.checked = true; insulation.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).values, {isolering: true});
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+  selectTableRow(ui, "VS1", false);
+  assert.equal(tableField(ui, "tag2", "F_vy").disabled, false);
+  assert.equal(tableField(ui, "tag2", "l").disabled, false);
+});
+
+test("table changes on unselected rows, labels and foundation type remain individual", t => {
+  const ui = setup(t); bulkFixture(ui); selectTableRow(ui, "VS1");
+  let cell = tableField(ui, "tag2", "b"); cell.value = "1,2"; cell.dispatch("input");
+  assert.equal(ui.sent.at(-1).action, "update"); assert.equal(ui.sent.at(-1).id, "tag2");
+  selectTableRow(ui, "VS2");
+  for (const [name, value, event] of [["label", "VS3", "input"], ["lang", "0", "change"]]) {
+    cell = tableField(ui, "tag1", name); cell.value = value; cell.dispatch(event);
+    assert.equal(ui.sent.at(-1).action, "update"); assert.equal(ui.sent.at(-1).id, "tag1");
+  }
+});
+
+test("an automatic table calculation error stays on its row and correction restores the current result", t => {
+  const ui = setup(t); bulkFixture(ui);
+  const cell = tableField(ui, "tag1", "b"); cell.value = "abc"; cell.dispatch("input");
+  let request = ui.sent.at(-1);
+  Object.assign(ui.tag, {status: "error", error: "Ange giltig bredd", summary: null});
+  ui.tag.values.b = null; ui.changed(); ui.ack(request);
+  ui.byText("2 sulor · 1 med fel i indata");
+  const row = ui.find(e => e.tag === "tr" && e.dataset.tagId === "tag1");
+  assert.equal(row.children[3].textContent, "Fel i indata");
+  assert.ok(ui.data.state.tags[1].summary, "The other footing retains its own result");
+  cell.value = "1,1"; cell.dispatch("input"); request = ui.sent.at(-1);
+  ui.tag.values.b = 1.1;
+  Object.assign(ui.tag, {status: "calculated", error: "", summary: structuredClone(ui.data.state.tags[1].summary)});
+  ui.changed(); ui.ack(request);
+  assert.equal(row.children[3].textContent, "U 75%"); assert.equal(cell.value, "1,1");
+  assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
+});
+
+test("Enter moves through table rows without replacing controls or running notebook cells", t => {
+  const ui = setup(t); bulkFixture(ui);
+  const first = tableField(ui, "tag1", "b"), second = tableField(ui, "tag2", "b");
+  let prevented = false; first.dispatch("keydown", {key: "Enter", preventDefault() {prevented = true;}});
+  assert.equal(prevented, true); assert.equal(document.activeElement, second);
+  second.dispatch("keydown", {key: "Enter", shiftKey: true}); assert.equal(document.activeElement, first);
+});
+
 test("Shift-left marquee previews two labels without moving the canvas and opens the existing bulk editor", t => {
   const ui = setup(t), bulk = bulkFixture(ui), picture = ui.byClass("gp-picture");
   const initial = picture.getBoundingClientRect(), original = structuredClone(ui.data.state);
@@ -655,11 +819,11 @@ test("multi-selection only sends chosen fields and retains different loads", t =
   assert.equal(bulk.choose("b").checked, true);
   assert.deepEqual(ui.data.state, before, "Typing stays local until Apply");
   assert.equal(ui.sent.length, 0);
-  ui.byText("Tillämpa och beräkna").click();
+  ui.byText("Tillämpa").click();
   const request = ui.sent.at(-1);
   assert.deepEqual(request.ids, ["tag1", "tag2"]);
   assert.deepEqual(request.values, {b: .9});
-  assert.equal(request.calculate, true);
+  assert.equal(request.calculate, undefined, "The kernel always calculates widget edits automatically");
   assert.equal(ui.byText("Ändra markerade").disabled, true);
   assert.equal(bulk.field("b").disabled, true);
   for (const tag of ui.data.state.tags) tag.values.b = .9;
@@ -668,7 +832,7 @@ test("multi-selection only sends chosen fields and retains different loads", t =
   assert.equal(ui.byText("Ändra markerade").disabled, false);
   assert.equal(bulk.field("b").value, "0.9");
   assert.equal(bulk.choose("b").checked, false);
-  ui.byText("2 av 2 sulor beräknade.");
+  ui.byText("2 av 2 sulor beräknade automatiskt.");
 });
 
 for (const entry of ["toolbar", "marquee"]) {
@@ -712,7 +876,6 @@ for (const entry of ["toolbar", "marquee"]) {
       assert.equal(bulk.marker("tag2").getAttribute("aria-pressed"), "false");
       assert.deepEqual(ui.data.state, original); assert.equal(ui.sent.length, 0);
       ui.field("b").value = "1,8"; ui.field("b").dispatch("input");
-      ui.byText("Beräkna").click();
       assert.equal(ui.sent.at(-1).id, "tag2", "The opened form edits this footing only");
       assert.equal(ui.sent.at(-1).values.b, 1.8);
     });
@@ -750,7 +913,7 @@ test("mixed types allow insulation while blocking differently defined loads and 
   ui.byText("Tillämpa").click();
   const request = ui.sent.at(-1);
   assert.deepEqual(request.values, {isolering: false});
-  assert.equal(request.calculate, false);
+  assert.equal(request.calculate, undefined, "The kernel calculates this patch automatically");
   ui.ack(request, {ok: false, error: "Testfel"});
   assert.equal(bulk.field("isolering").value, "false", "Rejected request preserves the patch for correction");
   assert.equal(bulk.choose("isolering").checked, true);
@@ -781,7 +944,7 @@ test("batch calculation reports failed footing labels and clears older individua
   ui.tag.values.b = 1.4; ui.changed(); ui.ack(ui.sent.at(-1));
   bulk.select();
   bulk.field("b").value = "0,7"; bulk.field("b").dispatch("input");
-  ui.byText("Tillämpa och beräkna").click();
+  ui.byText("Tillämpa").click();
   const request = ui.sent.at(-1);
   Object.assign(ui.tag, {values: {...ui.tag.values, b: .7}, status: "calculated"});
   Object.assign(bulk.second, {values: {...bulk.second.values, b: .7}, status: "error", summary: null, error: "Saknad last"});
@@ -904,18 +1067,18 @@ for (const readOnly of [false, true]) test(`length stays on inactive/new wall la
   slidingFixture(ui, false);
   assert.match(ui.byClass("gp-tag-result").textContent, /L 3 m$/);
   ui.tag.status = "new"; ui.tag.summary = null; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad · L 3 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata · L 3 m");
   ui.data.state.sliding.enabled = true; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
   ui.tag.values.isolering = true; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad · L 3 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata · L 3 m");
   ui.tag.values.lang = 0; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   ui.tag.values.lang = 1;
   for (const length of [null, "", "saknas", 0, -1]) {
     ui.tag.values.glid_L = length; ui.changed();
-    assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+    assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   }
 });
 
@@ -1625,7 +1788,7 @@ test("raw input drafts survive minimize and stale calculation acknowledgments", 
   const second = ui.sent.at(-1);
   Object.assign(ui.tag, { label: second.label, values: { ...second.values }, status: "calculated" });
   ui.changed(); ui.ack(second); reopen();
-  assert.equal(ui.field("b").value, "1.2");
+  assert.equal(ui.field("b").value, "1,20", "Automatic updates preserve the user’s raw text");
   assert.equal(ui.label().value, "VS3");
 });
 
@@ -1639,9 +1802,9 @@ test("insulation toggles required capacities and service load requirements, reta
   assert.equal(ui.field("f_d_bruk").parent.hidden, true);
   assert.equal(ui.field("F_vy_bruk").disabled, false);
   assert.equal(ui.field("F_vy_bruk").required, false);
-  ui.byClass("gp-form").dispatch("submit");
+  ui.field("b").value = "1,1"; ui.field("b").dispatch("input");
   const soil = ui.sent.at(-1);
-  assert.equal(soil.action, "calculate", "Empty inactive fields cannot block the soil calculation");
+  assert.equal(soil.action, "update", "An edit automatically sends inputs without a calculation button");
   assert.equal(soil.values.isolering, false);
   for (const name of ["l_h", "l_h_bruk", "F_hb_bruk", "F_hl_bruk"]) {
     assert.equal(name in soil.values, false, "Removed lever-arm inputs are not sent for calculation");
@@ -1649,15 +1812,14 @@ test("insulation toggles required capacities and service load requirements, reta
   ui.ack(soil);
   enabled.checked = true; enabled.dispatch("input");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering", "The draft is shown before the kernel replies");
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Ändrad · beräkna");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Uppdaterar…");
   assert.equal(ui.field("f_d_brott").parent.hidden, false);
   assert.equal(ui.field("F_vy_bruk").disabled, false);
   assert.equal(ui.field("F_vy_bruk").required, true);
   const before = ui.sent.length;
   ui.byClass("gp-form").dispatch("submit");
   assert.equal(ui.sent.length, before, "Active insulation requires strengths and an explicit long-term load");
-  assert.equal(ui.field("F_vy_bruk").closest("details").open, true);
-  assert.equal(ui.field("f_d_bruk").closest("details").open, true);
+  assert.equal(ui.sent.at(-1).values.isolering, true, "Incomplete insulation inputs are sent so the kernel can display the calculation error");
   for (const [name, value] of [["F_vy_bruk", "70,5"], ["f_d_brott", "200"], ["f_d_bruk", "80"]]) {
     ui.field(name).value = value; ui.field(name).dispatch("input");
   }
@@ -1666,7 +1828,7 @@ test("insulation toggles required capacities and service load requirements, reta
   assert.equal(ui.field("F_vy_bruk").value, "70,5");
   ui.byClass("gp-form").dispatch("submit");
   const request = ui.sent.at(-1);
-  assert.equal(request.action, "calculate");
+  assert.equal(request.action, "update");
   assert.equal(request.values.isolering, true);
   assert.equal(request.values.F_vy_bruk, 70.5);
   assert.equal(request.values.f_d_brott, 200);

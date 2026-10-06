@@ -106,6 +106,10 @@ pelarsulor. Varje tagg har egna indata och använder
 från JSON. Befintliga littera får uppdaterade laster och vägglängd; nya sulor
 placeras med ett klick per stöd. Anpassa övriga indata före beräkning.
 **Radera samtliga sulor** rensar sulorna på alla ritningssidor efter bekräftelse.
+En redigerbar tabell längst ned visar alla sulors indata och delar markering
+med ritningen. Ändra en cell på en markerad rad för att ge alla markerade
+sulor samma värde i kolumnen. Resultaten uppdateras automatiskt vid varje
+ändring; eventuella fel visas per sula.
 Se [importformat och arbetsgång](docs/grundplan.md#importera-lasteffekter).
 
 Installera från GitHub i samma Pythonmiljö som notebookens kernel.
@@ -135,8 +139,8 @@ plan
 ```
 
 Välj **+ Väggsula** eller **+ Pelarsula** och klicka på ritningen. Ange
-littera och indata, tryck **Beräkna** och **Minimera**. Klicka på taggen för
-att ändra värden. Resultatet blir inaktuellt när beräkningsindata ändras.
+littera och indata och tryck **Minimera**. Klicka på taggen för att ändra
+värden. Sulan beräknas automatiskt vid placering och när indata ändras.
 Indata är grupperade i utfällbara avsnitt. Dra dialogens rubrik för att
 flytta den; dra i ritningen för att panorera och använd **Shift + scroll**
 eller zoomknapparna för att förstora. Shift + scroll zoomar kring muspekaren.
@@ -193,7 +197,7 @@ grundstorlek sparas i projektet.
 Ett vanligt klick på en etikett öppnar alltid objektets redigering.
 **Ändra markerade** öppnar gemensamma indata: välj endast de fält som ska
 ersättas, exempelvis isolering, väggbredd eller pelarsulornas bₓ/bᵧ.
-Övriga värden behålls per sula. **Tillämpa och beräkna** räknar om urvalet
+Övriga värden behålls per sula. **Tillämpa** räknar automatiskt om urvalet
 och redovisar eventuella fel per sula. Lastfält kräver samma sultyp i urvalet.
 Se [gemensam redigering](docs/grundplan.md#ändra-flera-sulor-samtidigt).
 
