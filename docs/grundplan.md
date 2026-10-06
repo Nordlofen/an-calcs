@@ -211,6 +211,33 @@ JSON-projektet separat för att kunna redigera sulorna senare.
 PDF-export kräver `reportlab` och `pypdf`, som ingår i `an-calcs[notebook]`.
 Uppdatera med installationskommandot ovan om du har en äldre installation.
 
+## Exportera en interaktiv resultatvy som HTML
+
+Tryck **Exportera HTML** för att ladda ned en enda fil med ritningen och
+öppningsbara etiketter. Filen får originalritningens namn med tillägget
+`_resultat.html`. Du kan också exportera från Python:
+
+```python
+plan.exportera_html("grundplan_resultat.html")
+```
+
+Öppna filen i en vanlig webbläsare. Den fungerar utan Jupyter, Python eller
+internet; ritningsbilder, indata, resultat och gränssnitt finns i filen.
+Alla PDF-sidor följer med och väljs med **Sida**. Ritningsbilderna har samma
+upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
+
+Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera**
+stänger dialogen, och samma avsnitt är utfällda när etiketten öppnas igen.
+Dra i ritningen för att panorera, använd +/− för zoom och **Anpassa** för
+att återställa vyn. Reglaget **Etikettstorlek** fungerar även i HTML-filen.
+Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
+
+Beräkningsvärden och etikettpositioner är låsta i resultatvyn. Exporten
+räknar inte om sulor: ändrade, ej beräknade eller felaktiga sulor visar sin
+status i stället för ett aktuellt resultat. Använd JSON-projektet i Jupyter
+för fortsatt redigering. Export från ett återöppnat JSON-projekt kräver
+inte att originalritningen finns kvar.
+
 ## Använd resultat och taggar från Python
 
 ```python

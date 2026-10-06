@@ -82,10 +82,12 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
+const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
 
-function setup(t) {
+function setup(t, { readOnly = false, standalone = false } = {}) {
   globalThis.document = { createElement: tag => new Element(tag), activeElement: null, downloads: [] };
   globalThis.window = { confirm: () => true };
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
@@ -99,10 +101,13 @@ function setup(t) {
     schema: { fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], handlers = new Map();
-  const model = { get: name => data[name], send: payload => sent.push(payload),
+  const snapshot = { state: data.state, schema: data.schema, page: 1,
+    pages: [data.background, { ...data.background, page: 2, url: "data:second" }] };
+  snapshot.pages.forEach(page => { page.page_count = 2; });
+  const model = standalone ? createResultModel(snapshot) : { get: name => data[name], send: payload => sent.push(payload),
     on: (name, fn) => handlers.set(name, fn), off: name => handlers.delete(name) };
   const host = new Element("host");
-  t.after(widget.render({ model, el: host }));
+  t.after(widget.render({ model, el: host, readOnly }));
   const walk = element => [element, ...element.children.flatMap(walk)];
   const find = predicate => {
     const element = walk(host).find(predicate);
@@ -121,16 +126,19 @@ function setup(t) {
   const finish = (x, y) => viewport.dispatch("pointerup", { clientX: x, clientY: y });
   const drag = (dx, dy) => { start(); move(300 + dx, 300 + dy); finish(300 + dx, 300 + dy); };
   const place = (x = 400, y = 400) => { start(byClass("gp-picture"), x, y); finish(x, y); };
-  return { tag, data, sent, byClass, byText, find, viewport, marker, position, ack, changed,
+  return { tag, data, model, snapshot, elements: () => walk(host), sent, byClass, byText, find, viewport, marker, position, ack, changed,
     start, move, finish, drag, place, field: name => find(element => element.name === name),
     label: () => byClass("gp-label-row").children[0] };
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
 
-test("PDF export downloads the kernel's binary PDF and restores the button after success or failure", async t => {
+for (const [format, mime, content, filename] of [
+  ["PDF", "application/pdf", "%PDF-1.4\nTest PDF\n", "plan_med_etiketter.pdf"],
+  ["HTML", "text/html;charset=utf-8", "<!doctype html><p>ÅÄÖ · resultat</p>", "plan_resultat.html"],
+]) test(format + " export downloads binary data and restores the button after success or failure", async t => {
   const ui = setup(t);
-  const button = ui.byText("Exportera PDF");
+  const button = ui.byText("Exportera " + format);
   let downloaded;
   t.mock.method(URL, "createObjectURL", blob => { downloaded = blob; return "blob:test-pdf"; });
   t.mock.method(URL, "revokeObjectURL", () => {});
@@ -138,16 +146,16 @@ test("PDF export downloads the kernel's binary PDF and restores the button after
   const original = structuredClone(ui.tag);
   button.dispatch("click");
   const request = ui.sent.at(-1);
-  assert.equal(request.action, "export_pdf");
+  assert.equal(request.action, "export_" + format.toLowerCase());
   assert.equal(button.disabled, true);
   ui.changed();
   assert.equal(button.disabled, true, "A model refresh cannot permit a duplicate export");
-  const bytes = new TextEncoder().encode("%PDF-1.4\nTest PDF\n");
-  ui.ack(request, {filename: "plan_med_etiketter.pdf"}, [new DataView(bytes.buffer)]);
+  const bytes = new TextEncoder().encode(content);
+  ui.ack(request, {filename}, [new DataView(bytes.buffer)]);
   assert.equal(button.disabled, false);
-  assert.equal(downloaded.type, "application/pdf");
-  assert.equal(await downloaded.text(), "%PDF-1.4\nTest PDF\n");
-  assert.deepEqual(document.downloads, [{href: "blob:test-pdf", filename: "plan_med_etiketter.pdf"}]);
+  assert.equal(downloaded.type, mime);
+  assert.equal(await downloaded.text(), content);
+  assert.deepEqual(document.downloads, [{href: "blob:test-pdf", filename}]);
   assert.deepEqual(ui.tag, original, "Export never changes data or results");
   button.dispatch("click");
   ui.ack(ui.sent.at(-1), {ok: false, error: "PDF-export misslyckades"});
@@ -156,6 +164,62 @@ test("PDF export downloads the kernel's binary PDF and restores the button after
   assert.equal(ui.byClass("gp-status").textContent, "PDF-export misslyckades");
   ui.data.background = {}; ui.changed();
   assert.equal(button.disabled, true, "A drawing is required for export");
+});
+
+test("standalone result labels open read-only values and remember expanded sections", t => {
+  const ui = setup(t, { readOnly: true, standalone: true });
+  const original = structuredClone(ui.snapshot);
+  ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
+  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
+  assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
+  ui.marker().click();
+  assert.equal(ui.byClass("gp-dialog").hidden, false);
+  assert.equal(ui.byClass("gp-result-main").children[1].textContent, "75%");
+  assert.equal(ui.byText("EPS ÅÄÖ <script>literal</script>").tag, "span");
+  const formElements = ui.elements().filter(element => element.closest("form"));
+  assert.ok(formElements.every(element => !["input", "select", "textarea"].includes(element.tag)));
+  const geometry = () => ui.byText("Geometri").parent;
+  assert.equal(geometry().open, false);
+  geometry().open = true;
+  ui.byText("Minimera").click();
+  ui.marker().click();
+  assert.equal(geometry().open, true);
+  ui.byText("Minimera").click();
+  const position = ui.position();
+  ui.drag(70, 30);
+  assert.deepEqual(ui.position(), position, "Dragging cannot edit exported tag positions");
+  const before = ui.byClass("gp-sheet").style.left;
+  ui.start(ui.byClass("gp-picture"), 100, 100); ui.move(160, 140); ui.finish(160, 140);
+  assert.notEqual(ui.byClass("gp-sheet").style.left, before, "Background still pans");
+  ui.byText("Anpassa").click();
+  assert.equal(ui.byClass("gp-sheet").style.left, before);
+  assert.deepEqual(ui.tag.summary, original.state.tags[0].summary);
+});
+
+test("standalone page and label-size controls work locally and reject calculation commands", t => {
+  const ui = setup(t, { readOnly: true, standalone: true });
+  const original = structuredClone(ui.snapshot);
+  const replies = [];
+  ui.model.on("msg:custom", reply => replies.push(reply));
+  const page = ui.byClass("gp-page-label").children[0];
+  page.value = 2; page.dispatch("change");
+  assert.equal(ui.byClass("gp-picture").src, "data:second");
+  assert.equal(ui.byClass("gp-markers").children.length, 0);
+  page.value = 1; page.dispatch("change");
+  ui.marker().click();
+  const size = ui.byClass("gp-size-label").children[0];
+  size.value = 180; size.dispatch("input"); size.dispatch("change");
+  assert.equal(ui.model.get("state").label_size, 180);
+  assert.equal(ui.byClass("gp-dialog").hidden, false);
+  for (const action of ["calculate", "update", "delete", "copy", "add", "save", "export_pdf"]) {
+    ui.model.send({ action, id: ui.tag.id, values: { b: 55 }, view: "test", request: 1 });
+    assert.equal(replies.at(-1).ok, false);
+  }
+  ui.model.send({ action: "page", page: 500 });
+  assert.equal(replies.at(-1).ok, false);
+  ui.model.send({ action: "label_size", value: NaN });
+  assert.equal(replies.at(-1).ok, false);
+  assert.deepEqual(ui.snapshot, original, "Display choices do not modify the embedded snapshot");
 });
 
 test("tag dragging uses displayed drawing size and sends only position; clicks still open the dialog", t => {

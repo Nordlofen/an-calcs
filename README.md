@@ -169,6 +169,15 @@ sidformat och vektorinnehåll bevaras. Exporten kan även göras från Python:
 plan.exportera_pdf("grundplan_med_etiketter.pdf")
 ```
 
+**Exportera HTML** ger en fristående resultatvy med zoom, panorering och
+klickbara etiketter. Indata och resultat visas i utfällbara avsnitt;
+beräkningsvärdena kan inte ändras. Alla ritningssidor bäddas in, så filen
+kan öppnas utan internet eller Jupyter:
+
+```python
+plan.exportera_html("grundplan_resultat.html")
+```
+
 Se [exempelnotebooken](notebooks/Sulgrundlaggning.ipynb) och
 [användning, lastkonventioner och begränsningar](docs/grundplan.md).
 

@@ -1,5 +1,5 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
-function render({ model, el }) {
+function render({ model, el, readOnly = false }) {
   const node = (tag, className, text) => {
     const element = document.createElement(tag);
     if (className) element.className = className;
@@ -7,6 +7,7 @@ function render({ model, el }) {
     return element;
   };
   const root = node("div", "an-grundplan");
+  root.classList.toggle("gp-readonly", readOnly);
   // Keep JupyterLab's cell shortcuts from consuming keys intended for the widget.
   root.setAttribute("data-lm-suppress-shortcuts", "true");
   const view = Math.random().toString(36).slice(2);
@@ -28,6 +29,7 @@ function render({ model, el }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
+    if (readOnly && !["page", "label_size"].includes(action)) return;
     const request = ++sequence;
     pending.set(request, onDone);
     model.send({ action, ...payload, request, view }, undefined, buffers);
@@ -35,7 +37,7 @@ function render({ model, el }) {
   const heading = node("header", "gp-heading");
   const headingText = node("div");
   const title = node("h3", "", state().title);
-  headingText.append(title, node("p", "", "Sulgrundläggning · jordens bärighet"));
+  headingText.append(title, node("p", "", readOnly ? "Sulgrundläggning · resultat" : "Sulgrundläggning · jordens bärighet"));
   const total = node("span", "gp-count");
   heading.append(headingText, total);
   const toolbar = node("div", "gp-toolbar");
@@ -67,32 +69,36 @@ function render({ model, el }) {
       showMessage("Projektet har exporterats till din nedladdningsmapp.");
     });
   });
-  let exporting = false;
-  const exportPdf = button("Exportera PDF", () => {
-    exporting = true;
-    exportPdf.disabled = true;
-    showMessage("Exporterar alla ritningssidor med etiketter…");
-    command("export_pdf", {}, [], (reply, buffers) => {
-      exporting = false;
-      exportPdf.disabled = !background().url;
-      if (!reply.ok) return;
-      const url = URL.createObjectURL(new Blob(buffers, { type: "application/pdf" }));
-      const a = node("a");
-      a.href = url;
-      a.download = reply.filename;
-      root.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showMessage("PDF med ritning och etiketter har exporterats till din nedladdningsmapp.");
+  const exports = [];
+  for (const [format, mime] of [["PDF", "application/pdf"], ["HTML", "text/html;charset=utf-8"]]) {
+    const entry = { busy: false };
+    entry.button = button("Exportera " + format, () => {
+      entry.busy = true;
+      entry.button.disabled = true;
+      showMessage("Exporterar alla ritningssidor med etiketter…");
+      command("export_" + format.toLowerCase(), {}, [], (reply, buffers) => {
+        entry.busy = false;
+        entry.button.disabled = !background().url;
+        if (!reply.ok) return;
+        const url = URL.createObjectURL(new Blob(buffers, { type: mime }));
+        const a = node("a");
+        a.href = url;
+        a.download = reply.filename;
+        root.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showMessage(format + " med ritning och etiketter har exporterats till din nedladdningsmapp.");
+      });
     });
-  });
-  toolbar.append(loadDrawing, loadProject, saveProject, exportPdf, node("span", "gp-separator"));
+    exports.push(entry);
+  }
+  if (!readOnly) toolbar.append(loadDrawing, loadProject, saveProject, ...exports.map(entry => entry.button), node("span", "gp-separator"));
   const modes = new Map();
   for (const [key, label] of [["pan", "Panorera"], ["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(key));
     modes.set(key, b);
-    toolbar.append(b);
+    if (!readOnly) toolbar.append(b);
   }
   const cancelCopy = button("Avbryt kopiering", () => {
     setMode("pan");
@@ -123,7 +129,8 @@ function render({ model, el }) {
       }
     });
   });
-  toolbar.append(cancelCopy, sizeLabel);
+  if (!readOnly) toolbar.append(cancelCopy);
+  toolbar.append(sizeLabel);
   const pageLabel = node("label", "gp-page-label", "Sida ");
   const pageSelect = node("select");
   pageSelect.setAttribute("aria-label", "PDF-sida");
@@ -138,7 +145,7 @@ function render({ model, el }) {
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
-  viewport.setAttribute("aria-label", "Grundplan. Välj Väggsula eller Pelarsula och klicka på ritningen.");
+  viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat." : "Grundplan. Välj Väggsula eller Pelarsula och klicka på ritningen.");
   const sheet = node("div", "gp-sheet");
   const picture = node("img", "gp-picture");
   picture.alt = "Grundläggningsritning";
@@ -202,7 +209,8 @@ function render({ model, el }) {
   });
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
   footer.append(remove, copy, calculate);
-  form.append(labelRow, basis, fieldsBox, results, footer);
+  if (readOnly) form.append(results, basis, fieldsBox);
+  else form.append(labelRow, basis, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
   board.append(viewport, empty, zoomBar, dialog);
   const status = node("div", "gp-status");
@@ -210,7 +218,8 @@ function render({ model, el }) {
   const legend = node("div", "gp-legend", "○ Ej beräknad   ● U ≤ 100 %   ● U > 100 %   ◌ Ändrad");
   const help = node("p", "gp-help",
     "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
-  root.append(heading, toolbar, board, status, legend, help, fileInput, projectInput);
+  root.append(heading, toolbar, board, status, legend);
+  if (!readOnly) root.append(help, fileInput, projectInput);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -314,7 +323,7 @@ function render({ model, el }) {
     const left = imageRect.left - rect.left + tag.x * imageRect.width + 25;
     const top = imageRect.top - rect.top + tag.y * imageRect.height - 20;
     placeDialog(left, top);
-    labelInput.focus({ preventScroll: true });
+    (readOnly ? minimize : labelInput).focus({ preventScroll: true });
   }
   function placeDialog(x, y) {
     dialog.style.left = Math.max(8, Math.min(board.clientWidth - dialog.offsetWidth - 8, x)) + "px";
@@ -332,7 +341,7 @@ function render({ model, el }) {
         if (!event.detail) openDialog(tag);
       }, "gp-tag gp-tag-" + color);
       marker.dataset.tagId = tag.id;
-      marker.title = "Dra för att flytta · klicka för indata och kopiering";
+      marker.title = readOnly ? "Klicka för indata och resultat" : "Dra för att flytta · klicka för indata och kopiering";
       const position = positions.get(tag.id) || tag;
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
@@ -380,12 +389,29 @@ function render({ model, el }) {
     inputs.clear();
     const draft = drafts.get(tag.id);
     for (const [index, [label, names, note]] of groups.entries()) {
-      const group = makeSection(tag.id, "input:" + names[0], label, index < 2, inputSections);
-      if (note) group.append(node("p", "gp-field-note", note));
+      if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
+      const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
+      if (note && !readOnly) group.append(node("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        const row = node("label", "gp-field");
+        const row = node(readOnly ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
+        if (readOnly) {
+          const value = tag.values[name];
+          const text = field.type === "bool" ? (value ? "Ja" : "Nej")
+            : field.type === "choice" ? (value === 1 ? "Väggsula (per meter)" : "Pelarsula")
+            : field.type === "text" ? (value || "—")
+            : value == null ? "—" : number(value, 10);
+          const output = node("span", "gp-value", text);
+          const unit = node("span", "gp-unit", field.unit);
+          if (["text", "choice", "bool"].includes(field.type)) {
+            row.classList.add("gp-text-field");
+            row.append(caption, output);
+          } else row.append(caption, output, unit);
+          group.append(row);
+          inputs.set(name, { input: output, unit, row, group });
+          continue;
+        }
         const input = node(field.type === "choice" ? "select" : "input");
         input.name = name;
         input.setAttribute("aria-label", field.label);
@@ -432,15 +458,21 @@ function render({ model, el }) {
     }));
   }
   function fieldUnits() {
-    const strip = inputs.get("lang")?.input.value === "1";
-    const insulated = inputs.get("isolering")?.input.checked;
-    basis.textContent = strip
-      ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
-      : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
+    const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
+    const insulated = readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked;
+    basis.textContent = readOnly
+      ? (strip ? "Väggsula: laster och moment avser en meter vägg." : "Pelarsula: laster och moment avser hela sulan.") + " Egentyngd ingår i beräkningsresultatet."
+      : strip
+        ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
+        : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     for (const [name, entry] of inputs) {
       const unit = fieldSchema.get(name).unit;
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
+      if (readOnly) {
+        entry.row.hidden = (strip && name === "l") || (!insulated && insulationField);
+        continue;
+      }
       entry.input.disabled = insulationField && !insulated;
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text" && !entry.input.disabled;
       if (entry.input.disabled) entry.input.setCustomValidity("");
@@ -468,6 +500,7 @@ function render({ model, el }) {
   labelInput.addEventListener("input", () => edit(false));
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (readOnly) return;
     const values = readValues();
     for (const { input, group } of inputs.values()) {
       if (!input.disabled && input.validity && !input.validity.valid) group.open = true;
@@ -495,7 +528,7 @@ function render({ model, el }) {
     results.replaceChildren();
     if (!tag) return;
     if (dirty.has(tag.id) || tag.status === "stale") {
-      results.append(node("p", "", "Indata ändrade. Beräkna för att uppdatera resultatet."));
+      results.append(node("p", "", readOnly ? "Indata ändrade. Inget aktuellt resultat vid exporten." : "Indata ändrade. Beräkna för att uppdatera resultatet."));
       return;
     }
     if (tag.error) {
@@ -504,7 +537,7 @@ function render({ model, el }) {
     }
     const r = tag.summary;
     if (!r) {
-      results.append(node("p", "", "Ingen aktuell beräkning. Kontrollera indata och tryck Beräkna."));
+      results.append(node("p", "", readOnly ? "Sulan var inte beräknad vid exporten." : "Ingen aktuell beräkning. Kontrollera indata och tryck Beräkna."));
       return;
     }
     const headline = node("div", "gp-result-main " + (r.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail"));
@@ -553,7 +586,7 @@ function render({ model, el }) {
     loadDrawing.disabled = data.tags.length > 0;
     loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
     saveProject.disabled = !bg.url;
-    exportPdf.disabled = exporting || !bg.url;
+    for (const entry of exports) entry.button.disabled = entry.busy || !bg.url;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
@@ -582,7 +615,7 @@ function render({ model, el }) {
         formId = tag.id;
         labelInput.value = draft?.label ?? tag.label;
         buildFields(tag);
-      } else if (!dirty.has(tag.id)) {
+      } else if (!readOnly && !dirty.has(tag.id)) {
         for (const [name, { input }] of inputs) {
           if (document.activeElement !== input) {
             if (input.type === "checkbox") input.checked = draft?.values[name] ?? tag.values[name] ?? false;
@@ -626,6 +659,7 @@ function render({ model, el }) {
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     if (drag.moved) {
       if (drag.id) {
+        if (readOnly) return;
         const rect = picture.getBoundingClientRect();
         positions.set(drag.id, {
           x: Math.max(0, Math.min(1, drag.position.x + dx / rect.width)),
@@ -651,6 +685,7 @@ function render({ model, el }) {
     if (id) {
       const tag = state().tags.find((t) => t.id === id);
       if (!moved) { if (tag) openDialog(tag); return; }
+      if (readOnly) return;
       const position = positions.get(id);
       pendingPositions.set(id, position);
       command("update", { id, ...position }, [], (reply) => {
@@ -662,7 +697,7 @@ function render({ model, el }) {
       });
       return;
     }
-    if (moved || mode === "pan") return;
+    if (readOnly || moved || mode === "pan") return;
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
@@ -697,7 +732,7 @@ function render({ model, el }) {
   dialogHeader.addEventListener("pointercancel", () => { dialogDrag = null; });
   root.addEventListener("keydown", (event) => {
     event.stopPropagation();
-    if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage("Klicka på en etikett för indata eller dra den för att flytta."); }
+    if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta."); }
   });
   function receive(reply, buffers = []) {
     if (reply.view !== view) return;
@@ -715,7 +750,7 @@ function render({ model, el }) {
   model.on("msg:custom", receive);
   setMode("pan");
   showMessage(background().url
-    ? "Välj Väggsula eller Pelarsula och klicka på ritningen."
+    ? (readOnly ? "Klicka på en etikett för indata och resultat. Dra i ritningen för att panorera." : "Välj Väggsula eller Pelarsula och klicka på ritningen.")
     : "Öppna en ritning eller ett sparat projekt.");
   update();
   return () => {

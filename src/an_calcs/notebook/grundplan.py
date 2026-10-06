@@ -424,6 +424,43 @@ class Grundplan(anywidget.AnyWidget):
                 temporary.unlink(missing_ok=True)
         return path
 
+    def _html_bytes(self):
+        if not self._source:
+            raise ValueError("Öppna en ritning först.")
+        from .grundplan_html import render_html
+
+        first = _render_source(self._source, self._filename, 1)
+        pages = [first, *(_render_source(self._source, self._filename, page)
+                          for page in range(2, first["page_count"] + 1))]
+        return render_html({
+            "state": {"title": self._title, "label_size": self._label_size, "tags": self.taggar},
+            "schema": {"fields": copy.deepcopy(_FIELDS)},
+            "pages": pages,
+            "page": self.background.get("page", 1),
+        })
+
+    def exportera_html(self, fil):
+        """Exportera en fristående resultatvy med öppningsbara etiketter.
+
+        Alla ritningssidor och aktuella indata/resultat bäddas in. Filen fungerar
+        utan Jupyter eller internet. Beräkningsvärdena kan inte ändras i vyn.
+        Exporten räknar inte om sulor och ändrar inte projektet.
+        """
+        path = Path(fil)
+        if path.suffix.lower() not in (".html", ".htm"):
+            raise ValueError("Välj ett filnamn som slutar med .html eller .htm.")
+        data = self._html_bytes()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(data)
+            temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return path
+
     @classmethod
     def oppna(cls, fil):
         """Öppna sparat projekt; verifiera sparade resultat genom omberäkning."""
@@ -526,6 +563,11 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "export_pdf":
                 data = self._pdf_bytes()
                 reply.update(ok=True, filename=Path(self._filename).stem + "_med_etiketter.pdf")
+                self.send(reply, buffers=[data])
+                return
+            elif action == "export_html":
+                data = self._html_bytes()
+                reply.update(ok=True, filename=Path(self._filename).stem + "_resultat.html")
                 self.send(reply, buffers=[data])
                 return
             else:

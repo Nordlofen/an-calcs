@@ -109,6 +109,10 @@
 .an-grundplan .gp-status { padding: 9px 16px; min-height: 36px; background: #f7faf9; font-size: 12px; }
 .an-grundplan .gp-legend { padding: 8px 16px 0; color: var(--gp-muted); font-size: 11px; }
 .an-grundplan .gp-help { padding: 6px 16px 12px; color: var(--gp-muted); font-size: 11px; }
+.an-grundplan.gp-readonly .gp-tag { cursor: pointer; }
+.an-grundplan.gp-readonly .gp-results { border-top: 0; padding-top: 0; }
+.an-grundplan.gp-readonly .gp-value { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; white-space: pre-wrap; }
+.an-grundplan.gp-readonly .gp-text-field .gp-value { text-align: left; }
 @media (max-width: 650px) {
   .an-grundplan .gp-board { height: 620px; }
   .an-grundplan .gp-toolbar { gap: 5px; }
