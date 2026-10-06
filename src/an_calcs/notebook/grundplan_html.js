@@ -18,13 +18,7 @@ export function createResultModel(snapshot) {
     off(name, callback) { handlers.get(name)?.delete(callback); },
     send(message) {
       const reply = { request: message.request, view: message.view, ok: true };
-      if (message.action === "page") {
-        const page = snapshot.pages.find(page => page.page === message.page);
-        if (page) {
-          data.background = page;
-          emit("change:background");
-        } else Object.assign(reply, { ok: false, error: "Sidan finns inte i exporten." });
-      } else if (message.action === "label_size" && typeof message.value === "number" &&
+      if (message.action === "label_size" && typeof message.value === "number" &&
                  Number.isFinite(message.value) && message.value >= 60 && message.value <= 180) {
         data.state = { ...data.state, label_size: message.value };
         emit("change:state");

@@ -110,6 +110,7 @@ function render({ model, el, readOnly = false }) {
   const areaPhases = new Map();
   let sketchInline = false, sketchType = null;
   const selected = new Set(), bulkInputs = new Map();
+  let tableAnchor = null;
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
   let importBusy = false, deleteBusy = false, lastImportToken = null;
   const state = () => model.get("state") || { tags: [] };
@@ -194,7 +195,7 @@ function render({ model, el, readOnly = false }) {
   const deleteAll = button("Radera samtliga sulor", () => {
     if (deleteBusy || importBusy || bulkBusy || (!state().tags.length && !loadImport())) return;
     const count = state().tags.length;
-    if (!window.confirm("Radera samtliga " + count + " sulor på alla ritningssidor?"
+    if (!window.confirm("Radera samtliga " + count + " sulor?"
       + (loadImport() ? " Även återstående placeringar avbryts." : ""))) return;
     deleteBusy = true;
     cancelDrag(); closeDialog(); closeBulk();
@@ -202,7 +203,7 @@ function render({ model, el, readOnly = false }) {
     command("delete_all", {}, [], reply => {
       deleteBusy = false;
       if (reply.ok) {
-        selected.clear(); bulkIds = []; bulkSignature = ""; formId = null;
+        selected.clear(); tableAnchor = null; bulkIds = []; bulkSignature = ""; formId = null;
         tableFeedback.replaceChildren();
         dirty.clear(); drafts.clear(); edits.clear(); slidingDirty.clear();
         positions.clear(); pendingPositions.clear(); sectionStates.clear(); sketchStates.clear(); areaPhases.clear();
@@ -213,7 +214,7 @@ function render({ model, el, readOnly = false }) {
       showMessage(reply.ok ? "Samtliga " + (reply.deleted ?? count) + " sulor har raderats." : reply.error, !reply.ok);
     });
   }, "gp-delete");
-  deleteAll.title = "Radera sulorna på alla sidor. Ritning och projektinställningar behålls.";
+  deleteAll.title = "Radera vyns sulor. Ritning och projektinställningar behålls.";
   const importBar = node("section", "gp-import-bar");
   importBar.hidden = true;
   importBar.setAttribute("aria-label", "Placera importerade sulor");
@@ -409,7 +410,7 @@ function render({ model, el, readOnly = false }) {
     entry.button = button("Exportera " + format, () => {
       entry.busy = true;
       entry.button.disabled = true;
-      showMessage("Exporterar alla ritningssidor med etiketter…");
+      showMessage("Exporterar ritningssidan med etiketter…");
       command("export_" + format.toLowerCase(), {}, [], (reply, buffers) => {
         entry.busy = false;
         entry.button.disabled = !background().url;
@@ -435,24 +436,15 @@ function render({ model, el, readOnly = false }) {
     modes.set(key, b);
     if (!readOnly) toolbar.append(b);
   }
-  const selectMany = button("Markera flera", () => {
-    if (bulkBusy) return;
-    closeDialog(); closeBulk();
-    setMode(mode === "select" ? "pan" : "select");
-    viewport.focus({preventScroll: true});
-  });
-  selectMany.title = "Shift + vänsterdrag ritar en urvalsruta. Shift + klick växlar markeringen. Vanligt klick öppnar objektets redigering.";
-  modes.set("select", selectMany);
   const selectionBar = node("div", "gp-selection-bar");
   selectionBar.hidden = true;
   const selectionCount = node("span", "gp-selection-count");
   const editMany = button("Ändra markerade", openBulk, "gp-primary");
   const clearMany = button("Avmarkera", () => {
     if (bulkBusy) return;
-    selected.clear(); bulkSignature = ""; closeBulk(); renderMarkers(); showSelection();
+    selected.clear(); tableAnchor = null; bulkSignature = ""; closeBulk(); renderMarkers(); showSelection();
   });
   selectionBar.append(selectionCount, editMany, clearMany);
-  if (!readOnly) toolbar.append(selectMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
     setSliding({enabled: !sliding().enabled});
@@ -518,18 +510,6 @@ function render({ model, el, readOnly = false }) {
   });
   if (!readOnly) toolbar.append(cancelCopy);
   toolbar.append(sizeLabel);
-  const pageLabel = node("label", "gp-page-label", "Sida ");
-  const pageSelect = node("select");
-  pageSelect.setAttribute("aria-label", "PDF-sida");
-  pageLabel.append(pageSelect);
-  pageSelect.addEventListener("change", () => {
-    cancelDrag();
-    setMode(loadImport() && !loadImport().paused ? "import" : "pan");
-    closeDialog();
-    selected.clear(); bulkSignature = ""; closeBulk(); showSelection();
-    command("page", { page: Number(pageSelect.value) });
-  });
-  toolbar.append(pageLabel);
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
@@ -720,11 +700,14 @@ function render({ model, el, readOnly = false }) {
   tableSelectAll.addEventListener("change", () => {
     if (bulkBusy || deleteBusy || importBusy) return;
     const checked = tableSelectAll.checked;
-    closeDialog(); closeBulk(); selected.clear(); bulkSignature = "";
+    closeDialog(); closeBulk(); selected.clear(); tableAnchor = null; bulkSignature = "";
     if (checked) for (const tag of state().tags) selected.add(tag.id);
     showSelection(); renderMarkers();
   });
   const tableRows = new Map();
+  const tableSortHeads = new Map(), tableCollator = new Intl.Collator("sv", {numeric: true, sensitivity: "base"});
+  let tableSort = {key: null, direction: "ascending"};
+  tableScroll.addEventListener("focusout", () => requestAnimationFrame(() => {if (!disposed) sortTableRows();}));
   inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
   tableSection.append(tableHeader,
     node("p", "gp-field-note", "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
@@ -780,7 +763,7 @@ function render({ model, el, readOnly = false }) {
               slidingDirty.delete(id);
             }
             formId = null;
-            closeDialog(); closeBulk(); selected.clear(); bulkSignature = "";
+            closeDialog(); closeBulk(); selected.clear(); tableAnchor = null; bulkSignature = "";
             setMode(loadImport() ? "import" : "pan"); viewport.focus({preventScroll: true});
           }
           update();
@@ -793,7 +776,7 @@ function render({ model, el, readOnly = false }) {
         if (reply.ok) {
           active = null;
           tableFeedback.replaceChildren();
-          selected.clear(); bulkIds = []; bulkSignature = ""; closeBulk();
+          selected.clear(); tableAnchor = null; bulkIds = []; bulkSignature = ""; closeBulk();
           formId = null;
           dirty.clear();
           drafts.clear();
@@ -835,7 +818,6 @@ function render({ model, el, readOnly = false }) {
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value === "import") showMessage(importCaption());
-    else if (value === "select") showMessage("Shift + vänsterdrag ritar en urvalsruta. Shift + klick väljer eller avmarkerar en etikett; vanligt klick öppnar redigering. Tryck Ändra markerade när urvalet är klart.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
     else showMessage("Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
@@ -852,7 +834,6 @@ function render({ model, el, readOnly = false }) {
     loadEffects.disabled = !background().url || !!queue || importBusy || bulkBusy || deleteBusy;
     deleteAll.disabled = (!state().tags.length && !queue) || importBusy || bulkBusy || deleteBusy;
     importPause.disabled = importCancel.disabled = importBusy || deleteBusy;
-    pageSelect.disabled = bulkBusy || importBusy;
     if (!queue) {
       lastImportToken = null;
       if (mode === "import") setMode("pan");
@@ -1044,7 +1025,7 @@ function render({ model, el, readOnly = false }) {
   function openDialog(tag) {
     if (bulkBusy || deleteBusy) return;
     closeBulk();
-    if (!readOnly) { selected.clear(); bulkSignature = ""; showSelection(); }
+    if (!readOnly) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); }
     active = tag.id;
     formId = null;
     update();
@@ -1236,9 +1217,18 @@ function render({ model, el, readOnly = false }) {
     const selectHead = node("th", "gp-table-select");
     selectHead.setAttribute("rowspan", "2"); selectHead.setAttribute("scope", "col");
     selectHead.append(tableSelectAll); groupRow.append(selectHead);
-    for (const [label, className] of [["Littera", "gp-table-label"], ["Sida", "gp-table-page"], ["Status / U", "gp-table-status"]]) {
-      const th = node("th", className, label);
+    for (const [label, className, key] of [["Littera", "gp-table-label", "label"], ["Status / U", "gp-table-status", "status"]]) {
+      const th = node("th", className);
       th.setAttribute("rowspan", "2"); th.setAttribute("scope", "col"); groupRow.append(th);
+      const sortButton = button(label + " ↕", () => {
+        tableSort = {key, direction: tableSort.key === key
+          ? tableSort.direction === "ascending" ? "descending" : "ascending"
+          : key === "status" ? "descending" : "ascending"};
+        sortTableRows(true);
+      }, "gp-table-sort");
+      sortButton.setAttribute("aria-label", "Sortera efter " + (key === "label" ? "littera" : "status och utnyttjandegrad"));
+      th.setAttribute("aria-sort", "none");
+      th.append(sortButton); tableSortHeads.set(key, {th, button: sortButton, label});
     }
     for (const [label, names] of tableGroups) {
       if (!names.length) continue;
@@ -1322,18 +1312,27 @@ function render({ model, el, readOnly = false }) {
     const row = node("tr"); row.dataset.tagId = tag.id;
     const selectCell = node("td", "gp-table-select"), select = node("input"); select.type = "checkbox";
     selectCell.append(select); row.append(selectCell);
-    select.addEventListener("change", () => {
+    // Native change events do not carry Shift; the preceding checkbox click does.
+    let shiftClick = false;
+    select.addEventListener("click", event => {shiftClick = event.shiftKey === true;});
+    select.addEventListener("change", event => {
+      const range = shiftClick || event.shiftKey === true;
+      shiftClick = false;
       if (bulkBusy || deleteBusy || importBusy) return;
       const checked = select.checked;
       closeDialog(); closeBulk(); bulkSignature = "";
-      if (checked) selected.add(tag.id); else selected.delete(tag.id);
+      const order = [...tableBody.children].map(row => row.dataset.tagId);
+      const anchor = order.indexOf(tableAnchor), end = order.indexOf(tag.id);
+      const ids = range && anchor >= 0 ? order.slice(Math.min(anchor, end), Math.max(anchor, end) + 1) : [tag.id];
+      if (!range || anchor < 0) tableAnchor = tag.id;
+      for (const id of ids) if (checked) selected.add(id); else selected.delete(id);
       showSelection(); renderMarkers();
     });
     const controls = new Map(), labelCell = node("td", "gp-table-label");
     const label = node("input"); label.type = "text"; label.maxLength = 80; label.name = "table_label";
     labelCell.append(label); controls.set("label", label);
-    const page = node("td", "gp-table-page"), result = node("td", "gp-table-status");
-    row.append(labelCell, page, result);
+    const result = node("td", "gp-table-status");
+    row.append(labelCell, result);
     for (const name of tableNames) {
       const field = fieldSchema.get(name), cell = node("td", tableFieldClass(field));
       const control = node(field.type === "choice" ? "select" : "input");
@@ -1355,12 +1354,12 @@ function render({ model, el, readOnly = false }) {
       control.addEventListener("keydown", event => {
         if (event.key !== "Enter") return;
         event.preventDefault();
-        const tags = state().tags, index = tags.findIndex(tag => tag.id === control.dataset.tagId);
-        tableRows.get(tags[index + (event.shiftKey ? -1 : 1)]?.id)?.controls.get(name)?.focus({preventScroll: false});
+        const rows = [...tableBody.children], index = rows.findIndex(row => row.dataset.tagId === control.dataset.tagId);
+        tableRows.get(rows[index + (event.shiftKey ? -1 : 1)]?.dataset.tagId)?.controls.get(name)?.focus({preventScroll: false});
       });
     }
     tableBody.append(row);
-    return {row, controls, page, result, select};
+    return {row, controls, result, select};
   }
   function syncTableSelection() {
     if (readOnly) return;
@@ -1376,6 +1375,7 @@ function render({ model, el, readOnly = false }) {
       if (!entry) continue;
       entry.select.checked = selected.has(tag.id); entry.select.disabled = busy;
       entry.select.setAttribute("aria-label", "Markera " + tag.label + " i tabellen");
+      entry.select.title = "Shift + klick markerar eller avmarkerar intervallet från föregående vanliga klick.";
       entry.row.classList.toggle("gp-table-row-selected", selected.has(tag.id));
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
@@ -1391,13 +1391,13 @@ function render({ model, el, readOnly = false }) {
     if (readOnly) return;
     tableSection.hidden = !background().url;
     const tags = state().tags, ids = new Set(tags.map(tag => tag.id));
+    if (!ids.has(tableAnchor)) tableAnchor = null;
     for (const [id, row] of tableRows) if (!ids.has(id)) {row.row.remove(); tableRows.delete(id);}
     const errors = tags.filter(tag => tag.status === "error").length;
     tableCount.textContent = tags.length + " sulor" + (errors ? " · " + errors + " med fel i indata" : "");
     for (const tag of tags) {
       if (!tableRows.has(tag.id)) tableRows.set(tag.id, makeTableRow(tag));
-      const {controls, page, result} = tableRows.get(tag.id), draft = drafts.get(tag.id);
-      page.textContent = tag.page;
+      const {controls, result} = tableRows.get(tag.id), draft = drafts.get(tag.id);
       const stale = dirty.has(tag.id), summary = stale ? null : tag.summary;
       result.textContent = summary ? "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
         : stale || tag.status === "stale" ? "Uppdaterar…" : tag.status === "error" ? "Fel i indata" : "Kontrollera indata";
@@ -1414,7 +1414,33 @@ function render({ model, el, readOnly = false }) {
         else control.value = tableText(value);
       }
     }
+    sortTableRows();
     syncTableSelection();
+  }
+  function sortTableRows(force = false) {
+    if (readOnly) return;
+    for (const [key, head] of tableSortHeads) {
+      const direction = tableSort.key === key ? tableSort.direction : "none";
+      head.th.setAttribute("aria-sort", direction);
+      head.button.textContent = head.label + (direction === "ascending" ? " ↑" : direction === "descending" ? " ↓" : " ↕");
+    }
+    if (!tableSort.key) return;
+    // Wait until editing ends before moving rows, so typing keeps its focus and caret.
+    if (!force && document.activeElement?.closest("tbody") === tableBody) return;
+    const label = tag => drafts.get(tag.id)?.label ?? tag.label;
+    const statusKey = tag => {
+      const utilization = !dirty.has(tag.id) && tag.summary?.utnyttjandegrad;
+      return tag.status === "error" ? [2, 0]
+        : typeof utilization === "number" && Number.isFinite(utilization) ? [0, utilization] : [1, 0];
+    };
+    const direction = tableSort.direction === "ascending" ? 1 : -1;
+    const tags = [...state().tags].sort((a, b) => {
+      if (tableSort.key === "label") return direction * tableCollator.compare(label(a), label(b));
+      const [rankA, valueA] = statusKey(a), [rankB, valueB] = statusKey(b);
+      return direction * (rankA - rankB || valueA - valueB) || tableCollator.compare(label(a), label(b));
+    });
+    const rows = tags.map(tag => tableRows.get(tag.id)?.row).filter(Boolean);
+    if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
     ["l", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
@@ -1428,8 +1454,6 @@ function render({ model, el, readOnly = false }) {
     selectionCount.title = titles;
     selectionBar.setAttribute("aria-label", "Markerade sulor: " + titles);
     editMany.disabled = clearMany.disabled = bulkBusy;
-    selectMany.disabled = bulkBusy || !background().url;
-    pageSelect.disabled = bulkBusy || importBusy;
     syncTableSelection();
   }
   function toggleTag(tag) {
@@ -1912,14 +1936,6 @@ function render({ model, el, readOnly = false }) {
       lastBackground = bg.url;
       if (bg.url) picture.src = bg.url;
       else picture.removeAttribute("src");
-      pageSelect.replaceChildren();
-      for (let n = 1; n <= (bg.page_count || 0); n++) {
-        const opt = node("option", "", String(n));
-        opt.value = n;
-        pageSelect.append(opt);
-      }
-      pageSelect.value = bg.page;
-      pageLabel.hidden = !bg.url || bg.page_count < 2;
       requestAnimationFrame(() => { if (!disposed) fit(); });
     }
     const tag = current();
@@ -2107,7 +2123,7 @@ function render({ model, el, readOnly = false }) {
     if (box) {
       if (moved) {
         if (selected.size !== beforeSelection.size || [...selected].some(id => !beforeSelection.has(id))) bulkSignature = "";
-        setMode("select"); showSelection(); renderMarkers();
+        setMode("pan"); showSelection(); renderMarkers();
       }
       return;
     }
@@ -2131,7 +2147,7 @@ function render({ model, el, readOnly = false }) {
       });
       return;
     }
-    if (readOnly || moved || placementBlocked || mode === "pan" || mode === "select") return;
+    if (readOnly || moved || placementBlocked || mode === "pan") return;
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
@@ -2236,9 +2252,9 @@ function render({ model, el, readOnly = false }) {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      const selecting = !!drag?.box || mode === "select" || selected.size > 0;
+      const selecting = !!drag?.box || selected.size > 0;
       cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
-      if (!bulkBusy) { selected.clear(); bulkSignature = ""; showSelection(); renderMarkers(); }
+      if (!bulkBusy) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); renderMarkers(); }
       setMode("pan"); showMessage(selecting && !bulkBusy ? "Markeringen avbröts."
         : readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
     }

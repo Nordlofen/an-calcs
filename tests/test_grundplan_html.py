@@ -58,12 +58,12 @@ class TestGrundplanHtml(unittest.TestCase):
         self.addCleanup(self.plan.close)
 
     def tag(self, **kwargs):
-        return self.plan.lagg_till(.3, .4, **{"sida": 1, "indata": {"F_vy": 100, "b": 1}, **kwargs})
+        return self.plan.lagg_till(.3, .4, **{"indata": {"F_vy": 100, "b": 1}, **kwargs})
 
     def snapshot(self):
         return HtmlSnapshot(self.plan._html_bytes().decode("utf-8")).snapshot
 
-    def test_sliding_snapshot_includes_all_pages_global_totals_and_saved_positions(self):
+    def test_sliding_snapshot_includes_selected_page_totals_and_saved_positions(self):
         self.tag(indata={"glid_x": True, "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3})
         self.tag(sida=2, indata={"lang": 0, "glid_x": True, "glid_y": True,
                                 "V_Ed_EQU": 240, "glid_mu": .4})
@@ -82,7 +82,7 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(fields["V_Ed_EQU"]["display_symbol"], {"base": "V", "subscript": "Ed,EQU"})
         self.assertEqual(snapshot["state"]["tags"][0]["sliding"]["x"], 144)
 
-    def test_alla_sidor_och_aktuella_data_baddas_in_utan_externa_filer(self):
+    def test_selected_page_and_current_data_are_embedded_without_external_files(self):
         ident = self.tag(indata={"b": 1, "t": .4, "F_vy": 100, "isolering": True,
                                 "F_vy_bruk": 70, "f_d_brott": 200, "f_d_bruk": 50,
                                 "isolerprodukt": "EPS S200, entré"})
@@ -107,7 +107,7 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(fields["M_insp_b"]["display_symbol"], {"base": "M", "subscript": "x"})
         self.assertEqual(fields["F_vy"]["display_symbol"], {"base": "V"})
         self.assertEqual(data["schema"]["load_groups"][0]["fields"][0]["symbol"], "V")
-        self.assertEqual([page["page"] for page in data["pages"]], [1, 2])
+        self.assertEqual([page["page"] for page in data["pages"]], [2])
         import base64
         for background in data["pages"]:
             prefix, image = background["url"].split(",", 1)

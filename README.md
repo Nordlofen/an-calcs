@@ -105,7 +105,7 @@ pelarsulor. Varje tagg har egna indata och använder
 **Importera/Uppdatera lasteffekt** läser stödens Brott-, Bruk- och EQU-laster
 från JSON. Befintliga littera får uppdaterade laster och vägglängd; nya sulor
 placeras med ett klick per stöd. Anpassa övriga indata före beräkning.
-**Radera samtliga sulor** rensar sulorna på alla ritningssidor efter bekräftelse.
+**Radera samtliga sulor** rensar sulorna i vyn efter bekräftelse.
 En redigerbar tabell längst ned visar alla sulors indata och delar markering
 med ritningen. Ändra en cell på en markerad rad för att ge alla markerade
 sulor samma värde i kolumnen. Resultaten uppdateras automatiskt vid varje
@@ -146,7 +146,10 @@ flytta den; dra i ritningen för att panorera och använd **Shift + scroll**
 eller zoomknapparna för att förstora. Shift + scroll zoomar kring muspekaren.
 Shift + vänsterdrag ritar en urvalsruta för flerredigering. Shift + drag
 eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade.
-PDF-sidor väljs i verktygsraden och har separata markeringar.
+Varje Grundplan gäller en enda ritningssida. Öppna en annan PDF-sida i en ny
+cell med egen `key` och exempelvis `sida=2`. Sparade projekt och exporter
+hör till den valda sidan. Klicka på **Littera** eller **Status / U** i tabellen
+för att sortera; ett nytt klick vänder ordningen.
 Sulverktyget avslutas efter en placering;
 klicka på den valda sulknappen igen eller tryck Escape för att avbryta.
 
@@ -181,7 +184,7 @@ hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans
 rubrik för att flytta den och dra dess hörnhandtag för att ändra storlek på
 hela rutan inklusive texten. Rutan visar last, summerat motstånd, utnyttjandegrad
-och antal bidragande sulor från alla ritningssidor. Etiketterna visar respektive
+och antal bidragande sulor i vyn. Etiketterna visar respektive
 bidrag i två kompakta kolumner. Inställningar, placeringar och storlekar sparas med
 projektet och visas i PDF- och HTML-exporterna. Se
 [glidningsmodell och lastantaganden](docs/grundplan.md#global-glidningskontroll).
@@ -227,7 +230,7 @@ plan = Grundplan.oppna("grundplan.json")
 plan
 ```
 
-**Exportera PDF** laddar ned hela ritningen med fasta etiketter på varje sida.
+**Exportera PDF** laddar ned vyns ritningssida med fasta etiketter.
 Etiketternas positioner, storlek och aktuella status följer med. PDF-originalets
 sidformat och vektorinnehåll bevaras. Exporten kan även göras från Python:
 
@@ -237,7 +240,7 @@ plan.exportera_pdf("grundplan_med_etiketter.pdf")
 
 **Exportera HTML** ger en fristående resultatvy med zoom, panorering och
 klickbara etiketter. Indata och resultat visas i utfällbara avsnitt;
-beräkningsvärdena kan inte ändras. Alla ritningssidor bäddas in, så filen
+beräkningsvärdena kan inte ändras. Den valda ritningssidan bäddas in, så filen
 kan öppnas utan internet eller Jupyter:
 
 ```python

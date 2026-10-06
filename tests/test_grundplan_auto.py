@@ -24,7 +24,7 @@ class TestAutomaticCalculation(unittest.TestCase):
         self.plan = Grundplan(self.image)
         self.addCleanup(self.plan.close)
 
-    def test_new_changed_and_corrected_objects_calculate_automatically_on_all_pages(self):
+    def test_new_changed_and_corrected_objects_calculate_automatically(self):
         current = self.plan.lagg_till(.1, .1, indata={"F_vy": 80})
         changed = self.plan.lagg_till(.3, .3, indata={"F_vy": 100})
         for ident in (current, changed):
@@ -35,13 +35,12 @@ class TestAutomaticCalculation(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.plan.berakna(failed)
         self.plan.uppdatera(failed, indata={"b": .8})
-        self.plan.background = {**self.plan.background, "page_count": 2}
-        new = self.plan.lagg_till(.6, .6, typ="pelarsula", sida=2, indata={"b": 2, "l": 3})
+        new = self.plan.lagg_till(.6, .6, typ="pelarsula", indata={"b": 2, "l": 3})
         self.assertEqual((self.plan._tag(current), self.plan.resultat[current]), old)
         self.assertTrue(all(tag["status"] == "calculated" for tag in self.plan.taggar))
         self.assertEqual(self.plan._tag(changed)["summary"]["b"], .9)
         self.assertEqual(self.plan._tag(failed)["summary"]["b"], .8)
-        self.assertEqual(self.plan._tag(new)["page"], 2)
+        self.assertEqual(self.plan._tag(new)["page"], 1)
 
     def test_errors_do_not_stop_other_objects_or_leave_old_passes_and_can_be_retried(self):
         bad = self.plan.lagg_till(.1, .1)

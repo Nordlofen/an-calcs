@@ -28,8 +28,8 @@ class TestGrundplanPdf(unittest.TestCase):
         self.image = self.root / "ritning.png"
         Image.new("RGB", (800, 600), "white").save(self.image)
 
-    def plan(self, source=None):
-        plan = Grundplan(source or self.image)
+    def plan(self, source=None, **kwargs):
+        plan = Grundplan(source or self.image, **kwargs)
         self.addCleanup(plan.close)
         return plan
 
@@ -49,11 +49,11 @@ class TestGrundplanPdf(unittest.TestCase):
         canvas.save()
         return source
 
-    def test_sliding_overlays_share_global_totals_on_every_page_and_hide_insulated_contributions(self):
+    def test_sliding_overlays_show_only_view_totals_and_hide_insulated_contributions(self):
         plan = self.plan(self.drawing())
         self.tag(plan, littera="VS1", sida=1, indata={"glid_x": True, "glid_y": True,
                  "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3})
-        self.tag(plan, littera="PS1", sida=2, indata={"lang": 0, "glid_x": True,
+        self.tag(plan, littera="PS1", sida=1, indata={"lang": 0, "glid_x": True,
                  "V_Ed_EQU": 240, "glid_mu": .4})
         self.tag(plan, littera="Isolerad", sida=1, indata={"isolering": True, "glid_x": True})
         plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
@@ -68,10 +68,10 @@ class TestGrundplanPdf(unittest.TestCase):
             self.assertIn("75 %", text)
             self.assertIn("Överskriden", text)
             self.assertFalse(page.images)
-        self.assertEqual(reader.pages[0].extract_text().count("Glidmotstånd – globalt"), 1)
+        self.assertEqual(len(reader.pages), 1)
+        self.assertEqual(reader.pages[0].extract_text().count("Glidmotstånd – globalt"), 2)
         self.assertIn("120 kN/m", reader.pages[0].extract_text())
-        self.assertIn("96 kN", reader.pages[1].extract_text())
-        self.assertNotIn("Glidmotstånd – globalt", reader.pages[2].extract_text())
+        self.assertIn("96 kN", reader.pages[0].extract_text())
         self.assertEqual(plan._document(), before)
         plan.glidning = {"enabled": False}
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
@@ -134,27 +134,26 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIsNone(ImageChops.difference(images[0].crop((0, 355, 1200, 750)),
                                               images[1].crop((0, 355, 1200, 750))).getbbox())
 
-    def test_alla_sidor_originaltext_och_sidformat_bevaras_utan_att_andra_projektet(self):
+    def test_selected_page_retains_vector_text_and_page_format_without_changing_project(self):
         source = self.drawing()
         original = source.read_bytes()
-        plan = self.plan(source)
-        first = self.tag(plan, littera="VS ÅÄÖ", sida=1)
-        self.tag(plan, littera="PS2", sida=2)
+        plan = self.plan(source, sida=2)
+        first = self.tag(plan, littera="VS ÅÄÖ")
+        self.tag(plan, littera="PS2")
         plan.berakna(first)
-        plan.visa_sida(2)
         snapshot = (plan.taggar, plan.resultat, copy.deepcopy(plan.background), plan._document())
         exported = plan.exportera_pdf(self.root / "export.pdf")
         reader = PdfReader(exported)
-        self.assertEqual(len(reader.pages), 3)
-        for index, (before, after) in enumerate(zip(PdfReader(io.BytesIO(original)).pages, reader.pages)):
-            self.assertEqual(before.mediabox, after.mediabox)
-            self.assertIn(f"ORIGINAL {index + 1}", after.extract_text())
-            self.assertFalse(after.get("/Annots"), "Labels are page content, not interactive annotations")
-            self.assertFalse(after.images, "Vector drawings must not be rasterized")
+        self.assertEqual(len(reader.pages), 1)
+        before, after = PdfReader(io.BytesIO(original)).pages[1], reader.pages[0]
+        self.assertEqual(before.mediabox, after.mediabox)
+        self.assertIn("ORIGINAL 2", after.extract_text())
+        self.assertNotIn("ORIGINAL 1", after.extract_text())
+        self.assertNotIn("ORIGINAL 3", after.extract_text())
+        self.assertFalse(after.get("/Annots"), "Labels are page content, not interactive annotations")
+        self.assertFalse(after.images, "Vector drawings must not be rasterized")
         self.assertIn("VS ÅÄÖ", reader.pages[0].extract_text())
-        self.assertNotIn("PS2", reader.pages[0].extract_text())
-        self.assertIn("PS2", reader.pages[1].extract_text())
-        self.assertEqual(reader.pages[2].extract_text(), "ORIGINAL 3\n")
+        self.assertIn("PS2", reader.pages[0].extract_text())
         self.assertEqual((plan.taggar, plan.resultat, plan.background, plan._document()), snapshot)
         self.assertEqual(source.read_bytes(), original)
 
@@ -196,7 +195,7 @@ class TestGrundplanPdf(unittest.TestCase):
         self.addCleanup(reopened.close)
         output = reopened.exportera_pdf(self.root / "reopened.pdf")
         self.assertIn("VS1", PdfReader(output).pages[0].extract_text())
-        self.assertEqual(len(PdfReader(output).pages), 3)
+        self.assertEqual(len(PdfReader(output).pages), 1)
 
     def test_etikettstorlek_andrar_bara_etiketterna(self):
         plan = self.plan()

@@ -202,11 +202,10 @@ class TestLoadPlacement(unittest.TestCase):
                 self.plan._start_load_import(encode(data), "overflow.json")
             self.assertEqual(self.plan.taggar, before)
 
-    def test_delete_all_removes_all_pages_results_and_queue_but_keeps_project_and_drawing(self):
+    def test_delete_all_removes_results_and_queue_but_keeps_project_and_drawing(self):
         ident = self.plan.lagg_till(.1, .1, littera="Existing")
         self.plan.berakna(ident)
-        self.plan.background = {**self.plan.background, "page_count": 2}
-        self.plan.lagg_till(.2, .2, littera="Second", sida=2)
+        self.plan.lagg_till(.2, .2, littera="Second")
         self.plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 150,
                               "placements": {"1": {"symbol": {"x": .1, "y": .5, "size": 160}}}}
         self.plan._set_heading("Projekt", "Underrubrik")

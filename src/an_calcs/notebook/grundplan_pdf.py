@@ -1,6 +1,5 @@
 """Statisk PDF-export av grundplanens ritning och minimerade etiketter."""
 
-from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 import io
 import math
@@ -365,25 +364,23 @@ def _page_geometry(page):
     return width, height, Transformation(matrices[rotation])
 
 
-def render_pdf(source, tags, label_size, title, sliding=None):
-    """Return a PDF containing every original page with static label overlays."""
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1):
+    """Return the selected drawing page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
-    by_page = defaultdict(list)
-    for tag in tags:
-        by_page[tag["page"]].append(tag)
+    tags = [tag for tag in tags if tag["page"] == page_number]
     writer = PdfWriter()
     settings = sliding or DEFAULT_SETTINGS
     results = project_results(tags, settings)
     if source.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(source))
-        with pdfium.PdfDocument(source) as document:
-            for index, original in enumerate(reader.pages):
-                page = writer.add_page(original)
-                if not by_page[index + 1] and not settings["enabled"]:
-                    continue
+        if isinstance(page_number, bool) or not isinstance(page_number, int) or not 1 <= page_number <= len(reader.pages):
+            raise ValueError("Ritningssidan finns inte i PDF-filen.")
+        page = writer.add_page(reader.pages[page_number - 1])
+        if tags or settings["enabled"]:
+            with pdfium.PdfDocument(source) as document:
                 width, height, transform = _page_geometry(page)
-                preview_page = document[index]
+                preview_page = document[page_number - 1]
                 try:
                     pw, ph = preview_page.get_size()
                 finally:
@@ -393,12 +390,14 @@ def render_pdf(source, tags, label_size, title, sliding=None):
                 preview_size = (math.ceil(pw * preview_scale), math.ceil(ph * preview_scale))
                 overlay = io.BytesIO()
                 canvas = Canvas(overlay, pagesize=(width, height), pageCompression=1)
-                _draw_labels(canvas, width, height, preview_size, by_page[index + 1], label_size, settings["enabled"])
-                _draw_project_overlays(canvas, width, height, preview_size, index + 1, settings, results)
+                _draw_labels(canvas, width, height, preview_size, tags, label_size, settings["enabled"])
+                _draw_project_overlays(canvas, width, height, preview_size, page_number, settings, results)
                 canvas.showPage()
                 canvas.save()
                 page.merge_transformed_page(PdfReader(overlay).pages[0], transform, over=True, expand=False)
     else:
+        if type(page_number) is not int or page_number != 1:
+            raise ValueError("En bild har endast en ritningssida.")
         with Image.open(io.BytesIO(source)) as original:
             rgba = ImageOps.exif_transpose(original).convert("RGBA")
             picture = Image.new("RGBA", rgba.size, "white")
@@ -411,7 +410,7 @@ def render_pdf(source, tags, label_size, title, sliding=None):
         stream = io.BytesIO()
         canvas = Canvas(stream, pagesize=(width, height), pageCompression=1)
         canvas.drawImage(ImageReader(picture), 0, 0, width, height)
-        _draw_labels(canvas, width, height, preview.size, by_page[1], label_size, settings["enabled"])
+        _draw_labels(canvas, width, height, preview.size, tags, label_size, settings["enabled"])
         _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
         canvas.showPage()
         canvas.save()

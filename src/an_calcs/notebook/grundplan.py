@@ -265,6 +265,9 @@ class Grundplan(anywidget.AnyWidget):
     _STATE_FILE = None
 
     def __init__(self, ritning=None, *, key=None, state_file=None, sida=1, titel="Grundplan", underrubrik=_DEFAULT_SUBTITLE):
+        if isinstance(sida, bool) or not isinstance(sida, int) or sida < 1:
+            raise ValueError("Sida måste vara ett positivt heltal.")
+        self._initial_page = sida
         # Preserve existing drawing paths; a plain positional name is a project key.
         if key is None and isinstance(ritning, str) and not Path(ritning).suffix and not any(c in ritning for c in "/\\"):
             key, ritning = ritning, None
@@ -394,13 +397,23 @@ class Grundplan(anywidget.AnyWidget):
             "load_import": self.lasteffekt_import,
         }
 
-    def _set_source(self, data, filename, page=1):
-        rendered = _render_source(data, filename, page)
+    def _set_source(self, data, filename, page=None):
+        rendered = _render_source(data, filename, self._initial_page if page is None else page)
         self._source = bytes(data)
         self._load_import = None
         self._filename = Path(filename).name
         self._gliding["placements"] = {}
         self.background = rendered
+        self._initial_page = rendered["page"]
+
+    def _view_page(self, sida=None):
+        if not self.background:
+            raise ValueError("Öppna en ritning först.")
+        page = _page_number(self.background["page"] if sida is None else sida,
+                            self.background["page_count"])
+        if page != self.background["page"]:
+            raise ValueError(f"Varje Grundplan gäller en enda ritningssida. Öppna den andra sidan i en ny cell med egen key och sida={page}.")
+        return page
 
     def _tag(self, tagg):
         for tag in self._tags:
@@ -419,9 +432,7 @@ class Grundplan(anywidget.AnyWidget):
                 raise ValueError(f"{name} måste ligga mellan 0 och 1.")
         if typ not in ("vaggsula", "pelarsula"):
             raise ValueError("Typ måste vara vaggsula eller pelarsula.")
-        page = _page_number(
-            self.background["page"] if sida is None else sida, self.background["page_count"]
-        )
+        page = self._view_page(sida)
         values = {**_DEFAULTS, "lang": 1 if typ == "vaggsula" else 0}
         values.update(indata or {})
         values = _values(values, draft=True)
@@ -646,7 +657,7 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     def ta_bort_samtliga(self):
-        """Radera alla sulor på alla sidor och avbryt eventuell placeringskö."""
+        """Radera alla sulor och avbryt eventuell placeringskö."""
         count = len(self._tags)
         self._tags.clear()
         self._details.clear()
@@ -668,12 +679,15 @@ class Grundplan(anywidget.AnyWidget):
     def glidning(self, changes):
         if not isinstance(changes, dict):
             raise ValueError("Glidning anges som en dict med inställningar.")
-        self._gliding = validate_settings({**self._gliding, **changes}, self.background.get("page_count"))
+        settings = validate_settings({**self._gliding, **changes}, self.background.get("page_count"))
+        for page in settings["placements"]:
+            self._view_page(int(page))
+        self._gliding = settings
         self._publish()
 
     @property
     def glidningsresultat(self):
-        """Summerade, aktuella glidmotstånd från alla ritningssidor."""
+        """Summerade, aktuella glidmotstånd från vyns sulor."""
         return project_results(self._tags, self._gliding)
 
     @property
@@ -716,9 +730,10 @@ class Grundplan(anywidget.AnyWidget):
         self._set_heading(self._title, value)
 
     def visa_sida(self, sida):
+        """Sidbyte ersätts av en separat Grundplan med egen key och sida."""
         if not self._source:
             raise ValueError("Öppna en ritning först.")
-        self.background = _render_source(self._source, self._filename, sida)
+        self._view_page(sida)
 
     def _document(self):
         return {
@@ -732,7 +747,7 @@ class Grundplan(anywidget.AnyWidget):
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
-                "page": self.background.get("page", 1),
+                "page": self.background.get("page", self._initial_page),
             },
             "tags": [
                 {**{key: copy.deepcopy(tag[key]) for key in
@@ -785,10 +800,11 @@ class Grundplan(anywidget.AnyWidget):
             from .grundplan_pdf import render_pdf
         except ImportError as exc:
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
-        return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding)
+        return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
+                          page_number=self.background["page"])
 
     def exportera_pdf(self, fil):
-        """Exportera alla ritningssidor med fasta etiketter till en PDF.
+        """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
 
         Sparade lägen och etikettstorlek används oberoende av aktuell zoom.
         Inaktuella/ej beräknade sulor visas med status i stället för resultat.
@@ -814,9 +830,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Öppna en ritning först.")
         from .grundplan_html import render_html
 
-        first = _render_source(self._source, self._filename, 1)
-        pages = [first, *(_render_source(self._source, self._filename, page)
-                          for page in range(2, first["page_count"] + 1))]
+        pages = [_render_source(self._source, self._filename, self.background["page"])]
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "tags": self.taggar,
@@ -829,7 +843,7 @@ class Grundplan(anywidget.AnyWidget):
     def exportera_html(self, fil):
         """Exportera en fristående resultatvy med öppningsbara etiketter.
 
-        Alla ritningssidor och aktuella indata/resultat bäddas in. Filen fungerar
+        Vyns ritningssida och aktuella indata/resultat bäddas in. Filen fungerar
         utan Jupyter eller internet. Beräkningsvärdena kan inte ändras i vyn.
         Exporten räknar inte om sulor och ändrar inte projektet.
         """
@@ -872,9 +886,13 @@ class Grundplan(anywidget.AnyWidget):
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
         drawing = document["drawing"]
+        if isinstance(drawing["page"], bool) or not isinstance(drawing["page"], int) or drawing["page"] < 1:
+            raise ValueError("Sida måste vara ett positivt heltal.")
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
+        if any(int(page) != rendered.get("page") for page in gliding["placements"]):
+            raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
         tags = document["tags"]
         if not isinstance(tags, list) or len(tags) > _MAX_TAGS:
             raise ValueError("Projektet har för många eller ogiltiga taggar.")
@@ -885,6 +903,8 @@ class Grundplan(anywidget.AnyWidget):
                 raise ValueError("Projektet innehåller ogiltiga eller upprepade tagg-id.")
             ids.add(ident)
             page = _page_number(saved["page"], rendered.get("page_count", 0))
+            if page != rendered.get("page"):
+                raise ValueError("Projektet har sulor på flera ritningssidor. Använd ett separat projekt per sida.")
             for name in ("x", "y"):
                 if not 0 <= _number(saved[name], name) <= 1:
                     raise ValueError("Taggens position ligger utanför ritningen.")
@@ -912,6 +932,7 @@ class Grundplan(anywidget.AnyWidget):
         self._load_import = None
         self._details = details_by_id
         self.background = rendered
+        self._initial_page = drawing["page"]
         self._publish()
 
     def _on_message(self, widget, content, buffers):
@@ -959,7 +980,7 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "sliding":
                 self.glidning = content["settings"]
             elif action == "sliding_placement":
-                page = _page_number(content["page"], self.background.get("page_count", 0))
+                page = self._view_page(content["page"])
                 kind = content["kind"]
                 if kind not in ("symbol", "legend"):
                     raise ValueError("Okänd glidningssymbol.")

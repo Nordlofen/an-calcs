@@ -444,44 +444,86 @@ class TestGrundplan(unittest.TestCase):
         copied[0]["values"]["b"] = 0
         self.assertGreater(self.plan.taggar[0]["values"]["b"], 0)
 
-    def test_pdf_sidbyte_och_taggar_pa_flera_sidor(self):
+    def test_pdf_pages_use_independent_cells_and_keys(self):
         pdf_path = Path(self.tmp.name) / "plan.pdf"
         first = Image.new("RGB", (400, 300), "white")
         second = Image.new("RGB", (300, 400), "gray")
         first.save(pdf_path, save_all=True, append_images=[second])
-        plan = Grundplan(pdf_path)
+        state_file = Path(self.tmp.name) / "pages.json"
+        plan = Grundplan(pdf_path, key="Sida 1", state_file=state_file)
         self.addCleanup(plan.close)
         self.assertEqual(plan.background["page_count"], 2)
-        ident = plan.lagg_till(0.2, 0.3)
-        first_background = plan.background
-        plan.visa_sida(2)
-        self.assertNotEqual(first_background["url"], plan.background["url"])
-        plan.lagg_till(0.8, 0.4, typ="pelarsula")
-        plan.berakna(ident)
-        self.assertEqual([tag["page"] for tag in plan.taggar], [1, 2])
-        with self.assertRaises(ValueError):
-            plan.visa_sida(3)
-        self.assertEqual(plan.background["page"], 2)
+        ident = plan.lagg_till(0.2, 0.3, indata={"glid_x": True, "V_Ed_EQU": 100,
+                                               "glid_mu": .4, "glid_L": 3})
+        other = Grundplan(pdf_path, key="Sida 2", state_file=state_file, sida=2)
+        self.addCleanup(other.close)
+        other_id = other.lagg_till(0.8, 0.4, typ="pelarsula",
+                                  indata={"glid_x": True, "V_Ed_EQU": 240, "glid_mu": .4})
+        self.assertNotEqual(plan.background["url"], other.background["url"])
+        self.assertEqual([tag["page"] for tag in plan.taggar], [1])
+        self.assertEqual([tag["page"] for tag in other.taggar], [2])
+        self.assertEqual(plan.glidningsresultat["x"]["H_Rd"], 120)
+        self.assertEqual(other.glidningsresultat["x"]["H_Rd"], 96)
+        for operation in (lambda: plan.visa_sida(2), lambda: plan.lagg_till(.5, .5, sida=2),
+                          lambda: plan.kopiera(ident, .5, .5, sida=2)):
+            with self.assertRaisesRegex(ValueError, "en enda ritningssida"):
+                operation()
+        plan.spara()
+        other.spara()
+        for key, page, tag_id in (("Sida 1", 1, ident), ("Sida 2", 2, other_id)):
+            loaded = Grundplan(key=key, state_file=state_file)
+            self.addCleanup(loaded.close)
+            self.assertEqual(loaded.background["page"], page)
+            self.assertEqual([tag["id"] for tag in loaded.taggar], [tag_id])
 
-    def test_kopiera_till_kallans_eller_vald_sida_och_spara_position(self):
+    def test_ui_upload_uses_page_selected_by_constructor(self):
+        pdf_path = Path(self.tmp.name) / "upload.pdf"
+        Image.new("RGB", (400, 300), "white").save(
+            pdf_path, save_all=True, append_images=[Image.new("RGB", (300, 400), "gray")])
+        state_file = Path(self.tmp.name) / "empty.json"
+        empty = Grundplan(sida=2, key="Sida 2", state_file=state_file)
+        self.addCleanup(empty.close)
+        empty.spara()
+        plan = Grundplan(key="Sida 2", state_file=state_file)
+        self.addCleanup(plan.close)
+        plan._on_message(None, {"action": "drawing", "name": "upload.pdf"}, [pdf_path.read_bytes()])
+        self.assertEqual(plan.background["page"], 2)
+        self.assertEqual(plan.background["width"], 600)
+
+    def test_old_multi_page_project_is_rejected_without_losing_current_data(self):
+        pdf_path = Path(self.tmp.name) / "old.pdf"
+        Image.new("RGB", (400, 300), "white").save(
+            pdf_path, save_all=True, append_images=[Image.new("RGB", (300, 400), "gray")])
+        plan = Grundplan(pdf_path)
+        self.addCleanup(plan.close)
+        plan.lagg_till(.2, .3)
+        before = plan._document()
+        old = copy.deepcopy(before)
+        extra = copy.deepcopy(old["tags"][0])
+        extra.update(id="other-page", page=2)
+        old["tags"].append(extra)
+        with self.assertRaisesRegex(ValueError, "separat projekt per sida"):
+            plan._load_document(json.dumps(old).encode())
+        self.assertEqual(plan._document(), before)
+
+    def test_copies_stay_on_the_selected_page_and_restore_positions(self):
         pdf_path = Path(self.tmp.name) / "copy.pdf"
         Image.new("RGB", (400, 300), "white").save(
             pdf_path, save_all=True, append_images=[Image.new("RGB", (300, 400), "gray")]
         )
-        plan = Grundplan(pdf_path)
+        plan = Grundplan(pdf_path, sida=2)
         self.addCleanup(plan.close)
         original = plan.lagg_till(0.2, 0.3)
         plan.berakna(original)
-        plan.visa_sida(2)
         same_page = plan.kopiera(original, 0.7, 0.8)
-        other_page = plan.kopiera(original, 0.4, 0.5, sida=2)
+        explicit_page = plan.kopiera(original, 0.4, 0.5, sida=2)
         plan.uppdatera(original, x=0.1, y=0.9)
-        self.assertEqual([tag["page"] for tag in plan.taggar], [1, 1, 2])
+        self.assertEqual([tag["page"] for tag in plan.taggar], [2, 2, 2])
         loaded = Grundplan.oppna(plan.spara(Path(self.tmp.name) / "copy.json"))
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.background["page"], 2)
         self.assertEqual(loaded._tag(original), plan._tag(original))
-        for ident in (same_page, other_page):
+        for ident in (same_page, explicit_page):
             for field in ("id", "label", "x", "y", "page", "values", "summary"):
                 self.assertEqual(loaded._tag(ident)[field], plan._tag(ident)[field])
             self.assertIn(ident, loaded.resultat)

@@ -56,12 +56,32 @@ Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra
 texterna via `plan.titel` och `plan.underrubrik`. En tom underrubrik döljs
 i HTML-exporten. Ändringarna påverkar inte sulornas beräkningar.
 
+Varje `Grundplan` är låst till en ritningssida. En PDF med flera sidor används
+med en separat cell och egen `key` för varje sida. Ange `sida=2` när den andra
+vyn skapas; utan `sida` väljs sida 1. Detta gäller även om ritningen väljs via
+**Öppna ritning**. En sparad key återställer sin tidigare valda sida.
+Sidbyte i en befintlig vy stöds inte, och PDF/HTML-export innehåller endast
+den valda sidan. Äldre projekt med sulor eller glidningssymboler på andra
+sidor avvisas utan att den öppna vyn ändras eller projektfilen skrivs över.
+
+```python
+# Cell 1
+plan_1 = Grundplan("grundplan.pdf", key="Hus A - sida 1", sida=1)
+plan_1
+```
+
+```python
+# Cell 2
+plan_2 = Grundplan("grundplan.pdf", key="Hus A - sida 2", sida=2)
+plan_2
+```
+
 Sökvägar avser kernelns filsystem och arbetsmapp. PDF-sidor numreras från 1.
 PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 
 ## Arbeta i planvyn
 
-1. Öppna en ritning och välj sida om den har flera PDF-sidor.
+1. Öppna en ritning. Varje Grundplan gäller en enda ritningssida.
 2. Välj **+ Väggsula** eller **+ Pelarsula** och klicka vid konstruktionen.
 3. Ange littera. Öppna indataavsnitten och anpassa samtliga relevanta värden.
    Startvärdena kommer från beräkningens panel-schema och är exempel.
@@ -99,7 +119,7 @@ till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 med `schemaVersion: 1` och listan `supports`. Hela filen kontrolleras innan
 några sulor ändras eller placeringen startar. Filen får vara högst 5 MB.
 Littera (`supportId`) måste vara unika i filen. För befintliga sulor matchas
-support-ID mot littera på samtliga ritningssidor. Matchningen är skiftlägeskänslig.
+support-ID mot littera i den aktuella vyn. Matchningen är skiftlägeskänslig.
 
 Matchade sulor får nya vertikallaster för Brott, Bruk och EQU samt ny längd L
 för väggsulor. Placering, littera, sultyp och övriga indata behålls. Ändrade
@@ -139,7 +159,7 @@ används inte som sökvägar eller beräkningsindata.
 
 Nya sulor får övriga startvärden från Grundplan och beräknas automatiskt vid placering.
 Kontrollera geometri, jord, isolering och glidningsinställningar efter
-placeringen, gärna med **Markera flera**. Bidragsriktningarna för glidning är
+placeringen, gärna med flerredigering. Bidragsriktningarna för glidning är
 inte förvalda. EQU-lasten ska redan innehålla sulans egentyngd; vid beräkning
 behandlas Brott och Bruk på samma sätt som manuellt inmatade yttre laster.
 Importerade värden är vanliga redigerbara indata. Bruklasterna kan ändras även
@@ -149,13 +169,13 @@ för jordens bärighetskontroll.
 
 **Pausa placering** eller Escape behåller kön så att du kan arbeta med
 ritningen och befintliga sulor. Tryck **Fortsätt placera** för att fortsätta.
-Du kan byta PDF-sida under placeringen. **Avbryt import** avslutar kön och
+**Avbryt import** avslutar kön och
 behåller redan placerade sulor. **Endast placerade sulor sparas i projektet**;
 återstående kö försvinner vid kernelomstart eller när ett annat projekt öppnas.
 Uppdaterade värden hos befintliga sulor behålls också när importkön avbryts.
 
 **Radera samtliga sulor** tar bort alla sulor och deras beräkningsresultat på
-samtliga ritningssidor efter en bekräftelse med antalet sulor. Eventuell
+den aktuella vyn efter en bekräftelse med antalet sulor. Eventuell
 placeringskö avbryts. Ritningen, rubriker och projektets globala inställningar
 behålls. Spara projektet för att skriva ändringen till JSON-filen. Från Python
 kan samma åtgärd göras med `plan.ta_bort_samtliga()`.
@@ -173,21 +193,35 @@ med relativa bildkoordinater mellan 0 och 1, där y ökar nedåt.
 
 ## Indatatabell och automatisk beräkning
 
-Längst ned i planvyn finns **Sulor – indata**, med en rad per sula på samtliga
-ritningssidor. Tabellen visar littera, ritningssida, status/utnyttjandegrad och
+Längst ned i planvyn finns **Sulor – indata**, med en rad per sula i
+vyn. Tabellen visar littera, status/utnyttjandegrad och
 samtliga indatakategorier. Ändra mått, laster, jorddata, koefficienter,
 isolering och glidning direkt i cellerna, utan en dialog. Decimaler kan anges
 med komma eller punkt. Littera och kolumnrubriker hålls synliga när tabellen
 rullas. Smala kolumner visar beteckning och enhet; håll pekaren över rubriken
 för en fullständig förklaring. Enter går till samma kolumn på nästa rad; Shift + Enter går till
-föregående rad.
+föregående rad i den visade ordningen.
+
+Klicka på **Littera** för naturlig sortering, exempelvis S.2 före S.10.
+**Status / U** visar fel i indata först, därefter pågående uppdateringar och
+sedan beräknade sulor med högst utnyttjandegrad först. Ett nytt klick på samma
+rubrik vänder ordningen; pilen visar riktningen. Sorteringen ändrar endast
+tabellens visning. Markeringar och indata hör fortfarande till samma sulor.
+Rader flyttas först när fokus lämnar tabellraderna efter cellredigering.
 
 Markeringar i ritningen och tabellen följs åt. Välj rader med kryssrutorna,
 eller markera etiketter med Shift + klick/drag på ritningen. Kryssrutan i
-tabellhuvudet väljer alla rader, även från andra sidor. Ändra en cell på en
+tabellhuvudet väljer alla rader. Ändra en cell på en
 markerad rad för att ersätta samma fält på **alla markerade rader**. Övriga
 indata behålls per sula. På en omarkerad rad ändras endast den sulan.
 Littera och fundamenttyp ändras alltid individuellt.
+
+Klicka på en radkryssruta för att sätta en startpunkt. Shift + klick på en
+annan rad markerar eller avmarkerar hela intervallet i tabellens visade
+ordning, beroende på slutradens nya kryssvärde. Fler Shift + klick använder
+samma startpunkt; ett vanligt klick sätter en ny. Rader utanför intervallet
+behåller sin markering. Escape och **Avmarkera** rensar både markering och
+startpunkt.
 
 Blandade sultyper kan redigeras gemensamt för typoberoende fält, exempelvis
 bₓ och isolering. Last- och längdfält kräver samma sultyp och är avstängda
@@ -195,7 +229,7 @@ vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
 för pelarsulor. För väggsulor visas bᵧ som en låst referenslängd på 1 m;
 för pelarsulor är bᵧ redigerbart. Glidlängden L används endast för
 väggsulor. Glidningsindata kan förberedas innan global glidningskontroll
-aktiveras. Escape avmarkerar ritning och tabell; sidbyte rensar också urvalet.
+aktiveras. Escape avmarkerar ritning och tabell.
 
 Beräkning sker automatiskt vid placering, kopiering, ändring, lastuppdatering
 och återöppning av projekt. Alla beräkningsknappar är borttagna. Ett fel
@@ -281,7 +315,7 @@ zoomar in eller ut kring muspekaren. Scroll utan Shift behåller vanlig
 scrollfunktion. Knapparna + och − styr också zoom;
 **Anpassa** återställer zoom och centrering så att hela ritningen syns.
 Taggarna behåller sina relativa lägen
-vid zoom, panorering och sidbyte. Escape minimerar dialogen och avslutar
+vid zoom och panorering. Escape minimerar dialogen och avslutar
 placeringsläget.
 
 Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
@@ -325,7 +359,7 @@ Motståndet för en vald riktning beräknas som
 med 0 kN**, oavsett tidigare glidningsindata. V och μ ska vara minst noll;
 väggsulans L ska vara större än noll.
 
-Motstånden summeras för varje riktning över **alla ritningssidor**. Den flyttbara
+Motstånden summeras för varje riktning över **vyns sulor**. Den flyttbara
 resultatrutan visar H_Ed, H_Rd, `U = |H_Ed| / H_Rd` och antal sulor med positivt
 bidrag. Grönt betyder U ≤ 100 %, rött U > 100 %. Saknade eller ogiltiga indata
 hos en vald sula gör kontrollen **Ofullständig**; ett delmotstånd redovisas då
@@ -347,7 +381,7 @@ symbolen; plus/minus ändrar storleken när hörnhandtaget har fokus. Dra
 resultatrutans rubrik för att flytta rutan. Klicka på rutan och dra dess nedre
 högra hörnhandtag för att förstora eller förminska hela rutan, inklusive texten.
 Plus/minus fungerar också när hörnhandtaget har fokus. Symbol och ruta följer
-ritningens zoom och får separata placeringar och storlekar på varje sida.
+ritningens zoom. Placeringar och storlekar hör till den aktuella vyn.
 
 All glidningsindata samt placeringar och storlekar sparas med projektet. Äldre projekt
 öppnas med glidningskontrollen avstängd. PDF-exporten innehåller fasta
@@ -529,7 +563,7 @@ nytt `Grundplan()` för att byta ritning när taggar redan finns.
 
 ## Exportera ritning med etiketter som PDF
 
-Tryck **Exportera PDF** för att ladda ned alla ritningssidor med sulornas
+Tryck **Exportera PDF** för att ladda ned vyns ritningssida med sulornas
 minimerade etiketter ovanpå. Filen får originalritningens namn med tillägget
 `_med_etiketter.pdf`. Från Python:
 
@@ -571,7 +605,7 @@ plan.exportera_html("grundplan_resultat.html")
 
 Öppna filen i en vanlig webbläsare. Den fungerar utan Jupyter, Python eller
 internet; ritningsbilder, indata, resultat och gränssnitt finns i filen.
-Alla PDF-sidor följer med och väljs med **Sida**. Ritningsbilderna har samma
+Endast vyns valda PDF-sida följer med. Ritningsbilden har samma
 upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
 
 Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera**
@@ -636,15 +670,13 @@ i rutan läggs till, redan markerade avmarkeras och etiketter utanför rutan
 behåller sin markering. Ctrl/Cmd fungerar på samma sätt.
 
 Du kan också använda Shift-klick (eller Ctrl/Cmd-klick) på en enskild etikett
-för att växla dess markering. **Markera flera** visar instruktionerna för
-markering. Ett vanligt klick på en etikett öppnar alltid objektets redigering,
-även efter ett urval eller när **Markera flera** är aktivt. Markerade etiketter
+för att växla dess markering. Ett vanligt klick på en etikett öppnar alltid
+objektets redigering, även efter ett urval. Markerade etiketter
 får en ram och en bock. Tryck **Ändra markerade** för gemensam indata.
 
 Vanligt vänsterdrag eller högerdrag panorerar även med ett aktivt urval.
 Det ändrar inga etikettpositioner. Tryck **Avmarkera** för att börja ett nytt urval.
-Dra direkt i en etikett utan Shift för att flytta den, även när ett urval
-eller **Markera flera** är aktivt.
+Dra direkt i en etikett utan Shift för att flytta den, även när ett urval är aktivt.
 
 Kryssa i de fält som ska ersättas, eller skriv direkt i dem så kryssas de i
 automatiskt. **Olika värden** betyder att sulornas befintliga värden skiljer sig;
@@ -687,7 +719,7 @@ python -m unittest discover -s tests
 
 Notebooktesterna hoppas över om tilläggen saknas. Med tilläggen installerade
 kontrollerar de bland annat per-meter-laster, oberoende taggar,
-ogiltiga eller ändrade indata, projektets återöppning och PDF med flera sidor.
+ogiltiga eller ändrade indata, projektets återöppning och separata vyer för PDF-sidor.
 Isoleringstesterna omfattar olika effektiva areor i brott/bruk, egentyngd,
 styrande kontroll, saknade värden och import av äldre projekt.
 Interaktionerna kan testas med `node tests/test_grundplan_ui.mjs`.

@@ -110,25 +110,23 @@ const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "H�
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
 
-function setup(t, { readOnly = false, standalone = false } = {}) {
+function setup(t, { readOnly = false, standalone = false, page = 1 } = {}) {
   globalThis.document = Object.assign(new Element("document"), {
     createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] });
   globalThis.window = { confirm: () => true };
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   globalThis.requestAnimationFrame = fn => fn();
-  const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page: 1,
+  const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
-    background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
+    background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
-  const snapshot = { state: data.state, schema: data.schema, page: 1,
-    pages: [data.background, { ...data.background, page: 2, url: "data:second" }] };
-  snapshot.pages.forEach(page => { page.page_count = 2; });
+  const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background] };
   const model = standalone ? createResultModel(snapshot) : { get: name => data[name], send: (payload, _, buffers) => {
     sent.push(payload); if (buffers?.length) transfers.push({request: payload.request, buffers});
   },
@@ -250,7 +248,7 @@ test("drawing can pan while placement is awaiting the kernel and pending clicks 
   assert.equal(ui.sent.length, count + 1, "Gesture begun during a pending request is not a new placement");
 });
 
-test("pause, page change, resume and Escape preserve the pending support", t => {
+test("pause, resume and Escape preserve the pending support on the chosen page", t => {
   const ui = setup(t), imported = importFixture(ui);
   ui.byText("Pausa placering").click();
   const pause = ui.sent.at(-1);
@@ -260,11 +258,7 @@ test("pause, page change, resume and Escape preserve the pending support", t => 
   const before = ui.sent.length; ui.place(); assert.equal(ui.sent.length, before);
   ui.byText("Fortsätt placera").click();
   const resume = ui.sent.at(-1); imported.queue.paused = false; ui.changed(); ui.ack(resume);
-  const page = ui.find(e => e.getAttribute("aria-label") === "PDF-sida");
-  page.value = "2"; page.dispatch("change");
-  assert.equal(ui.sent.at(-1).action, "page");
-  ui.data.background.page = 2; ui.changed();
-  ui.place(); const placed = ui.sent.at(-1); assert.equal(placed.page, 2); assert.equal(placed.index, 0);
+  ui.place(); const placed = ui.sent.at(-1); assert.equal(placed.page, 1); assert.equal(placed.index, 0);
   ui.ack(placed, {ok: false, error: "Test"});
   ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
   assert.equal(ui.sent.at(-1).operation, "pause");
@@ -378,7 +372,7 @@ test("delete all requires confirmation and cancellation keeps selection and inpu
   let prompt;
   window.confirm = text => {prompt = text; return false;};
   ui.byText("Radera samtliga sulor").click();
-  assert.match(prompt, /samtliga 1 sulor på alla ritningssidor/);
+  assert.match(prompt, /samtliga 1 sulor\?/);
   assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, count);
   assert.deepEqual(selectedIds(ui), ["tag1"]);
 });
@@ -445,7 +439,7 @@ function bulkFixture(ui, pad = false) {
   const field = name => ui.find(e => e.name === "bulk_" + name);
   const choose = name => ui.find(e => e.getAttribute("aria-label") === "Ändra " + name);
   const select = () => {
-    ui.byText("Markera flera").click();
+    ui.byText("Minimera").click();
     marker("tag1").dispatch("click", {shiftKey: true}); marker("tag2").dispatch("click", {shiftKey: true});
     ui.byText("Ändra markerade").click();
   };
@@ -462,16 +456,22 @@ const selectedIds = ui => ui.elements().filter(e => e.dataset.tagId && e.classNa
   .map(e => e.dataset.tagId).sort();
 
 const tableField = (ui, id, name) => ui.find(e => e.name === "table_" + name && e.dataset.tagId === id);
-const selectTableRow = (ui, label, checked = true) => {
+const tableOrder = ui => ui.byClass("gp-input-table").children[1].children.map(row => row.dataset.tagId);
+const tableSortButton = (ui, key) => ui.find(e => e.getAttribute("aria-label") ===
+  "Sortera efter " + (key === "label" ? "littera" : "status och utnyttjandegrad"));
+const selectTableRow = (ui, label, checked = true, options = {}) => {
   const control = ui.find(e => e.getAttribute("aria-label") === "Markera " + label + " i tabellen");
-  control.checked = checked; control.dispatch("change"); return control;
+  control.checked = checked; control.dispatch("click", options); control.dispatch("change"); return control;
 };
 
-test("table contains every input and all pages, with type-dependent fields and result status", t => {
-  const ui = setup(t), second = {...structuredClone(ui.tag), id: "tag2", label: "PS2", page: 2};
+test("table contains every input without page information or navigation, with type-dependent fields and result status", t => {
+  const ui = setup(t), second = {...structuredClone(ui.tag), id: "tag2", label: "PS2"};
+  ui.data.background.page_count = 2;
   second.values.lang = 0; second.status = "new"; second.summary = null;
   ui.data.state.tags.push(second); ui.changed();
   assert.equal(ui.elements().filter(e => e.tag === "tr" && e.dataset.tagId).length, 2);
+  assert.equal(ui.elements().some(e => e.className.includes("gp-table-page") || e.className.includes("gp-page-label") || e.getAttribute("aria-label") === "PDF-sida"), false);
+  assert.equal(ui.elements().some(e => e.tag === "th" && e.textContent === "Sida"), false);
   for (const tag of ui.data.state.tags) {
     for (const name of names) assert.ok(tableField(ui, tag.id, name));
     assert.ok(tableField(ui, tag.id, "label"));
@@ -500,6 +500,55 @@ test("wall table shows a locked one metre reference length while preserving pad 
   tableField(ui, ui.tag.id, "lang").focus();
   ui.tag.values.lang = 0; ui.changed();
   assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
+});
+
+test("table littera sorting is natural, reversible and preserves selected objects and input controls", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  ui.tag.label = "S.10"; bulk.second.label = "S.2";
+  const third = {...structuredClone(ui.tag), id: "tag3", label: "S.1"};
+  ui.data.state.tags.push(third); ui.changed();
+  selectTableRow(ui, "S.10"); selectTableRow(ui, "S.2");
+  const control = tableField(ui, "tag1", "b"), original = structuredClone(ui.data.state.tags);
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag3"]);
+  const sort = tableSortButton(ui, "label"); sort.click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1"]);
+  assert.equal(sort.parent.getAttribute("aria-sort"), "ascending");
+  sort.click();
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag3"]);
+  assert.equal(sort.parent.getAttribute("aria-sort"), "descending");
+  assert.deepEqual(ui.data.state.tags, original, "Sorting never changes model order or calculation inputs");
+  assert.equal(tableField(ui, "tag1", "b"), control);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  control.value = "0,8"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"], "Bulk editing still targets object ids after sorting");
+});
+
+test("table status sorting uses numeric utilization and prioritizes errors", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  ui.tag.summary.utnyttjandegrad = .09; bulk.second.summary.utnyttjandegrad = 1.2;
+  const third = {...structuredClone(ui.tag), id: "tag3", label: "VS3", status: "error", summary: null};
+  ui.data.state.tags.push(third); ui.changed();
+  const sort = tableSortButton(ui, "status"); sort.click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1"]);
+  assert.equal(sort.parent.getAttribute("aria-sort"), "descending");
+  sort.click();
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag3"]);
+  bulk.second.summary.utnyttjandegrad = .05; ui.changed();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3"], "Updated results keep the chosen numeric order");
+});
+
+test("sorted table defers row movement while typing and Enter follows the visible order", t => {
+  const ui = setup(t); bulkFixture(ui);
+  tableSortButton(ui, "label").click();
+  const label = tableField(ui, "tag1", "label"); label.focus(); label.value = "VS10"; label.dispatch("input");
+  const request = ui.sent.at(-1); ui.tag.label = "VS10"; ui.changed(); ui.ack(request);
+  assert.equal(document.activeElement, label); assert.equal(label.value, "VS10");
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2"], "Typing does not detach a focused row");
+  document.activeElement = null; ui.byClass("gp-table-scroll").dispatch("focusout");
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1"]);
+  const first = tableField(ui, "tag2", "b"), second = tableField(ui, "tag1", "b");
+  first.dispatch("keydown", {key: "Enter"}); assert.equal(document.activeElement, second);
+  second.dispatch("keydown", {key: "Enter", shiftKey: true}); assert.equal(document.activeElement, first);
 });
 
 test("table edits only the chosen field, retains focus and coordinates, and shares drafts with the dialog", t => {
@@ -561,6 +610,37 @@ test("table selection and drawing selection stay synchronized through marquee, c
   assert.equal(ui.byClass("gp-table-selection-info").hidden, true);
 });
 
+test("Shift-click checkboxes include or exclude a range from the first click and keep other rows", t => {
+  const ui = setup(t); bulkFixture(ui);
+  for (let n = 3; n <= 5; n++) ui.data.state.tags.push({...structuredClone(ui.tag), id: "tag" + n, label: "VS" + n});
+  ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS4", true, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3", "tag4"]);
+  selectTableRow(ui, "VS3", false, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag4"], "A checked endpoint removes the interval and preserves rows outside it");
+  selectTableRow(ui, "VS5", true, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3", "tag4", "tag5"], "Repeated Shift clicks retain the first anchor");
+  selectTableRow(ui, "VS2", false); selectTableRow(ui, "VS4", false, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag5"], "An ordinary click sets a new anchor");
+  const cell = tableField(ui, "tag5", "b"); cell.value = "0,8"; cell.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag5"]);
+});
+
+test("Shift-click ranges follow sorted rows in both directions and Escape clears the anchor", t => {
+  const ui = setup(t); bulkFixture(ui);
+  ui.tag.label = "VS10";
+  const third = {...structuredClone(ui.tag), id: "tag3", label: "VS3"};
+  ui.data.state.tags.push(third); ui.changed(); tableSortButton(ui, "label").click();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag3", "tag1"]);
+  selectTableRow(ui, "VS10"); selectTableRow(ui, "VS2", true, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3"]);
+  selectTableRow(ui, "VS3", false, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag2"], "Reverse ranges use visible order rather than model order");
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  selectTableRow(ui, "VS2", true, {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag2"], "Escape prevents the earlier endpoint from selecting an old range");
+});
+
 test("selected table rows edit directly without a popup, preserving other values and keyboard focus", t => {
   const ui = setup(t); bulkFixture(ui);
   const beforeLoads = ui.data.state.tags.map(tag => tag.values.F_vy);
@@ -579,13 +659,12 @@ test("selected table rows edit directly without a popup, preserving other values
   assert.deepEqual(ui.data.state.tags.map(tag => tag.values.F_vy), beforeLoads);
 });
 
-test("select-all table rows includes other pages and survives ordinary state updates", t => {
-  const ui = setup(t), bulk = bulkFixture(ui);
-  bulk.second.page = 2; ui.changed();
+test("select-all table rows survives ordinary state updates", t => {
+  const ui = setup(t); bulkFixture(ui);
   const all = ui.find(e => e.getAttribute("aria-label") === "Markera samtliga tabellrader");
   all.checked = true; all.dispatch("change"); ui.changed();
   assert.equal(all.checked, true); ui.byText("2 markerade");
-  assert.deepEqual(selectedIds(ui), ["tag1"], "Only the current page has a visible marker");
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
   const control = tableField(ui, "tag1", "b"); control.value = "0,8"; control.dispatch("input");
   assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
 });
@@ -625,13 +704,13 @@ test("an automatic table calculation error stays on its row and correction resto
   ui.tag.values.b = null; ui.changed(); ui.ack(request);
   ui.byText("2 sulor · 1 med fel i indata");
   const row = ui.find(e => e.tag === "tr" && e.dataset.tagId === "tag1");
-  assert.equal(row.children[3].textContent, "Fel i indata");
+  assert.equal(row.children[2].textContent, "Fel i indata");
   assert.ok(ui.data.state.tags[1].summary, "The other footing retains its own result");
   cell.value = "1,1"; cell.dispatch("input"); request = ui.sent.at(-1);
   ui.tag.values.b = 1.1;
   Object.assign(ui.tag, {status: "calculated", error: "", summary: structuredClone(ui.data.state.tags[1].summary)});
   ui.changed(); ui.ack(request);
-  assert.equal(row.children[3].textContent, "U 75%"); assert.equal(cell.value, "1,1");
+  assert.equal(row.children[2].textContent, "U 75%"); assert.equal(cell.value, "1,1");
   assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
 });
 
@@ -668,8 +747,7 @@ test("Shift-left marquee previews two labels without moving the canvas and opens
 test("Shift marquee toggles overlapping labels once, adds new labels and preserves labels outside the rectangle", t => {
   const ui = setup(t), bulk = bulkFixture(ui);
   const third = {...structuredClone(ui.tag), id: "tag3", label: "PS3", x: .05, y: .8};
-  const otherPage = {...structuredClone(ui.tag), id: "tag4", page: 2};
-  ui.data.state.tags.push(third, otherPage); ui.changed();
+  ui.data.state.tags.push(third); ui.changed();
   marquee(ui, [150, 450], [40, 560]);
   assert.deepEqual(selectedIds(ui), ["tag3"], "Reverse drag selects a partially intersecting label");
   marquee(ui, [200, 200], [420, 320], {shiftKey: true});
@@ -683,7 +761,7 @@ test("Shift marquee toggles overlapping labels once, adds new labels and preserv
   assert.deepEqual(selectedIds(ui), ["tag3"], "Shift-click uses the same toggle rule");
   ui.byText("Avmarkera").click();
   marquee(ui, [420, 320], [200, 200]);
-  assert.deepEqual(selectedIds(ui), ["tag1"], "A new selection ignores other PDF pages");
+  assert.deepEqual(selectedIds(ui), ["tag1"]);
   marquee(ui, [30, 30], [130, 130], {shiftKey: true});
   assert.deepEqual(selectedIds(ui), ["tag1"], "An empty Shift rectangle retains the selection");
   marquee(ui, [200, 200], [420, 320]);
@@ -707,12 +785,11 @@ for (const cancel of ["pointercancel", "lostpointercapture"]) {
   });
 }
 
-for (const entry of ["toolbar", "Shift-click", "marquee", "unfinished marquee"]) {
+for (const entry of ["Shift-click", "marquee", "unfinished marquee"]) {
   test("Escape ends selection and clears all highlights after " + entry, t => {
     const ui = setup(t), bulk = bulkFixture(ui), original = structuredClone(ui.data.state);
     const notebookEditor = document.createElement("input"); notebookEditor.focus();
-    if (entry === "toolbar") ui.byText("Markera flera").click();
-    else if (entry === "Shift-click") {
+    if (entry === "Shift-click") {
       ui.start(bulk.marker("tag1"), 300, 300, {shiftKey: true}); ui.finish(300, 300);
     } else {
       marquee(ui, [200, 200], [420, 320]);
@@ -729,7 +806,7 @@ for (const entry of ["toolbar", "Shift-click", "marquee", "unfinished marquee"])
     assert.deepEqual(selectedIds(ui), []);
     assert.equal(ui.byClass("gp-selection-box").hidden, true);
     assert.equal(ui.byClass("gp-selection-bar").hidden, true);
-    assert.equal(ui.byText("Markera flera").getAttribute("aria-pressed"), "false");
+    assert.equal(ui.elements().some(e => e.tag === "button" && e.textContent === "Markera flera"), false);
     assert.equal(ui.viewport.style.cursor, "grab");
     assert.ok(!ui.viewport.className.includes("gp-selecting"));
     assert.equal(ui.viewport.captures.size, 0);
@@ -853,10 +930,10 @@ test("multi-selection only sends chosen fields and retains different loads", t =
   ui.byText("2 av 2 sulor beräknade automatiskt.");
 });
 
-for (const entry of ["toolbar", "marquee"]) {
+for (const entry of ["Shift-click", "marquee"]) {
   test("ordinary left drag moves only the dragged footing after selection entered via " + entry, t => {
     const ui = setup(t), bulk = bulkFixture(ui);
-    if (entry === "toolbar") ui.byText("Markera flera").click();
+    if (entry === "Shift-click") bulk.marker("tag1").dispatch("click", {shiftKey: true});
     else marquee(ui, [200, 200], [700, 500]);
     const original = structuredClone(ui.data.state), selected = selectedIds(ui);
     ui.start(bulk.marker("tag2"), 520, 390); ui.move(640, 450); ui.finish(640, 450);
@@ -878,7 +955,7 @@ for (const entry of ["toolbar", "marquee"]) {
   for (const activation of ["pointer", "keyboard"]) {
     test("ordinary " + activation + " click edits a footing after selection entered via " + entry, t => {
       const ui = setup(t), bulk = bulkFixture(ui);
-      if (entry === "toolbar") ui.byText("Markera flera").click();
+      if (entry === "Shift-click") bulk.marker("tag1").dispatch("click", {shiftKey: true});
       else marquee(ui, [200, 200], [700, 500]);
       const original = structuredClone(ui.data.state);
       if (activation === "pointer") {
@@ -969,7 +1046,7 @@ test("batch calculation reports failed footing labels and clears older individua
   ui.changed(); ui.ack(request, {report: {updated: 2, calculated: 1,
     errors: [{id: "tag2", label: "VS2", error: "Saknad last"}]}});
   ui.byText("VS2: Saknad last");
-  ui.byText("Markera flera").click(); bulk.marker("tag1").click();
+  bulk.marker("tag1").click();
   assert.equal(ui.field("b").value, "0.7", "Successful batch supersedes the old single-footing draft");
   assert.match(bulk.marker("tag2").className, /gp-tag-error/);
 });
@@ -1504,16 +1581,14 @@ test("standalone result labels open read-only values and remember expanded secti
   assert.deepEqual(ui.tag.summary, original.state.tags[0].summary);
 });
 
-test("standalone page and label-size controls work locally and reject calculation commands", t => {
-  const ui = setup(t, { readOnly: true, standalone: true });
+test("standalone shows only the chosen page, supports label size locally and rejects page and calculation commands", t => {
+  const ui = setup(t, { readOnly: true, standalone: true, page: 2 });
   const original = structuredClone(ui.snapshot);
   const replies = [];
   ui.model.on("msg:custom", reply => replies.push(reply));
-  const page = ui.byClass("gp-page-label").children[0];
-  page.value = 2; page.dispatch("change");
-  assert.equal(ui.byClass("gp-picture").src, "data:second");
-  assert.equal(ui.byClass("gp-markers").children.length, 0);
-  page.value = 1; page.dispatch("change");
+  assert.equal(ui.elements().some(e => e.className.includes("gp-page-label")), false);
+  assert.equal(ui.model.get("background").page, 2);
+  assert.equal(ui.byClass("gp-markers").children.length, 1);
   ui.marker().click();
   const size = ui.byClass("gp-size-label").children[0];
   size.value = 180; size.dispatch("input"); size.dispatch("change");
@@ -1525,6 +1600,9 @@ test("standalone page and label-size controls work locally and reject calculatio
   }
   ui.model.send({ action: "page", page: 500 });
   assert.equal(replies.at(-1).ok, false);
+  ui.model.send({ action: "page", page: 1 });
+  assert.equal(replies.at(-1).ok, false);
+  assert.equal(ui.model.get("background").page, 2);
   ui.model.send({ action: "label_size", value: NaN });
   assert.equal(replies.at(-1).ok, false);
   assert.deepEqual(ui.snapshot, original, "Display choices do not modify the embedded snapshot");

@@ -53,8 +53,6 @@
 .an-grundplan .gp-copy-storage { font-size: 11px; }
 .an-grundplan .gp-separator { width: 1px; height: 24px; background: var(--gp-line); margin: 0 3px; }
 .an-grundplan .gp-selected { background: #e1f0eb; border-color: #85b4a7; color: #10594f; }
-.an-grundplan .gp-page-label { margin-left: auto; }
-.an-grundplan .gp-page-label select { padding: 5px; border: 1px solid var(--gp-line); border-radius: 5px; background: white; }
 .an-grundplan .gp-size-label { display: flex; align-items: center; gap: 7px; font-size: 11px; white-space: nowrap; }
 .an-grundplan .gp-size-label input { width: 85px; padding: 0; accent-color: var(--gp-accent); }
 .an-grundplan .gp-size-label output { min-width: 32px; font-variant-numeric: tabular-nums; }
@@ -222,6 +220,8 @@
 .an-grundplan .gp-input-table th, .an-grundplan .gp-input-table td { padding: 6px; border-right: 1px solid var(--gp-line); border-bottom: 1px solid var(--gp-line); text-align: center; vertical-align: middle; }
 .an-grundplan .gp-input-table thead { position: sticky; top: 0; z-index: 3; }
 .an-grundplan .gp-input-table th { background: #eef5f3; color: var(--gp-ink); font-weight: 500; }
+.an-grundplan .gp-input-table .gp-table-sort { width: 100%; padding: 4px 0; border: 0; background: transparent; color: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.an-grundplan .gp-input-table .gp-table-sort:hover { color: var(--gp-accent); background: transparent; }
 .an-grundplan .gp-input-table .gp-table-group { background: #deeee8; font-weight: 700; padding: 8px; border-bottom-color: #b7d1c8; }
 .an-grundplan .gp-table-symbol { display: block; font-size: 15px; }
 .an-grundplan .gp-table-unit { display: block; margin-top: 3px; color: var(--gp-muted); font-size: 10px; white-space: nowrap; }
@@ -241,7 +241,6 @@
 .an-grundplan .gp-input-table .gp-table-text { min-width: 180px; }
 .an-grundplan .gp-input-table .gp-table-text input { width: 164px; }
 .an-grundplan .gp-input-table .gp-table-status { min-width: 92px; white-space: nowrap; font-weight: 600; }
-.an-grundplan .gp-input-table .gp-table-page { min-width: 38px; }
 .an-grundplan .gp-input-table input:disabled, .an-grundplan .gp-input-table select:disabled { background: #f0f4f2; color: #829091; cursor: default; }
 .an-grundplan .gp-input-table input:invalid { border-color: #bf5249; }
 .an-grundplan.gp-readonly .gp-tag { cursor: pointer; }
