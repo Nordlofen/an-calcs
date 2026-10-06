@@ -227,7 +227,7 @@ function render({ model, el, readOnly = false }) {
     if (!keyChoice.value) saveInputs.key.focus();
   });
   for (const [name, caption, placeholder] of [
-    ["state_file", "Projekt", "26017 - Norrbodahöjden"], ["key", "Fall (key)", "Hus A"],
+    ["state_file", "Projekt", "Ange projektnamn"], ["key", "Fall (key)", "Ange fallnamn"],
   ]) {
     const label = node("label", "", caption);
     const input = node("input");
