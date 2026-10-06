@@ -7,9 +7,12 @@ function render({ model, el }) {
     return element;
   };
   const root = node("div", "an-grundplan");
+  // Keep JupyterLab's cell shortcuts from consuming keys intended for the widget.
+  root.setAttribute("data-lm-suppress-shortcuts", "true");
   const view = Math.random().toString(36).slice(2);
-  let sequence = 0, active = null, mode = "pan", zoom = 1, disposed = false;
-  let lastBackground = "", formId = null;
+  let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
+  let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
+  const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const state = () => model.get("state") || { tags: [] };
   const background = () => model.get("background") || {};
@@ -70,11 +73,42 @@ function render({ model, el }) {
     modes.set(key, b);
     toolbar.append(b);
   }
+  const cancelCopy = button("Avbryt kopiering", () => {
+    setMode("pan");
+    showMessage("Kopieringen avbröts.");
+  });
+  cancelCopy.hidden = true;
+  const sizeLabel = node("label", "gp-size-label", "Etikettstorlek ");
+  const sizeInput = node("input");
+  sizeInput.type = "range";
+  sizeInput.min = "60";
+  sizeInput.max = "180";
+  sizeInput.step = "10";
+  sizeInput.setAttribute("aria-label", "Etikettstorlek i procent");
+  const sizeText = node("output");
+  sizeLabel.append(sizeInput, sizeText);
+  sizeInput.addEventListener("input", () => {
+    sizeDraft = Number(sizeInput.value);
+    showLabelSize(sizeDraft);
+  });
+  sizeInput.addEventListener("change", () => {
+    const value = Number(sizeInput.value);
+    sizeDraft = value;
+    command("label_size", { value }, [], () => {
+      if (sizeDraft === value) {
+        sizeDraft = null;
+        showLabelSize(state().label_size ?? 100);
+      }
+    });
+  });
+  toolbar.append(cancelCopy, sizeLabel);
   const pageLabel = node("label", "gp-page-label", "Sida ");
   const pageSelect = node("select");
   pageSelect.setAttribute("aria-label", "PDF-sida");
   pageLabel.append(pageSelect);
   pageSelect.addEventListener("change", () => {
+    cancelDrag();
+    setMode("pan");
     closeDialog();
     command("page", { page: Number(pageSelect.value) });
   });
@@ -133,7 +167,16 @@ function render({ model, el }) {
       closeDialog();
     }
   }, "gp-delete");
-  footer.append(remove, calculate);
+  const copy = button("Kopiera sula", () => {
+    const tag = current();
+    if (!tag) return;
+    copySource = { id: tag.id, label: labelInput.value.trim() || tag.label, values: readValues() };
+    closeDialog();
+    setMode("copy");
+    viewport.focus({ preventScroll: true });
+  });
+  copy.title = "Kopiera alla indata och välj en ny position på ritningen";
+  footer.append(remove, copy, calculate);
   form.append(labelRow, basis, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
   board.append(viewport, empty, zoomBar, dialog);
@@ -141,7 +184,7 @@ function render({ model, el }) {
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend", "○ Ej beräknad   ● U ≤ 100 %   ● U > 100 %   ◌ Ändrad");
   const help = node("p", "gp-help",
-    "Markeringarna anger läge på ritningen. Sulmått och laster anges i beräkningen. Dra i ritningen för att panorera.");
+    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Dra i ritningen för att panorera. Etikettstorleken är oberoende av ritningens zoom.");
   root.append(heading, toolbar, board, status, legend, help, fileInput, projectInput);
   el.append(root);
 
@@ -168,6 +211,9 @@ function render({ model, el }) {
           dirty.clear();
           drafts.clear();
           edits.clear();
+          positions.clear();
+          pendingPositions.clear();
+          setMode("pan");
           update();
           showMessage(file.name + " öppnad.");
         }
@@ -181,34 +227,47 @@ function render({ model, el }) {
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
   function setMode(value) {
     mode = value;
+    if (value !== "copy") copySource = null;
+    cancelCopy.hidden = value !== "copy";
     for (const [key, b] of modes) {
       b.classList.toggle("gp-selected", key === value);
       b.setAttribute("aria-pressed", String(key === value));
     }
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
-    if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
+    if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
+    else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
+  }
+  function showLabelSize(value) {
+    sizeInput.value = value;
+    sizeText.textContent = value + "%";
+    root.style.setProperty("--gp-tag-scale", String(value / 100));
   }
   function setZoom(value) {
     const bg = background();
     if (!bg.width) return;
     const previous = zoom;
-    zoom = Math.max(0.12, Math.min(4, value));
-    const cx = viewport.scrollLeft + viewport.clientWidth / 2;
-    const cy = viewport.scrollTop + viewport.clientHeight / 2;
+    zoom = Math.max(0.02, Math.min(4, value));
+    const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+    panX = cx + (panX - cx) * zoom / previous;
+    panY = cy + (panY - cy) * zoom / previous;
     sheet.style.width = bg.width * zoom + "px";
     sheet.style.height = bg.height * zoom + "px";
-    viewport.scrollLeft = cx * zoom / previous - viewport.clientWidth / 2;
-    viewport.scrollTop = cy * zoom / previous - viewport.clientHeight / 2;
+    placeSheet();
     zoomText.textContent = Math.round(zoom * 100) + "%";
+  }
+  function placeSheet() {
+    sheet.style.left = panX + "px";
+    sheet.style.top = panY + "px";
   }
   function fit() {
     const bg = background();
     if (!bg.width) return;
     setZoom(Math.min((viewport.clientWidth - 48) / bg.width,
       (viewport.clientHeight - 48) / bg.height));
-    viewport.scrollLeft = 0;
-    viewport.scrollTop = 0;
+    panX = (viewport.clientWidth - bg.width * zoom) / 2;
+    panY = (viewport.clientHeight - bg.height * zoom) / 2;
+    placeSheet();
   }
   function closeDialog() {
     active = null;
@@ -237,9 +296,16 @@ function render({ model, el }) {
       const summary = dirty.has(tag.id) ? null : tag.summary;
       const tagState = dirty.has(tag.id) ? "stale" : tag.status;
       const color = summary ? (summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
-      const marker = button("", (event) => { event.stopPropagation(); openDialog(tag); }, "gp-tag gp-tag-" + color);
-      marker.style.left = tag.x * 100 + "%";
-      marker.style.top = tag.y * 100 + "%";
+      const marker = button("", (event) => {
+        event.stopPropagation();
+        // Pointer clicks are handled on pointerup, so dragging never opens the form.
+        if (!event.detail) openDialog(tag);
+      }, "gp-tag gp-tag-" + color);
+      marker.dataset.tagId = tag.id;
+      marker.title = "Dra för att flytta · klicka för indata och kopiering";
+      const position = positions.get(tag.id) || tag;
+      marker.style.left = position.x * 100 + "%";
+      marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
       const heading = node("strong", "", tag.label);
       const text = summary
@@ -365,7 +431,7 @@ function render({ model, el }) {
     }
     const r = tag.summary;
     if (!r) {
-      results.append(node("p", "", "Startvärdena är exempel. Anpassa dem och tryck Beräkna."));
+      results.append(node("p", "", "Ingen aktuell beräkning. Kontrollera indata och tryck Beräkna."));
       return;
     }
     const headline = node("div", "gp-result-main " + (r.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail"));
@@ -384,6 +450,7 @@ function render({ model, el }) {
     const bg = background();
     const data = state();
     title.textContent = data.title;
+    showLabelSize(sizeDraft ?? data.label_size ?? 100);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
     loadDrawing.disabled = data.tags.length > 0;
     loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
@@ -393,6 +460,7 @@ function render({ model, el }) {
     zoomBar.hidden = !bg.url;
     for (const b of modes.values()) b.disabled = !bg.url;
     if (bg.url !== lastBackground) {
+      cancelDrag();
       lastBackground = bg.url;
       if (bg.url) picture.src = bg.url;
       else picture.removeAttribute("src");
@@ -427,37 +495,92 @@ function render({ model, el }) {
     renderMarkers();
   }
   let drag = null;
+  function cancelDrag() {
+    const previous = drag;
+    drag = null;
+    if (previous?.id) {
+      if (pendingPositions.has(previous.id)) positions.set(previous.id, pendingPositions.get(previous.id));
+      else positions.delete(previous.id);
+    }
+    viewport.classList.remove("gp-dragging-tag");
+    viewport.classList.remove("gp-panning");
+    if (previous && viewport.hasPointerCapture(previous.pointerId)) viewport.releasePointerCapture(previous.pointerId);
+    if (previous?.id) renderMarkers();
+  }
   viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest("button") || !background().url) return;
-    drag = { x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, moved: false };
+    if (event.button !== 0 || drag || !background().url) return;
+    const marker = event.target.closest(".gp-tag");
+    const tag = marker && state().tags.find((t) => t.id === marker.dataset.tagId);
+    if (!tag && event.target.closest("button")) return;
+    event.preventDefault();
+    const position = tag && (positions.get(tag.id) || tag);
+    drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
+      moved: false, pointerId: event.pointerId, id: tag?.id, position };
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {
-    if (!drag) return;
+    if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     if (drag.moved) {
-      viewport.scrollLeft = drag.left - dx;
-      viewport.scrollTop = drag.top - dy;
+      if (drag.id) {
+        const rect = picture.getBoundingClientRect();
+        positions.set(drag.id, {
+          x: Math.max(0, Math.min(1, drag.position.x + dx / rect.width)),
+          y: Math.max(0, Math.min(1, drag.position.y + dy / rect.height)),
+        });
+        viewport.classList.add("gp-dragging-tag");
+        closeDialog();
+      } else {
+        panX = drag.left + dx;
+        panY = drag.top + dy;
+        placeSheet();
+        viewport.classList.add("gp-panning");
+      }
     }
   });
   viewport.addEventListener("pointerup", (event) => {
-    if (!drag) return;
-    const moved = drag.moved;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const { moved, id } = drag;
     drag = null;
+    viewport.classList.remove("gp-dragging-tag");
+    viewport.classList.remove("gp-panning");
+    if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if (id) {
+      const tag = state().tags.find((t) => t.id === id);
+      if (!moved) { if (tag) openDialog(tag); return; }
+      const position = positions.get(id);
+      pendingPositions.set(id, position);
+      command("update", { id, ...position }, [], (reply) => {
+        // A delayed response must not roll back a subsequent drag.
+        if (pendingPositions.get(id) === position) pendingPositions.delete(id);
+        if (positions.get(id) === position) positions.delete(id);
+        renderMarkers();
+        if (reply.ok) showMessage((tag?.label || "Etiketten") + " flyttad.");
+      });
+      return;
+    }
     if (moved || mode === "pan") return;
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    command("add", { x, y, kind: mode }, [], (reply) => {
+    const source = copySource;
+    const action = mode === "copy" ? "copy" : "add";
+    const payload = source
+      ? { id: source.id, values: source.values, x, y, page: background().page }
+      : { x, y, kind: mode };
+    // Consume the placement immediately, including when the kernel is slow.
+    setMode("pan");
+    command(action, payload, [], (reply) => {
       if (!reply.ok) return;
-      setMode("pan");
       const tag = state().tags.find((t) => t.id === reply.id);
       if (tag) openDialog(tag);
+      if (source) showMessage("Kopian har fått egna indata. Anpassa last och geometri och tryck Beräkna.");
     });
   });
-  viewport.addEventListener("pointercancel", () => { drag = null; });
+  viewport.addEventListener("pointercancel", cancelDrag);
+  viewport.addEventListener("lostpointercapture", cancelDrag);
   let dialogDrag = null;
   dialogHeader.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.target.closest("button")) return;
@@ -471,7 +594,8 @@ function render({ model, el }) {
   dialogHeader.addEventListener("pointerup", () => { dialogDrag = null; });
   dialogHeader.addEventListener("pointercancel", () => { dialogDrag = null; });
   root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { closeDialog(); setMode("pan"); }
+    event.stopPropagation();
+    if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage("Klicka på en etikett för indata eller dra den för att flytta."); }
   });
   function receive(reply) {
     if (reply.view !== view) return;

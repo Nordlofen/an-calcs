@@ -64,6 +64,12 @@ def _page_number(page, count):
     return page
 
 
+def _label_size(value):
+    if not 60 <= _number(value, "Etikettstorlek") <= 180:
+        raise ValueError("Etikettstorlek måste ligga mellan 60 och 180 procent.")
+    return value
+
+
 def _render_source(data, filename, page=1):
     """Normalisera rasterbilder och rendera en PDF-sida lokalt till PNG."""
     if not data or len(data) > _MAX_FILE_BYTES:
@@ -163,6 +169,7 @@ class Grundplan(anywidget.AnyWidget):
         self._details = {}
         self._tags = []
         self._title = str(titel)
+        self._label_size = 100
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.background = {}
         if ritning is not None:
@@ -182,6 +189,7 @@ class Grundplan(anywidget.AnyWidget):
         self.state = {
             "title": self._title,
             "tags": copy.deepcopy(self._tags),
+            "label_size": self._label_size,
             "calculator_version": _CALCULATOR_VERSION,
         }
 
@@ -230,6 +238,22 @@ class Grundplan(anywidget.AnyWidget):
         self._tags.append(tag)
         self._publish()
         return tag["id"]
+
+    def kopiera(self, tagg, x, y, *, littera=None, sida=None, indata=None):
+        """Kopiera en sulas indata till en ny tagg som behöver beräknas.
+
+        Kopian får ett eget id och nästa lediga VS-/PS-littera. Källans sida
+        används om sida utelämnas; indata kan åsidosätta enskilda parametrar.
+        """
+        source = self._tag(tagg)
+        values = copy.deepcopy(source["values"])
+        if indata is not None:
+            values.update(indata)
+        return self.lagg_till(
+            x, y, littera=littera,
+            typ="vaggsula" if source["values"]["lang"] == 1 else "pelarsula",
+            sida=source["page"] if sida is None else sida, indata=values,
+        )
 
     def uppdatera(self, tagg, *, indata=None, littera=None, x=None, y=None):
         """Ändrade beräkningsindata gör taggens gamla resultat inaktuellt."""
@@ -281,6 +305,16 @@ class Grundplan(anywidget.AnyWidget):
         """Aktuella details per tagg-id, användbara i an_print.CalcBlock."""
         return copy.deepcopy(self._details)
 
+    @property
+    def etikettstorlek(self):
+        """Etiketternas skärmstorlek i procent (60–180), oberoende av zoom."""
+        return self._label_size
+
+    @etikettstorlek.setter
+    def etikettstorlek(self, value):
+        self._label_size = _label_size(value)
+        self._publish()
+
     def visa_sida(self, sida):
         if not self._source:
             raise ValueError("Öppna en ritning först.")
@@ -292,6 +326,7 @@ class Grundplan(anywidget.AnyWidget):
             "version": 1,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
+            "label_size": self._label_size,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -343,6 +378,7 @@ class Grundplan(anywidget.AnyWidget):
         document = json.loads(data)
         if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") != 1:
             raise ValueError("Filen är inte ett Grundplan-projekt av version 1.")
+        label_size = _label_size(document.get("label_size", 100))
         drawing = document["drawing"]
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
@@ -378,6 +414,7 @@ class Grundplan(anywidget.AnyWidget):
         self._source = source
         self._filename = Path(drawing["name"]).name
         self._title = str(document.get("title", "Grundplan"))[:200]
+        self._label_size = label_size
         self._tags = valid_tags
         self._details = details_by_id
         self.background = rendered
@@ -390,8 +427,16 @@ class Grundplan(anywidget.AnyWidget):
             action = content["action"]
             if action == "add":
                 reply["id"] = self.lagg_till(content["x"], content["y"], typ=content["kind"])
+            elif action == "copy":
+                reply["id"] = self.kopiera(
+                    content["id"], content["x"], content["y"],
+                    sida=content.get("page"), indata=content.get("values"),
+                )
             elif action == "update":
-                self.uppdatera(content["id"], indata=content.get("values"), littera=content.get("label"))
+                self.uppdatera(
+                    content["id"], indata=content.get("values"), littera=content.get("label"),
+                    x=content.get("x"), y=content.get("y"),
+                )
             elif action == "calculate":
                 self.uppdatera(content["id"], indata=content["values"], littera=content["label"])
                 self.berakna(content["id"])
@@ -399,6 +444,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.ta_bort(content["id"])
             elif action == "page":
                 self.visa_sida(content["page"])
+            elif action == "label_size":
+                self.etikettstorlek = content["value"]
             elif action == "drawing":
                 if self._tags:
                     raise ValueError("Starta en ny Grundplan för att byta ritning när taggar finns.")

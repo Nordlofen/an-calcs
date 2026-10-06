@@ -14,8 +14,9 @@ uv pip install --upgrade --refresh "an-calcs[notebook] @ git+https://github.com/
 För lokal utveckling kan du i samma aktiverade miljö köra
 `uv pip install -e ".[notebook]"` från an-calcs repositoryrot.
 
-Om JupyterLab redan körs vid installationen kan server och kernel behöva
-startas om för att hitta widgettillägget. Gränssnittet använder anywidget;
+Spara projektet före uppdatering och starta sedan om kerneln. Ladda också
+om hela webbläsarfliken om widgettillägget inte visas; enbart kernelomstart
+laddar inte in ett nytt webbläsartillägg. Gränssnittet använder anywidget;
 PDF renderas lokalt med pypdfium2 och rasterbilder med Pillow. Inga
 ritningar skickas till en extern tjänst. I en fjärransluten Jupytermiljö
 överförs de till den server där kerneln körs.
@@ -42,10 +43,24 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 5. Tryck **Minimera**. Taggen visar littera, utnyttjandegrad och bredd.
    Klicka på taggen igen för att öppna samma indata.
 
-Dialogen kan flyttas genom att dra dess rubrik. Ritningen kan panoreras
-genom att dra; knapparna +, − och Anpassa styr zoom. Taggarna behåller sina
-lägen vid zoom, panorering och sidbyte. Escape minimerar dialogen och
-avslutar placeringsläget.
+**Flytta:** dra etiketten till önskat läge och släpp. Ett kort klick öppnar
+indata; en dragning flyttar etiketten utan att ändra indata eller resultat.
+Positionen sparas i projektet. Dialogen kan flyttas genom att dra dess rubrik.
+
+**Kopiera:** öppna en etikett, tryck **Kopiera sula** och klicka på ritningen
+där den nya sulan ska placeras. Alla indata följer med, även ändringar som
+ännu inte beräknats. Kopian får nästa lediga VS-/PS-littera och egna indata.
+Anpassa last och geometri och tryck **Beräkna**; originalet påverkas inte.
+**Avbryt kopiering** eller Escape avslutar kopieringen utan att skapa en sula.
+
+**Storlek:** reglaget **Etikettstorlek** ändrar samtliga etiketter mellan
+60 och 180 %. Storleken är fast på skärmen när ritningen zoomas in eller ut,
+och inställningen sparas i projektet. Dra ritningen för att panorera fritt,
+även när hela ritningen redan ryms i vyn. Knapparna + och − styr zoom;
+**Anpassa** återställer zoom och centrering så att hela ritningen syns.
+Taggarna behåller sina relativa lägen
+vid zoom, panorering och sidbyte. Escape minimerar dialogen och avslutar
+placeringsläget.
 
 Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
 Ändrade indata ger en streckad tagg och inga aktuella resultat förrän en
@@ -111,6 +126,11 @@ details = plan.berakna(tagg_id)
 plan.uppdatera(tagg_id, indata={"b": 1.0})
 details = plan.berakna(tagg_id)
 
+plan.uppdatera(tagg_id, x=0.45, y=0.3)  # Flytta utan att ändra resultat.
+kopia_id = plan.kopiera(tagg_id, 0.6, 0.4, indata={"F_vy": 150.0})
+plan.berakna(kopia_id)
+plan.etikettstorlek = 120  # Procent av normal skärmstorlek.
+
 from an_print import CalcBlock
 CalcBlock(details).SR(visa=True, etikett=True)
 
@@ -137,3 +157,4 @@ python -m unittest discover -s tests
 Notebooktesterna hoppas över om tilläggen saknas. Med tilläggen installerade
 kontrollerar de bland annat per-meter-laster, oberoende taggar,
 ogiltiga eller ändrade indata, projektets återöppning och PDF med flera sidor.
+Interaktionerna kan testas med `node tests/test_grundplan_ui.mjs`.
