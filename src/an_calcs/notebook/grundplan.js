@@ -416,6 +416,7 @@ function render({ model, el, readOnly = false }) {
     if (bulkBusy) return;
     closeDialog(); closeBulk();
     setMode(mode === "select" ? "pan" : "select");
+    viewport.focus({preventScroll: true});
   });
   selectMany.title = "Shift + vänsterdrag ritar en urvalsruta. Shift + klick växlar markeringen. Vanligt klick öppnar objektets redigering.";
   modes.set("select", selectMany);
@@ -1172,6 +1173,7 @@ function render({ model, el, readOnly = false }) {
     if (selected.has(tag.id)) selected.delete(tag.id); else selected.add(tag.id);
     bulkSignature = "";
     showSelection(); renderMarkers();
+    viewport.focus({preventScroll: true});
   }
   function closeBulk() {
     if (bulkBusy) return;
@@ -1760,6 +1762,7 @@ function render({ model, el, readOnly = false }) {
     if (![0, 2].includes(event.button) || drag || !background().url) return;
     if (event.button === 2) {
       event.preventDefault();
+      viewport.focus({preventScroll: true});
       drag = {pan: true, x: event.clientX, y: event.clientY, left: panX, top: panY,
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
@@ -1789,6 +1792,7 @@ function render({ model, el, readOnly = false }) {
     const tag = marker && state().tags.find((t) => t.id === marker.dataset.tagId);
     if (!tag && event.target.closest("button")) return;
     event.preventDefault();
+    viewport.focus({preventScroll: true});
     const position = tag && (positions.get(tag.id) || tag);
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
       moved: false, pointerId: event.pointerId, id: tag?.id, position,
@@ -1983,10 +1987,12 @@ function render({ model, el, readOnly = false }) {
       return;
     }
     if (event.key === "Escape") {
-      if (drag?.box) { cancelDrag(); showMessage("Urvalsdragningen avbröts. Tidigare urval behålls."); return; }
+      event.preventDefault();
+      const selecting = !!drag?.box || mode === "select" || selected.size > 0;
       cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
       if (!bulkBusy) { selected.clear(); bulkSignature = ""; showSelection(); renderMarkers(); }
-      setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
+      setMode("pan"); showMessage(selecting && !bulkBusy ? "Markeringen avbröts."
+        : readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
     }
   });
   function receive(reply, buffers = []) {

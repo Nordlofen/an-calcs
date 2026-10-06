@@ -611,10 +611,11 @@ med sulans littera; övriga sulor beräknas ändå. Saknade brukslaster och
 isoleringsbärförmågor behöver fyllas i när isolering aktiveras.
 
 Urval och ännu ej tillämpade gemensamma ändringar är tillfälliga. Tillämpade
-värden sparas och exporteras med projektet på vanligt sätt. **Avmarkera** eller
-Escape rensar urvalet; under en pågående urvalsdragning avbryter Escape
-bara dragningen och återställer det tidigare urvalet. Sidbyte rensar också
-urvalet. Resultat-HTML har ingen
+värden sparas och exporteras med projektet på vanligt sätt. **Avmarkera**
+rensar urvalet. Escape avslutar markeringsläget och rensar hela urvalet,
+även under en pågående urvalsdragning. Urvalsrutan och markeringarna
+försvinner direkt.
+Sidbyte rensar också urvalet. Resultat-HTML har ingen
 gemensam redigering.
 
 Från Python kan motsvarande ändring göras med:

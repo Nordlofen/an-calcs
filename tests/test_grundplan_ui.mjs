@@ -398,14 +398,13 @@ test("Shift marquee toggles overlapping labels once, adds new labels and preserv
   assert.equal(ui.byClass("gp-selection-bar").hidden, true);
 });
 
-for (const cancel of ["pointercancel", "lostpointercapture", "Escape"]) {
+for (const cancel of ["pointercancel", "lostpointercapture"]) {
   test(cancel + " restores the selection that existed before a marquee", t => {
     const ui = setup(t); bulkFixture(ui);
     marquee(ui, [200, 200], [420, 320]);
     ui.start(ui.byClass("gp-picture"), 480, 360, {shiftKey: true}); ui.move(700, 450);
     assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
-    if (cancel === "Escape") ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
-    else ui.viewport.dispatch(cancel);
+    ui.viewport.dispatch(cancel);
     assert.deepEqual(selectedIds(ui), ["tag1"]);
     assert.equal(ui.byClass("gp-selection-box").hidden, true);
     assert.equal(ui.byClass("gp-selection-count").textContent, "1 markerade");
@@ -414,6 +413,54 @@ for (const cancel of ["pointercancel", "lostpointercapture", "Escape"]) {
     assert.equal(ui.sent.length, 0);
   });
 }
+
+for (const entry of ["toolbar", "Shift-click", "marquee", "unfinished marquee"]) {
+  test("Escape ends selection and clears all highlights after " + entry, t => {
+    const ui = setup(t), bulk = bulkFixture(ui), original = structuredClone(ui.data.state);
+    const notebookEditor = document.createElement("input"); notebookEditor.focus();
+    if (entry === "toolbar") ui.byText("Markera flera").click();
+    else if (entry === "Shift-click") {
+      ui.start(bulk.marker("tag1"), 300, 300, {shiftKey: true}); ui.finish(300, 300);
+    } else {
+      marquee(ui, [200, 200], [420, 320]);
+      if (entry === "unfinished marquee") {
+        ui.start(ui.byClass("gp-picture"), 480, 360, {shiftKey: true}); ui.move(700, 450);
+        assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+      }
+    }
+    assert.equal(document.activeElement, ui.viewport, "Selection must focus the widget so Jupyter cannot consume Escape");
+    let prevented = false;
+    ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape", target: document.activeElement,
+      preventDefault() {prevented = true;}});
+    assert.equal(prevented, true);
+    assert.deepEqual(selectedIds(ui), []);
+    assert.equal(ui.byClass("gp-selection-box").hidden, true);
+    assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+    assert.equal(ui.byText("Markera flera").getAttribute("aria-pressed"), "false");
+    assert.equal(ui.viewport.style.cursor, "grab");
+    assert.ok(!ui.viewport.className.includes("gp-selecting"));
+    assert.equal(ui.viewport.captures.size, 0);
+    ui.move(750, 500); ui.finish(750, 500);
+    assert.deepEqual(selectedIds(ui), [], "Releasing the mouse after Escape cannot restore the selection");
+    assert.equal(ui.sent.length, 0); assert.deepEqual(ui.data.state, original);
+    ui.byText("Markeringen avbröts.");
+    marquee(ui, [480, 360], [700, 450]);
+    assert.deepEqual(selectedIds(ui), ["tag2"], "The next selection starts with an empty group");
+  });
+}
+
+test("Escape closes bulk editing and discards the old selection without applying its draft", t => {
+  const ui = setup(t), bulk = bulkFixture(ui), original = structuredClone(ui.data.state);
+  bulk.select();
+  bulk.field("b").value = "0,9"; bulk.field("b").dispatch("input");
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.byClass("gp-bulk-dialog").hidden, true);
+  assert.deepEqual(selectedIds(ui), []); assert.deepEqual(ui.data.state, original);
+  assert.equal(ui.sent.length, 0);
+  marquee(ui, [480, 360], [700, 450]); ui.byText("Ändra markerade").click();
+  assert.equal(bulk.field("b").value, "2");
+  assert.equal(bulk.choose("b").checked, false, "Canceled bulk changes cannot carry into a new group");
+});
 
 test("marquee hit testing follows displayed label rectangles after zoom, label sizing and panning", t => {
   const ui = setup(t), bulk = bulkFixture(ui);
