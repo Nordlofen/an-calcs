@@ -46,7 +46,8 @@ class Element {
     if (this.tag === "a") document.downloads.push({ href: this.href, filename: this.download });
     this.dispatch("click");
   }
-  setAttribute() {}
+  setAttribute(name, value) { (this.attributes ??= {})[name] = String(value); }
+  getAttribute(name) { return this.attributes?.[name] ?? null; }
   removeAttribute() {}
   setCustomValidity(value) { this.validityMessage = value; }
   get validity() {
@@ -88,7 +89,7 @@ const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 
 function setup(t, { readOnly = false, standalone = false } = {}) {
-  globalThis.document = { createElement: tag => new Element(tag), activeElement: null, downloads: [] };
+  globalThis.document = { createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] };
   globalThis.window = { confirm: () => true };
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   globalThis.requestAnimationFrame = fn => fn();
@@ -197,11 +198,17 @@ test("standalone result labels open read-only values and remember expanded secti
   assert.equal(ui.byClass("gp-title").textContent, "Test");
   assert.equal(ui.byClass("gp-subtitle").tag, "p");
   assert.equal(ui.byClass("gp-subtitle").textContent, "Projektets underrubrik");
+  ui.tag.values.lang = 0;
+  ui.tag.values.l = 2.4;
+  ui.tag.summary.b = 1.8;
   const original = structuredClone(ui.snapshot);
   ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
   const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
   assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
   ui.marker().click();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · 1,8 × 2,4 m");
+  assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Utan isolering");
+  assert.match(ui.marker().getAttribute("aria-label"), /bredd × längd/);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
   assert.equal(ui.byClass("gp-result-main").children[1].textContent, "75%");
   assert.equal(ui.byText("EPS ÅÄÖ <script>literal</script>").tag, "span");
@@ -454,6 +461,8 @@ test("insulation toggles required capacities and service loads, retaining drafts
   }
   ui.ack(soil);
   enabled.checked = true; enabled.dispatch("input");
+  assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering", "The draft is shown before the kernel replies");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Ändrad · beräkna");
   assert.equal(ui.field("f_d_brott").parent.hidden, false);
   assert.equal(ui.field("F_vy_bruk").disabled, false);
   assert.equal(ui.field("F_vy_bruk").required, true);
@@ -478,6 +487,7 @@ test("insulation toggles required capacities and service loads, retaining drafts
   ui.field("isolering").checked = false; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("f_d_bruk").value, "80", "Deactivation retains values for reuse");
   ui.ack(request);
+  assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Utan isolering", "An old calculation reply cannot revert the current insulation marker");
   assert.equal(ui.field("isolering").checked, false, "A stale calculation cannot reactivate insulation");
   ui.byText("Kopiera sula").dispatch("click"); ui.place();
   const copy = ui.sent.at(-1);
@@ -487,8 +497,9 @@ test("insulation toggles required capacities and service loads, retaining drafts
   assert.equal(copy.values.f_d_bruk, 80);
 });
 
-test("the label and result show governing insulation with separate soil, ULS and SLS checks", t => {
+test("compact labels show insulation and maximum utilization, with governing checks in the dialog", t => {
   const ui = setup(t);
+  Object.assign(ui.tag.values, { isolering: true, F_vy_bruk: 70, f_d_brott: 200, f_d_bruk: 50 });
   Object.assign(ui.tag.summary, {
     utnyttjandegrad: 1.6, styrande: "Isolering · bruk",
     kontroller: [
@@ -501,8 +512,12 @@ test("the label and result show governing insulation with separate soil, ULS and
   });
   ui.changed();
   assert.match(ui.marker().className, /gp-tag-over/);
-  assert.ok(ui.marker().children.some(child => child.textContent === "Styrande: Isolering · bruk"));
+  assert.equal(ui.marker().children.length, 2);
+  assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · b 1 m");
+  assert.match(ui.marker().title, /styrande: Isolering · bruk/);
   ui.marker().dispatch("click");
+  ui.byText("Styrande: Isolering · bruk");
   const checks = ui.byClass("gp-checks").children;
   assert.deepEqual(checks.map(child => child.textContent), [
     "Jord · brott", "75%", "Isolering · brott", "57,5%", "Isolering · bruk", "160%",

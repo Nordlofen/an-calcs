@@ -142,8 +142,11 @@ jordens bärighet.
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 `N / (b_eff × l_eff)` för respektive lastkombination. Resultatet visar
-jordkontrollen och båda isoleringskontrollerna; etiketten visar högsta
-utnyttjandegrad och styrande kontroll. Se lastantagandena i
+jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
+isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
+visar högsta utnyttjandegrad och sulans bredd, eller bredd × längd för pelarsulor.
+Styrande kontroll visas i dialogen och hovringstexten. Utseendet följer med
+i HTML- och PDF-exporten. Se lastantagandena i
 [användningsbeskrivningen](docs/grundplan.md#isolering-under-sulan).
 
 Dra en etikett för att flytta den. **Kopiera sula** i indatadialogen tar med

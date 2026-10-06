@@ -361,6 +361,30 @@ function render({ model, el, readOnly = false }) {
     dialog.style.left = Math.max(8, Math.min(board.clientWidth - dialog.offsetWidth - 8, x)) + "px";
     dialog.style.top = Math.max(8, Math.min(board.clientHeight - dialog.offsetHeight - 8, y)) + "px";
   }
+  function insulationIcon(insulated) {
+    const svgNode = (name, attributes) => {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      return element;
+    };
+    const icon = svgNode("svg", { viewBox: "0 0 104 60", "aria-hidden": "true", focusable: "false" });
+    icon.append(
+      svgNode("rect", { x: 10, y: 3, width: 84, height: 22, fill: "#eef3f3", stroke: "currentColor", "stroke-width": 3 }),
+      svgNode("rect", { x: 10, y: 31, width: 84, height: 20, fill: "none", stroke: "currentColor", "stroke-width": 2.5 }),
+    );
+    for (let start = 0; start < 94; start += 14) {
+      const a = Math.max(start, 10), b = Math.min(start + 20, 94);
+      icon.append(svgNode("path", { d: `M${a} ${51 - (a - start)}L${b} ${51 - (b - start)}`,
+        fill: "none", stroke: "currentColor", "stroke-width": 2 }));
+    }
+    if (!insulated) {
+      // Strike only the insulation layer, leaving the footing intact.
+      for (const [stroke, width] of [["var(--gp-tag-bg)", 8], ["currentColor", 3.5]]) {
+        icon.append(svgNode("path", { d: "M1 56L103 30", fill: "none", stroke, "stroke-width": width }));
+      }
+    }
+    return icon;
+  }
   function renderMarkers() {
     markers.replaceChildren();
     for (const tag of state().tags.filter((t) => t.page === background().page)) {
@@ -378,13 +402,24 @@ function render({ model, el, readOnly = false }) {
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
-      const heading = node("strong", "", tag.label);
+      const draft = drafts.get(tag.id);
+      const insulated = (draft?.values || tag.values).isolering === true;
+      const insulationText = insulated ? "Med isolering" : "Utan isolering";
+      const label = draft?.label.trim() || tag.label;
+      const heading = node("span", "gp-tag-heading");
+      const insulation = node("span", "gp-tag-insulation");
+      insulation.append(insulationIcon(insulated), node("span", "", insulationText));
+      heading.append(node("strong", "", label), insulation);
+      const geometry = summary ? (tag.values.lang === 1 ? "b " + number(summary.b) + " m"
+        : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
       const text = summary
-        ? "U " + number(summary.utnyttjandegrad * 100, 1) + "% · b " + number(summary.b) + " m"
+        ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad");
-      marker.setAttribute("aria-label", tag.label + ", " + text);
-      marker.append(heading, node("span", "", text));
-      if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
+      const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bredd × längd" : "";
+      const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
+      marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
+      marker.title += accessibleGeometry + governing;
+      marker.append(heading, node("span", "gp-tag-result", text));
       markers.append(marker);
     }
   }

@@ -50,9 +50,13 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 4. Tryck **Beräkna**. Dialogen visar utnyttjandegrad, dimensionerande last,
    bärförmåga och effektiv bredd. Med isolering visas tre separata kontroller:
    jord i brott, isolering i brott och isolering i bruk.
-5. Tryck **Minimera**. Taggen visar littera, utnyttjandegrad och bredd.
-   Utnyttjandegraden är den högsta av de aktiva kontrollerna; med isolering
-   visas också vilken kontroll som styr.
+5. Tryck **Minimera**. Första raden visar littera, en symbol och texten
+   **Med isolering** eller **Utan isolering**. Symbolen visar sulan över en
+   skrafferad isoleringsremsa; bara remsan stryks över när isolering saknas.
+   Andra raden visar högsta utnyttjandegrad och geometri, till exempel
+   `U 34,6 % · b 1,8 m` för väggsula eller `U 68,3 % · 1,8 × 2,4 m`
+   för pelarsula. Pelarsulans mått anges alltid som bredd × längd.
+   Styrande kontroll visas i dialogen och i etikettens hovringstext.
    Klicka på taggen igen för att öppna samma indata.
 
 Vyn kommer ihåg vilka indata- och resultatavsnitt som är öppna för varje sula.
@@ -215,7 +219,7 @@ originalfilen behöver inte finnas kvar.
 
 Etiketterna använder sina sparade positioner och reglaget **Etikettstorlek**.
 Zoom, panorering och öppna dialogrutor påverkar inte exporten. Littera,
-utnyttjandegrad, bredd, eventuell styrande kontroll och statusfärg följer med.
+isoleringssymbol och text, utnyttjandegrad, geometrimått och statusfärg följer med.
 Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
 etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
 med vid utskrift, utan popup eller klickfunktion.

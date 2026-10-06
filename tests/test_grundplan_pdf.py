@@ -153,10 +153,14 @@ class TestGrundplanPdf(unittest.TestCase):
             "F_vy_bruk": 70, "f_d_brott": 200, "f_d_bruk": 50,
         })
         plan.berakna(insulated)
+        pad = self.tag(plan, littera="Pelarsula", typ="pelarsula", indata={"b": 1.8, "l": 2.4, "F_vy": 100})
+        plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160% · b 1 m", "Styrande: Isolering · bruk"):
+        for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160 % · b 1 m",
+                         "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
             self.assertIn(expected, text)
-        self.assertEqual(text.count("U "), 1, "Stale or failed results must never be printed as current")
+        self.assertNotIn("Styrande:", text, "The compact PDF labels have exactly two lines")
+        self.assertEqual(text.count("U "), 2, "Stale or failed results must never be printed as current")
 
     def test_bildens_fulla_upplosning_och_exif_rotation_bevaras(self):
         picture = self.root / "large.png"

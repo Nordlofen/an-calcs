@@ -49,9 +49,9 @@ def _label(tag):
     summary = tag.get("summary") if tag["status"] == "calculated" else None
     if summary:
         status = "ok" if summary["utnyttjandegrad"] <= 1 else "over"
-        lines.append((f'U {_number(summary["utnyttjandegrad"] * 100, 1)}% · b {_number(summary["b"])} m', _REGULAR, 11))
-        if summary.get("isolering"):
-            lines.append(("Styrande: " + summary["styrande"], _REGULAR, 10))
+        geometry = (f'b {_number(summary["b"])} m' if tag["values"]["lang"] == 1
+                    else f'{_number(summary["b"])} × {_number(tag["values"]["l"])} m')
+        lines.append((f'U {_number(summary["utnyttjandegrad"] * 100, 1)} % · {geometry}', _REGULAR, 11))
     else:
         status = tag["status"] if tag["status"] in ("new", "stale", "error") else "new"
         text = {"new": "Ej beräknad", "stale": "Ändrad · beräkna", "error": "Kontrollera indata"}[status]
@@ -59,12 +59,40 @@ def _label(tag):
     return lines, status
 
 
+def _draw_insulation(canvas, left, top, insulated, background):
+    """Vector equivalent of the widget icon; only the insulation is struck out."""
+    canvas.saveState()
+    canvas.translate(left, top)
+    canvas.scale(22 / 104, -22 / 104)
+    canvas.setDash()
+    canvas.setStrokeColor(HexColor("#244951"))
+    canvas.setFillColor(HexColor("#eef3f3"))
+    canvas.setLineWidth(3)
+    canvas.rect(10, 3, 84, 22, stroke=1, fill=1)
+    canvas.setLineWidth(2.5)
+    canvas.rect(10, 31, 84, 20, stroke=1, fill=0)
+    canvas.setLineWidth(2)
+    for start in range(0, 94, 14):
+        a, b = max(start, 10), min(start + 20, 94)
+        canvas.line(a, 51 - (a - start), b, 51 - (b - start))
+    if not insulated:
+        for color, width in ((background, 8), ("#244951", 3.5)):
+            canvas.setStrokeColor(HexColor(color))
+            canvas.setLineWidth(width)
+            canvas.line(1, 56, 103, 30)
+    canvas.restoreState()
+
+
 def _draw_labels(canvas, width, height, preview_size, tags, label_size):
     """Map normalized image positions and CSS label size into page coordinates."""
     _fonts()
     for tag in tags:
         lines, status = _label(tag)
-        box_width = max(pdfmetrics.stringWidth(text, font, size) for text, font, size in lines) + 32
+        insulated = tag["values"]["isolering"]
+        insulation_text = "Med isolering" if insulated else "Utan isolering"
+        heading_width = pdfmetrics.stringWidth(*lines[0])
+        header_width = heading_width + 6 + 22 + 5 + pdfmetrics.stringWidth(insulation_text, _REGULAR, 9)
+        box_width = max(header_width, *(pdfmetrics.stringWidth(*line) for line in lines[1:])) + 32
         box_height = 16 + sum(size * 1.3 for _, _, size in lines) + 2 * (len(lines) - 1)
         # The drawing and labels share zoom in the widget. Export uses their
         # saved ratio, independent of current viewport zoom or pan.
@@ -89,11 +117,21 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size):
         canvas.circle(10.5, -14.5, 3.5, stroke=0, fill=1)
         canvas.setFillColor(HexColor("#18333b"))
         top_of_line = -8
-        for text, font, size in lines:
+        for index, (text, font, size) in enumerate(lines):
             ascent, descent = pdfmetrics.getAscentDescent(font, size)
             baseline = top_of_line - (size * 1.3 - ascent + descent) / 2 - ascent
             canvas.setFont(font, size)
             canvas.drawString(20, baseline, text)
+            if index == 0:
+                icon_left = 20 + heading_width + 6
+                _draw_insulation(canvas, icon_left, top_of_line - (size * 1.3 - 13) / 2, insulated, background)
+                # Center the smaller caption on the heading's line box.
+                ascent, descent = pdfmetrics.getAscentDescent(_REGULAR, 9)
+                caption_baseline = top_of_line - (size * 1.3 - ascent + descent) / 2 - ascent
+                canvas.setFillColor(HexColor("#58717a"))
+                canvas.setFont(_REGULAR, 9)
+                canvas.drawString(icon_left + 22 + 5, caption_baseline, insulation_text)
+                canvas.setFillColor(HexColor("#18333b"))
             top_of_line -= size * 1.3 + 2
         canvas.restoreState()
 
