@@ -28,9 +28,12 @@ plan = Grundplan()  # Välj ritning och ange projektfil/key när du sparar.
 plan
 ```
 
-**Spara projekt** öppnar en ruta där **Projekt (JSON-fil)** och **Fall (key)** ska
-anges. Välj **Nytt projekt…** och skriv exempelvis `hus_a.grundplan_state.json`,
+**Spara projekt** öppnar en ruta där **Projekt** och **Fall (key)** ska
+anges. Välj **Nytt projekt…** och skriv exempelvis `26017 - Norrbodahöjden`,
 eller välj en befintlig Grundplan-fil och dess sparade key. Tryck **Spara**.
+Om filändelse saknas läggs `.json` till automatiskt, så filen blir
+`26017 - Norrbodahöjden.json`. Mellanslag och svenska tecken behålls.
+Samma normalisering används för `state_file=` i Python och i de kopierade argumenten.
 Relativa sökvägar avser kernelns arbetsmapp, normalt mappen med notebooken.
 
 **Kopiera projekt + key** kopierar Python-argumenten för den aktuella sparplatsen,

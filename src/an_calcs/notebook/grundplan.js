@@ -227,7 +227,7 @@ function render({ model, el, readOnly = false }) {
     if (!keyChoice.value) saveInputs.key.focus();
   });
   for (const [name, caption, placeholder] of [
-    ["state_file", "Projekt (JSON-fil)", "hus_a.grundplan_state.json"], ["key", "Fall (key)", "Hus A"],
+    ["state_file", "Projekt", "26017 - Norrbodahöjden"], ["key", "Fall (key)", "Hus A"],
   ]) {
     const label = node("label", "", caption);
     const input = node("input");
@@ -315,7 +315,7 @@ function render({ model, el, readOnly = false }) {
   });
   saveActions.append(cancelSave, confirmSave);
   savePanel.append(node("h4", "", "Spara projekt"), saveFields,
-    node("p", "gp-save-note", "Relativa sökvägar avser kernelns arbetsmapp. Kopiera argumenten till notebooken för automatisk återställning."),
+    node("p", "gp-save-note", "Projektet sparas som JSON; .json läggs till om filändelse saknas. Relativa sökvägar avser kernelns arbetsmapp. Kopiera argumenten till notebooken för automatisk återställning."),
     saveError, saveActions);
   const copyArguments = button("Kopiera projekt + key", async () => {
     const argumentsText = projectStorage?.arguments;

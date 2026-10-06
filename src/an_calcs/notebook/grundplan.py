@@ -97,6 +97,8 @@ def _storage_settings(key, state_file):
     argument = str(state_file).strip() if state_file is not None else ""
     if not argument:
         raise ValueError("Ange state_file för projektet.")
+    if not Path(argument).suffix:
+        argument += ".json"
     path = Path(argument).expanduser().resolve()
     if path.suffix.lower() != ".json":
         raise ValueError("State-filen måste sluta med .json.")

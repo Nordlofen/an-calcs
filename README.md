@@ -165,9 +165,10 @@ får eget littera och kan ändras oberoende av originalet. Reglaget
 och förminskas tillsammans med ritningen när du zoomar. Positioner och
 grundstorlek sparas i projektet.
 
-**Spara projekt** öppnar en ruta med obligatoriska fält för **Projekt (JSON-fil)**
+**Spara projekt** öppnar en ruta med obligatoriska fält för **Projekt**
 och **Fall (key)**. Välj en befintlig sparfil/key eller ange en ny, exempelvis
-`hus_a.grundplan_state.json`. Relativa sökvägar avser kernelns arbetsmapp.
+`26017 - Norrbodahöjden`. Filändelsen `.json` läggs till om den saknas.
+Relativa sökvägar avser kernelns arbetsmapp.
 **Kopiera projekt + key** kopierar argumenten att klistra in i notebookcellen:
 
 ```python

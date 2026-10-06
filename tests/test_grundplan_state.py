@@ -71,6 +71,30 @@ class TestGrundplanState(unittest.TestCase):
         self.assertEqual(self.store.read_bytes(), before)
         self.assertFalse(destination.exists())
 
+    def test_project_name_without_extension_saves_and_reopens_the_same_json_file(self):
+        name = "26017 - Norrbodahöjden"
+        filename = name + ".json"
+        plan = self.plan(self.drawing)
+        ident = plan.lagg_till(.2, .3, littera="VS1")
+        plan.berakna(ident)
+        with patch("os.getcwd", return_value=str(self.folder)):
+            reply = self.command(plan, action="save", key="Hus1", state_file="  " + name + "  ")
+            self.assertTrue(reply["ok"])
+            self.assertEqual(plan.state_file, self.folder / filename)
+            self.assertTrue(plan.state_file.exists())
+            self.assertFalse((self.folder / name).exists())
+            self.assertEqual(reply["storage"]["arguments"], f"state_file={filename!r}, key='Hus1'")
+            restored = self.plan(key="Hus1", state_file=name)
+            self.assertEqual(restored.taggar, plan.taggar)
+            reply = self.command(plan, action="save", key="Hus1", state_file=filename)
+            self.assertTrue(reply["ok"])
+            self.assertEqual(plan.state_file.name, filename, "An explicit .json is never duplicated")
+            another = self.plan(self.drawing)
+            previous = plan.state_file.read_bytes()
+            reply = self.command(another, action="save", key="Hus1", state_file=name)
+            self.assertTrue(reply["conflict"], "The normalized name still protects existing projects")
+            self.assertEqual(plan.state_file.read_bytes(), previous)
+
     def test_ui_existing_destination_requires_confirmation_and_preserves_other_keys(self):
         old = self.plan(self.drawing, key="A", state_file=self.store)
         old.titel = "Tidigare A"
