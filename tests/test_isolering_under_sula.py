@@ -79,8 +79,12 @@ class TestIsoleringUnderSula(unittest.TestCase):
         self.assertEqual(r["isolering_U_bruk"], 2)
 
     def test_ogiltiga_hallfastheter_och_ofullstandiga_laster(self):
-        for name in ("f_d_brott", "f_d_bruk", "b", "l", "t", "l_h", "l_h_bruk"):
+        for name in ("f_d_brott", "f_d_bruk", "b", "l", "t"):
             for value in (0, -1, None, True, float("nan"), float("inf")):
+                with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                    self.calculate(**{name: value})
+        for name in ("l_h", "l_h_bruk"):
+            for value in (-1, None, True, float("nan"), float("inf")):
                 with self.subTest(name=name, value=value), self.assertRaises(ValueError):
                     self.calculate(**{name: value})
         for name in ("F_vy_bruk", "M_insp_l_bruk", "e_b_plac"):

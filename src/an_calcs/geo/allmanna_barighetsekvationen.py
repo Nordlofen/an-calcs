@@ -98,7 +98,7 @@ def allmanna_barighetsekvationen(px):
             Inspänningsmoment kring b-axel [kNm]
 
         l_h : float
-            Hävarm för horisontallast [m]
+            Hävarm för horisontallast [m]. Noll ger direkt angivna moment.
 
         c_prime : float
             Dränerad kohesion [kPa]
@@ -197,7 +197,7 @@ def allmanna_barighetsekvationen(px):
     _krav_storre_an_noll("l", l)
     _krav_icke_negativ("d", d)
     _krav_storre_an_noll("t", t)
-    _krav_storre_an_noll("l_h", l_h)
+    _krav_icke_negativ("l_h", l_h)
     _krav_icke_negativ("c_prime", c_prime)
     _krav_icke_negativ("c_uk", c_uk)
     _krav_icke_negativ("gamma", gamma)

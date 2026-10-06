@@ -37,7 +37,7 @@ class TestGrundplan(unittest.TestCase):
         details = self.plan.berakna(first)
         values = self.plan.taggar[0]["values"]
         expected = allmanna_barighetsekvationen([
-            values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
+            0.0 if name == "l_h" else values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
         ])
         self.assertEqual(details, expected)
         self.assertEqual(self.plan.taggar[0]["summary"]["lastenhet"], "kN/m")
@@ -90,7 +90,7 @@ class TestGrundplan(unittest.TestCase):
         details = self.plan.berakna(ident)
         tag = self.plan._tag(ident)
         expected = allmanna_barighetsekvationen([
-            tag["values"][name] for name in allmanna_barighetsekvationen.panel_schema["px"]
+            0.0 if name == "l_h" else tag["values"][name] for name in allmanna_barighetsekvationen.panel_schema["px"]
         ])
         self.assertEqual(details, expected)
         self.assertEqual(tag["values"]["f_d_bruk"], 50)
@@ -137,14 +137,14 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 2)
+        self.assertEqual(loaded._document()["version"], 3)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
         self.assertEqual(loaded._tag(ident)["values"]["isolerprodukt"], "")
         self.assertEqual(loaded._tag(ident)["summary"], summary)
 
-    def test_aldre_projekt_far_isolering_avstangd_och_samma_jordresultat(self):
+    def test_aldre_projekt_far_isolering_avstangd_och_kraver_omberakning(self):
         ident = self.add()
         details = self.plan.berakna(ident)
         document = self.plan._document()
@@ -153,7 +153,8 @@ class TestGrundplan(unittest.TestCase):
         document["calculator_version"] = hashlib.sha256(soil_file.read_bytes()).hexdigest()
         old_values = document["tags"][0]["values"]
         document["tags"][0]["values"] = {
-            name: old_values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
+            name: 1.0 if name == "l_h" else old_values[name]
+            for name in allmanna_barighetsekvationen.panel_schema["px"]
         }
         self.plan._load_document(json.dumps(document).encode())
         tag = self.plan._tag(ident)
@@ -161,8 +162,71 @@ class TestGrundplan(unittest.TestCase):
         self.assertIsNone(tag["values"]["F_vy_bruk"])
         self.assertIsNone(tag["values"]["f_d_brott"])
         self.assertIsNone(tag["values"]["f_d_bruk"])
-        self.assertEqual(tag["status"], "calculated")
+        self.assertEqual(tag["status"], "stale")
+        self.assertIsNone(tag["summary"])
+        self.assertEqual(self.plan.resultat, {})
+        self.plan.berakna(ident)
         self.assertEqual(self.plan.resultat[ident], details)
+
+    def test_direkta_moment_i_brott_och_bruk_utan_dolda_havarmsbidrag(self):
+        removed = {"l_h", "l_h_bruk", "F_hb_bruk", "F_hl_bruk"}
+        for kind, length in (("vaggsula", 1), ("pelarsula", 3)):
+            with self.subTest(kind=kind):
+                ident = self.add(typ=kind, indata={
+                    "b": 2, "l": 3, "t": .4, "F_vy": 600, "F_vy_bruk": 300,
+                    "F_hb": 12, "F_hl": -8, "M_insp_l": 69, "M_insp_b": -34.5,
+                    "M_insp_l_bruk": -36, "M_insp_b_bruk": 18,
+                    "e_b_plac": .1, "e_l_plac": -.02,
+                    "isolering": True, "f_d_brott": 200, "f_d_bruk": 100,
+                    # Deprecated API/project inputs must not restore lever-arm moments.
+                    "l_h": 100, "l_h_bruk": 200, "F_hb_bruk": 500, "F_hl_bruk": 600,
+                })
+                details = self.plan.berakna(ident)
+                self.assertFalse(removed & self.plan._tag(ident)["values"].keys())
+                result = {item["namn"]: item["value"] for item in details["delresultat"]["items"]}
+                for phase, normal, moment_b, moment_l in (
+                    ("brott", 600 + 1.5 * 25 * 2 * length * .4, 69, -34.5),
+                    ("bruk", 300 + 25 * 2 * length * .4, -36, 18),
+                ):
+                    b_eff = 2 - 2 * abs(.1 + moment_b / normal)
+                    l_eff = length - 2 * abs(-.02 + moment_l / normal)
+                    self.assertAlmostEqual(result[f"isolering_b_eff_{phase}"], b_eff)
+                    self.assertAlmostEqual(result[f"isolering_l_eff_{phase}"], l_eff)
+                    if phase == "brott":
+                        self.assertAlmostEqual(result["b_ef"], b_eff)
+                        self.assertAlmostEqual(result["l_ef"], l_eff)
+                    summary = self.plan._tag(ident)["summary"]
+                    self.assertAlmostEqual(summary["isolering"][f"isolering_q_Ed_{phase}"], normal / (b_eff * l_eff))
+                with_horizontal = copy.deepcopy(summary)
+                self.plan.uppdatera(ident, indata={"F_hb": 0, "F_hl": 0})
+                self.plan.berakna(ident)
+                without_horizontal = self.plan._tag(ident)["summary"]
+                self.assertEqual(with_horizontal["b_ef"], without_horizontal["b_ef"])
+                self.assertEqual(with_horizontal["isolering"], without_horizontal["isolering"])
+                if kind == "pelarsula":
+                    self.assertLess(with_horizontal["barformaga"], without_horizontal["barformaga"])
+
+    def test_version_2_tar_bort_havarmar_bevarar_moment_och_kraver_omberakning(self):
+        ident = self.insulated()
+        self.plan.uppdatera(ident, indata={"F_hb": 10, "M_insp_l": 5, "M_insp_l_bruk": -3})
+        self.plan.berakna(ident)
+        original_values = copy.deepcopy(self.plan._tag(ident)["values"])
+        document = self.plan._document()
+        document["version"] = 2
+        document["tags"][0]["values"].update(l_h=2, l_h_bruk=3, F_hb_bruk=100, F_hl_bruk=200)
+        self.plan._load_document(json.dumps(document).encode())
+        self.assertEqual(self.plan._tag(ident)["values"], original_values)
+        self.assertEqual(self.plan._tag(ident)["status"], "stale")
+        self.assertIsNone(self.plan._tag(ident)["summary"])
+        self.assertEqual(self.plan.resultat, {})
+        self.plan.berakna(ident)
+        copied = self.plan.kopiera(ident, .8, .8)
+        self.assertEqual(self.plan._tag(copied)["values"], original_values)
+        reopened = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "direct-moments.json"))
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened._tag(ident), self.plan._tag(ident))
+        fields = {field["name"] for field in reopened.schema["fields"]}
+        self.assertFalse({"l_h", "l_h_bruk", "F_hb_bruk", "F_hl_bruk"} & fields)
 
     def test_ui_isolering_beraknas_och_saknad_brukslast_ger_fel(self):
         ident = self.insulated()

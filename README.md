@@ -136,6 +136,9 @@ flytta den; dra i ritningen för att panorera och använd zoomknapparna för
 att förstora. PDF-sidor väljs i verktygsraden och har separata markeringar.
 
 Indata innehåller **Laster – Brott**, **Laster – Bruk** och **Isolering**.
+Moment anges direkt vid sulan; inget momentbidrag från horisontallast
+gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande
+jordens bärighet.
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 `N / (b_eff × l_eff)` för respektive lastkombination. Resultatet visar

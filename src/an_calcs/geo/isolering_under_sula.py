@@ -39,6 +39,7 @@ def isolering_under_sula(px):
 
     Effektiv bredd och längd beräknas separat för respektive lastkombination,
     med samma excentricitets- och teckenkonvention som jordberäkningen.
+    Noll hävarm ger direkt angivna moment utan momentbidrag från horisontallast.
     Kontrollen avser tryck över effektiv area, inte maximalt kanttryck eller
     en beräkning av isoleringens krypdeformation.
     """
@@ -47,9 +48,12 @@ def isolering_under_sula(px):
     values = {name: _number(value, name) for name, value in zip(_NAMES, px)}
     if values["lang"] not in (0, 1):
         raise ValueError("lang måste vara 0 eller 1.")
-    for name in ("b", "l", "t", "l_h", "l_h_bruk", "f_d_brott", "f_d_bruk"):
+    for name in ("b", "l", "t", "f_d_brott", "f_d_bruk"):
         if values[name] <= 0:
             raise ValueError(f"{name} måste vara > 0.")
+    for name in ("l_h", "l_h_bruk"):
+        if values[name] < 0:
+            raise ValueError(f"{name} måste vara >= 0.")
     length = 1.0 if values["lang"] == 1 else values["l"]
     force_unit = "kN/m" if values["lang"] == 1 else "kN"
     weight = _number(25 * values["b"] * length * values["t"], "Egentyngd")

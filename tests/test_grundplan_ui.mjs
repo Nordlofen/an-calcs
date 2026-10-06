@@ -84,8 +84,8 @@ const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", i
 const { default: widget } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
-const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
-names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
+const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
+names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 
 function setup(t, { readOnly = false, standalone = false } = {}) {
   globalThis.document = { createElement: tag => new Element(tag), activeElement: null, downloads: [] };
@@ -449,6 +449,9 @@ test("insulation toggles required capacities and service loads, retaining drafts
   const soil = ui.sent.at(-1);
   assert.equal(soil.action, "calculate", "Empty inactive fields cannot block the soil calculation");
   assert.equal(soil.values.isolering, false);
+  for (const name of ["l_h", "l_h_bruk", "F_hb_bruk", "F_hl_bruk"]) {
+    assert.equal(name in soil.values, false, "Removed lever-arm inputs are not sent for calculation");
+  }
   ui.ack(soil);
   enabled.checked = true; enabled.dispatch("input");
   assert.equal(ui.field("f_d_brott").parent.hidden, false);

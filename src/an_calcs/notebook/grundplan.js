@@ -390,10 +390,10 @@ function render({ model, el, readOnly = false }) {
   }
   const groups = [
     ["Geometri", ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac"]],
-    ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h"],
-      "Yttre dimensionerande laster. Sulans egentyngd tillkommer med faktor 1,5."],
-    ["Laster – Bruk", ["F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk"],
-      "Yttre långtidslaster för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
+    ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b"],
+      "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
+    ["Laster – Bruk", ["F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"],
+      "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],

@@ -25,22 +25,29 @@ from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
-_GEOTECH_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes()).hexdigest()
-_CALCULATOR_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes()).hexdigest()
+_CALCULATOR_VERSION = hashlib.sha256(
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-v1"
+).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _DEFAULT_SUBTITLE = "Sulgrundläggning · jordens bärighet"
 _MAX_FILE_BYTES = 40 * 1024 * 1024
 _MAX_PROJECT_BYTES = 60 * 1024 * 1024
 _MAX_TAGS = 1000
-_FIELDS = allmanna_barighetsekvationen.panel_schema["fields"]
-_NAMES = allmanna_barighetsekvationen.panel_schema["px"]
-_INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"] if field["name"] not in _NAMES]
+_SOIL_NAMES = allmanna_barighetsekvationen.panel_schema["px"]
+# Service horizontal forces had no purpose beyond the removed lever-arm moment.
+_REMOVED_FIELDS = {"l_h", "l_h_bruk", "F_hb_bruk", "F_hl_bruk"}
+_NAMES = [name for name in _SOIL_NAMES if name not in _REMOVED_FIELDS]
+_FIELDS = [field for field in allmanna_barighetsekvationen.panel_schema["fields"]
+           if field["name"] not in _REMOVED_FIELDS]
+_INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"]
+                      if field["name"] not in _SOIL_NAMES and field["name"] not in _REMOVED_FIELDS]
 _EXTRA_FIELDS = [
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
 ]
-_FIELDS = [*_FIELDS, *_EXTRA_FIELDS]
+_FIELDS = [{**field, "label": field["label"].replace("Inspänningsmoment", "Moment")}
+           for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 
 
@@ -51,9 +58,11 @@ def _number(value, name):
 
 
 def _values(values, *, draft=False):
-    if not isinstance(values, dict) or not set(_NAMES) <= set(values) or set(values) - set(_DEFAULTS):
-        raise ValueError("Indata måste innehålla jordberäkningens 25 fält och endast kända tilläggsfält.")
-    values = {**_DEFAULTS, **values}
+    if (not isinstance(values, dict) or not set(_NAMES) <= set(values)
+            or set(values) - (set(_DEFAULTS) | _REMOVED_FIELDS)):
+        raise ValueError("Indata måste innehålla jordberäkningens 24 fält och endast kända tilläggsfält.")
+    # Old project/API fields cannot reintroduce hidden moment contributions.
+    values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
     if not isinstance(values["isolering"], bool):
         raise ValueError("isolering måste vara True eller False.")
     for name, value in values.items():
@@ -147,7 +156,10 @@ def _render_source(data, filename, page=1):
 
 def _calculate(values):
     values = _values(values)
-    details = allmanna_barighetsekvationen([values[name] for name in _NAMES])
+    # Keep the shared calculation APIs compatible; Grundplan always supplies
+    # zero lever arms so its user-entered moments act directly at the footing.
+    engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
+    details = allmanna_barighetsekvationen([engine_values[name] for name in _SOIL_NAMES])
     result = {item["namn"]: item["value"] for item in details["slutresultat"]["items"]}
     for section in ("indata", "delresultat", "slutresultat"):
         for item in details[section]["items"]:
@@ -168,7 +180,7 @@ def _calculate(values):
     }
     checks = [{"id": "jord_brott", "label": "Jord · brott", "utnyttjandegrad": utilization}]
     if values["isolering"]:
-        insulation = isolering_under_sula([values[name] for name in isolering_under_sula.panel_schema["px"]])
+        insulation = isolering_under_sula([engine_values[name] for name in isolering_under_sula.panel_schema["px"]])
         insulation_values = {item["namn"]: item["value"] for section in ("delresultat", "slutresultat")
                              for item in insulation[section]["items"]}
         summary["isolering"] = insulation_values
@@ -393,7 +405,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 2,
+            "version": 3,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -516,8 +528,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1 eller 2.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1, 2 eller 3.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -528,7 +540,7 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(tags, list) or len(tags) > _MAX_TAGS:
             raise ValueError("Projektet har för många eller ogiltiga taggar.")
         valid_tags, details_by_id, ids = [], {}, set()
-        same_calculator = document.get("calculator_version") == _CALCULATOR_VERSION
+        same_calculator = document["version"] == 3 and document.get("calculator_version") == _CALCULATOR_VERSION
         for saved in tags:
             ident = saved["id"]
             if not isinstance(ident, str) or not ident or len(ident) > 80 or ident in ids:
@@ -544,9 +556,7 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved["values"], draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
-            legacy_soil = (document["version"] == 1 and not tag["values"]["isolering"]
-                           and document.get("calculator_version") == _GEOTECH_VERSION)
-            if saved.get("calculated") is True and (same_calculator or legacy_soil):
+            if saved.get("calculated") is True and same_calculator:
                 try:
                     details, summary = _calculate(tag["values"])
                     tag.update(status="calculated", summary=summary)

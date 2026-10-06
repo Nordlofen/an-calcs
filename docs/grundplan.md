@@ -86,8 +86,11 @@ Varje tagg har oberoende indata.
 
 ## Lastkonvention och resultat
 
-Jordkontrollen anropar den befintliga beräkningsfunktionen utan att ändra dess
-formler, koefficienter eller antaganden. Isoleringen har en separat beräkning.
+Jordkontrollen anropar den befintliga beräkningsfunktionen med hävarmen satt
+till noll. Därmed används de direkt angivna momenten utan bidrag från
+horisontallast gånger hävarm. Isoleringen har en separat beräkning med samma
+momentkonvention. De fristående beräkningsfunktionerna kan fortfarande
+anropas med en hävarm.
 
 - **Väggsula:** `lang=1`. Funktionen använder en referenslängd på **1 m**.
   Krafter anges i kN/m och moment i kNm/m. Värdena förs till funktionen som
@@ -95,6 +98,10 @@ formler, koefficienter eller antaganden. Isoleringen har en separat beräkning.
   att fördela laster. Ange inte hela väggens totallast i ett linjelastfält.
 - **Pelarsula:** `lang=0`. Krafter anges i kN, moment i kNm och måtten
   `b` respektive `l` i m.
+- Ange moment direkt vid sulan kring l- respektive b-axeln, både i brott
+  och bruk. Excentriciteten beräknas från dessa moment och eventuell
+  placeringsexcentricitet. Horisontallaster i brott behålls för deras
+  påverkan på jordens bärighet, men ger inget extra moment.
 - Fundamentets egentyngd läggs till enligt den befintliga modellen:
   `F_v = F_vy + 1.5 * 25 * b * l_ref * t`.
 - Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. För väggsulor avser
@@ -128,8 +135,8 @@ och långtidsvärden i produktdata avser olika provningsvillkor; se exempelvis
 [BEWI:s tekniska EPS-tabell](https://www.bewi.com/wp-content/uploads/2023/09/Teknisk-tabell-EPS-SE-11-2023.pdf).
 Produktklassens tryckhållfasthet omvandlas inte automatiskt till `f_d`.
 
-**Laster – Bruk** har egna fält för vertikallast, horisontallaster,
-inspänningsmoment och hävarm. Ange den färdiga långtidslastkombinationen,
+**Laster – Bruk** har egna fält för vertikallast och två direkt angivna
+moment. Ange den färdiga långtidslastkombinationen,
 exklusive sulans egentyngd, med samma teckenkonvention som brottlasterna.
 Vertikal brukslast och båda bärförmågorna saknar startvärden och måste anges
 för att kontrollen ska kunna genomföras.
@@ -141,15 +148,15 @@ EG_k = 25 × b × l_ref × t
 N_brott = F_vy + 1,5 × EG_k
 N_bruk  = F_vy_bruk + 1,0 × EG_k
 
-e_b = abs(e_b_plac + (M_insp_l − F_hb × l_h) / N)
-e_l = abs(e_l_plac + (M_insp_b − F_hl × l_h) / N)
+e_b = abs(e_b_plac + M_insp_l / N)
+e_l = abs(e_l_plac + M_insp_b / N)
 b_eff = b − 2 × e_b
 l_eff = l_ref − 2 × e_l
 q_Ed = N / (b_eff × l_eff)
 U_isolering = q_Ed / f_d
 ```
 
-Varje kombination använder sina egna laster, moment och hävarm. `l_ref` är
+Varje kombination använder sin egen vertikallast och sina egna moment. `l_ref` är
 1 m för väggsula och `l` för pelarsula. Egentyngdsfaktorn 1,5 i brott följer
 den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
 genereras från karakteristiska laster. Effektiva mått, total last och
@@ -178,8 +185,12 @@ Om beräkningskodens versionsavtryck har ändrats markeras taggarna som
 inaktuella och måste beräknas igen. Ofullständiga indata får sparas som
 utkast.
 
-Projekt sparas i formatversion 2. Äldre projekt i formatversion 1 kan öppnas;
-deras sulor får isoleringen avstängd och befintliga jordindata bevaras.
+Projekt sparas i formatversion 3. Äldre projekt i formatversion 1 och 2 kan
+öppnas, men sulorna måste beräknas igen med **Beräkna**. Deras angivna
+momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
+utan att räknas om till moment. Dessa borttagna fält ignoreras även om de
+skickas som `indata` från Python. Projekt i formatversion 1 får isoleringen
+avstängd.
 
 En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
 1 000 taggar. Visningsbilden begränsas till 2 800 pixlar längs längsta sidan
