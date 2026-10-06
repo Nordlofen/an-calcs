@@ -104,9 +104,12 @@ Instruktionen visar exempelvis **Placera S.1 – väggsula (1 av 5)**, tillsamma
 med stödets laster och eventuell längd. Klicka på ritningen där etiketten ska
 placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordning.
 Ingen indatadialog öppnas mellan placeringarna. Befintliga sulor behålls.
-Dra i ritningen för att panorera under placeringen; ett kort klick placerar
-nästa sula. Panorering förbrukar inga stöd i kön och fungerar även medan
-en placering väntar på svar från kerneln.
+Dra på ritningen med vänster eller höger musknapp för att panorera under
+placeringen; ett kort vänsterklick placerar nästa sula. Panorering förbrukar
+inga stöd i kön och
+fungerar även medan en placering väntar på svar från kerneln. Scrollhjulet
+zoomar vid muspekaren utan att pausa placeringen. Shift + vänsterdrag
+markerar befintliga etiketter för flerredigering och pausar placeringskön.
 
 | JSON-fält | Indata i Grundplan |
 | --- | --- |
@@ -219,8 +222,9 @@ Anpassa last och geometri och tryck **Beräkna**; originalet påverkas inte.
 **Storlek:** reglaget **Etikettstorlek** ändrar etiketternas grundstorlek mellan
 60 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
 tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
-Dra ritningen för att panorera fritt,
-även när hela ritningen redan ryms i vyn. Knapparna + och − styr zoom;
+Dra på ritningen med vänster eller höger musknapp för att panorera fritt,
+även när hela ritningen redan ryms i vyn. Scrollhjulet över ritningen zoomar
+in eller ut kring muspekaren. Knapparna + och − styr också zoom;
 **Anpassa** återställer zoom och centrering så att hela ritningen syns.
 Taggarna behåller sina relativa lägen
 vid zoom, panorering och sidbyte. Escape minimerar dialogen och avslutar
@@ -519,7 +523,8 @@ upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
 
 Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera**
 stänger dialogen, och samma avsnitt är utfällda när etiketten öppnas igen.
-Dra i ritningen för att panorera, använd +/− för zoom och **Anpassa** för
+Dra i ritningen med vänster eller höger musknapp för att panorera,
+använd scrollhjulet eller +/− för zoom och **Anpassa** för
 att återställa vyn. Reglaget **Etikettstorlek** fungerar även i HTML-filen.
 Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
 
@@ -571,10 +576,20 @@ och visar sparade indata och resultat utan möjlighet att räkna om.
 
 ## Ändra flera sulor samtidigt
 
-Tryck **Markera flera** och klicka på de etiketter som ska ingå. Klicka igen
-för att avmarkera en etikett. Du kan också använda Shift-klick (eller Ctrl/Cmd-klick)
-utan att först aktivera markeringsläget. Markerade etiketter får en ram och en bock.
-Tryck **Ändra markerade** för gemensam indata.
+Håll Shift och vänsterdra på en tom del av ritningen för att rita en
+urvalsruta. Rutan träffar etiketter på den visade sidan även om de bara
+ligger delvis i rutan. Dragningen växlar markeringen: omarkerade etiketter
+i rutan läggs till, redan markerade avmarkeras och etiketter utanför rutan
+behåller sin markering. Ctrl/Cmd fungerar på samma sätt.
+
+Du kan också använda Shift-klick (eller Ctrl/Cmd-klick) på en enskild etikett
+för att växla dess markering. Alternativt: tryck **Markera flera** och klicka
+på etiketter för att markera eller avmarkera dem. Markerade etiketter får
+en ram och en bock. Tryck **Ändra markerade** för gemensam indata.
+
+Vanligt vänsterdrag eller högerdrag panorerar även med ett aktivt urval.
+Det ändrar inga etikettpositioner. Tryck **Avmarkera** för att börja ett nytt urval.
+Dra direkt i en etikett i det vanliga läget för att flytta den.
 
 Kryssa i de fält som ska ersättas, eller skriv direkt i dem så kryssas de i
 automatiskt. **Olika värden** betyder att sulornas befintliga värden skiljer sig;
@@ -595,7 +610,9 @@ isoleringsbärförmågor behöver fyllas i när isolering aktiveras.
 
 Urval och ännu ej tillämpade gemensamma ändringar är tillfälliga. Tillämpade
 värden sparas och exporteras med projektet på vanligt sätt. **Avmarkera** eller
-Escape rensar urvalet; sidbyte rensar också urvalet. Resultat-HTML har ingen
+Escape rensar urvalet; under en pågående urvalsdragning avbryter Escape
+bara dragningen och återställer det tidigare urvalet. Sidbyte rensar också
+urvalet. Resultat-HTML har ingen
 gemensam redigering.
 
 Från Python kan motsvarande ändring göras med:

@@ -63,6 +63,7 @@
 .an-grundplan .gp-sheet { position: absolute; background: white; box-shadow: 0 3px 16px #18333b14; }
 .an-grundplan .gp-picture { width: 100%; height: 100%; max-width: none; display: block; user-select: none; }
 .an-grundplan .gp-markers { position: absolute; inset: 0; pointer-events: none; }
+.an-grundplan .gp-selection-box { position: absolute; border: 1px dashed var(--gp-accent); background: #14695e1a; pointer-events: none; z-index: 5; }
 .an-grundplan .gp-tag {
   --gp-tag-bg: #fff;
   /* Combine the label-size setting with drawing zoom, anchored at the tag's position. */
@@ -122,6 +123,7 @@
 .an-grundplan .gp-slide-over > th, .an-grundplan .gp-slide-over > td:nth-last-child(2) { color: #b6443f; }
 .an-grundplan .gp-slide-incomplete, .an-grundplan .gp-slide-missing { color: #94691f; }
 .an-grundplan .gp-panning, .an-grundplan .gp-dragging-tag, .an-grundplan .gp-dragging-tag .gp-tag { cursor: grabbing !important; }
+.an-grundplan .gp-selecting { cursor: crosshair !important; }
 .an-grundplan .gp-tag-ok { border-color: #319477; --gp-tag-bg: #f4fcf8; }
 .an-grundplan .gp-tag-ok::before { background: #238161; }
 .an-grundplan .gp-tag-over, .an-grundplan .gp-tag-error { border-color: #bc5750; --gp-tag-bg: #fff8f6; }

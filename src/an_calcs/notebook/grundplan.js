@@ -203,7 +203,7 @@ function render({ model, el, readOnly = false }) {
   const importActions = node("div", "gp-import-actions");
   importActions.append(importPause, importCancel);
   importBar.append(importInstruction, importLoads,
-    node("p", "gp-field-note", "Dra i ritningen för att panorera. Klicka för att placera nästa sula. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
+    node("p", "gp-field-note", "Dra i ritningen för att panorera. Scrollhjulet zoomar. Vänsterklick placerar nästa sula; Shift + vänsterdrag markerar flera etiketter. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
     const a = node("a");
@@ -417,7 +417,7 @@ function render({ model, el, readOnly = false }) {
     closeDialog(); closeBulk();
     setMode(mode === "select" ? "pan" : "select");
   });
-  selectMany.title = "Klicka på etiketter för att välja eller avmarkera dem. Shift-klick fungerar också.";
+  selectMany.title = "Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick växlar markeringen. Klicka i markeringsläget för att välja eller avmarkera.";
   modes.set("select", selectMany);
   const selectionBar = node("div", "gp-selection-bar");
   selectionBar.hidden = true;
@@ -509,12 +509,16 @@ function render({ model, el, readOnly = false }) {
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
-  viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat." : "Grundplan. Välj Väggsula eller Pelarsula och klicka på ritningen.");
+  viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat. Dra för att panorera. Scrollhjulet zoomar."
+    : "Grundplan. Dra för att panorera. Scrollhjulet zoomar. Shift + vänsterdrag markerar för flerredigering. Klicka på en etikett för indata.");
   const sheet = node("div", "gp-sheet");
   const picture = node("img", "gp-picture");
   picture.alt = "Grundläggningsritning";
   picture.draggable = false;
   const markers = node("div", "gp-markers");
+  const selectionBox = node("div", "gp-selection-box");
+  selectionBox.hidden = true;
+  selectionBox.setAttribute("aria-hidden", "true");
   const overlays = node("div", "gp-overlays");
   const axesOverlay = node("div", "gp-sliding-overlay gp-global-axes");
   axesOverlay.dataset.kind = "symbol";
@@ -559,7 +563,7 @@ function render({ model, el, readOnly = false }) {
   slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
   overlays.append(axesOverlay, slidingLegend);
   sheet.append(picture, markers, overlays);
-  viewport.append(sheet);
+  viewport.append(sheet, selectionBox);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
     node("p", "", "Öppna en PDF eller bild. Placera sedan en tagg vid varje sula du vill beräkna."),
@@ -676,7 +680,7 @@ function render({ model, el, readOnly = false }) {
     legend.append(item);
   }
   const help = node("p", "gp-help",
-    "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Markera flera eller Shift-klicka för gemensamma ändringar. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
+    "Dra i ritningen med vänster eller höger musknapp för att panorera. Scrollhjulet zoomar vid muspekaren. Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade. Dra direkt i en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar);
   if (!readOnly) root.append(importBar);
   if (!readOnly) root.append(selectionBar);
@@ -757,10 +761,10 @@ function render({ model, el, readOnly = false }) {
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value === "import") showMessage(importCaption());
-    else if (value === "select") showMessage("Klicka på sulornas etiketter för att välja eller avmarkera. Tryck Ändra markerade när urvalet är klart.");
+    else if (value === "select") showMessage("Shift + vänsterdrag ritar en urvalsruta. Klicka på etiketter för att välja eller avmarkera. Dra i ritningen för att panorera. Tryck Ändra markerade när urvalet är klart.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
-    else showMessage("Dra i ritningen för att panorera. Välj Väggsula eller Pelarsula för att placera en ny sula.");
+    else showMessage("Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
   }
   function importCaption() {
     const queue = loadImport();
@@ -925,12 +929,12 @@ function render({ model, el, readOnly = false }) {
     else slidingBody.append(mathText("p", "gp-sliding-note", "Välj Kontroll X_g eller Kontroll Y_g i verktygsraden."));
     renderSlidingGeometry();
   }
-  function setZoom(value) {
+  function setZoom(value, center) {
     const bg = background();
     if (!bg.width) return;
     const previous = zoom;
     zoom = Math.max(0.02, Math.min(4, value));
-    const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+    const cx = center?.x ?? viewport.clientWidth / 2, cy = center?.y ?? viewport.clientHeight / 2;
     panX = cx + (panX - cx) * zoom / previous;
     panY = cy + (panY - cy) * zoom / previous;
     sheet.style.width = bg.width * zoom + "px";
@@ -1149,6 +1153,8 @@ function render({ model, el, readOnly = false }) {
     ["l", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function showSelection() {
+    // Keep the canvas at the same screen position while the selection box is drawn.
+    if (drag?.box) return;
     selectionBar.hidden = readOnly || !selected.size;
     selectionCount.textContent = selected.size + " markerade";
     const titles = selectionTags().map(tag => tag.label).join(", ");
@@ -1692,9 +1698,48 @@ function render({ model, el, readOnly = false }) {
     showSliding();
   }
   let drag = null;
+  function selectionRectangle(event) {
+    const bounds = viewport.getBoundingClientRect();
+    const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+    const x = clamp(event.clientX, bounds.left, bounds.left + bounds.width);
+    const y = clamp(event.clientY, bounds.top, bounds.top + bounds.height);
+    const left = Math.min(drag.x, x), top = Math.min(drag.y, y);
+    const right = Math.max(drag.x, x), bottom = Math.max(drag.y, y);
+    return {left, top, right, bottom, width: right - left, height: bottom - top,
+      localLeft: left - bounds.left, localTop: top - bounds.top};
+  }
+  function previewSelection(event) {
+    const rect = selectionRectangle(event);
+    selectionBox.hidden = false;
+    selectionBox.style.left = rect.localLeft + "px";
+    selectionBox.style.top = rect.localTop + "px";
+    selectionBox.style.width = rect.width + "px";
+    selectionBox.style.height = rect.height + "px";
+    // Always toggle against the selection at pointerdown, so repeated moves do not toggle again.
+    const ids = new Set(drag.beforeSelection);
+    if (rect.width > 0 && rect.height > 0) for (const marker of markers.children) {
+      const bounds = marker.getBoundingClientRect();
+      if (bounds.left < rect.right && bounds.left + bounds.width > rect.left
+        && bounds.top < rect.bottom && bounds.top + bounds.height > rect.top) {
+        const id = marker.dataset.tagId;
+        if (ids.has(id)) ids.delete(id); else ids.add(id);
+      }
+    }
+    selected.clear();
+    for (const id of ids) selected.add(id);
+    renderMarkers();
+  }
   function cancelDrag() {
     const previous = drag;
     drag = null;
+    selectionBox.hidden = true;
+    if (previous?.box) {
+      selected.clear();
+      for (const id of previous.beforeSelection) {
+        if (state().tags.some(tag => tag.id === id && tag.page === background().page)) selected.add(id);
+      }
+      renderMarkers(); showSelection();
+    }
     if (previous?.id) {
       if (pendingPositions.has(previous.id)) positions.set(previous.id, pendingPositions.get(previous.id));
       else positions.delete(previous.id);
@@ -1707,11 +1752,20 @@ function render({ model, el, readOnly = false }) {
     }
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
+    viewport.classList.remove("gp-selecting");
     if (previous && viewport.hasPointerCapture(previous.pointerId)) viewport.releasePointerCapture(previous.pointerId);
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || drag || bulkBusy || !background().url) return;
+    if (![0, 2].includes(event.button) || drag || !background().url) return;
+    if (event.button === 2) {
+      event.preventDefault();
+      drag = {pan: true, x: event.clientX, y: event.clientY, left: panX, top: panY,
+        moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (bulkBusy) return;
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
@@ -1739,6 +1793,8 @@ function render({ model, el, readOnly = false }) {
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
       moved: false, pointerId: event.pointerId, id: tag?.id, position,
       placementBlocked: importBusy,
+      box: !tag && !readOnly && (event.shiftKey || event.ctrlKey || event.metaKey),
+      beforeSelection: new Set(selected),
       select: !!tag && !readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey) };
     viewport.setPointerCapture(event.pointerId);
   });
@@ -1748,7 +1804,12 @@ function render({ model, el, readOnly = false }) {
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     if (drag.select) return;
     if (drag.moved) {
-      if (drag.overlay) {
+      if (drag.box) {
+        viewport.classList.add("gp-selecting");
+        if (active) closeDialog();
+        if (!bulkDialog.hidden) closeBulk();
+        previewSelection(event);
+      } else if (drag.overlay) {
         const p = {...drag.position};
         if (drag.resize) {
           const delta = drag.overlay === "symbol" ? (dx + dy) / (2 * zoom)
@@ -1782,11 +1843,22 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const { moved, id, overlay, page, select, placementBlocked } = drag;
+    if (drag.box && drag.moved) previewSelection(event);
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection } = drag;
     drag = null;
+    selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
+    viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if (pan) return;
+    if (box) {
+      if (moved) {
+        if (selected.size !== beforeSelection.size || [...selected].some(id => !beforeSelection.has(id))) bulkSignature = "";
+        setMode("select"); showSelection(); renderMarkers();
+      }
+      return;
+    }
     if (overlay) {
       if (moved) saveOverlayPosition(overlay, page, overlayPositions.get(page + ":" + overlay));
       return;
@@ -1843,6 +1915,16 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointercancel", cancelDrag);
   viewport.addEventListener("lostpointercapture", cancelDrag);
+  viewport.addEventListener("contextmenu", event => event.preventDefault());
+  viewport.addEventListener("wheel", event => {
+    if (!background().url || !Number.isFinite(event.deltaY) || !event.deltaY) return;
+    event.preventDefault();
+    if (drag) return;
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+    const delta = Math.max(-240, Math.min(240, event.deltaY * unit));
+    const rect = viewport.getBoundingClientRect();
+    setZoom(zoom * Math.exp(-delta * .002), {x: event.clientX - rect.left, y: event.clientY - rect.top});
+  }, {passive: false});
   let outsidePress = null;
   const insideDialog = target => target?.closest?.(".gp-dialog") === dialog
     || target?.closest?.(".gp-dialog") === bulkDialog
@@ -1899,6 +1981,7 @@ function render({ model, el, readOnly = false }) {
       return;
     }
     if (event.key === "Escape") {
+      if (drag?.box) { cancelDrag(); showMessage("Urvalsdragningen avbröts. Tidigare urval behålls."); return; }
       cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
       if (!bulkBusy) { selected.clear(); bulkSignature = ""; showSelection(); renderMarkers(); }
       setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
@@ -1924,7 +2007,7 @@ function render({ model, el, readOnly = false }) {
   model.on("msg:custom", receive);
   setMode("pan");
   showMessage(background().url
-    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera." : "Välj Väggsula eller Pelarsula och klicka på ritningen.")
+    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra för att panorera och scrolla för att zooma." : "Dra för att panorera och scrolla för att zooma. Shift + vänsterdrag markerar för flerredigering; välj en sula och klicka för att placera.")
     : "Öppna en ritning eller ett sparat projekt.");
   update();
   return () => {

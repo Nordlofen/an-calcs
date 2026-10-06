@@ -137,9 +137,12 @@ Välj **+ Väggsula** eller **+ Pelarsula** och klicka på ritningen. Ange
 littera och indata, tryck **Beräkna** och **Minimera**. Klicka på taggen för
 att ändra värden. Resultatet blir inaktuellt när beräkningsindata ändras.
 Indata är grupperade i utfällbara avsnitt. Dra dialogens rubrik för att
-flytta den; dra i ritningen för att panorera och använd zoomknapparna för
-att förstora. PDF-sidor väljs i verktygsraden och har separata markeringar.
-Panorering är grundläget. Sulverktyget avslutas efter en placering;
+flytta den; dra i ritningen för att panorera och använd scrollhjulet
+eller zoomknapparna för att förstora. Scrollhjulet zoomar kring muspekaren.
+Shift + vänsterdrag ritar en urvalsruta för flerredigering. Shift + drag
+eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade.
+PDF-sidor väljs i verktygsraden och har separata markeringar.
+Sulverktyget avslutas efter en placering;
 klicka på den valda sulknappen igen eller tryck Escape för att avbryta.
 
 Indata innehåller **Laster – Brott**, **Laster – Bruk** och **Isolering**.

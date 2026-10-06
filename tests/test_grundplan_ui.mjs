@@ -81,6 +81,14 @@ class Element {
     this.dispatch("lostpointercapture", { pointerId: id });
   }
   getBoundingClientRect() {
+    if (this.className.split(" ").includes("gp-tag")) {
+      const sheet = this.parent.parent;
+      const picture = sheet.children.find(e => e.tag === "img").getBoundingClientRect();
+      const scale = Number(this.closest(".an-grundplan").style["--gp-tag-scale"] || 1);
+      return {left: picture.left + parseFloat(this.style.left) / 100 * picture.width - 10 * scale,
+        top: picture.top + parseFloat(this.style.top) / 100 * picture.height - 10 * scale,
+        width: 160 * scale, height: 60 * scale};
+    }
     if (this.className.split(" ").includes("gp-sliding-legend")) {
       const scale = Number(this.style.transform?.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
       return {left: 0, top: 0, width: 410 * scale, height: 180 * scale};
@@ -140,9 +148,9 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
   const position = () => [parseFloat(marker().style.left) / 100, parseFloat(marker().style.top) / 100];
   const ack = (request, extra = {}, buffers = []) => handlers.get("msg:custom")({ ...request, ok: true, ...extra }, buffers);
   const changed = () => standalone ? model.send({action: "label_size", value: 100}) : handlers.get("change:state")();
-  const start = (target = marker(), x = 300, y = 300) => viewport.dispatch("pointerdown", { target, clientX: x, clientY: y });
+  const start = (target = marker(), x = 300, y = 300, options = {}) => viewport.dispatch("pointerdown", { target, clientX: x, clientY: y, ...options });
   const move = (x, y) => viewport.dispatch("pointermove", { clientX: x, clientY: y });
-  const finish = (x, y) => viewport.dispatch("pointerup", { clientX: x, clientY: y });
+  const finish = (x, y, options = {}) => viewport.dispatch("pointerup", { clientX: x, clientY: y, ...options });
   const drag = (dx, dy) => { start(); move(300 + dx, 300 + dy); finish(300 + dx, 300 + dy); };
   const place = (x = 400, y = 400) => { start(byClass("gp-picture"), x, y); finish(x, y); };
   return { tag, data, model, snapshot, elements: () => walk(host), sent, transfers, byClass, byText, find, viewport, marker, position, ack, changed,
@@ -213,7 +221,7 @@ test("placement advances once per acknowledged click, shows types and creates no
 test("failed placement, panning and outside clicks do not discard or advance the queue", t => {
   const ui = setup(t); importFixture(ui);
   const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
-  ui.start(ui.byClass("gp-picture")); ui.move(500, 500); ui.finish(500, 500);
+  ui.start(ui.byClass("gp-picture"), 300, 300); ui.move(500, 500); ui.finish(500, 500);
   near(parseFloat(sheet.style.left), left + 200); near(parseFloat(sheet.style.top), top + 200);
   assert.equal(ui.sent.length, 0, "Dragging the background pans instead of placing");
   assert.equal(ui.data.state.load_import.index, 0);
@@ -230,9 +238,9 @@ test("drawing can pan while placement is awaiting the kernel and pending clicks 
   const ui = setup(t), imported = importFixture(ui);
   ui.place(); const request = ui.sent.at(-1), count = ui.sent.length;
   const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
-  ui.start(ui.byClass("gp-picture"), 450, 450); ui.move(490, 500);
+  ui.start(ui.byClass("gp-picture"), 450, 450, {button: 2}); ui.move(490, 500);
   near(parseFloat(sheet.style.left), left + 40); near(parseFloat(sheet.style.top), top + 50);
-  imported.added(0, request); ui.finish(490, 500);
+  imported.added(0, request); ui.finish(490, 500, {button: 2});
   assert.equal(ui.sent.length, count);
   assert.equal(ui.data.state.load_import.index, 1, "Pan never consumes the next support");
   ui.place(600, 450); const second = ui.sent.at(-1);
@@ -331,6 +339,145 @@ function bulkFixture(ui, pad = false) {
   };
   return {second, marker, field, choose, select};
 }
+
+function marquee(ui, from, to, options = {}) {
+  ui.start(ui.byClass("gp-picture"), ...from, {shiftKey: true, ...options});
+  ui.move(...to);
+  ui.finish(...to);
+}
+
+const selectedIds = ui => ui.elements().filter(e => e.dataset.tagId && e.className.includes("gp-multi-selected"))
+  .map(e => e.dataset.tagId).sort();
+
+test("Shift-left marquee previews two labels without moving the canvas and opens the existing bulk editor", t => {
+  const ui = setup(t), bulk = bulkFixture(ui), picture = ui.byClass("gp-picture");
+  const initial = picture.getBoundingClientRect(), original = structuredClone(ui.data.state);
+  ui.start(picture, 200, 200, {shiftKey: true}); ui.move(700, 500);
+  const box = ui.byClass("gp-selection-box");
+  assert.equal(box.hidden, false);
+  assert.equal(box.style.width, "500px"); assert.equal(box.style.height, "300px");
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  assert.equal(ui.byClass("gp-selection-bar").hidden, true, "Preview does not shift the canvas by inserting a toolbar");
+  assert.deepEqual(picture.getBoundingClientRect(), initial);
+  ui.finish(700, 500);
+  assert.equal(box.hidden, true);
+  assert.equal(ui.byClass("gp-selection-count").textContent, "2 markerade");
+  assert.deepEqual(ui.data.state, original);
+  assert.equal(ui.sent.length, 0, "Selection is local until an edit is applied");
+  ui.byText("Ändra markerade").click();
+  bulk.field("b").value = "0,9"; bulk.field("b").dispatch("input");
+  ui.byText("Tillämpa").click();
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+  assert.deepEqual(ui.sent.at(-1).values, {b: .9}, "Different loads and other inputs are retained");
+});
+
+test("Shift marquee toggles overlapping labels once, adds new labels and preserves labels outside the rectangle", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  const third = {...structuredClone(ui.tag), id: "tag3", label: "PS3", x: .05, y: .8};
+  const otherPage = {...structuredClone(ui.tag), id: "tag4", page: 2};
+  ui.data.state.tags.push(third, otherPage); ui.changed();
+  marquee(ui, [150, 450], [40, 560]);
+  assert.deepEqual(selectedIds(ui), ["tag3"], "Reverse drag selects a partially intersecting label");
+  marquee(ui, [200, 200], [420, 320], {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag3"]);
+  ui.start(ui.byClass("gp-picture"), 200, 200, {shiftKey: true});
+  ui.move(700, 480);
+  assert.deepEqual(selectedIds(ui), ["tag2", "tag3"], "Overlap removes tag1, adds tag2 and preserves tag3");
+  ui.move(701, 481); ui.move(700, 480); ui.finish(700, 480);
+  assert.deepEqual(selectedIds(ui), ["tag2", "tag3"], "Preview and release do not toggle a second time");
+  bulk.marker("tag2").dispatch("click", {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag3"], "Shift-click uses the same toggle rule");
+  ui.byText("Avmarkera").click();
+  marquee(ui, [420, 320], [200, 200]);
+  assert.deepEqual(selectedIds(ui), ["tag1"], "A new selection ignores other PDF pages");
+  marquee(ui, [30, 30], [130, 130], {shiftKey: true});
+  assert.deepEqual(selectedIds(ui), ["tag1"], "An empty Shift rectangle retains the selection");
+  marquee(ui, [200, 200], [420, 320]);
+  assert.deepEqual(selectedIds(ui), []);
+  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+});
+
+for (const cancel of ["pointercancel", "lostpointercapture", "Escape"]) {
+  test(cancel + " restores the selection that existed before a marquee", t => {
+    const ui = setup(t); bulkFixture(ui);
+    marquee(ui, [200, 200], [420, 320]);
+    ui.start(ui.byClass("gp-picture"), 480, 360, {shiftKey: true}); ui.move(700, 450);
+    assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+    if (cancel === "Escape") ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+    else ui.viewport.dispatch(cancel);
+    assert.deepEqual(selectedIds(ui), ["tag1"]);
+    assert.equal(ui.byClass("gp-selection-box").hidden, true);
+    assert.equal(ui.byClass("gp-selection-count").textContent, "1 markerade");
+    ui.finish(700, 450);
+    assert.deepEqual(selectedIds(ui), ["tag1"]);
+    assert.equal(ui.sent.length, 0);
+  });
+}
+
+test("marquee hit testing follows displayed label rectangles after zoom, label sizing and panning", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  const old = bulk.marker("tag2").getBoundingClientRect();
+  ui.byText("+").click();
+  const slider = ui.find(e => e.getAttribute("aria-label") === "Etikettstorlek i procent");
+  slider.value = 160; slider.dispatch("input");
+  ui.start(ui.byClass("gp-picture"), 100, 100, {button: 2}); ui.move(100, 250); ui.finish(100, 250, {button: 2});
+  marquee(ui, [old.left + old.width - 10, old.top], [old.left + old.width, old.top + 10]);
+  assert.deepEqual(selectedIds(ui), [], "The former screen location is no longer a hit");
+  const current = bulk.marker("tag2").getBoundingClientRect();
+  marquee(ui, [current.left + current.width - 8, current.top + 8], [current.left + current.width - 2, current.top + 20]);
+  assert.deepEqual(selectedIds(ui), ["tag2"], "A rectangle intersecting only the scaled label edge selects it");
+});
+
+for (const target of ["gp-picture", "gp-tag", "gp-global-axes", "gp-sliding-legend"]) {
+  test("right drag pans from " + target + " without moving or selecting objects", t => {
+    const ui = setup(t); slidingFixture(ui);
+    const before = structuredClone(ui.data.state), sheet = ui.byClass("gp-sheet");
+    const initial = [parseFloat(sheet.style.left), parseFloat(sheet.style.top)];
+    ui.start(ui.byClass(target), 300, 300, {button: 2}); ui.move(400, 360); ui.finish(400, 360, {button: 2});
+    near(parseFloat(sheet.style.left), initial[0] + 100); near(parseFloat(sheet.style.top), initial[1] + 60);
+    assert.deepEqual(ui.data.state, before);
+    assert.deepEqual(selectedIds(ui), []);
+    assert.equal(ui.byClass("gp-dialog").hidden, true);
+    assert.equal(ui.sent.length, 0);
+    let suppressed = false;
+    ui.viewport.dispatch("contextmenu", {preventDefault() { suppressed = true; }});
+    assert.equal(suppressed, true, "The browser menu cannot interrupt a right drag");
+  });
+}
+
+test("marquee during import pauses placement without consuming a support; right pan preserves placement mode", t => {
+  const ui = setup(t); bulkFixture(ui); importFixture(ui);
+  ui.start(ui.marker(), 300, 300, {button: 2}); ui.move(350, 350); ui.finish(350, 350, {button: 2});
+  assert.equal(ui.sent.length, 0);
+  ui.byText("Placera W1 – väggsula (1 av 2)");
+  marquee(ui, [200, 200], [750, 550]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  assert.equal(ui.sent.at(-1).action, "import_control"); assert.equal(ui.sent.at(-1).operation, "pause");
+  assert.equal(ui.data.state.load_import.index, 0);
+  assert.equal(ui.sent.some(request => request.action === "place_import"), false);
+});
+
+test("ordinary left drag pans while preserving an existing multi-selection", t => {
+  const ui = setup(t); bulkFixture(ui);
+  marquee(ui, [200, 200], [700, 500]);
+  const before = ui.byClass("gp-picture").getBoundingClientRect();
+  ui.start(ui.byClass("gp-picture"), 50, 50); ui.move(100, 140); ui.finish(100, 140);
+  const after = ui.byClass("gp-picture").getBoundingClientRect();
+  near(after.left, before.left + 50); near(after.top, before.top + 90);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+  assert.equal(ui.byClass("gp-selection-box").hidden, true);
+  assert.equal(ui.sent.length, 0);
+});
+
+test("Shift click or a jittering selection gesture on the drawing cannot place an imported support", t => {
+  const ui = setup(t); importFixture(ui);
+  ui.start(ui.byClass("gp-picture"), 400, 400, {shiftKey: true}); ui.finish(400, 400);
+  ui.start(ui.byClass("gp-picture"), 400, 400, {shiftKey: true}); ui.move(402, 401); ui.finish(402, 401);
+  assert.equal(ui.sent.length, 0);
+  assert.equal(ui.data.state.load_import.index, 0);
+  assert.equal(ui.byClass("gp-selection-box").hidden, true);
+  ui.place(); assert.equal(ui.sent.at(-1).action, "place_import", "Normal clicks still place the next support");
+});
 
 test("multi-selection only sends chosen fields and retains different loads", t => {
   const ui = setup(t), bulk = bulkFixture(ui);
@@ -1162,6 +1309,49 @@ test("pan moves a fitted drawing freely and Fit restores the centered full drawi
   const fitted = picture.getBoundingClientRect();
   near(fitted.left, initial.left); near(fitted.top, initial.top);
   near(fitted.width, initial.width); near(fitted.height, initial.height);
+});
+
+for (const readOnly of [false, true]) {
+  test("scroll-wheel zoom stays anchored to the pointer and preserves project data (readOnly=" + readOnly + ")", t => {
+    const ui = setup(t, {readOnly}), picture = ui.byClass("gp-picture");
+    const before = picture.getBoundingClientRect(), state = structuredClone(ui.data.state);
+    const pointer = {clientX: 200, clientY: 150};
+    let prevented = false;
+    ui.viewport.dispatch("wheel", {...pointer, deltaY: -100, deltaMode: 0, preventDefault() {prevented = true;}});
+    const after = picture.getBoundingClientRect();
+    assert.equal(prevented, true, "Zoom does not scroll the surrounding notebook");
+    assert.ok(after.width > before.width);
+    near((pointer.clientX - before.left) / before.width, (pointer.clientX - after.left) / after.width);
+    near((pointer.clientY - before.top) / before.height, (pointer.clientY - after.top) / after.height);
+    near(Number(ui.byClass("an-grundplan").style["--gp-tag-scale"]), after.width / 800);
+    ui.viewport.dispatch("wheel", {...pointer, deltaY: 100, deltaMode: 0});
+    const restored = picture.getBoundingClientRect();
+    near(restored.width, before.width); near(restored.left, before.left); near(restored.top, before.top);
+    assert.deepEqual(ui.data.state, state); assert.equal(ui.sent.length, 0);
+  });
+}
+
+test("wheel units, zoom limits and drag protection work while import placement remains active", t => {
+  const ui = setup(t); importFixture(ui);
+  const picture = ui.byClass("gp-picture"), before = picture.getBoundingClientRect();
+  ui.viewport.dispatch("wheel", {deltaY: -3, deltaMode: 1, clientX: 400, clientY: 300});
+  near(picture.getBoundingClientRect().width, before.width * Math.exp(48 * .002));
+  ui.viewport.dispatch("wheel", {deltaY: -1, deltaMode: 2, clientX: 400, clientY: 300});
+  const pageWidth = picture.getBoundingClientRect().width;
+  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {deltaY: -500, deltaMode: 0, clientX: 400, clientY: 300});
+  near(picture.getBoundingClientRect().width, 800 * 4);
+  ui.start(picture, 50, 50, {shiftKey: true}); ui.move(80, 80);
+  let suppressed = false;
+  ui.viewport.dispatch("wheel", {deltaY: 200, preventDefault() {suppressed = true;}});
+  assert.equal(suppressed, true); near(picture.getBoundingClientRect().width, 800 * 4);
+  ui.viewport.dispatch("pointercancel");
+  ui.byText("Placera W1 – väggsula (1 av 2)");
+  assert.equal(ui.sent.length, 0, "Wheel zoom and canceled selection never pause or advance placement");
+  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {deltaY: 500, clientX: 400, clientY: 300});
+  near(picture.getBoundingClientRect().width, 800 * .02);
+  assert.ok(pageWidth > before.width);
+  ui.byText("Anpassa").click();
+  near(picture.getBoundingClientRect().width, before.width);
 });
 
 test("raw input drafts survive minimize and stale calculation acknowledgments", t => {
