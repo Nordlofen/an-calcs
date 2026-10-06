@@ -34,7 +34,10 @@ class Element {
   set value(value) { this._value = String(value); }
   get value() { return this._value; }
   append(...children) {
-    for (const child of children) { child.parent = this; this.children.push(child); }
+    for (const child of children) {
+      if (child.parent) child.parent.children = child.parent.children.filter(item => item !== child);
+      child.parent = this; this.children.push(child);
+    }
   }
   replaceChildren(...children) {
     for (const child of this.children) child.parent = null;
@@ -87,6 +90,9 @@ const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
+const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
+  {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
+  .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
 
 function setup(t, { readOnly = false, standalone = false } = {}) {
   globalThis.document = { createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] };
@@ -99,7 +105,7 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
-    schema: { fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page: 1,
@@ -133,6 +139,74 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+for (const readOnly of [false, true]) test(`nonzero external loads and definitions work in ${readOnly ? "HTML" : "notebook"}`, t => {
+  const ui = setup(t, {readOnly});
+  Object.assign(ui.tag.values, {F_vy: 150, F_hb: 0, F_hl: null, M_insp_b: -.25, M_insp_l: 1e-8,
+    F_vy_bruk: 90, M_insp_b_bruk: 0, M_insp_l_bruk: 0});
+  ui.changed();
+  ui.byText("V 150 kN/m"); ui.byText("Mₓ −0,25 kNm/m"); ui.byText("Mᵧ 1,00e-8 kNm/m");
+  assert.ok(!ui.elements().some(element => element.textContent === "Bruk"));
+  ui.marker().click();
+  const before = ui.sent.length;
+  ui.byText("Visa definitionsskiss").click();
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, false);
+  ui.byText("Planvy – väggsula");
+  ui.byText("Minimera").click();
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, true);
+  ui.marker().click();
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, false);
+  assert.equal(ui.sent.length, before, "Viewing sketches never edits data");
+  ui.byText("Stäng").click();
+  ui.byText("Minimera").click(); ui.marker().click();
+  assert.equal(ui.byClass("gp-sketch-panel").hidden, true);
+  ui.byText("Minimera").click();
+  Object.assign(ui.tag.values, {lang: 0, isolering: true, F_hl: NaN});
+  ui.changed(); ui.marker().click();
+  ui.byText("V 150 kN"); ui.byText("V 90 kN");
+  ui.byClass("gp-board").clientWidth = 600;
+  ui.byText("Visa definitionsskiss").click();
+  assert.equal(ui.byClass("gp-sketch-panel").parent, ui.byClass("gp-sketch-slot"));
+  ui.byText("Planvy – pelarsula");
+  if (!readOnly) {
+    ui.field("lang").value = "1"; ui.field("lang").dispatch("input");
+    ui.byText("Planvy – väggsula");
+    ui.field("F_vy").value = ""; ui.field("F_vy").dispatch("input");
+    assert.ok(!ui.elements().some(element => element.textContent === "V 150 kN/m"));
+    ui.byText("Minimera").click(); ui.marker().click();
+    ui.byText("Planvy – väggsula");
+  }
+});
+
+for (const readOnly of [false, true]) test(`effective-area plot preserves signed coordinates and phase selection (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  const a = {bx: 2, by: 3, bx_eff: 1.6, by_eff: 2.4, area: 3.84, V: 300,
+    Mx: -60, My: 30, ex_placement: .1, ey_placement: -.1,
+    ex_moment: .1, ey_moment: -.2, ex: .2, ey: -.3};
+  ui.tag.summary.effective_area = {brott: a, bruk: {...a, ex: -.2, ey: .3}};
+  ui.marker().click();
+  const rectangle = () => ui.find(element => element.getAttribute("class") === "gp-effective-rectangle");
+  const outline = () => ui.find(element => element.getAttribute("class") === "gp-footing-outline");
+  const get = (element, name) => Number(element.getAttribute(name));
+  // Positive x goes right and negative y goes down. Dimensions share one scale.
+  assert.ok(get(rectangle(), "x") > get(outline(), "x"));
+  assert.ok(get(rectangle(), "y") > get(outline(), "y"));
+  near(get(rectangle(), "width") / get(outline(), "width"), .8);
+  near(get(rectangle(), "height") / get(outline(), "height"), .8);
+  const before = ui.sent.length;
+  ui.byClass("gp-area-phase").value = "bruk"; ui.byClass("gp-area-phase").dispatch("change");
+  near(get(rectangle(), "x"), get(outline(), "x"));
+  near(get(rectangle(), "y"), get(outline(), "y"));
+  ui.byText("Minimera").click(); ui.marker().click();
+  assert.equal(ui.byClass("gp-area-phase").value, "bruk");
+  assert.equal(ui.sent.length, before);
+  if (readOnly) {
+    ui.tag.status = "stale"; ui.changed();
+  } else {
+    ui.field("M_insp_l").value = "50"; ui.field("M_insp_l").dispatch("input");
+  }
+  assert.ok(!ui.elements().some(element => element.getAttribute("class") === "gp-effective-rectangle"));
+});
 
 test("heading edits persist before export and pending typing survives older model updates", t => {
   const ui = setup(t);
@@ -208,7 +282,7 @@ test("standalone result labels open read-only values and remember expanded secti
   ui.marker().click();
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · 1,8 × 2,4 m");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Utan isolering");
-  assert.match(ui.marker().getAttribute("aria-label"), /bredd × längd/);
+  assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
   assert.equal(ui.byClass("gp-result-main").children[1].textContent, "75%");
   assert.equal(ui.byText("EPS ÅÄÖ <script>literal</script>").tag, "span");
@@ -512,10 +586,10 @@ test("labels retain the governing check below insulation, utilization and geomet
   });
   ui.changed();
   assert.match(ui.marker().className, /gp-tag-over/);
-  assert.equal(ui.marker().children.length, 3);
+  assert.equal(ui.marker().children.length, 4);
   assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Isolering · bruk");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering");
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · b 1 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · bₓ 1 m");
   assert.match(ui.marker().title, /styrande: Isolering · bruk/);
   ui.marker().dispatch("click");
   ui.byText("Styrande: Isolering · bruk");

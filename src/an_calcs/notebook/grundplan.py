@@ -20,6 +20,7 @@ except ImportError as exc:
     ) from exc
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
+from .grundplan_labels import DISPLAY_LABELS, LOAD_GROUPS
 
 
 _ASSETS = Path(__file__).parent
@@ -46,7 +47,7 @@ _EXTRA_FIELDS = [
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
 ]
-_FIELDS = [{**field, "label": field["label"].replace("Inspänningsmoment", "Moment")}
+_FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"])}
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 
@@ -192,6 +193,28 @@ def _calculate(values):
     governing = max(checks, key=lambda check: check["utnyttjandegrad"])
     summary.update(kontroller=checks, styrande=governing["label"],
                    utnyttjandegrad=governing["utnyttjandegrad"])
+    # Plot data uses the actual calculated dimensions and preserves the signed
+    # eccentricities before the bearing model takes their absolute values.
+    intermediate = {item["namn"]: item["value"] for item in details["delresultat"]["items"]}
+    areas = {}
+    for phase in (("brott", "bruk") if values["isolering"] else ("brott",)):
+        suffix = "_bruk" if phase == "bruk" else ""
+        normal = summary["isolering"]["isolering_N_bruk"] if suffix else result["F_v"]
+        moment_x = values["M_insp_b" + suffix]
+        moment_y = values["M_insp_l" + suffix]
+        dx = moment_y / normal if suffix else intermediate["e_b_last"]
+        dy = moment_x / normal if suffix else intermediate["e_l_last"]
+        bx = summary["isolering"]["isolering_b_eff_bruk"] if suffix else result["b_ef"]
+        by = summary["isolering"]["isolering_l_eff_bruk"] if suffix else intermediate["l_ef"]
+        areas[phase] = {
+            "bx": values["b"], "by": intermediate["l_ref"],
+            "bx_eff": bx, "by_eff": by, "area": bx * by, "V": normal,
+            "Mx": moment_x, "My": moment_y,
+            "ex_placement": values["e_b_plac"], "ey_placement": values["e_l_plac"],
+            "ex_moment": dx, "ey_moment": dy,
+            "ex": values["e_b_plac"] + dx, "ey": values["e_l_plac"] + dy,
+        }
+    summary["effective_area"] = areas
     return details, summary
 
 
@@ -226,7 +249,8 @@ class Grundplan(anywidget.AnyWidget):
         self._subtitle = subtitle
         self._label_size = 100
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
-        self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS)}
+        self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
+                       "load_groups": copy.deepcopy(LOAD_GROUPS)}
         self.background = {}
         if ritning is not None:
             path = Path(ritning)
@@ -483,7 +507,7 @@ class Grundplan(anywidget.AnyWidget):
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "tags": self.taggar},
-            "schema": {"fields": copy.deepcopy(_FIELDS)},
+            "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
         })

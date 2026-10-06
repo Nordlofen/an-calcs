@@ -141,14 +141,22 @@ gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande
 jordens bärighet.
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
-`N / (b_eff × l_eff)` för respektive lastkombination. Resultatet visar
+`V / (bₓ,eff × bᵧ,eff)` för respektive lastkombination. Resultatet visar
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
-visar högsta utnyttjandegrad och sulans bredd, eller bredd × längd för pelarsulor.
+visar högsta utnyttjandegrad och bₓ, eller bₓ × bᵧ för pelarsulor.
 För isolerade sulor visas även en tredje rad med styrande kontroll.
 Kontrollen visas också i dialogen och hovringstexten. Utseendet följer med
 i HTML- och PDF-exporten. Se lastantagandena i
 [användningsbeskrivningen](docs/grundplan.md#isolering-under-sulan).
+
+Etiketten visar också ifyllda yttre laster som inte är noll, grupperade i
+**Brott** och **Bruk** (med isolering). Vertikallast betecknas **V**.
+**Visa definitionsskiss** förklarar sulans lokala x/y-axlar och anpassas till
+väggsula eller pelarsula. Resultatets **Effektiv area – planvy** visar
+lastresultanten, momentens bidrag till excentriciteten och den effektiva
+rektangeln. Med isolering kan du växla mellan brott och bruk. Skisserna
+följer med HTML-exporten. Befintliga momenttecken och beräkningar bevaras.
 
 Dra en etikett för att flytta den. **Kopiera sula** i indatadialogen tar med
 alla indata till en ny sula som placeras med ett klick på ritningen. Kopian

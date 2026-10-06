@@ -81,6 +81,12 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(data["state"]["label_size"], 150)
         self.assertEqual(data["state"]["tags"], self.plan.taggar)
         self.assertEqual(data["state"]["tags"][0]["summary"]["styrande"], "Isolering · bruk")
+        self.assertEqual(set(data["state"]["tags"][0]["summary"]["effective_area"]), {"brott", "bruk"})
+        fields = {field["name"]: field for field in data["schema"]["fields"]}
+        self.assertEqual(fields["M_insp_l"]["label"], "Moment kring y-axeln, Mᵧ")
+        self.assertEqual(fields["M_insp_b"]["label"], "Moment kring x-axeln, Mₓ")
+        self.assertEqual(fields["F_vy"]["label"], "Vertikallast, V")
+        self.assertEqual(data["schema"]["load_groups"][0]["fields"][0]["symbol"], "V")
         self.assertEqual([page["page"] for page in data["pages"]], [1, 2])
         import base64
         for background in data["pages"]:

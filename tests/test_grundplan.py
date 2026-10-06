@@ -197,14 +197,52 @@ class TestGrundplan(unittest.TestCase):
                         self.assertAlmostEqual(result["l_ef"], l_eff)
                     summary = self.plan._tag(ident)["summary"]
                     self.assertAlmostEqual(summary["isolering"][f"isolering_q_Ed_{phase}"], normal / (b_eff * l_eff))
+                    area = summary["effective_area"][phase]
+                    self.assertEqual((area["Mx"], area["My"]), (moment_l, moment_b))
+                    self.assertEqual((area["bx"], area["by"]), (2, length))
+                    self.assertAlmostEqual(area["V"], normal)
+                    self.assertAlmostEqual(area["ex_moment"], moment_b / normal)
+                    self.assertAlmostEqual(area["ey_moment"], moment_l / normal)
+                    self.assertAlmostEqual(area["ex"], .1 + moment_b / normal)
+                    self.assertAlmostEqual(area["ey"], -.02 + moment_l / normal)
+                    self.assertAlmostEqual(area["bx_eff"], b_eff)
+                    self.assertAlmostEqual(area["by_eff"], l_eff)
+                    self.assertAlmostEqual(area["area"], b_eff * l_eff)
+                    # The resultant is the effective rectangle's center and
+                    # its edges stay inside the original footing, in either direction.
+                    for axis in ("x", "y"):
+                        self.assertLessEqual(abs(area["e" + axis]) + area["b" + axis + "_eff"] / 2,
+                                             area["b" + axis] / 2 + 1e-12)
                 with_horizontal = copy.deepcopy(summary)
                 self.plan.uppdatera(ident, indata={"F_hb": 0, "F_hl": 0})
                 self.plan.berakna(ident)
                 without_horizontal = self.plan._tag(ident)["summary"]
                 self.assertEqual(with_horizontal["b_ef"], without_horizontal["b_ef"])
                 self.assertEqual(with_horizontal["isolering"], without_horizontal["isolering"])
+                self.assertEqual(with_horizontal["effective_area"], without_horizontal["effective_area"])
                 if kind == "pelarsula":
                     self.assertLess(with_horizontal["barformaga"], without_horizontal["barformaga"])
+
+    def test_effektiv_area_moment_byter_riktning_och_kan_motverka_placering(self):
+        for kind in ("vaggsula", "pelarsula"):
+            ident = self.add(typ=kind, indata={"b": 2, "l": 3, "t": .4, "F_vy": 600,
+                                               "e_b_plac": .1, "e_l_plac": -.1})
+            self.plan.berakna(ident)
+            normal = self.plan._tag(ident)["summary"]["last"]
+            for dx, dy in ((0, 0), (.2, 0), (0, .2), (-.3, .3), (-.1, .1)):
+                with self.subTest(kind=kind, dx=dx, dy=dy):
+                    self.plan.uppdatera(ident, indata={"M_insp_l": dx * normal, "M_insp_b": dy * normal})
+                    self.plan.berakna(ident)
+                    phases = self.plan._tag(ident)["summary"]["effective_area"]
+                    self.assertEqual(set(phases), {"brott"})
+                    a = phases["brott"]
+                    self.assertAlmostEqual(a["ex"], .1 + dx)
+                    self.assertAlmostEqual(a["ey"], -.1 + dy)
+                    self.assertAlmostEqual(a["bx_eff"], 2 - 2 * abs(.1 + dx))
+                    self.assertAlmostEqual(a["by_eff"], (1 if kind == "vaggsula" else 3) - 2 * abs(-.1 + dy))
+            loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "axes.json"))
+            self.addCleanup(loaded.close)
+            self.assertEqual(loaded._tag(ident)["summary"], self.plan._tag(ident)["summary"])
 
     def test_version_2_tar_bort_havarmar_bevarar_moment_och_kraver_omberakning(self):
         ident = self.insulated()

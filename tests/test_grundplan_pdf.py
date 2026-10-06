@@ -156,12 +156,36 @@ class TestGrundplanPdf(unittest.TestCase):
         pad = self.tag(plan, littera="Pelarsula", typ="pelarsula", indata={"b": 1.8, "l": 2.4, "F_vy": 100})
         plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160 % · b 1 m",
+        for expected in ("Ej beräknad", "Ändrad · beräkna", "Kontrollera indata", "U 160 % · b\nx\n 1 m",
                          "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
             self.assertIn(expected, text)
         self.assertIn("Styrande: Isolering · bruk", text)
         self.assertEqual(text.count("Styrande:"), 1, "Only the current insulation result has a governing-check line")
         self.assertEqual(text.count("U "), 2, "Stale or failed results must never be printed as current")
+
+    def test_laster_filtreras_med_ratt_axel_enhet_och_negativa_sma_varden(self):
+        from an_calcs.notebook.grundplan_pdf import _fonts, _load_rows
+        _fonts()
+        plan = self.plan()
+        ident = self.tag(plan, indata={"b": 2, "F_vy": 100, "F_hb": 0, "F_hl": None,
+                                      "M_insp_b": -.25, "M_insp_l": 1e-8,
+                                      "isolering": True, "F_vy_bruk": 50})
+        values = copy.deepcopy(plan._tag(ident)["values"])
+        rows = _load_rows(values)
+        text = " ".join(caption + " " + line for caption, line in rows)
+        for expected in ("Brott", "Bruk", "V 100 kN/m", "Mₓ -0,25 kNm/m", "Mᵧ 1,00e-08 kNm/m", "V 50 kN/m"):
+            self.assertIn(expected, text)
+        self.assertNotIn("H", text)
+        values.update(lang=0, isolering=False)
+        rows = _load_rows(values)
+        text = " ".join(caption + " " + line for caption, line in rows)
+        self.assertNotIn("/m", text)
+        self.assertNotIn("Bruk", text)
+        self.assertNotIn("50", text)
+        pdf = plan._pdf_bytes()
+        output = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("-0,25 kNm/m", output)
+        self.assertIn("1,00e-08 kNm/m", output)
 
     def test_bildens_fulla_upplosning_och_exif_rotation_bevaras(self):
         picture = self.root / "large.png"

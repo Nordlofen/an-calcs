@@ -48,18 +48,67 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    kryssa i **Underliggande isolering** under **Isolering**, ange `f_d.brott`
    och `f_d.bruk` i kPa samt långtidslasterna under **Laster – Bruk**.
 4. Tryck **Beräkna**. Dialogen visar utnyttjandegrad, dimensionerande last,
-   bärförmåga och effektiv bredd. Med isolering visas tre separata kontroller:
+   bärförmåga och effektiv area i en planskiss. Med isolering visas tre separata kontroller:
    jord i brott, isolering i brott och isolering i bruk.
 5. Tryck **Minimera**. Första raden visar littera, en symbol och texten
    **Med isolering** eller **Utan isolering**. Symbolen visar sulan över en
    skrafferad isoleringsremsa; bara remsan stryks över när isolering saknas.
    Andra raden visar högsta utnyttjandegrad och geometri, till exempel
-   `U 34,6 % · b 1,8 m` för väggsula eller `U 68,3 % · 1,8 × 2,4 m`
-   för pelarsula. Pelarsulans mått anges alltid som bredd × längd.
+   `U 34,6 % · bₓ 1,8 m` för väggsula eller `U 68,3 % · 1,8 × 2,4 m`
+   för pelarsula. Pelarsulans mått anges alltid som bₓ × bᵧ.
    För isolerade sulor visar en tredje rad styrande kontroll, till exempel
    `Styrande: Isolering · bruk`. Kontrollen finns också i dialogen och
    i etikettens hovringstext.
    Klicka på taggen igen för att öppna samma indata.
+
+Under resultatraderna visar etiketten ifyllda yttre laster som inte är noll,
+grupperade i **Brott** och **Bruk**. Bruk visas när isolering är aktiverad.
+Lastraderna avser inmatade värden **exklusive sulans egentyngd**; resultatskissen
+använder däremot den beräknade vertikallasten inklusive egentyngd. Negativa
+värden bevaras och mycket små laster visas med exponent för att inte avrundas
+till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
+
+## Lokala axlar och skisser
+
+Gränssnittet använder x tvärs en väggsula och y längs den; y-måttet i
+beräkningen är 1 m. Pelarsulan visas med sina fulla mått bₓ × bᵧ. Axlarna
+är lokala och kopplas inte automatiskt till ritningens riktningar.
+**Visa definitionsskiss** öppnar planvy och två snitt med lastpilar.
+På breda ytor ligger skissen bredvid dialogen, annars inne i den.
+
+| Visad beteckning | Befintligt fältnamn i Python/JSON |
+| --- | --- |
+| bₓ / bᵧ | `b` / `l` |
+| V | `F_vy` |
+| Hₓ / Hᵧ | `F_hb` / `F_hl` |
+| Mₓ / Mᵧ | `M_insp_b` / `M_insp_l` |
+| eₓ,plac / eᵧ,plac | `e_b_plac` / `e_l_plac` |
+
+Brukfälten har samma koppling med suffixet `_bruk`. Inga värden eller
+momenttecken konverteras i tidigare projekt. Beräkningens befintliga
+teckenkonvention behålls: positivt Mᵧ ger positivt bidrag i x och positivt
+Mₓ ger positivt bidrag i y. Detta är programmets snittkonvention, **inte en
+gemensam högerhandsregel för båda momentaxlarna**. Följ pilarna i skissen.
+
+**Effektiv area – planvy** visar hela sulan i grått, effektiv area i grönt,
+placeringen med en ring och resultanten R med en fylld punkt. Pilarna visar
+Mᵧ/V i x-led och Mₓ/V i y-led. Under skissen redovisas bidragen med tecken:
+
+```text
+eₓ = eₓ,plac + Mᵧ/V      bₓ,eff = bₓ − 2|eₓ|
+eᵧ = eᵧ,plac + Mₓ/V      bᵧ,eff = bᵧ − 2|eᵧ|
+Aeff = bₓ,eff × bᵧ,eff
+```
+
+R ligger i den effektiva rektangelns centrum. Moment kan förstärka eller
+motverka placeringsexcentriciteten. Måtten kommer från samma beräkning som
+kontrollen; inga bärighetsberäkningar sker i webbläsaren. Skissen visar en
+ekvivalent effektiv area, inte verklig kontakttrycksfördelning. Med isolering
+kan **Brott** och **Bruk** väljas separat. Ändrade eller felaktiga indata
+döljer skissen tills ett aktuellt resultat finns. Skissen och valet av
+lastkombination finns även i resultat-HTML; PDF innehåller bara etiketterna.
+
+## Visningsval
 
 Vyn kommer ihåg vilka indata- och resultatavsnitt som är öppna för varje sula.
 När du minimerar eller byter etikett och sedan återvänder återställs samma
@@ -222,7 +271,7 @@ originalfilen behöver inte finnas kvar.
 Etiketterna använder sina sparade positioner och reglaget **Etikettstorlek**.
 Zoom, panorering och öppna dialogrutor påverkar inte exporten. Littera,
 isoleringssymbol och text, utnyttjandegrad, geometrimått, eventuell styrande
-kontroll och statusfärg följer med.
+kontroll, ifyllda laster och statusfärg följer med.
 Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
 etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
 med vid utskrift, utan popup eller klickfunktion.
@@ -299,8 +348,8 @@ Denna första version placerar punktmarkeringar vid sulorna; linjemarkering,
 skalinställning och automatisk identifiering av stomlinjer ingår inte.
 
 Widgeten måste vara ansluten till en aktiv Pythonkernel för att skapa
-taggar, ändra indata, spara och beräkna. Export till en fristående HTML-app
-är en senare del.
+taggar, ändra indata, spara och beräkna. Resultat-HTML fungerar utan kernel
+och visar sparade indata och resultat utan möjlighet att räkna om.
 
 ## Kontrollera installationen
 

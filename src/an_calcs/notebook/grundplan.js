@@ -1,4 +1,62 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
+function definitionSketch(strip) {
+  const make = (name, attributes, text) => {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+    if (text !== undefined) element.textContent = text;
+    return element;
+  };
+  const svg = make("svg", { viewBox: "0 0 440 435", role: "img", "aria-label": strip
+    ? "Väggsula: x tvärs väggen, y längs väggen, en meters beräkningsremsa."
+    : "Pelarsula: lokala x- och y-axlar med sulmåtten bₓ och bᵧ." });
+  const line = (x1, y1, x2, y2, color = "#58717a", width = 1) =>
+    svg.append(make("line", { x1, y1, x2, y2, stroke: color, "stroke-width": width }));
+  const text = (x, y, value, size = 14, anchor = "middle", color = "#18333b") =>
+    svg.append(make("text", { x, y, "font-size": size, "text-anchor": anchor, fill: color }, value));
+  const rect = (x, y, width, height, fill = "#e7efee") =>
+    svg.append(make("rect", { x, y, width, height, fill, stroke: "#18333b", "stroke-width": 1.5 }));
+  const head = (x, y, dx, dy, color, size = 6) => {
+    const length = Math.hypot(dx, dy), ux = dx / length, uy = dy / length;
+    svg.append(make("path", { d: `M${x} ${y}L${x - size * ux + size * .4 * uy} ${y - size * uy - size * .4 * ux}L${x - size * ux - size * .4 * uy} ${y - size * uy + size * .4 * ux}Z`, fill: color }));
+  };
+  const arrow = (x1, y1, x2, y2, color = "#14695e") => {
+    line(x1, y1, x2, y2, color, 1.7); head(x2, y2, x2 - x1, y2 - y1, color);
+  };
+  const dimension = (x1, y1, x2, y2) => {
+    line(x1, y1, x2, y2); head(x1, y1, x1 - x2, y1 - y2, "#58717a", 5);
+    head(x2, y2, x2 - x1, y2 - y1, "#58717a", 5);
+  };
+  text(220, 22, strip ? "Planvy – väggsula" : "Planvy – pelarsula", 16);
+  rect(130, 58, 180, 126);
+  if (strip) rect(207, 58, 26, 126, "#d0dcd9");
+  else rect(200, 101, 40, 40, "#d0dcd9");
+  arrow(220, 121, 352, 121); text(363, 126, "x", 17, "middle", "#14695e");
+  arrow(220, 121, 220, 39); text(231, 43, "y", 17, "start", "#14695e");
+  for (const x of [130, 310]) line(x, 190, x, 208);
+  dimension(130, 201, 310, 201); text(220, 223, "bₓ", 17);
+  for (const y of [58, 184]) line(110, y, 124, y);
+  dimension(114, 58, 114, 184); text(96, 126, strip ? "1 m" : "bᵧ", 16, "end");
+  text(322, 177, strip ? "vägg" : "pelare", 12, "start", "#58717a");
+  line(316, 173, 240, 150);
+  for (const [origin, axis, moment] of [[0, "x", "Mᵧ"], [224, "y", "Mₓ"]]) {
+    const cx = origin + 106, load = "#a6473e";
+    text(cx, 259, "Snitt i " + axis + "-led", 15);
+    const path = `M${cx - 33} 303 Q${cx} 257 ${cx + 33} 303`;
+    svg.append(make("path", { d: path, fill: "none", stroke: load, "stroke-width": 1.8 }));
+    // Existing engine convention: positive moments add positive eccentricity.
+    head(cx + 33, 303, 33, 46, load);
+    text(cx + 43, 283, moment, 17, "start", load);
+    arrow(cx, 310, cx, 342, load); text(cx + 10, 329, "V", 18, "start", load);
+    arrow(origin + 14, 347, cx - 23, 347, load); text(origin + 17, 337, axis === "x" ? "Hₓ" : "Hᵧ", 16, "start", load);
+    rect(cx - 11, 345, 22, 10, load); rect(origin + 29, 355, 152, 29);
+    arrow(origin + 186, 377, origin + 212, 377); text(origin + 197, 368, axis, 15, "middle", "#14695e");
+    for (const x of [origin + 29, origin + 181]) line(x, 390, x, 407);
+    dimension(origin + 29, 401, origin + 181, 401);
+    text(cx, 425, axis === "x" ? "bₓ" : strip ? "1 m beräkningsremsa" : "bᵧ", strip && axis === "y" ? 12 : 17);
+  }
+  return svg;
+}
+
 function render({ model, el, readOnly = false }) {
   const node = (tag, className, text) => {
     const element = document.createElement(tag);
@@ -17,12 +75,17 @@ function render({ model, el, readOnly = false }) {
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
+  const sketchStates = new Map();
+  const areaPhases = new Map();
+  let sketchInline = false, sketchType = null;
   const state = () => model.get("state") || { tags: [] };
   const background = () => model.get("background") || {};
   const current = () => state().tags.find((tag) => tag.id === active);
   const number = (value, digits = 2) => new Intl.NumberFormat("sv-SE", {
     maximumFractionDigits: digits,
   }).format(value);
+  const precise = value => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
+    ? value.toExponential(2).replace(".", ",") : number(value, 6);
   const button = (text, fn, className = "") => {
     const b = node("button", className, text);
     b.type = "button";
@@ -211,6 +274,27 @@ function render({ model, el, readOnly = false }) {
   labelInput.required = true;
   labelRow.append(labelInput);
   const basis = node("p", "gp-basis");
+  const sketchToggle = button("Visa definitionsskiss", () => {
+    if (!current()) return;
+    sketchStates.set(active, !sketchStates.get(active));
+    showSketch();
+  }, "gp-sketch-toggle");
+  const sketchSlot = node("div", "gp-sketch-slot");
+  const sketch = node("section", "gp-sketch-panel");
+  sketch.hidden = true;
+  sketch.id = "gp-sketch-" + view;
+  sketch.setAttribute("aria-label", "Definitionsskiss");
+  sketchToggle.setAttribute("aria-controls", sketch.id);
+  const sketchHeader = node("div", "gp-sketch-header");
+  const sketchClose = button("Stäng", () => {
+    sketchStates.set(active, false);
+    showSketch();
+    sketchToggle.focus({ preventScroll: true });
+  });
+  sketchClose.setAttribute("aria-label", "Stäng definitionsskissen");
+  sketchHeader.append(node("strong", "", "Definitionsskiss"), sketchClose);
+  const sketchBody = node("div", "gp-sketch-body");
+  sketch.append(sketchHeader, sketchBody);
   const results = node("div", "gp-results");
   results.setAttribute("aria-live", "polite");
   const footer = node("div", "gp-dialog-footer");
@@ -225,6 +309,8 @@ function render({ model, el, readOnly = false }) {
           dirty.delete(tag.id);
           edits.delete(tag.id);
           sectionStates.delete(tag.id);
+          sketchStates.delete(tag.id);
+          areaPhases.delete(tag.id);
         }
       });
       closeDialog();
@@ -240,10 +326,10 @@ function render({ model, el, readOnly = false }) {
   });
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
   footer.append(remove, copy, calculate);
-  if (readOnly) form.append(results, basis, fieldsBox);
-  else form.append(labelRow, basis, fieldsBox, results, footer);
+  if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
+  else form.append(labelRow, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
-  board.append(viewport, empty, zoomBar, dialog);
+  board.append(viewport, empty, zoomBar, dialog, sketch);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend", "○ Ej beräknad   ● U ≤ 100 %   ● U > 100 %   ◌ Ändrad");
@@ -279,6 +365,8 @@ function render({ model, el, readOnly = false }) {
           positions.clear();
           pendingPositions.clear();
           sectionStates.clear();
+      sketchStates.clear();
+      areaPhases.clear();
           headingDraft = null;
           inputSections.length = resultSections.length = 0;
           setMode("pan");
@@ -344,6 +432,7 @@ function render({ model, el, readOnly = false }) {
     active = null;
     formId = null;
     dialog.hidden = true;
+    sketch.hidden = true;
     renderMarkers();
   }
   function openDialog(tag) {
@@ -358,8 +447,39 @@ function render({ model, el, readOnly = false }) {
     (readOnly ? minimize : labelInput).focus({ preventScroll: true });
   }
   function placeDialog(x, y) {
-    dialog.style.left = Math.max(8, Math.min(board.clientWidth - dialog.offsetWidth - 8, x)) + "px";
-    dialog.style.top = Math.max(8, Math.min(board.clientHeight - dialog.offsetHeight - 8, y)) + "px";
+    const inline = board.clientWidth < dialog.offsetWidth + 430 + 28;
+    if (inline !== sketchInline) {
+      sketchInline = inline;
+      (inline ? sketchSlot : board).append(sketch);
+      sketch.classList.toggle("gp-sketch-inline", inline);
+    }
+    const extra = !sketch.hidden && !inline ? 442 : 0;
+    const left = Math.max(8, Math.min(board.clientWidth - dialog.offsetWidth - extra - 8, x));
+    const top = Math.max(8, Math.min(board.clientHeight - dialog.offsetHeight - 8, y));
+    dialog.style.left = left + "px";
+    dialog.style.top = top + "px";
+    if (!inline) {
+      sketch.style.left = left + dialog.offsetWidth + 12 + "px";
+      sketch.style.top = Math.max(8, Math.min(board.clientHeight - sketch.offsetHeight - 8, top)) + "px";
+    }
+  }
+  function showSketch() {
+    const tag = current();
+    const open = !!tag && !!sketchStates.get(tag.id) && !dialog.hidden;
+    sketch.hidden = !open;
+    sketchToggle.textContent = open ? "Dölj definitionsskiss" : "Visa definitionsskiss";
+    sketchToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const strip = Number(readOnly ? tag.values.lang : inputs.get("lang")?.input.value ?? tag.values.lang) === 1;
+      if (sketchType !== strip) {
+        sketchType = strip;
+        sketchBody.replaceChildren(definitionSketch(strip),
+          node("p", "gp-sketch-axis-note", strip ? "x tvärs väggen · y längs väggen" : "Lokala axlar för sulan · måttordning bₓ × bᵧ"),
+          node("p", "gp-field-note", "V är vertikallast. Mᵧ påverkar excentriciteten i x-led och Mₓ i y-led. Moment anges direkt vid sulan."),
+          node("p", "gp-field-note", "Tecken enligt befintlig beräkning: positiva moment adderas till positiv placeringsexcentricitet i respektive led. Pilarna visar denna plusriktning."));
+      }
+      placeDialog(parseFloat(dialog.style.left) || 8, parseFloat(dialog.style.top) || 8);
+    }
   }
   function insulationIcon(insulated) {
     const svgNode = (name, attributes) => {
@@ -403,37 +523,63 @@ function render({ model, el, readOnly = false }) {
       marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
       const draft = drafts.get(tag.id);
-      const insulated = (draft?.values || tag.values).isolering === true;
+      const values = draft?.values || tag.values;
+      const insulated = values.isolering === true;
       const insulationText = insulated ? "Med isolering" : "Utan isolering";
       const label = draft?.label.trim() || tag.label;
       const heading = node("span", "gp-tag-heading");
       const insulation = node("span", "gp-tag-insulation");
       insulation.append(insulationIcon(insulated), node("span", "", insulationText));
       heading.append(node("strong", "", label), insulation);
-      const geometry = summary ? (tag.values.lang === 1 ? "b " + number(summary.b) + " m"
+      const geometry = summary ? (tag.values.lang === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
       const text = summary
         ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad");
-      const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bredd × längd" : "";
+      const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
       marker.append(heading, node("span", "gp-tag-result", text));
       if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
+      const loads = node("span", "gp-tag-loads");
+      const accessibleLoads = [];
+      for (const group of model.get("schema").load_groups || []) {
+        if (group.label === "Bruk" && !insulated) continue;
+        const tokens = [];
+        for (const field of group.fields) {
+          const raw = values[field.name];
+          const value = typeof raw === "string" ? Number(raw.replace(",", ".")) : raw;
+          if (typeof value !== "number" || !Number.isFinite(value) || value === 0) continue;
+          const unit = field.unit + (Number(values.lang) === 1 ? "/m" : "");
+          tokens.push(field.symbol + " " + precise(value) + " " + unit);
+        }
+        if (!tokens.length) continue;
+        const row = node("span", "gp-tag-load-row");
+        const content = node("span", "gp-tag-load-values");
+        content.append(...tokens.map(text => node("span", "", text)));
+        row.append(node("strong", "", group.label), content);
+        loads.append(row);
+        accessibleLoads.push(group.label + ": " + tokens.join(", "));
+      }
+      if (accessibleLoads.length) {
+        marker.append(loads);
+        marker.title += " · Yttre laster, exklusive sulans egentyngd";
+        marker.setAttribute("aria-label", marker.getAttribute("aria-label") + ", yttre laster: " + accessibleLoads.join("; "));
+      }
       markers.append(marker);
     }
   }
   const groups = [
     ["Geometri", ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac"]],
-    ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b"],
+    ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
-    ["Laster – Bruk", ["F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"],
+    ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
       "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
-      "Ange färdiga dimensionerande bärförmågor. Kontroll: N / (b_eff × l_eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
+      "Ange färdiga dimensionerande bärförmågor. Kontroll: V / (bₓ,eff × bᵧ,eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
   function rememberSections(sections) {
@@ -546,6 +692,7 @@ function render({ model, el, readOnly = false }) {
       if (entry.input.disabled) entry.input.setCustomValidity("");
       entry.row.hidden = (strip && name === "l") || (!insulated && name.startsWith("f_d_"));
     }
+    showSketch();
   }
   function edit(calculationInput) {
     if (!current()) return;
@@ -590,6 +737,88 @@ function render({ model, el, readOnly = false }) {
       if (reply.ok) showMessage("Beräkningen är uppdaterad.");
     });
   });
+  function areaResult(tag) {
+    const group = makeSection(tag.id, "result:area", "Effektiv area – planvy", true, resultSections);
+    const phases = tag.summary.effective_area;
+    const select = node("select", "gp-area-phase");
+    select.setAttribute("aria-label", "Lastkombination för effektiv area");
+    for (const phase of Object.keys(phases)) {
+      const option = node("option", "", phase === "brott" ? "Brott" : "Bruk · långtidslast");
+      option.value = phase;
+      select.append(option);
+    }
+    select.value = phases[areaPhases.get(tag.id)] ? areaPhases.get(tag.id) : "brott";
+    select.hidden = Object.keys(phases).length < 2;
+    const content = node("div", "gp-area-content");
+    const draw = () => {
+      const a = phases[select.value];
+      content.replaceChildren();
+      const make = (name, attrs, text) => {
+        const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+        for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+        if (text !== undefined) element.textContent = text;
+        return element;
+      };
+      const svg = make("svg", {viewBox: "0 0 320 260", role: "img", "aria-label":
+        `Effektiv area ${precise(a.area)} m². Resultant: eₓ ${precise(a.ex)} m, eᵧ ${precise(a.ey)} m.`});
+      // One scale for both axes. Include the placement point even if opposing
+      // moments move a point outside the footing back inside it.
+      const xmin = Math.min(-a.bx / 2, a.ex_placement), xmax = Math.max(a.bx / 2, a.ex_placement);
+      const ymin = Math.min(-a.by / 2, a.ey_placement), ymax = Math.max(a.by / 2, a.ey_placement);
+      const scale = Math.min(230 / (xmax - xmin), 170 / (ymax - ymin));
+      const px = x => 166 + (x - (xmin + xmax) / 2) * scale;
+      const py = y => 119 - (y - (ymin + ymax) / 2) * scale;
+      const line = (x1, y1, x2, y2, color, dash) => svg.append(make("line", {
+        x1, y1, x2, y2, stroke: color, "stroke-width": 1.4, ...(dash ? {"stroke-dasharray": dash} : {})}));
+      const text = (x, y, value, anchor = "middle", color = "#58717a") => svg.append(make("text", {
+        x, y, "font-size": 12, "text-anchor": anchor, fill: color}, value));
+      const arrow = (x1, y1, x2, y2, color) => {
+        const length = Math.hypot(x2 - x1, y2 - y1);
+        if (length < .01) return;
+        line(x1, y1, x2, y2, color);
+        const ux = (x2 - x1) / length, uy = (y2 - y1) / length, size = Math.min(6, length);
+        svg.append(make("path", {fill: color, d: `M${x2} ${y2}l${-size * ux + size * .45 * uy} ${-size * uy - size * .45 * ux}l${-size * .9 * uy} ${size * .9 * ux}Z`}));
+      };
+      const rect = (x, y, w, h, fill, stroke, className) => svg.append(make("rect", {
+        x: px(x), y: py(y), width: w * scale, height: h * scale, fill, stroke, "stroke-width": 1.5, class: className}));
+      rect(-a.bx / 2, a.by / 2, a.bx, a.by, "#f0f3f3", "#829799", "gp-footing-outline");
+      rect(a.ex - a.bx_eff / 2, a.ey + a.by_eff / 2, a.bx_eff, a.by_eff, "#c3e4dc", "#267c69", "gp-effective-rectangle");
+      line(px(-a.bx / 2), py(0), px(a.bx / 2), py(0), "#94a6aa", "3 3");
+      line(px(0), py(-a.by / 2), px(0), py(a.by / 2), "#94a6aa", "3 3");
+      // Dashed placement offset, then My/V in x and Mx/V in y.
+      line(px(0), py(0), px(a.ex_placement), py(a.ey_placement), "#796985", "3 3");
+      arrow(px(a.ex_placement), py(a.ey_placement), px(a.ex), py(a.ey_placement), "#ad5040");
+      arrow(px(a.ex), py(a.ey_placement), px(a.ex), py(a.ey), "#976915");
+      svg.append(make("circle", {cx: px(a.ex_placement), cy: py(a.ey_placement), r: 4, fill: "white", stroke: "#796985", "stroke-width": 1.5}));
+      svg.append(make("circle", {cx: px(a.ex), cy: py(a.ey), r: 3.5, fill: "#18333b"}));
+      text(px(a.ex) + 7, py(a.ey) - 7, "R", "start", "#18333b");
+      arrow(270, 26, 301, 26, "#58717a"); text(309, 30, "x");
+      arrow(270, 26, 270, 6, "#58717a"); text(261, 12, "y");
+      text(160, 230, `bₓ = ${precise(a.bx)} m · bᵧ = ${precise(a.by)} m`);
+      text(160, 248, `Aeff = ${precise(a.area)} m²`, "middle", "#267c69");
+      const legend = node("div", "gp-area-legend");
+      for (const [className, caption] of [["outline", "□ Hela sulan"], ["area", "Effektiv area"], ["placement", "○ Placering"],
+        ["moment-x", "→ Mᵧ/V i x-led"], ["moment-y", "→ Mₓ/V i y-led"]]) {
+        legend.append(node("span", "gp-area-key-" + className, caption));
+      }
+      const list = node("dl", "gp-result-list gp-area-numbers");
+      for (const [caption, value] of [
+        ["V inkl. egentyngd", precise(a.V) + " " + tag.summary.lastenhet],
+        ["Mᵧ → x-led", precise(a.My) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
+        ["Mₓ → y-led", precise(a.Mx) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
+        ["bₓ,eff", precise(a.bx_eff) + " m"], ["bᵧ,eff", precise(a.by_eff) + " m"],
+      ]) list.append(node("dt", "", caption), node("dd", "", value));
+      content.append(svg, legend, list,
+        node("p", "gp-area-equation", `eₓ = ${precise(a.ex_placement)} + (${precise(a.ex_moment)}) = ${precise(a.ex)} m`),
+        node("p", "gp-area-equation", `eᵧ = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`),
+        node("p", "gp-field-note", "e = placering + moment/V. R är lastresultanten och centrum för den effektiva arean. Effektiva mått = sulmått − 2|e|. Tecken enligt beräkningens pilar; x åt höger, y uppåt."),
+        node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (tag.values.lang === 1 ? "Väggsulan visas som en 1 m-remsa." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
+    };
+    select.addEventListener("change", () => { areaPhases.set(tag.id, select.value); draw(); });
+    group.append(select, content);
+    draw();
+    return group;
+  }
   function showResult() {
     const tag = current();
     rememberSections(resultSections);
@@ -612,10 +841,10 @@ function render({ model, el, readOnly = false }) {
     headline.append(node("span", "", "Utnyttjandegrad"), node("strong", "", number(r.utnyttjandegrad * 100, 1) + "%"));
     const table = node("dl", "gp-result-list");
     for (const [label, value] of [
-      ["Dimensionerande last – brott", number(r.last) + " " + r.lastenhet],
+      ["Vertikallast V – brott", number(r.last) + " " + r.lastenhet],
       ["Jordens bärförmåga", number(r.barformaga) + " " + r.lastenhet],
       ["Bärförmåga q_bd", number(r.q_bd) + " kPa"],
-      ["Effektiv bredd", number(r.b_ef, 3) + " m"],
+      ["Effektivt mått bₓ,eff", number(r.b_ef, 3) + " m"],
     ]) table.append(node("dt", "", label), node("dd", "", value));
     results.append(headline);
     if (r.isolering) {
@@ -627,6 +856,7 @@ function render({ model, el, readOnly = false }) {
       results.append(node("p", "gp-field-note", "Styrande: " + r.styrande), checks);
     }
     results.append(table, node("p", "gp-result-note", "Jord: U = last / bärförmåga i brottgränstillstånd enligt befintlig modell."));
+    if (r.effective_area) results.append(areaResult(tag));
     if (r.isolering) {
       for (const [phase, label] of [["brott", "Brott"], ["bruk", "Bruk · långtidslast"]]) {
         const values = r.isolering;
@@ -634,15 +864,15 @@ function render({ model, el, readOnly = false }) {
         group.classList.add("gp-insulation-result");
         const list = node("dl", "gp-result-list");
         for (const [name, caption, unit] of [
-          ["N", "Last inkl. egentyngd", r.lastenhet],
-          ["b_eff", "Effektiv bredd", "m"], ["l_eff", "Effektiv längd", "m"],
+          ["N", "V inkl. egentyngd", r.lastenhet],
+          ["b_eff", "Effektivt mått bₓ,eff", "m"], ["l_eff", "Effektivt mått bᵧ,eff", "m"],
           ["A_eff", "Effektiv area", "m²"],
           ["q_Ed", "Lasteffekt q_Ed", "kPa"], ["f_d", "Bärförmåga f_d." + phase, "kPa"],
         ]) list.append(node("dt", "", caption), node("dd", "", number(values["isolering_" + name + "_" + phase], 3) + " " + unit));
         group.append(list);
         results.append(group);
       }
-      results.append(node("p", "gp-result-note", "Isolering: q_Ed = N / (b_eff × l_eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
+      results.append(node("p", "gp-result-note", "Isolering: q_Ed = V / (bₓ,eff × bᵧ,eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
     }
   }
   function update() {
@@ -694,7 +924,7 @@ function render({ model, el, readOnly = false }) {
       }
       fieldUnits();
       showResult();
-    }
+    } else sketch.hidden = true;
     renderMarkers();
   }
   let drag = null;
