@@ -180,6 +180,37 @@ En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
 för minnesanvändningens skull; originalfilen bevaras i projektet. Starta ett
 nytt `Grundplan()` för att byta ritning när taggar redan finns.
 
+## Exportera ritning med etiketter som PDF
+
+Tryck **Exportera PDF** för att ladda ned alla ritningssidor med sulornas
+minimerade etiketter ovanpå. Filen får originalritningens namn med tillägget
+`_med_etiketter.pdf`. Från Python:
+
+```python
+plan.exportera_pdf("grundplan_med_etiketter.pdf")
+```
+
+PDF-originalets sidformat, beskärning och rotation bevaras, liksom dess
+vektorritning och text. För en importerad bild skapas en PDF-sida i samma
+proportioner, med bildens fulla upplösning och 96 dpi som grund för sidstorleken.
+Export från ett återöppnat JSON-projekt använder den inbäddade ritningen;
+originalfilen behöver inte finnas kvar.
+
+Etiketterna använder sina sparade positioner och reglaget **Etikettstorlek**.
+Zoom, panorering och öppna dialogrutor påverkar inte exporten. Littera,
+utnyttjandegrad, bredd, eventuell styrande kontroll och statusfärg följer med.
+Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
+etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
+med vid utskrift, utan popup eller klickfunktion.
+
+Exporten räknar inte om sulorna. Ändrade, ännu inte beräknade eller felaktiga
+sulor visas med sin status i stället för ett aktuellt beräkningsresultat.
+Indatadialoger och fullständiga beräkningsrapporter ingår inte. Fortsätt spara
+JSON-projektet separat för att kunna redigera sulorna senare.
+
+PDF-export kräver `reportlab` och `pypdf`, som ingår i `an-calcs[notebook]`.
+Uppdatera med installationskommandot ovan om du har en äldre installation.
+
 ## Använd resultat och taggar från Python
 
 ```python

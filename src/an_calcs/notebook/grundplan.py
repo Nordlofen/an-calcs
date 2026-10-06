@@ -393,6 +393,37 @@ class Grundplan(anywidget.AnyWidget):
                 temporary.unlink(missing_ok=True)
         return path
 
+    def _pdf_bytes(self):
+        if not self._source:
+            raise ValueError("Öppna en ritning först.")
+        try:
+            from .grundplan_pdf import render_pdf
+        except ImportError as exc:
+            raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
+        return render_pdf(self._source, self._tags, self._label_size, self._title)
+
+    def exportera_pdf(self, fil):
+        """Exportera alla ritningssidor med fasta etiketter till en PDF.
+
+        Sparade lägen och etikettstorlek används oberoende av aktuell zoom.
+        Inaktuella/ej beräknade sulor visas med status i stället för resultat.
+        Projektet och beräkningarna ändras inte av exporten.
+        """
+        path = Path(fil)
+        if path.suffix.lower() != ".pdf":
+            raise ValueError("Välj ett filnamn som slutar med .pdf.")
+        data = self._pdf_bytes()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(data)
+            temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return path
+
     @classmethod
     def oppna(cls, fil):
         """Öppna sparat projekt; verifiera sparade resultat genom omberäkning."""
@@ -492,6 +523,11 @@ class Grundplan(anywidget.AnyWidget):
                 self._load_document(bytes(buffers[0]))
             elif action == "save":
                 reply["download"] = json.dumps(self._document(), ensure_ascii=False, allow_nan=False)
+            elif action == "export_pdf":
+                data = self._pdf_bytes()
+                reply.update(ok=True, filename=Path(self._filename).stem + "_med_etiketter.pdf")
+                self.send(reply, buffers=[data])
+                return
             else:
                 raise ValueError("Okänt kommando.")
             reply["ok"] = True

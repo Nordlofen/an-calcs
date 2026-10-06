@@ -161,6 +161,14 @@ plan = Grundplan.oppna("grundplan.json")
 plan
 ```
 
+**Exportera PDF** laddar ned hela ritningen med fasta etiketter på varje sida.
+Etiketternas positioner, storlek och aktuella status följer med. PDF-originalets
+sidformat och vektorinnehåll bevaras. Exporten kan även göras från Python:
+
+```python
+plan.exportera_pdf("grundplan_med_etiketter.pdf")
+```
+
 Se [exempelnotebooken](notebooks/Sulgrundlaggning.ipynb) och
 [användning, lastkonventioner och begränsningar](docs/grundplan.md).
 

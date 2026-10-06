@@ -67,7 +67,27 @@ function render({ model, el }) {
       showMessage("Projektet har exporterats till din nedladdningsmapp.");
     });
   });
-  toolbar.append(loadDrawing, loadProject, saveProject, node("span", "gp-separator"));
+  let exporting = false;
+  const exportPdf = button("Exportera PDF", () => {
+    exporting = true;
+    exportPdf.disabled = true;
+    showMessage("Exporterar alla ritningssidor med etiketter…");
+    command("export_pdf", {}, [], (reply, buffers) => {
+      exporting = false;
+      exportPdf.disabled = !background().url;
+      if (!reply.ok) return;
+      const url = URL.createObjectURL(new Blob(buffers, { type: "application/pdf" }));
+      const a = node("a");
+      a.href = url;
+      a.download = reply.filename;
+      root.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showMessage("PDF med ritning och etiketter har exporterats till din nedladdningsmapp.");
+    });
+  });
+  toolbar.append(loadDrawing, loadProject, saveProject, exportPdf, node("span", "gp-separator"));
   const modes = new Map();
   for (const [key, label] of [["pan", "Panorera"], ["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(key));
@@ -533,6 +553,7 @@ function render({ model, el }) {
     loadDrawing.disabled = data.tags.length > 0;
     loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
     saveProject.disabled = !bg.url;
+    exportPdf.disabled = exporting || !bg.url;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
@@ -678,12 +699,12 @@ function render({ model, el }) {
     event.stopPropagation();
     if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage("Klicka på en etikett för indata eller dra den för att flytta."); }
   });
-  function receive(reply) {
+  function receive(reply, buffers = []) {
     if (reply.view !== view) return;
     if (!reply.ok) showMessage(reply.error, true);
     const onDone = pending.get(reply.request);
     pending.delete(reply.request);
-    onDone?.(reply);
+    onDone?.(reply, buffers);
   }
   const resizeObserver = new ResizeObserver(() => {
     if (!dialog.hidden) placeDialog(dialog.offsetLeft, dialog.offsetTop);

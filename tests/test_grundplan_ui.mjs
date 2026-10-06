@@ -42,6 +42,10 @@ class Element {
     this.append(...children);
   }
   remove() { this.parent?.replaceChildren(...this.parent.children.filter(child => child !== this)); }
+  click() {
+    if (this.tag === "a") document.downloads.push({ href: this.href, filename: this.download });
+    this.dispatch("click");
+  }
   setAttribute() {}
   removeAttribute() {}
   setCustomValidity(value) { this.validityMessage = value; }
@@ -82,7 +86,7 @@ const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
 
 function setup(t) {
-  globalThis.document = { createElement: tag => new Element(tag), activeElement: null };
+  globalThis.document = { createElement: tag => new Element(tag), activeElement: null, downloads: [] };
   globalThis.window = { confirm: () => true };
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   globalThis.requestAnimationFrame = fn => fn();
@@ -110,7 +114,7 @@ function setup(t) {
   const viewport = byClass("gp-viewport");
   const marker = () => byClass("gp-tag");
   const position = () => [parseFloat(marker().style.left) / 100, parseFloat(marker().style.top) / 100];
-  const ack = (request, extra = {}) => handlers.get("msg:custom")({ ...request, ok: true, ...extra });
+  const ack = (request, extra = {}, buffers = []) => handlers.get("msg:custom")({ ...request, ok: true, ...extra }, buffers);
   const changed = () => handlers.get("change:state")();
   const start = (target = marker(), x = 300, y = 300) => viewport.dispatch("pointerdown", { target, clientX: x, clientY: y });
   const move = (x, y) => viewport.dispatch("pointermove", { clientX: x, clientY: y });
@@ -123,6 +127,36 @@ function setup(t) {
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+test("PDF export downloads the kernel's binary PDF and restores the button after success or failure", async t => {
+  const ui = setup(t);
+  const button = ui.byText("Exportera PDF");
+  let downloaded;
+  t.mock.method(URL, "createObjectURL", blob => { downloaded = blob; return "blob:test-pdf"; });
+  t.mock.method(URL, "revokeObjectURL", () => {});
+  t.mock.method(globalThis, "setTimeout", fn => { fn(); return 0; });
+  const original = structuredClone(ui.tag);
+  button.dispatch("click");
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "export_pdf");
+  assert.equal(button.disabled, true);
+  ui.changed();
+  assert.equal(button.disabled, true, "A model refresh cannot permit a duplicate export");
+  const bytes = new TextEncoder().encode("%PDF-1.4\nTest PDF\n");
+  ui.ack(request, {filename: "plan_med_etiketter.pdf"}, [new DataView(bytes.buffer)]);
+  assert.equal(button.disabled, false);
+  assert.equal(downloaded.type, "application/pdf");
+  assert.equal(await downloaded.text(), "%PDF-1.4\nTest PDF\n");
+  assert.deepEqual(document.downloads, [{href: "blob:test-pdf", filename: "plan_med_etiketter.pdf"}]);
+  assert.deepEqual(ui.tag, original, "Export never changes data or results");
+  button.dispatch("click");
+  ui.ack(ui.sent.at(-1), {ok: false, error: "PDF-export misslyckades"});
+  assert.equal(button.disabled, false);
+  assert.equal(document.downloads.length, 1);
+  assert.equal(ui.byClass("gp-status").textContent, "PDF-export misslyckades");
+  ui.data.background = {}; ui.changed();
+  assert.equal(button.disabled, true, "A drawing is required for export");
+});
 
 test("tag dragging uses displayed drawing size and sends only position; clicks still open the dialog", t => {
   const ui = setup(t);
