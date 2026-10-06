@@ -117,11 +117,13 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
-  const sent = [], handlers = new Map();
+  const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page: 1,
     pages: [data.background, { ...data.background, page: 2, url: "data:second" }] };
   snapshot.pages.forEach(page => { page.page_count = 2; });
-  const model = standalone ? createResultModel(snapshot) : { get: name => data[name], send: payload => sent.push(payload),
+  const model = standalone ? createResultModel(snapshot) : { get: name => data[name], send: (payload, _, buffers) => {
+    sent.push(payload); if (buffers?.length) transfers.push({request: payload.request, buffers});
+  },
     on: (name, fn) => handlers.set(name, fn), off: name => handlers.delete(name) };
   const host = new Element("host");
   t.after(widget.render({ model, el: host, readOnly }));
@@ -143,12 +145,117 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
   const finish = (x, y) => viewport.dispatch("pointerup", { clientX: x, clientY: y });
   const drag = (dx, dy) => { start(); move(300 + dx, 300 + dy); finish(300 + dx, 300 + dy); };
   const place = (x = 400, y = 400) => { start(byClass("gp-picture"), x, y); finish(x, y); };
-  return { tag, data, model, snapshot, elements: () => walk(host), sent, byClass, byText, find, viewport, marker, position, ack, changed,
+  return { tag, data, model, snapshot, elements: () => walk(host), sent, transfers, byClass, byText, find, viewport, marker, position, ack, changed,
     start, move, finish, drag, place, field: name => find(element => element.name === name),
     label: () => byClass("gp-label-row").children[0] };
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+function importFixture(ui) {
+  const items = [
+    {label: "W1", kind: "vaggsula", values: {F_vy: 80, F_vy_bruk: 25, V_Ed_EQU: 30, glid_L: 6.2}},
+    {label: "P1", kind: "pelarsula", values: {F_vy: 120, F_vy_bruk: 50, V_Ed_EQU: 60}},
+  ];
+  const queue = {token: "import-test", filename: "loads.json", total: 2, index: 0, paused: false, next: items[0]};
+  ui.data.state.load_import = queue; ui.changed();
+  return {queue, items, added: (index, request) => {
+    const item = items[index];
+    ui.data.state.tags.push({...structuredClone(ui.tag), id: item.label, label: item.label,
+      x: request.x, y: request.y, page: request.page, status: "new", summary: null,
+      values: {...ui.tag.values, ...item.values, lang: item.kind === "vaggsula" ? 1 : 0}});
+    ui.data.state.load_import = index === 0 ? {...queue, index: 1, next: items[1]} : null;
+    ui.changed(); ui.ack(request, {id: item.label, finished: index === 1, total: 2});
+  }};
+}
+
+test("load import uploads JSON bytes without replacing existing footing drafts", async t => {
+  const ui = setup(t);
+  ui.marker().click(); ui.field("b").value = "0,8"; ui.field("b").dispatch("input");
+  const input = ui.find(e => e.getAttribute("aria-label") === "Lasteffektfil");
+  const buffer = new TextEncoder().encode('{"schemaVersion":1}').buffer;
+  input.files = [{name: "loads.json", size: buffer.byteLength, arrayBuffer: async () => buffer}];
+  await input.listeners.get("change")[0]();
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "import_loads");
+  assert.equal(ui.transfers.at(-1).buffers[0], buffer);
+  importFixture(ui); ui.ack(request);
+  ui.byText("Placera W1 – väggsula (1 av 2)");
+  assert.equal(ui.data.state.tags.length, 1, "Import does not create unplaced objects");
+  assert.equal(ui.byText("Importera Lasteffekt").disabled, true);
+  ui.byText("Pausa placering").click();
+  ui.data.state.load_import.paused = true; ui.changed(); ui.ack(ui.sent.at(-1));
+  ui.marker().click();
+  assert.equal(ui.field("b").value, "0,8", "Imported queue does not erase an existing draft");
+});
+
+test("placement advances once per acknowledged click, shows types and creates no dialog", t => {
+  const ui = setup(t), imported = importFixture(ui);
+  assert.equal(ui.byClass("gp-import-bar").hidden, false);
+  ui.byText("Brott V 80 kN/m · Bruk V 25 kN/m · EQU V 30 kN/m · L 6,2 m");
+  ui.place();
+  const first = ui.sent.at(-1);
+  assert.equal(first.action, "place_import");
+  assert.equal(first.token, "import-test"); assert.equal(first.index, 0); assert.equal(first.page, 1);
+  assert.equal(first.values, undefined, "Only the kernel owns the queue's loads");
+  const before = ui.sent.length; ui.place(500, 400);
+  assert.equal(ui.sent.length, before, "Fast second clicks cannot place the same support twice");
+  imported.added(0, first);
+  ui.byText("Placera P1 – pelarsula (2 av 2)");
+  assert.equal(ui.byClass("gp-dialog").hidden, true);
+  ui.place(500, 400); imported.added(1, ui.sent.at(-1));
+  assert.equal(ui.byClass("gp-import-bar").hidden, true);
+  assert.equal(ui.byText("Importera Lasteffekt").disabled, false);
+  assert.equal(ui.byClass("gp-status").textContent, "Alla 2 importerade sulor är placerade. Anpassa övriga indata och beräkna.");
+  const after = ui.sent.length; ui.place(); assert.equal(ui.sent.length, after, "Finished queue returns to panning");
+});
+
+test("failed placement, panning and outside clicks do not discard or advance the queue", t => {
+  const ui = setup(t); importFixture(ui);
+  ui.start(ui.byClass("gp-picture")); ui.move(500, 500); ui.finish(500, 500);
+  assert.equal(ui.sent.length, 0, "Dragging the background pans instead of placing");
+  ui.place(-100, -100); assert.equal(ui.sent.length, 0);
+  ui.place(); const request = ui.sent.at(-1);
+  ui.ack(request, {ok: false, error: "Littera finns redan"});
+  assert.equal(ui.data.state.load_import.index, 0);
+  assert.equal(ui.byClass("gp-status").textContent, "Littera finns redan");
+  assert.equal(ui.byText("Pausa placering").disabled, false);
+  ui.place(); assert.equal(ui.sent.at(-1).index, 0, "Failed support remains available for retry");
+});
+
+test("pause, page change, resume and Escape preserve the pending support", t => {
+  const ui = setup(t), imported = importFixture(ui);
+  ui.byText("Pausa placering").click();
+  const pause = ui.sent.at(-1);
+  assert.equal(pause.operation, "pause");
+  imported.queue.paused = true; ui.changed(); ui.ack(pause);
+  ui.byText("Placering pausad · Placera W1 – väggsula (1 av 2)");
+  const before = ui.sent.length; ui.place(); assert.equal(ui.sent.length, before);
+  ui.byText("Fortsätt placera").click();
+  const resume = ui.sent.at(-1); imported.queue.paused = false; ui.changed(); ui.ack(resume);
+  const page = ui.find(e => e.getAttribute("aria-label") === "PDF-sida");
+  page.value = "2"; page.dispatch("change");
+  assert.equal(ui.sent.at(-1).action, "page");
+  ui.data.background.page = 2; ui.changed();
+  ui.place(); const placed = ui.sent.at(-1); assert.equal(placed.page, 2); assert.equal(placed.index, 0);
+  ui.ack(placed, {ok: false, error: "Test"});
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.sent.at(-1).operation, "pause");
+  assert.equal(ui.data.state.load_import.next.label, "W1");
+});
+
+test("cancelling import leaves placed tags, and other tools pause instead of losing the queue", t => {
+  const ui = setup(t), imported = importFixture(ui);
+  ui.place(); imported.added(0, ui.sent.at(-1));
+  ui.byText("+ Pelarsula").click();
+  assert.equal(ui.sent.at(-1).operation, "pause");
+  ui.data.state.load_import.paused = true; ui.changed(); ui.ack(ui.sent.at(-1));
+  ui.byText("Avbryt import").click();
+  const cancel = ui.sent.at(-1); assert.equal(cancel.operation, "cancel");
+  ui.data.state.load_import = null; ui.changed(); ui.ack(cancel);
+  assert.equal(ui.data.state.tags.length, 2);
+  assert.equal(ui.byClass("gp-import-bar").hidden, true);
+});
 
 function slidingFixture(ui, enabled = true) {
   Object.assign(ui.tag.values, {glid_x: true, glid_y: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});

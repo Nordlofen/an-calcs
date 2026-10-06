@@ -111,7 +111,9 @@ function render({ model, el, readOnly = false }) {
   let sketchInline = false, sketchType = null;
   const selected = new Set(), bulkInputs = new Map();
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
+  let importBusy = false, lastImportToken = null;
   const state = () => model.get("state") || { tags: [] };
+  const loadImport = () => state().load_import;
   const background = () => model.get("background") || {};
   const current = () => state().tags.find((tag) => tag.id === active);
   const number = (value, digits = 2) => new Intl.NumberFormat("sv-SE", {
@@ -178,12 +180,30 @@ function render({ model, el, readOnly = false }) {
   projectInput.type = "file";
   projectInput.accept = ".json";
   projectInput.hidden = true;
+  const loadsInput = node("input");
+  loadsInput.type = "file"; loadsInput.accept = ".json"; loadsInput.hidden = true;
+  loadsInput.setAttribute("aria-label", "Lasteffektfil");
   const loadDrawing = button("Öppna ritning", () => fileInput.click());
   const loadProject = button("Öppna projekt", () => {
     if (!state().tags.length || window.confirm("Ersätt projektet? Spara först om du vill behålla dina ändringar.")) {
       projectInput.click();
     }
   });
+  const loadEffects = button("Importera Lasteffekt", () => loadsInput.click());
+  loadEffects.title = "Läs stödens vertikallaster och placera sulorna med ett klick per stöd.";
+  const importBar = node("section", "gp-import-bar");
+  importBar.hidden = true;
+  importBar.setAttribute("aria-label", "Placera importerade sulor");
+  const importInstruction = node("strong", "gp-import-instruction");
+  importInstruction.setAttribute("aria-live", "polite");
+  const importLoads = node("p", "gp-import-loads");
+  const importPause = button("Pausa placering", () => controlImport(loadImport()?.paused ? "resume" : "pause"));
+  const importCancel = button("Avbryt import", () => controlImport("cancel"));
+  importCancel.title = "Avsluta kön. Redan placerade sulor behålls; återstående stöd skapas inte.";
+  const importActions = node("div", "gp-import-actions");
+  importActions.append(importPause, importCancel);
+  importBar.append(importInstruction, importLoads,
+    node("p", "gp-field-note", "Klicka på ritningen för att placera nästa sula. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
     const a = node("a");
@@ -384,7 +404,7 @@ function render({ model, el, readOnly = false }) {
     });
     exports.push(entry);
   }
-  if (!readOnly) toolbar.append(loadDrawing, loadProject, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
+  if (!readOnly) toolbar.append(loadDrawing, loadProject, loadEffects, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
   const modes = new Map();
   for (const [key, label] of [["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(mode === key ? "pan" : key));
@@ -480,7 +500,7 @@ function render({ model, el, readOnly = false }) {
   pageLabel.append(pageSelect);
   pageSelect.addEventListener("change", () => {
     cancelDrag();
-    setMode("pan");
+    setMode(loadImport() && !loadImport().paused ? "import" : "pan");
     closeDialog();
     selected.clear(); bulkSignature = ""; closeBulk(); showSelection();
     command("page", { page: Number(pageSelect.value) });
@@ -658,10 +678,11 @@ function render({ model, el, readOnly = false }) {
   const help = node("p", "gp-help",
     "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Markera flera eller Shift-klicka för gemensamma ändringar. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar);
+  if (!readOnly) root.append(importBar);
   if (!readOnly) root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
-  if (!readOnly) root.append(help, fileInput, projectInput);
+  if (!readOnly) root.append(help, fileInput, projectInput, loadsInput);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -671,16 +692,27 @@ function render({ model, el, readOnly = false }) {
   async function upload(input, action) {
     const file = input.files[0];
     if (!file) return;
-    if (file.size > (action === "drawing" ? 40 : 60) * 1024 * 1024) {
+    if (file.size > (action === "drawing" ? 40 : action === "import_loads" ? 5 : 60) * 1024 * 1024) {
       showMessage("Filen är för stor.", true);
       input.value = "";
       return;
     }
     showMessage("Öppnar " + file.name + "…");
+    if (action === "import_loads") { importBusy = true; showLoadImport(); }
     try {
       const buffer = await file.arrayBuffer();
       if (disposed) return;
       command(action, { name: file.name }, [buffer], (reply) => {
+        if (action === "import_loads") {
+          importBusy = false;
+          if (reply.ok) {
+            closeDialog(); closeBulk(); selected.clear(); bulkSignature = "";
+            setMode("import"); viewport.focus({preventScroll: true});
+          }
+          update();
+          if (!reply.ok) showMessage(reply.error, true);
+          return;
+        }
         if (reply.ok) {
           active = null;
           selected.clear(); bulkIds = []; bulkSignature = ""; closeBulk();
@@ -703,13 +735,18 @@ function render({ model, el, readOnly = false }) {
         }
       });
     } catch (error) {
+      if (action === "import_loads") { importBusy = false; showLoadImport(); }
       showMessage(error.message, true);
     }
     input.value = "";
   }
   fileInput.addEventListener("change", () => upload(fileInput, "drawing"));
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
+  loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
+    if (mode === "import" && value !== "import" && loadImport() && !loadImport().paused && !importBusy) {
+      command("import_control", {token: loadImport().token, operation: "pause"});
+    }
     mode = value;
     if (value !== "copy") copySource = null;
     cancelCopy.hidden = value !== "copy";
@@ -719,10 +756,55 @@ function render({ model, el, readOnly = false }) {
     }
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
+    else if (value === "import") showMessage(importCaption());
     else if (value === "select") showMessage("Klicka på sulornas etiketter för att välja eller avmarkera. Tryck Ändra markerade när urvalet är klart.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
     else showMessage("Dra i ritningen för att panorera. Välj Väggsula eller Pelarsula för att placera en ny sula.");
+  }
+  function importCaption() {
+    const queue = loadImport();
+    if (!queue) return "Importera en lasteffektfil för att placera sulor.";
+    return "Placera " + queue.next.label + " – " + (queue.next.kind === "vaggsula" ? "väggsula" : "pelarsula")
+      + " (" + (queue.index + 1) + " av " + queue.total + ")";
+  }
+  function showLoadImport() {
+    const queue = loadImport();
+    importBar.hidden = readOnly || !queue;
+    loadEffects.disabled = !background().url || !!queue || importBusy || bulkBusy;
+    importPause.disabled = importCancel.disabled = importBusy;
+    pageSelect.disabled = bulkBusy || importBusy;
+    if (!queue) {
+      lastImportToken = null;
+      if (mode === "import") setMode("pan");
+      return;
+    }
+    if (queue.token !== lastImportToken) {
+      lastImportToken = queue.token;
+      if (!queue.paused) { closeDialog(); closeBulk(); setMode("import"); }
+    }
+    importInstruction.textContent = (queue.paused ? "Placering pausad · " : "") + importCaption();
+    importPause.textContent = queue.paused ? "Fortsätt placera" : "Pausa placering";
+    const strip = queue.next.kind === "vaggsula", values = queue.next.values, unit = strip ? "kN/m" : "kN";
+    importLoads.textContent = "Brott V " + precise(values.F_vy) + " " + unit
+      + " · Bruk V " + precise(values.F_vy_bruk) + " " + unit
+      + " · EQU V " + precise(values.V_Ed_EQU) + " " + unit
+      + (strip ? " · L " + precise(values.glid_L) + " m" : "");
+    if (!queue.paused && mode === "import") showMessage(importBusy ? "Placerar sula…" : importCaption());
+  }
+  function controlImport(operation) {
+    const queue = loadImport();
+    if (!queue || importBusy || readOnly) return;
+    importBusy = true;
+    if (operation !== "resume") setMode("pan");
+    showLoadImport();
+    command("import_control", {token: queue.token, operation}, [], reply => {
+      importBusy = false;
+      if (reply.ok && operation === "resume") { setMode("import"); viewport.focus({preventScroll: true}); }
+      update();
+      if (!reply.ok) showMessage(reply.error, true);
+      if (reply.ok && operation === "cancel") showMessage("Importen avslutades. Redan placerade sulor behålls.");
+    });
   }
   function showLabelSize(value) {
     sizeInput.value = value;
@@ -1069,7 +1151,7 @@ function render({ model, el, readOnly = false }) {
     selectionBar.setAttribute("aria-label", "Markerade sulor: " + titles);
     editMany.disabled = clearMany.disabled = bulkBusy;
     selectMany.disabled = bulkBusy || !background().url;
-    pageSelect.disabled = bulkBusy;
+    pageSelect.disabled = bulkBusy || importBusy;
   }
   function toggleTag(tag) {
     if (readOnly || bulkBusy) return;
@@ -1188,6 +1270,7 @@ function render({ model, el, readOnly = false }) {
     applyMany.disabled = calculateMany.disabled = bulkMinimize.disabled = true;
     for (const entry of bulkInputs.values()) entry.choose.disabled = entry.input.disabled = true;
     showSelection();
+    showLoadImport();
     bulkFeedback.textContent = recalculate ? "Ändrar och beräknar markerade sulor…" : "Ändrar markerade sulor…";
     command("bulk_update", {ids, values: patch, calculate: recalculate}, [], reply => {
       bulkBusy = false;
@@ -1561,6 +1644,7 @@ function render({ model, el, readOnly = false }) {
     zoomBar.hidden = !bg.url;
     for (const b of modes.values()) b.disabled = !bg.url;
     showSelection();
+    showLoadImport();
     if (bg.url !== lastBackground) {
       cancelDrag();
       lastBackground = bg.url;
@@ -1620,7 +1704,7 @@ function render({ model, el, readOnly = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || drag || bulkBusy || !background().url) return;
+    if (event.button !== 0 || drag || bulkBusy || importBusy || !background().url) return;
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (overlay) {
       const resize = event.target === axesResize || event.target === legendResize;
@@ -1719,6 +1803,21 @@ function render({ model, el, readOnly = false }) {
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    if (mode === "import") {
+      const queue = loadImport();
+      if (!queue || queue.paused || importBusy) return;
+      importBusy = true; showLoadImport();
+      command("place_import", {token: queue.token, index: queue.index, x, y, page: background().page}, [], reply => {
+        importBusy = false;
+        if (mode !== "import" && loadImport() && !loadImport().paused) {
+          command("import_control", {token: loadImport().token, operation: "pause"});
+        }
+        update();
+        if (!reply.ok) showMessage(reply.error, true);
+        if (reply.ok && reply.finished) showMessage("Alla " + reply.total + " importerade sulor är placerade. Anpassa övriga indata och beräkna.");
+      });
+      return;
+    }
     const source = copySource;
     const action = mode === "copy" ? "copy" : "add";
     const payload = source

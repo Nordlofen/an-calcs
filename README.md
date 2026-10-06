@@ -102,6 +102,11 @@ Foreslagen projektstruktur:
 pelarsulor. Varje tagg har egna indata och använder
 `an_calcs.geo.allmanna_barighetsekvationen` i Python-kerneln.
 
+**Importera Lasteffekt** läser stödens Brott-, Bruk- och EQU-laster från JSON
+och guidar dig att placera en väggsula eller pelarsula per klick på ritningen.
+Littera och vägglängd följer med. Anpassa övriga indata före beräkning.
+Se [importformat och arbetsgång](docs/grundplan.md#importera-lasteffekter).
+
 Installera från GitHub i samma Pythonmiljö som notebookens kernel.
 Kör följande i terminalen, från mappen där din `.venv` finns:
 

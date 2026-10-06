@@ -21,6 +21,7 @@ except ImportError as exc:
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
+from .grundplan_loads import read_loads, MAX_BYTES as _MAX_LOAD_BYTES
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
                                DEFAULT_SETTINGS, contribution, project_results, validate_settings)
 
@@ -280,6 +281,7 @@ class Grundplan(anywidget.AnyWidget):
         self._filename = ""
         self._details = {}
         self._tags = []
+        self._load_import = None
         self._title = title
         self._subtitle = subtitle
         self._label_size = 100
@@ -389,11 +391,13 @@ class Grundplan(anywidget.AnyWidget):
             "sliding_result": self.glidningsresultat,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
+            "load_import": self.lasteffekt_import,
         }
 
     def _set_source(self, data, filename, page=1):
         rendered = _render_source(data, filename, page)
         self._source = bytes(data)
+        self._load_import = None
         self._filename = Path(filename).name
         self._gliding["placements"] = {}
         self.background = rendered
@@ -453,6 +457,68 @@ class Grundplan(anywidget.AnyWidget):
             typ="vaggsula" if source["values"]["lang"] == 1 else "pelarsula",
             sida=source["page"] if sida is None else sida, indata=values,
         )
+
+    @property
+    def lasteffekt_import(self):
+        """Tillfällig placeringskö; endast placerade sulor sparas i projektet."""
+        queue = self._load_import
+        if queue is None:
+            return None
+        return {"token": queue["token"], "filename": queue["filename"],
+                "index": queue["index"], "total": len(queue["items"]), "paused": queue["paused"],
+                "next": copy.deepcopy(queue["items"][queue["index"]])}
+
+    def importera_lasteffekt(self, fil):
+        """Läs en JSON-fil och starta en kö för manuell placering i planvyn."""
+        path = Path(fil)
+        if path.stat().st_size > _MAX_LOAD_BYTES:
+            raise ValueError("Lasteffektfilen får vara högst 5 MB.")
+        return self._start_load_import(path.read_bytes(), path.name)
+
+    def _start_load_import(self, data, filename):
+        if not self.background:
+            raise ValueError("Öppna en ritning innan du importerar lasteffekter.")
+        if self._load_import is not None:
+            raise ValueError("Slutför eller avbryt den pågående lasteffektimporten först.")
+        items = read_loads(data, existing_labels=(tag["label"] for tag in self._tags),
+                           available=_MAX_TAGS - len(self._tags))
+        self._load_import = {"token": uuid.uuid4().hex, "filename": Path(filename).name,
+                             "items": items, "index": 0, "paused": False}
+        self._publish()
+        return self.lasteffekt_import
+
+    def _control_load_import(self, token, operation):
+        if self._load_import is None or token != self._load_import["token"]:
+            raise ValueError("Placeringskön är inte längre aktuell.")
+        if operation == "cancel":
+            self._load_import = None
+        elif operation in ("pause", "resume"):
+            self._load_import["paused"] = operation == "pause"
+        else:
+            raise ValueError("Okänd importåtgärd.")
+        self._publish()
+
+    def placera_lasteffekt(self, x, y, *, sida=None):
+        """Placera nästa importerade stöd. Returnerar den nya sulans id."""
+        return self._place_load_import(x, y, sida=sida)["id"]
+
+    def _place_load_import(self, x, y, *, sida=None, token=None, index=None):
+        queue = self._load_import
+        if (queue is None or (token is not None and token != queue["token"])
+                or (index is not None and (type(index) is not int or index != queue["index"]))):
+            raise ValueError("Placeringskön har ändrats. Placera det stöd som visas nu.")
+        if queue["paused"]:
+            raise ValueError("Placeringen är pausad. Tryck Fortsätt placera.")
+        item = queue["items"][queue["index"]]
+        if any(tag["label"] == item["label"] for tag in self._tags):
+            raise ValueError(f"Littera {item['label']} finns redan. Byt littera på den befintliga sulan innan du fortsätter.")
+        ident = self.lagg_till(x, y, littera=item["label"], typ=item["kind"], sida=sida, indata=item["values"])
+        queue["index"] += 1
+        finished = queue["index"] == len(queue["items"])
+        if finished:
+            self._load_import = None
+        self._publish()
+        return {"id": ident, "label": item["label"], "finished": finished, "total": len(queue["items"])}
 
     def uppdatera(self, tagg, *, indata=None, littera=None, x=None, y=None):
         """Ändrade beräkningsindata gör taggens gamla resultat inaktuellt."""
@@ -797,6 +863,7 @@ class Grundplan(anywidget.AnyWidget):
         self._label_size = label_size
         self._gliding = gliding
         self._tags = valid_tags
+        self._load_import = None
         self._details = details_by_id
         self.background = rendered
         self._publish()
@@ -813,6 +880,15 @@ class Grundplan(anywidget.AnyWidget):
                     content["id"], content["x"], content["y"],
                     sida=content.get("page"), indata=content.get("values"),
                 )
+            elif action == "import_loads":
+                self._start_load_import(bytes(buffers[0]), content["name"])
+            elif action == "place_import":
+                if not isinstance(content["token"], str) or type(content["index"]) is not int:
+                    raise ValueError("Ogiltig placeringsbegäran.")
+                reply.update(self._place_load_import(content["x"], content["y"], sida=content["page"],
+                                                     token=content["token"], index=content["index"]))
+            elif action == "import_control":
+                self._control_load_import(content["token"], content["operation"])
             elif action == "update":
                 self.uppdatera(
                     content["id"], indata=content.get("values"), littera=content.get("label"),

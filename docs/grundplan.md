@@ -93,6 +93,57 @@ använder däremot den beräknade vertikallasten inklusive egentyngd. Negativa
 värden bevaras och mycket små laster visas med exponent för att inte avrundas
 till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 
+## Importera lasteffekter
+
+Öppna först ritningen. Tryck **Importera Lasteffekt** och välj en JSON-fil
+med `schemaVersion: 1` och listan `supports`. Hela filen kontrolleras innan
+placeringen startar. Filen får vara högst 5 MB. Littera måste vara unika både
+i filen och jämfört med sulorna som redan finns i projektet.
+
+Instruktionen visar exempelvis **Placera S.1 – väggsula (1 av 5)**, tillsammans
+med stödets laster och eventuell längd. Klicka på ritningen där etiketten ska
+placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordning.
+Ingen indatadialog öppnas mellan placeringarna. Befintliga sulor behålls.
+
+| JSON-fält | Indata i Grundplan |
+| --- | --- |
+| `supportId` | Littera |
+| `type: "line"` / `"point"` | Väggsula / pelarsula |
+| `results[].category: "Brott"`, `V` | Vertikallast under Laster – Brott (`F_vy`) |
+| `results[].category: "Bruk"`, `V` | Vertikallast under Laster – Bruk (`F_vy_bruk`) |
+| `results[].category: "EQU"`, `V` | Färdig kontaktlast under Glidning (`V_Ed_EQU`) |
+| `length.value`, `length.unit: "m"` | Väggsulans hela längd L under Glidning (`glid_L`) |
+
+Varje stöd ska ha exakt en last för Brott, Bruk och EQU. Väggsulor kräver
+`distribution: "uniform"`, laster i `kN/m` och en positiv längd i `m`.
+Pelarsulornas laster anges i `kN`. Värden och tecken behålls; linjelaster
+multipliceras inte med längden och inga enheter omvandlas. Längden ändrar
+inte bärighetskontrollens enmetersremsa. Metadata som `model` och `source`
+används inte som sökvägar eller beräkningsindata.
+
+Sulorna får övriga startvärden från Grundplan och är **ej beräknade**.
+Kontrollera geometri, jord, isolering och glidningsinställningar efter
+placeringen, gärna med **Markera flera**. Bidragsriktningarna för glidning är
+inte förvalda. EQU-lasten ska redan innehålla sulans egentyngd; vid beräkning
+behandlas Brott och Bruk på samma sätt som manuellt inmatade yttre laster.
+
+**Pausa placering** eller Escape behåller kön så att du kan arbeta med
+ritningen och befintliga sulor. Tryck **Fortsätt placera** för att fortsätta.
+Du kan byta PDF-sida under placeringen. **Avbryt import** avslutar kön och
+behåller redan placerade sulor. **Endast placerade sulor sparas i projektet**;
+återstående kö försvinner vid kernelomstart eller när ett annat projekt öppnas.
+
+Importen kan också startas från Python; placera sedan via planvyn:
+
+```python
+plan.importera_lasteffekt("Lasteffekt.json")
+plan
+```
+
+`plan.lasteffekt_import` visar nästa stöd och aktuell placering. För
+programmatisk placering används `plan.placera_lasteffekt(x, y, sida=1)`,
+med relativa bildkoordinater mellan 0 och 1, där y ökar nedåt.
+
 ## Lokala axlar och skisser
 
 Indataraderna visar **beskrivning, beteckning, värde och enhet** i separata
