@@ -20,7 +20,6 @@ DISPLAY_LABELS = {
 # Structured text permits real italic/subscript elements without parsing HTML.
 # It also works offline in the exported result view.
 DISPLAY_SYMBOLS = {
-    "lang": {"text": "lang"},
     "b": {"base": "b", "subscript": "x"},
     "l": {"base": "b", "subscript": "y"},
     "t": {"base": "t"}, "d": {"base": "d"},
