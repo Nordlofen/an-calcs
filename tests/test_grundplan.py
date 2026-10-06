@@ -120,9 +120,16 @@ class TestGrundplan(unittest.TestCase):
     def test_isolering_kopieras_sparas_och_ateroppnas_oberoende(self):
         ident = self.insulated()
         self.plan.berakna(ident)
+        results = self.plan.resultat
+        summary = self.plan._tag(ident)["summary"]
+        self.plan.uppdatera(ident, indata={"isolerprodukt": "EPS S200, 100 mm – entré"})
+        self.assertEqual(self.plan.resultat, results)
+        self.assertEqual(self.plan._tag(ident)["summary"], summary)
+        self.assertEqual(self.plan._tag(ident)["status"], "calculated")
         original = self.plan.taggar[0]
         copied_id = self.plan.kopiera(ident, 0.8, 0.8)
         self.assertEqual(self.plan._tag(copied_id)["values"], original["values"])
+        self.plan.uppdatera(copied_id, indata={"isolerprodukt": "XPS 300"})
         self.plan.uppdatera(copied_id, indata={"F_vy_bruk": 50, "f_d_bruk": 200})
         self.plan.berakna(copied_id)
         self.assertEqual(self.plan._tag(ident), original)
@@ -131,6 +138,11 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
         self.assertEqual(loaded._document()["version"], 2)
+        legacy = self.plan._document()
+        del legacy["tags"][0]["values"]["isolerprodukt"]
+        loaded._load_document(json.dumps(legacy).encode())
+        self.assertEqual(loaded._tag(ident)["values"]["isolerprodukt"], "")
+        self.assertEqual(loaded._tag(ident)["summary"], summary)
 
     def test_aldre_projekt_far_isolering_avstangd_och_samma_jordresultat(self):
         ident = self.add()

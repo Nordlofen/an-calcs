@@ -84,6 +84,8 @@
 .an-grundplan .gp-field input { width: 100%; text-align: right; }
 .an-grundplan .gp-check-field { display: flex; gap: 9px; padding: 9px 0; }
 .an-grundplan .gp-check-field input { width: 16px; height: 16px; margin: 0; accent-color: var(--gp-accent); }
+.an-grundplan .gp-text-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.an-grundplan .gp-text-field input { text-align: left; }
 .an-grundplan .gp-field input:disabled { background: #f2f5f4; color: #829091; }
 .an-grundplan .gp-field-note { font-size: 11px; color: var(--gp-muted); padding: 2px 0 8px; }
 .an-grundplan .gp-checks { padding-bottom: 10px; border-bottom: 1px solid var(--gp-line); }

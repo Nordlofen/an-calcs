@@ -107,6 +107,10 @@ avmarkerad används bara jordkontrollen, och fälten för isolering och brukslas
 behöver inte fyllas i. Tidigare angivna värden behålls vid avmarkering.
 Isoleringsval, bärförmågor och brukslaster följer med vid kopiering och sparning.
 
+**Isolerprodukt** är ett valfritt textfält för kommentarer, exempelvis produkt
+eller materialtyp. Texten sparas och kopieras med sulan. Den används inte i
+beräkningen, och att ändra den gör inte ett befintligt resultat inaktuellt.
+
 Ange färdiga dimensionerande bärförmågor `f_d.brott` och `f_d.bruk` i kPa,
 där bruksvärdet gäller långtidsbelastning. Programmet tillämpar ingen extra
 materialfaktor och väljer inte materialvärden automatiskt. Korttidsvärden

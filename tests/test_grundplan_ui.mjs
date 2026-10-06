@@ -79,7 +79,7 @@ class Element {
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
-names.push("isolering", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
+names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
 
 function setup(t) {
   globalThis.document = { createElement: tag => new Element(tag), activeElement: null };
@@ -89,10 +89,10 @@ function setup(t) {
   const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page: 1,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
-  Object.assign(tag.values, {isolering: false, f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
+  Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   const data = { state: { title: "Test", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
-    schema: { fields: names.map(name => ({ name, label: name, type: name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], handlers = new Map();
   const model = { get: name => data[name], send: payload => sent.push(payload),
@@ -181,6 +181,10 @@ test("canceling a second drag preserves the first drag while its kernel update i
 test("copy places one independent snapshot with unsynchronized inputs; Escape cancels placement", t => {
   const ui = setup(t);
   ui.marker().dispatch("click");
+  ui.field("isolerprodukt").value = "EPS S200, 100 mm – entré"; ui.field("isolerprodukt").dispatch("input");
+  assert.match(ui.marker().className, /gp-tag-ok/, "Comments do not make the current calculation stale");
+  assert.equal(ui.field("isolerprodukt").required, false);
+  assert.equal(ui.sent.at(-1).values.isolerprodukt, "EPS S200, 100 mm – entré");
   ui.field("b").value = "1,20"; ui.field("b").dispatch("input");
   ui.field("F_vy").value = "168"; ui.field("F_vy").dispatch("input");
   ui.byText("Kopiera sula").dispatch("click");
@@ -195,6 +199,7 @@ test("copy places one independent snapshot with unsynchronized inputs; Escape ca
   assert.equal(copies[0].values.b, 1.2);
   assert.equal(copies[0].values.F_vy, 168);
   assert.equal(copies[0].values.phi_k, 1);
+  assert.equal(copies[0].values.isolerprodukt, "EPS S200, 100 mm – entré");
   assert.equal(copies[0].page, 1);
   near(copies[0].x, (400 - pictureRect.left) / pictureRect.width);
   near(copies[0].y, (400 - pictureRect.top) / pictureRect.height);

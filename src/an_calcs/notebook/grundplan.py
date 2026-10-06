@@ -36,6 +36,7 @@ _NAMES = allmanna_barighetsekvationen.panel_schema["px"]
 _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"] if field["name"] not in _NAMES]
 _EXTRA_FIELDS = [
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
+    {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
 ]
 _FIELDS = [*_FIELDS, *_EXTRA_FIELDS]
@@ -56,6 +57,10 @@ def _values(values, *, draft=False):
         raise ValueError("isolering måste vara True eller False.")
     for name, value in values.items():
         if name == "isolering":
+            continue
+        if name == "isolerprodukt":
+            if not isinstance(value, str):
+                raise ValueError("Isolerprodukt måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
         if (draft or optional) and value is None and name != "lang":
@@ -297,7 +302,8 @@ class Grundplan(anywidget.AnyWidget):
                 if not 0 <= _number(value, name) <= 1:
                     raise ValueError(f"{name} måste ligga mellan 0 och 1.")
                 updated[name] = value
-        if updated["values"] != tag["values"]:
+        if any(updated["values"][name] != value for name, value in tag["values"].items()
+               if name != "isolerprodukt"):
             updated.update(status="stale", summary=None, error="")
             self._details.pop(tagg, None)
         tag.update(updated)

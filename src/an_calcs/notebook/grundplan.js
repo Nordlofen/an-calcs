@@ -329,7 +329,7 @@ function render({ model, el }) {
       "Yttre långtidslaster för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
-    ["Isolering", ["isolering", "f_d_brott", "f_d_bruk"],
+    ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
       "Ange färdiga dimensionerande bärförmågor. Kontroll: N / (b_eff × l_eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
@@ -358,6 +358,11 @@ function render({ model, el }) {
         } else if (field.type === "bool") {
           input.type = "checkbox";
           row.classList.add("gp-check-field");
+        } else if (field.type === "text") {
+          input.type = "text";
+          input.placeholder = "Kommentar, t.ex. EPS S200";
+          input.title = "Sparas som kommentar och påverkar inte beräkningen.";
+          row.classList.add("gp-text-field");
         } else {
           input.type = "text";
           input.inputMode = "decimal";
@@ -367,10 +372,11 @@ function render({ model, el }) {
         else input.value = draft?.values[name] ?? tag.values[name] ?? "";
         const unit = node("span", "gp-unit", field.unit);
         if (field.type === "bool") row.append(input, caption);
+        else if (field.type === "text") row.append(caption, input);
         else row.append(caption, input, unit);
         group.append(row);
         inputs.set(name, { input, unit, row, group });
-        input.addEventListener("input", () => edit(true));
+        input.addEventListener("input", () => edit(field.type !== "text"));
       }
       fieldsBox.append(group);
     }
@@ -378,6 +384,7 @@ function render({ model, el }) {
   function readValues() {
     return Object.fromEntries([...inputs].map(([name, { input }]) => {
       if (input.type === "checkbox") return [name, input.checked];
+      if (fieldSchema.get(name).type === "text") return [name, input.value];
       const raw = input.value.trim().replace(",", ".");
       const value = raw === "" ? NaN : Number(raw);
       input.setCustomValidity(input.disabled || Number.isFinite(value) ? "" : "Ange ett tal.");
@@ -395,7 +402,7 @@ function render({ model, el }) {
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
       entry.input.disabled = insulationField && !insulated;
-      entry.input.required = entry.input.type !== "checkbox" && !entry.input.disabled;
+      entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text" && !entry.input.disabled;
       if (entry.input.disabled) entry.input.setCustomValidity("");
       entry.row.hidden = (strip && name === "l") || (!insulated && name.startsWith("f_d_"));
     }
