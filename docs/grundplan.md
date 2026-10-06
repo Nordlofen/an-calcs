@@ -106,9 +106,8 @@ placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordnin
 Ingen indatadialog öppnas mellan placeringarna. Befintliga sulor behålls.
 Dra på ritningen med vänster eller höger musknapp för att panorera under
 placeringen; ett kort vänsterklick placerar nästa sula. Panorering förbrukar
-inga stöd i kön och
-fungerar även medan en placering väntar på svar från kerneln. Scrollhjulet
-zoomar vid muspekaren utan att pausa placeringen. Shift + vänsterdrag
+inga stöd i kön och fungerar även medan en placering väntar på svar från
+kerneln. **Shift + scroll** zoomar vid muspekaren utan att pausa placeringen. Shift + vänsterdrag
 markerar befintliga etiketter för flerredigering och pausar placeringskön.
 
 | JSON-fält | Indata i Grundplan |
@@ -223,8 +222,9 @@ Anpassa last och geometri och tryck **Beräkna**; originalet påverkas inte.
 60 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
 tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
 Dra på ritningen med vänster eller höger musknapp för att panorera fritt,
-även när hela ritningen redan ryms i vyn. Scrollhjulet över ritningen zoomar
-in eller ut kring muspekaren. Knapparna + och − styr också zoom;
+även när hela ritningen redan ryms i vyn. **Shift + scroll** över ritningen
+zoomar in eller ut kring muspekaren. Scroll utan Shift behåller vanlig
+scrollfunktion. Knapparna + och − styr också zoom;
 **Anpassa** återställer zoom och centrering så att hela ritningen syns.
 Taggarna behåller sina relativa lägen
 vid zoom, panorering och sidbyte. Escape minimerar dialogen och avslutar
@@ -524,7 +524,7 @@ upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
 Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera**
 stänger dialogen, och samma avsnitt är utfällda när etiketten öppnas igen.
 Dra i ritningen med vänster eller höger musknapp för att panorera,
-använd scrollhjulet eller +/− för zoom och **Anpassa** för
+använd **Shift + scroll** eller +/− för zoom och **Anpassa** för
 att återställa vyn. Reglaget **Etikettstorlek** fungerar även i HTML-filen.
 Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
 

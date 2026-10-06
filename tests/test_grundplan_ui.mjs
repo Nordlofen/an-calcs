@@ -1312,19 +1312,32 @@ test("pan moves a fitted drawing freely and Fit restores the centered full drawi
 });
 
 for (const readOnly of [false, true]) {
-  test("scroll-wheel zoom stays anchored to the pointer and preserves project data (readOnly=" + readOnly + ")", t => {
+  test("scroll without Shift leaves notebook scrolling enabled and never zooms (readOnly=" + readOnly + ")", t => {
+    const ui = setup(t, {readOnly}), picture = ui.byClass("gp-picture");
+    const before = picture.getBoundingClientRect();
+    let prevented = false;
+    for (const modifiers of [{}, {ctrlKey: true}, {metaKey: true}]) {
+      ui.viewport.dispatch("wheel", {deltaY: -100, clientX: 200, clientY: 150,
+        ...modifiers, preventDefault() {prevented = true;}});
+    }
+    assert.equal(prevented, false);
+    assert.deepEqual(picture.getBoundingClientRect(), before);
+    assert.equal(ui.sent.length, 0);
+  });
+
+  test("Shift-scroll zoom stays anchored to the pointer and preserves project data (readOnly=" + readOnly + ")", t => {
     const ui = setup(t, {readOnly}), picture = ui.byClass("gp-picture");
     const before = picture.getBoundingClientRect(), state = structuredClone(ui.data.state);
     const pointer = {clientX: 200, clientY: 150};
     let prevented = false;
-    ui.viewport.dispatch("wheel", {...pointer, deltaY: -100, deltaMode: 0, preventDefault() {prevented = true;}});
+    ui.viewport.dispatch("wheel", {shiftKey: true, ...pointer, deltaY: -100, deltaMode: 0, preventDefault() {prevented = true;}});
     const after = picture.getBoundingClientRect();
     assert.equal(prevented, true, "Zoom does not scroll the surrounding notebook");
     assert.ok(after.width > before.width);
     near((pointer.clientX - before.left) / before.width, (pointer.clientX - after.left) / after.width);
     near((pointer.clientY - before.top) / before.height, (pointer.clientY - after.top) / after.height);
     near(Number(ui.byClass("an-grundplan").style["--gp-tag-scale"]), after.width / 800);
-    ui.viewport.dispatch("wheel", {...pointer, deltaY: 100, deltaMode: 0});
+    ui.viewport.dispatch("wheel", {shiftKey: true, ...pointer, deltaY: 100, deltaMode: 0});
     const restored = picture.getBoundingClientRect();
     near(restored.width, before.width); near(restored.left, before.left); near(restored.top, before.top);
     assert.deepEqual(ui.data.state, state); assert.equal(ui.sent.length, 0);
@@ -1334,23 +1347,35 @@ for (const readOnly of [false, true]) {
 test("wheel units, zoom limits and drag protection work while import placement remains active", t => {
   const ui = setup(t); importFixture(ui);
   const picture = ui.byClass("gp-picture"), before = picture.getBoundingClientRect();
-  ui.viewport.dispatch("wheel", {deltaY: -3, deltaMode: 1, clientX: 400, clientY: 300});
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -3, deltaMode: 1, clientX: 400, clientY: 300});
   near(picture.getBoundingClientRect().width, before.width * Math.exp(48 * .002));
-  ui.viewport.dispatch("wheel", {deltaY: -1, deltaMode: 2, clientX: 400, clientY: 300});
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -1, deltaMode: 2, clientX: 400, clientY: 300});
   const pageWidth = picture.getBoundingClientRect().width;
-  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {deltaY: -500, deltaMode: 0, clientX: 400, clientY: 300});
+  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -500, deltaMode: 0, clientX: 400, clientY: 300});
   near(picture.getBoundingClientRect().width, 800 * 4);
   ui.start(picture, 50, 50, {shiftKey: true}); ui.move(80, 80);
   let suppressed = false;
-  ui.viewport.dispatch("wheel", {deltaY: 200, preventDefault() {suppressed = true;}});
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: 200, preventDefault() {suppressed = true;}});
   assert.equal(suppressed, true); near(picture.getBoundingClientRect().width, 800 * 4);
   ui.viewport.dispatch("pointercancel");
   ui.byText("Placera W1 – väggsula (1 av 2)");
   assert.equal(ui.sent.length, 0, "Wheel zoom and canceled selection never pause or advance placement");
-  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {deltaY: 500, clientX: 400, clientY: 300});
+  for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: 500, clientX: 400, clientY: 300});
   near(picture.getBoundingClientRect().width, 800 * .02);
   assert.ok(pageWidth > before.width);
   ui.byText("Anpassa").click();
+  near(picture.getBoundingClientRect().width, before.width);
+});
+
+test("Shift-scroll zoom accepts a wheel reported as horizontal movement", t => {
+  const ui = setup(t), picture = ui.byClass("gp-picture");
+  const before = picture.getBoundingClientRect();
+  let prevented = false;
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: 0, deltaX: -100, deltaMode: 0,
+    clientX: 200, clientY: 150, preventDefault() {prevented = true;}});
+  assert.equal(prevented, true);
+  assert.ok(picture.getBoundingClientRect().width > before.width);
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: 0, deltaX: 100, deltaMode: 0, clientX: 200, clientY: 150});
   near(picture.getBoundingClientRect().width, before.width);
 });
 

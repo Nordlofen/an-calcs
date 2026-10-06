@@ -203,7 +203,7 @@ function render({ model, el, readOnly = false }) {
   const importActions = node("div", "gp-import-actions");
   importActions.append(importPause, importCancel);
   importBar.append(importInstruction, importLoads,
-    node("p", "gp-field-note", "Dra i ritningen för att panorera. Scrollhjulet zoomar. Vänsterklick placerar nästa sula; Shift + vänsterdrag markerar flera etiketter. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
+    node("p", "gp-field-note", "Dra i ritningen för att panorera. Shift + scroll zoomar. Vänsterklick placerar nästa sula; Shift + vänsterdrag markerar flera etiketter. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
     const a = node("a");
@@ -509,8 +509,8 @@ function render({ model, el, readOnly = false }) {
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
-  viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat. Dra för att panorera. Scrollhjulet zoomar."
-    : "Grundplan. Dra för att panorera. Scrollhjulet zoomar. Shift + vänsterdrag markerar för flerredigering. Klicka på en etikett för indata.");
+  viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat. Dra för att panorera. Shift + scroll zoomar."
+    : "Grundplan. Dra för att panorera. Shift + scroll zoomar. Shift + vänsterdrag markerar för flerredigering. Klicka på en etikett för indata.");
   const sheet = node("div", "gp-sheet");
   const picture = node("img", "gp-picture");
   picture.alt = "Grundläggningsritning";
@@ -680,7 +680,7 @@ function render({ model, el, readOnly = false }) {
     legend.append(item);
   }
   const help = node("p", "gp-help",
-    "Dra i ritningen med vänster eller höger musknapp för att panorera. Scrollhjulet zoomar vid muspekaren. Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade. Dra direkt i en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
+    "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade. Dra direkt i en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar);
   if (!readOnly) root.append(importBar);
   if (!readOnly) root.append(selectionBar);
@@ -1917,11 +1917,13 @@ function render({ model, el, readOnly = false }) {
   viewport.addEventListener("lostpointercapture", cancelDrag);
   viewport.addEventListener("contextmenu", event => event.preventDefault());
   viewport.addEventListener("wheel", event => {
-    if (!background().url || !Number.isFinite(event.deltaY) || !event.deltaY) return;
+    // Some browsers report Shift-wheel movement on the horizontal axis.
+    const movement = event.deltaY || event.deltaX;
+    if (!event.shiftKey || !background().url || !Number.isFinite(movement) || !movement) return;
     event.preventDefault();
     if (drag) return;
     const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
-    const delta = Math.max(-240, Math.min(240, event.deltaY * unit));
+    const delta = Math.max(-240, Math.min(240, movement * unit));
     const rect = viewport.getBoundingClientRect();
     setZoom(zoom * Math.exp(-delta * .002), {x: event.clientX - rect.left, y: event.clientY - rect.top});
   }, {passive: false});
@@ -2007,7 +2009,7 @@ function render({ model, el, readOnly = false }) {
   model.on("msg:custom", receive);
   setMode("pan");
   showMessage(background().url
-    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra för att panorera och scrolla för att zooma." : "Dra för att panorera och scrolla för att zooma. Shift + vänsterdrag markerar för flerredigering; välj en sula och klicka för att placera.")
+    ? (readOnly ? "Klicka på en etikett för indata och resultat. Klicka utanför rutan för att minimera. Dra för att panorera och använd Shift + scroll för att zooma." : "Dra för att panorera och använd Shift + scroll för att zooma. Shift + vänsterdrag markerar för flerredigering; välj en sula och klicka för att placera.")
     : "Öppna en ritning eller ett sparat projekt.");
   update();
   return () => {
