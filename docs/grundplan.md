@@ -223,10 +223,12 @@ den globala glidningen. Ändring av glidningsindata gör inte jordresultatet ina
 Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
 och dra hörnhandtaget för proportionell storleksändring. Piltangenter flyttar
 symbolen; plus/minus ändrar storleken när hörnhandtaget har fokus. Dra
-resultatrutans rubrik för att flytta rutan. Symbol och ruta följer ritningens
-zoom och får separata placeringar på varje sida.
+resultatrutans rubrik för att flytta rutan. Klicka på rutan och dra dess nedre
+högra hörnhandtag för att förstora eller förminska hela rutan, inklusive texten.
+Plus/minus fungerar också när hörnhandtaget har fokus. Symbol och ruta följer
+ritningens zoom och får separata placeringar och storlekar på varje sida.
 
-All glidningsindata och alla placeringar sparas med projektet. Äldre projekt
+All glidningsindata samt placeringar och storlekar sparas med projektet. Äldre projekt
 öppnas med glidningskontrollen avstängd. PDF-exporten innehåller fasta
 överlagringar; HTML-exporten visar samma resultat och expanderbara indata,
 utan möjlighet att ändra beräkningar.

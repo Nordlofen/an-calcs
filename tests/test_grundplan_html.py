@@ -70,9 +70,10 @@ class TestGrundplanHtml(unittest.TestCase):
         self.plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
                               "H_x_Ed": 180, "H_y_Ed": 120,
                               "placements": {"2": {"symbol": {"x": .1, "y": .2, "size": 220},
-                                                    "legend": {"x": .4, "y": .5}}}}
+                                                    "legend": {"x": .4, "y": .5, "size": 615}}}}
         snapshot = self.snapshot()
         self.assertEqual(snapshot["state"]["sliding"], self.plan.glidning)
+        self.assertEqual(snapshot["state"]["sliding"]["placements"]["2"]["legend"]["size"], 615)
         self.assertEqual(snapshot["state"]["sliding_result"], self.plan.glidningsresultat)
         self.assertEqual(snapshot["state"]["sliding_result"]["x"]["H_Rd"], 240)
         self.assertEqual(snapshot["state"]["sliding_result"]["x"]["count"], 2)

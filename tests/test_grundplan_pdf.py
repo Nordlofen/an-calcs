@@ -90,6 +90,26 @@ class TestGrundplanPdf(unittest.TestCase):
             finally:
                 pdf_page.close()
 
+    def test_legend_scales_all_pdf_content_without_changing_axes_or_calculations(self):
+        Image.new("RGB", (1600, 1000), "white").save(self.image)
+        plan = self.plan()
+        plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
+                        "H_x_Ed": 100, "H_y_Ed": 150}
+        images, bounds = [], []
+        results = plan.glidningsresultat
+        for size in (205, 820):
+            plan.glidning = {"placements": {"1": {"legend": {"x": .1, "y": .1, "size": size}}}}
+            image = self.render(plan._pdf_bytes(), scale=1)
+            images.append(image)
+            crop = image.crop((110, 65, 800, 355))
+            bounds.append(ImageChops.difference(crop, Image.new("RGB", crop.size, "white")).getbbox())
+            self.assertEqual(plan.glidningsresultat, results)
+        small, big = bounds
+        self.assertAlmostEqual((big[2] - big[0]) / (small[2] - small[0]), 4, delta=.05)
+        self.assertAlmostEqual((big[3] - big[1]) / (small[3] - small[1]), 4, delta=.1)
+        self.assertIsNone(ImageChops.difference(images[0].crop((0, 355, 1200, 750)),
+                                              images[1].crop((0, 355, 1200, 750))).getbbox())
+
     def test_alla_sidor_originaltext_och_sidformat_bevaras_utan_att_andra_projektet(self):
         source = self.drawing()
         original = source.read_bytes()

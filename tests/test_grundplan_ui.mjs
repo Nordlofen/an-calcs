@@ -81,6 +81,10 @@ class Element {
     this.dispatch("lostpointercapture", { pointerId: id });
   }
   getBoundingClientRect() {
+    if (this.className.split(" ").includes("gp-sliding-legend")) {
+      const scale = Number(this.style.transform?.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
+      return {left: 0, top: 0, width: 410 * scale, height: 180 * scale};
+    }
     if (this.tag === "img") return { left: parseFloat(this.parent.style.left) || 0, top: parseFloat(this.parent.style.top) || 0,
       width: parseFloat(this.parent.style.width), height: parseFloat(this.parent.style.height) };
     return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
@@ -272,14 +276,53 @@ test("legend moves by its header while result cells cannot move it", t => {
   assert.equal(ui.sent.length, before);
 });
 
+test("legend corner scales text and box together, follows zoom and retains newer pending resize", t => {
+  const ui = setup(t);
+  slidingFixture(ui);
+  const legend = ui.byClass("gp-sliding-legend"), handle = ui.byClass("gp-legend-resize");
+  assert.equal(handle.hidden, true);
+  ui.byClass("gp-sliding-header").click();
+  assert.equal(handle.hidden, false);
+  ui.byText("+").click();
+  assert.equal(legend.style.transform, "scale(1.25)");
+  ui.start(handle); ui.move(300 + 512.5 / 2, 300 + 225 / 2); ui.finish();
+  const first = ui.sent.at(-1);
+  assert.equal(first.action, "sliding_placement");
+  assert.equal(first.kind, "legend");
+  near(first.position.size, 615);
+  assert.equal(legend.style.transform, "scale(1.875)");
+  near(Number(handle.style.transform.match(/scale\(([^)]+)\)/)[1]) * 1.875, 1, "Handle stays usable");
+  assert.equal(first.position.x, .5); assert.equal(first.position.y, .04);
+  ui.start(handle); ui.move(300 - 768.75 / 3, 300 - 337.5 / 3); ui.finish();
+  const second = ui.sent.at(-1);
+  near(second.position.size, 410);
+  ui.data.state.sliding.placements = {"1": {legend: first.position}};
+  ui.changed(); ui.ack(first);
+  assert.equal(legend.style.transform, "scale(1.25)");
+  ui.data.state.sliding.placements["1"].legend = second.position;
+  ui.changed(); ui.ack(second);
+  const before = ui.sent.length;
+  ui.start(handle); ui.move(800, 600); ui.viewport.dispatch("pointercancel");
+  assert.equal(ui.sent.length, before);
+  assert.equal(legend.style.transform, "scale(1.25)");
+  ui.byText("Anpassa").click();
+  assert.equal(legend.style.transform, "scale(1)");
+  handle.dispatch("keydown", {key: "+", shiftKey: true});
+  assert.equal(ui.sent.at(-1).position.size, 430);
+});
+
 test("standalone sliding overlays and contributions remain visible but cannot be edited", t => {
   const ui = setup(t, {readOnly: true, standalone: true});
   slidingFixture(ui);
+  ui.data.state.sliding.placements = {"1": {legend: {x: .5, y: .04, size: 615}}};
+  ui.changed();
   assert.equal(ui.byClass("gp-global-axes").hidden, false);
   assert.equal(ui.byClass("gp-sliding-legend").hidden, false);
   ui.byText("144 kN"); ui.byText("Godkänd");
   assert.equal(ui.byClass("gp-axis-resize").hidden, true);
+  assert.equal(ui.byClass("gp-legend-resize").hidden, true);
   const symbol = ui.byClass("gp-global-axes"), legend = ui.byClass("gp-sliding-legend");
+  assert.equal(legend.style.transform, "scale(1.5)");
   const before = structuredClone(ui.model.get("state"));
   ui.start(ui.byClass("gp-axis-symbol")); ui.move(450, 420); ui.finish(450, 420);
   assert.equal(symbol.style.left, "6%");

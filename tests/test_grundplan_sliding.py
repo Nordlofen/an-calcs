@@ -93,7 +93,7 @@ class TestSliding(unittest.TestCase):
 
     def test_settings_and_positions_save_restore_and_invalid_import_is_atomic(self):
         self.add()
-        positions = {"1": {"symbol": {"x": .7, "y": .4, "size": 235}, "legend": {"x": .15, "y": .2}}}
+        positions = {"1": {"symbol": {"x": .7, "y": .4, "size": 235}, "legend": {"x": .15, "y": .2, "size": 615}}}
         self.plan.glidning = {"placements": positions}
         path = self.plan.spara(self.folder / "saved.json")
         self.image.unlink()
@@ -114,6 +114,18 @@ class TestSliding(unittest.TestCase):
                                        "position": {"x": .4, "y": .7}}, [])
             self.assertTrue(send.call_args.args[0]["ok"])
         self.assertEqual(restored.glidning["placements"]["1"]["legend"]["y"], .7)
+
+    def test_old_legend_positions_keep_default_size_and_invalid_sizes_are_atomic(self):
+        self.plan.glidning = {"placements": {"1": {"legend": {"x": .2, "y": .3}}}}
+        self.assertEqual(self.plan.glidning["placements"]["1"]["legend"]["size"], 410)
+        before = self.plan._document()
+        for size in (204, 1231, None, True, float("nan"), float("inf")):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                self.plan.glidning = {"placements": {"1": {"legend": {"x": .2, "y": .3, "size": size}}}}
+            self.assertEqual(self.plan._document(), before)
+        for size in (205, 1230):
+            self.plan.glidning = {"placements": {"1": {"legend": {"x": .2, "y": .3, "size": size}}}}
+            self.assertEqual(self.plan.glidning["placements"]["1"]["legend"]["size"], size)
 
     def test_version_three_projects_keep_ground_results_and_start_with_sliding_off(self):
         ident = self.add()

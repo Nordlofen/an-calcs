@@ -23,7 +23,7 @@ NAMES = {field["name"] for field in FIELDS}
 DEFAULT_SETTINGS = {"enabled": False, "check_x": False, "check_y": False,
                     "H_x_Ed": None, "H_y_Ed": None, "placements": {}}
 DEFAULT_PLACEMENT = {"symbol": {"x": .06, "y": .55, "size": 160},
-                     "legend": {"x": .50, "y": .04}}
+                     "legend": {"x": .50, "y": .04, "size": 410}}
 
 
 def _finite(value):
@@ -50,14 +50,18 @@ def validate_settings(settings, page_count=None):
         if not isinstance(placements, dict) or set(placements) - {"symbol", "legend"}:
             raise ValueError("Ogiltig glidningsplacering.")
         for kind, position in placements.items():
-            expected = {"x", "y", "size"} if kind == "symbol" else {"x", "y"}
-            if not isinstance(position, dict) or set(position) != expected:
+            if kind == "legend" and isinstance(position, dict) and set(position) == {"x", "y"}:
+                # Projects saved before legend scaling retain their original size.
+                position["size"] = DEFAULT_PLACEMENT["legend"]["size"]
+            if not isinstance(position, dict) or set(position) != {"x", "y", "size"}:
                 raise ValueError("Ogiltig glidningsplacering.")
             for axis in ("x", "y"):
                 if not _finite(position[axis]) or not 0 <= position[axis] <= 1:
                     raise ValueError("Glidningsplacering måste ligga på ritningen (0–1).")
-            if kind == "symbol" and (not _finite(position["size"]) or not 50 <= position["size"] <= 600):
-                raise ValueError("Koordinatsymbolens storlek måste ligga mellan 50 och 600.")
+            low, high = (50, 600) if kind == "symbol" else (205, 1230)
+            if not _finite(position["size"]) or not low <= position["size"] <= high:
+                caption = "Koordinatsymbolens" if kind == "symbol" else "Glidningsrutans"
+                raise ValueError(f"{caption} storlek måste ligga mellan {low} och {high}.")
     return result
 
 

@@ -166,9 +166,10 @@ i varje sulas dialog väljer du motståndsriktning och anger vertikallast i EQU
 (inklusive egentyngd), dimensionerande friktionskoefficient och, för väggsulor,
 hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans
-rubrik för att flytta den. Rutan visar last, summerat motstånd, utnyttjandegrad
+rubrik för att flytta den och dra dess hörnhandtag för att ändra storlek på
+hela rutan inklusive texten. Rutan visar last, summerat motstånd, utnyttjandegrad
 och antal bidragande sulor från alla ritningssidor. Etiketterna visar respektive
-bidrag i två kompakta kolumner. Inställningar och placeringar sparas med
+bidrag i två kompakta kolumner. Inställningar, placeringar och storlekar sparas med
 projektet och visas i PDF- och HTML-exporterna. Se
 [glidningsmodell och lastantaganden](docs/grundplan.md#global-glidningskontroll).
 

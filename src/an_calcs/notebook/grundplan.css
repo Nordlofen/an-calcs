@@ -99,10 +99,10 @@
 .an-grundplan .gp-overlays { position: absolute; inset: 0; pointer-events: none; }
 .an-grundplan .gp-sliding-overlay { position: absolute; pointer-events: auto; transform-origin: top left; touch-action: none; }
 .an-grundplan .gp-global-axes { color: #19343d; }
-.an-grundplan .gp-global-axes.gp-overlay-selected { outline: 1px dashed #258879; }
+.an-grundplan .gp-sliding-overlay.gp-overlay-selected { outline: 1px dashed #258879; }
 .an-grundplan button.gp-axis-symbol { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; cursor: grab; }
 .an-grundplan .gp-axis-symbol svg { display: block; width: 100%; height: 100%; }
-.an-grundplan button.gp-axis-resize { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; padding: 0; border: 2px solid white; background: #258879; border-radius: 1px; cursor: nwse-resize; }
+.an-grundplan button.gp-axis-resize, .an-grundplan button.gp-overlay-resize { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; padding: 0; border: 2px solid white; background: #258879; border-radius: 1px; cursor: nwse-resize; }
 .an-grundplan .gp-sliding-legend { width: 410px; padding: 12px 14px; background: #fff; border: 1px solid #9fbbbf; border-radius: 8px; box-shadow: 0 3px 12px #18333b24; }
 .an-grundplan button.gp-sliding-header { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; font-size: 15px; font-weight: 700; cursor: grab; }
 .an-grundplan .gp-sliding-header::after { content: '⠿'; float: right; color: var(--gp-muted); }

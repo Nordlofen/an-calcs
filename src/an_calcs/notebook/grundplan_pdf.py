@@ -288,7 +288,7 @@ def _draw_project_overlays(canvas, width, height, preview_size, page, settings, 
     axes = [axis for axis in ("x", "y") if settings["check_" + axis]]
     box_width, box_height = 410, 88 + 46 * len(axes)
     legend = placement.get("legend", DEFAULT_PLACEMENT["legend"])
-    scale = min(image_scale, width / box_width, height / box_height)
+    scale = min(image_scale * legend.get("size", 410) / 410, width / box_width, height / box_height)
     left = min(legend["x"] * width, max(0, width - box_width * scale))
     top = min(legend["y"] * height, max(0, height - box_height * scale))
     canvas.saveState()

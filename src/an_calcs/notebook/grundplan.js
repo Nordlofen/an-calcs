@@ -503,12 +503,20 @@ function render({ model, el, readOnly = false }) {
   const slidingLegend = node("section", "gp-sliding-overlay gp-sliding-legend");
   slidingLegend.dataset.kind = "legend";
   slidingLegend.setAttribute("aria-label", "Globala glidningsresultat");
-  const slidingHeader = button("Glidningskontroll", () => {}, "gp-sliding-header gp-sliding-handle");
+  const slidingHeader = button("Glidningskontroll", () => {
+    if (!readOnly) { overlaySelected = "legend"; renderSlidingGeometry(); }
+  }, "gp-sliding-header gp-sliding-handle");
   slidingHeader.title = readOnly ? "Globala glidningsresultat" : "Dra rubriken för att flytta resultatrutan";
   slidingHeader.setAttribute("aria-label", "Glidningskontroll." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
   const slidingBody = node("div", "gp-sliding-body");
   slidingBody.setAttribute("aria-live", "polite");
-  slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody);
+  const legendResize = button("", () => {}, "gp-overlay-resize gp-legend-resize");
+  legendResize.setAttribute("aria-label", "Ändra glidningsrutans storlek. Dra hörnet eller använd plus och minus.");
+  legendResize.title = "Dra hörnet för att förstora eller förminska hela rutan proportionellt";
+  slidingLegend.addEventListener("click", () => {
+    if (!readOnly) { overlaySelected = "legend"; renderSlidingGeometry(); }
+  });
+  slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
   overlays.append(axesOverlay, slidingLegend);
   sheet.append(picture, markers, overlays);
   viewport.append(sheet);
@@ -688,8 +696,12 @@ function render({ model, el, readOnly = false }) {
   }
   function overlayPosition(kind) {
     const key = background().page + ":" + kind;
-    return overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind]
-      || (kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04});
+    const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
+    return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
+  }
+  function overlaySize(kind, value) {
+    const [low, high] = kind === "symbol" ? [50, 600] : [205, 1230];
+    return Math.max(low, Math.min(high, value));
   }
   function saveOverlayPosition(kind, page, position) {
     const key = page + ":" + kind;
@@ -701,12 +713,13 @@ function render({ model, el, readOnly = false }) {
       renderSlidingGeometry();
     });
   }
-  for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true], [slidingHeader, "legend", false]]) {
+  for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
+      [slidingHeader, "legend", false], [legendResize, "legend", true]]) {
     element.addEventListener("keydown", event => {
       if (readOnly) return;
       const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
       if (resize && ["+", "=", "-"].includes(event.key)) {
-        p.size = Math.max(50, Math.min(600, p.size + (event.key === "-" ? -step : step)));
+        p.size = overlaySize(kind, p.size + (event.key === "-" ? -step : step));
       } else if (!resize && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
         p.x = Math.max(0, Math.min(1, p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0) / background().width));
         p.y = Math.max(0, Math.min(1, p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) / background().height));
@@ -726,7 +739,13 @@ function render({ model, el, readOnly = false }) {
       if (kind === "symbol") {
         element.style.width = element.style.height = p.size * zoom + "px";
         axesResize.hidden = readOnly || overlaySelected !== "symbol";
-      } else element.style.transform = "scale(" + zoom + ")";
+      } else {
+        const scale = zoom * p.size / 410;
+        element.style.transform = "scale(" + scale + ")";
+        legendResize.hidden = readOnly || overlaySelected !== "legend";
+        // Keep the corner target usable even when the whole legend is small.
+        legendResize.style.transform = "scale(" + 1 / scale + ")";
+      }
     }
   }
   function showSliding() {
@@ -1395,12 +1414,15 @@ function render({ model, el, readOnly = false }) {
     if (event.button !== 0 || drag || !background().url) return;
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (overlay) {
-      if (readOnly || (!event.target.closest(".gp-sliding-handle") && event.target !== axesResize)) return;
+      const resize = event.target === axesResize || event.target === legendResize;
+      if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
       event.preventDefault();
       setMode("pan");
       overlaySelected = overlay.dataset.kind;
       renderSlidingGeometry();
-      drag = {overlay: overlay.dataset.kind, page: background().page, resize: event.target === axesResize,
+      const rect = overlay.getBoundingClientRect();
+      drag = {overlay: overlay.dataset.kind, page: background().page, resize,
+        width: rect.width, height: rect.height,
         position: {...overlayPosition(overlay.dataset.kind)}, x: event.clientX, y: event.clientY,
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
@@ -1424,7 +1446,11 @@ function render({ model, el, readOnly = false }) {
     if (drag.moved) {
       if (drag.overlay) {
         const p = {...drag.position};
-        if (drag.resize) p.size = Math.max(50, Math.min(600, p.size + (dx + dy) / (2 * zoom)));
+        if (drag.resize) {
+          const delta = drag.overlay === "symbol" ? (dx + dy) / (2 * zoom)
+            : p.size * (dx * drag.width + dy * drag.height) / (drag.width ** 2 + drag.height ** 2);
+          p.size = overlaySize(drag.overlay, p.size + delta);
+        }
         else {
           const rect = picture.getBoundingClientRect();
           p.x = Math.max(0, Math.min(1, p.x + dx / rect.width));
