@@ -90,6 +90,19 @@ def _label(value):
     return value.strip()
 
 
+def _storage_settings(key, state_file):
+    key = _heading_text(str(key).strip(), "Key")
+    if not key:
+        raise ValueError("Key får inte vara tom.")
+    argument = str(state_file).strip() if state_file is not None else ""
+    if not argument:
+        raise ValueError("Ange state_file för projektet.")
+    path = Path(argument).expanduser().resolve()
+    if path.suffix.lower() != ".json":
+        raise ValueError("State-filen måste sluta med .json.")
+    return key, path, argument
+
+
 def _heading_text(value, name):
     if not isinstance(value, str) or len(value) > 200:
         raise ValueError(f"{name} måste vara en text med högst 200 tecken.")
@@ -245,15 +258,12 @@ class Grundplan(anywidget.AnyWidget):
         # Preserve existing drawing paths; a plain positional name is a project key.
         if key is None and isinstance(ritning, str) and not Path(ritning).suffix and not any(c in ritning for c in "/\\"):
             key, ritning = ritning, None
-        self._key = _heading_text(str(key).strip(), "Key") if key is not None else None
-        if self._key == "":
-            raise ValueError("Key får inte vara tom.")
-        if state_file is not None and self._key is None:
+        self._key = self._state_file = self._state_file_argument = None
+        if state_file is not None and key is None:
             raise ValueError("Ange key när du använder state_file.")
-        self._state_file = (Path(state_file or self._STATE_FILE or self.STATE_FILENAME).expanduser().resolve()
-                            if self._key is not None else None)
-        if self._state_file is not None and self._state_file.suffix.lower() != ".json":
-            raise ValueError("State-filen måste sluta med .json.")
+        if key is not None:
+            self._key, self._state_file, self._state_file_argument = _storage_settings(
+                key, state_file if state_file is not None else self._STATE_FILE or self.STATE_FILENAME)
         title = _heading_text(str(titel), "Rubrik")
         subtitle = _heading_text(str(underrubrik), "Underrubrik")
         super().__init__()
@@ -301,17 +311,61 @@ class Grundplan(anywidget.AnyWidget):
         """Lokal JSON-fil för nyckelstyrd lagring. Sökvägen binds när vyn skapas."""
         return self._state_file
 
-    def _read_state_file(self):
+    def _read_state_file(self, path=None):
+        path = path if path is not None else self._state_file
         try:
-            state = json.loads(self._state_file.read_text(encoding="utf-8"))
+            state = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {"format": _STATE_FORMAT, "version": 1, "projects": {}}
         except json.JSONDecodeError as exc:
-            raise ValueError(f"State-filen innehåller ogiltig JSON: {self._state_file}") from exc
+            raise ValueError(f"State-filen innehåller ogiltig JSON: {path}") from exc
         if (not isinstance(state, dict) or state.get("format") != _STATE_FORMAT
                 or state.get("version") != 1 or not isinstance(state.get("projects"), dict)):
-            raise ValueError(f"Filen är inte en Grundplan-state-fil: {self._state_file}")
+            raise ValueError(f"Filen är inte en Grundplan-state-fil: {path}")
         return state
+
+    def _storage(self):
+        if self._key is None:
+            return None
+        return {"key": self._key, "path": str(self._state_file), "name": self._state_file.name,
+                "state_file": self._state_file_argument,
+                "arguments": f"state_file={self._state_file_argument!r}, key={self._key!r}"}
+
+    def _save_as(self, key, state_file, *, overwrite=False):
+        key, path, argument = _storage_settings(key, state_file)
+        state = self._read_state_file(path)
+        if (key, path) != (self._key, self._state_file) and key in state["projects"] and not overwrite:
+            return False
+        state["projects"][key] = self._document()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json(path, state)
+        # Only bind the new destination after a successful write.
+        self._key, self._state_file, self._state_file_argument = key, path, argument
+        self._publish()
+        return True
+
+    def _save_choices(self):
+        folder = Path.cwd().resolve()
+        paths = set(folder.glob("*.json"))
+        if self._state_file is not None:
+            paths.add(self._state_file)
+        choices = []
+        for path in sorted(paths):
+            try:
+                if not path.is_file():
+                    continue
+                state = self._read_state_file(path)
+            except (OSError, ValueError, UnicodeError):
+                continue
+            try:
+                argument = str(path.relative_to(folder))
+            except ValueError:
+                argument = str(path)
+            if path == self._state_file:
+                argument = self._state_file_argument
+            choices.append({"state_file": argument, "path": str(path), "name": path.name,
+                            "keys": sorted(key for key in state["projects"] if isinstance(key, str) and key)})
+        return choices
 
     def _publish(self):
         # Never accept client state as calculation evidence.
@@ -321,8 +375,7 @@ class Grundplan(anywidget.AnyWidget):
             "tags": copy.deepcopy(self._tags),
             "label_size": self._label_size,
             "calculator_version": _CALCULATOR_VERSION,
-            "storage": {"key": self._key, "path": str(self._state_file), "name": self._state_file.name}
-            if self._key is not None else None,
+            "storage": self._storage(),
         }
 
     def _set_source(self, data, filename, page=1):
@@ -515,6 +568,10 @@ class Grundplan(anywidget.AnyWidget):
             path.parent.mkdir(parents=True, exist_ok=True)
         else:
             path = Path(fil)
+        return self._write_json(path, document)
+
+    @staticmethod
+    def _write_json(path, document):
         data = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False)
         # An interrupted write must not destroy an existing project.
         temporary = None
@@ -665,7 +722,7 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     def _on_message(self, widget, content, buffers):
-        """UI commands; files arrive as bytes, never as browser-supplied paths."""
+        """UI commands; imported files arrive as bytes, save paths are explicit input."""
         reply = {"request": content.get("request"), "view": content.get("view")}
         try:
             action = content["action"]
@@ -699,8 +756,19 @@ class Grundplan(anywidget.AnyWidget):
                 self._publish()
             elif action == "open":
                 self._load_document(bytes(buffers[0]))
+            elif action == "save_choices":
+                reply["choices"] = self._save_choices()
             elif action == "save":
-                if self._key is not None:
+                if "key" in content or "state_file" in content:
+                    if "key" not in content or content["key"] is None:
+                        raise ValueError("Ange key för projektet.")
+                    if not self._save_as(content["key"], content.get("state_file"), overwrite=content.get("overwrite") is True):
+                        reply.update(ok=False, conflict=True,
+                                     error="Det finns redan ett projekt med denna key i filen. Ersätt det sparade projektet?")
+                        self.send(reply)
+                        return
+                    reply.update(saved_file=str(self._state_file), storage=self._storage())
+                elif self._key is not None:
                     reply["saved_file"] = str(self.spara())
                 else:
                     reply["download"] = json.dumps(self._document(), ensure_ascii=False, allow_nan=False)

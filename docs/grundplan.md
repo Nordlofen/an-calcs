@@ -24,13 +24,24 @@ ritningar skickas till en extern tjänst. I en fjärransluten Jupytermiljö
 ```python
 from an_calcs.notebook import Grundplan
 
-plan = Grundplan("Hus A")  # Projektnyckel: välj ritning första gången.
+plan = Grundplan()  # Välj ritning och ange projektfil/key när du sparar.
 plan
 ```
 
-**Spara projekt** skriver till `.an_calcs_grundplan_state.json` i kernelns
-arbetsmapp, normalt mappen med notebooken. När samma cell körs igen, även
-efter kernelomstart, läses projektet med nyckeln `Hus A` in automatiskt.
+**Spara projekt** öppnar en ruta där **Projekt (JSON-fil)** och **Fall (key)** ska
+anges. Välj **Nytt projekt…** och skriv exempelvis `hus_a.grundplan_state.json`,
+eller välj en befintlig Grundplan-fil och dess sparade key. Tryck **Spara**.
+Relativa sökvägar avser kernelns arbetsmapp, normalt mappen med notebooken.
+
+**Kopiera projekt + key** kopierar Python-argumenten för den aktuella sparplatsen,
+exempelvis `state_file='hus_a.grundplan_state.json', key='Hus A'`.
+Klistra in dem i cellen för att återställa projektet automatiskt nästa gång:
+
+```python
+plan = Grundplan(state_file="hus_a.grundplan_state.json", key="Hus A")
+plan
+```
+
 Ritningen ingår i JSON-filen; originalfilen behöver inte finnas kvar.
 
 Alternativt kan en startritning anges:
@@ -241,10 +252,11 @@ krypdeformation eller sättning. Resultatavsnitten **Isolering – Brott** och
 ## Spara och återöppna
 
 Med `Grundplan("Hus A")` eller `Grundplan(key="Hus A")` fungerar lagringen
-som i `Panel(..., key=...)`: **Spara projekt** skriver till en lokal JSON-fil
-och nästa instans med samma nyckel återställer projektet automatiskt.
+som i `Panel(..., key=...)`: nästa instans med samma fil och nyckel återställer
+projektet automatiskt. **Spara projekt** visar sparinställningarna, förifyllda
+för projekt som redan har en sparplats. Projektfil och key är obligatoriska.
 Spara innan du stänger eller startar om kerneln; ändringar sparas inte
-automatiskt. Från Python gör `plan.spara()` samma sak som knappen.
+automatiskt. Från Python sparar `plan.spara()` direkt till den valda sparplatsen.
 
 Standardfilen `.an_calcs_grundplan_state.json` finns i kernelns arbetsmapp.
 Kontrollera den fullständiga sökvägen med `plan.state_file` eller håll musen
@@ -252,6 +264,19 @@ Kontrollera den fullständiga sökvägen med `plan.state_file` eller håll musen
 filen. En ny nyckel börjar tom och ersätter inte andra nycklar. JSON-filen
 innehåller originalritningen, aktuellt sidnummer, rubriker, etikettstorlek,
 alla taggpositioner, littera, indata och beräkningskodens versionsavtryck.
+
+Spara-rutan listar giltiga Grundplan-state-filer i arbetsmappen och projektets
+aktuella sparfil, även om den ligger någon annanstans. Varje fil visar sina
+sparade keys. Valet byter sparplats för den aktuella planen; det öppnar inte
+och ersätter inte vyn med innehållet i det sparade projektet. Om en annan
+destination redan innehåller samma key måste ersättningen bekräftas.
+Vid skrivfel behålls den tidigare sparplatsen och den gamla filen.
+
+Knappen **Kopiera projekt + key** använder det faktiska Python-argumentet
+`state_file=` trots fältnamnet **Projekt** i gränssnittet. Citattecken och
+bakstreck i filnamn och keys hanteras som Python-text. Relativa sökvägar
+behålls relativa, så notebook och JSON kan flyttas tillsammans. Om automatisk
+kopiering inte tillåts visas argumenten i ett markerbart textfält.
 
 En annan sparfil kan väljas för alla efterföljande instanser:
 
@@ -281,9 +306,11 @@ ateroppnad = Grundplan.oppna("hus_a.grundplan.json")
 ateroppnad
 ```
 
-Utan nyckel, med `Grundplan()` eller `Grundplan("grundplan.pdf")`, behålls
-det tidigare upplägget: **Spara projekt** laddar ned en portabel JSON-fil.
-En sparad notebook ersätter inte projektfilen.
+Du kan börja med `Grundplan()` eller `Grundplan("grundplan.pdf")` och välja
+projektfil/key i gränssnittet senare. Knappen **Spara projekt** skriver lokalt;
+**Exportera JSON** laddar ned en portabel kopia. `plan.spara("kopia.json")`
+behåller också funktionen för portabel export. En sparad notebook ersätter
+inte projektfilen.
 
 Vid återöppning beräknas tidigare beräknade taggar på nytt från sparade
 indata. Sparade resultat behandlas aldrig som verifierade numeriska data.

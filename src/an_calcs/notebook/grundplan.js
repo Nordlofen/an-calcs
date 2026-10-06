@@ -187,17 +187,171 @@ function render({ model, el, readOnly = false }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     showMessage("Projektet har exporterats till din nedladdningsmapp.");
   };
+  const savePanel = node("section", "gp-save-panel");
+  savePanel.hidden = true;
+  savePanel.setAttribute("role", "dialog");
+  savePanel.setAttribute("aria-label", "Spara projekt");
+  const saveFields = node("div", "gp-save-fields");
+  const saveInputs = {};
+  let saveChoices = [], saveGeneration = 0;
+  const projectChoice = node("select"), keyChoice = node("select");
+  projectChoice.setAttribute("aria-label", "Välj projekt");
+  keyChoice.setAttribute("aria-label", "Välj sparat fall");
+  function fillChoices(select, choices, placeholder) {
+    select.replaceChildren();
+    const empty = node("option", "", placeholder);
+    empty.value = "";
+    select.append(empty);
+    for (const choice of choices) {
+      const option = node("option", "", choice.label);
+      option.value = choice.value;
+      select.append(option);
+    }
+  }
+  function showKeyChoices(choice) {
+    fillChoices(keyChoice, (choice?.keys || []).map(key => ({value: key, label: key})), "Nytt fall…");
+    keyChoice.hidden = !choice?.keys.length;
+    keyChoice.value = choice?.keys.includes(saveInputs.key.value) ? saveInputs.key.value : "";
+    saveInputs.key.hidden = !!keyChoice.value;
+  }
+  projectChoice.addEventListener("change", () => {
+    const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
+    saveInputs.state_file.hidden = !!choice;
+    saveInputs.state_file.value = choice?.state_file || "";
+    if (choice && !choice.keys.includes(saveInputs.key.value)) saveInputs.key.value = choice.keys[0] || "";
+    showKeyChoices(choice);
+  });
+  keyChoice.addEventListener("change", () => {
+    saveInputs.key.value = keyChoice.value;
+    saveInputs.key.hidden = !!keyChoice.value;
+    if (!keyChoice.value) saveInputs.key.focus();
+  });
+  for (const [name, caption, placeholder] of [
+    ["state_file", "Projekt (JSON-fil)", "hus_a.grundplan_state.json"], ["key", "Fall (key)", "Hus A"],
+  ]) {
+    const label = node("label", "", caption);
+    const input = node("input");
+    input.type = "text";
+    input.required = true;
+    input.maxLength = name === "key" ? 200 : 4096;
+    input.setAttribute("aria-label", name === "state_file" ? "Projektfil" : "key");
+    input.placeholder = placeholder;
+    saveInputs[name] = input;
+    label.append(name === "state_file" ? projectChoice : keyChoice, input);
+    saveFields.append(label);
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") { event.preventDefault(); saveSettings(); }
+    });
+    if (name === "key") input.addEventListener("input", () => {
+      const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
+      keyChoice.value = choice?.keys.includes(input.value) ? input.value : "";
+    });
+  }
+  fillChoices(projectChoice, [], "Nytt projekt…");
+  fillChoices(keyChoice, [], "Nytt fall…");
+  keyChoice.hidden = true;
+  const saveError = node("p", "gp-save-error");
+  const saveActions = node("div", "gp-save-actions");
+  let saving = false;
+  const cancelSave = button("Avbryt", () => { savePanel.hidden = true; saveProject.focus(); });
+  const confirmSave = button("Spara", () => saveSettings(), "gp-primary");
+  function saveSettings(overwrite = false, settings) {
+    if (saving) return;
+    settings ||= {state_file: saveInputs.state_file.value.trim(), key: saveInputs.key.value.trim()};
+    saveError.textContent = "";
+    for (const name of ["state_file", "key"]) {
+      if (!settings[name]) {
+        saveError.textContent = "Ange både projektfil och key.";
+        saveInputs[name].focus();
+        return;
+      }
+    }
+    saving = true;
+    confirmSave.textContent = "Sparar…";
+    for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = true;
+    saveProject.disabled = true;
+    command("save", {...settings, overwrite}, [], reply => {
+      saving = false;
+      confirmSave.textContent = "Spara";
+      for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = false;
+      saveProject.disabled = false;
+      if (!reply.ok) {
+        saveError.textContent = reply.error;
+        if (reply.conflict && window.confirm(reply.error)) saveSettings(true, settings);
+        return;
+      }
+      savePanel.hidden = true;
+      if (reply.storage) showStorage(reply.storage);
+      showMessage("Projektet sparat i " + reply.saved_file);
+    });
+  }
   const saveProject = button("Spara projekt", () => {
-    command("save", {}, [], (reply) => {
-      if (!reply.ok) return;
-      if (reply.saved_file) showMessage("Projektet sparat i " + reply.saved_file);
-      else downloadProject(reply);
+    const generation = ++saveGeneration;
+    const storage = projectStorage;
+    saveChoices = [];
+    saveInputs.state_file.value = storage?.state_file || "";
+    const initialFile = saveInputs.state_file.value;
+    saveInputs.key.value = storage?.key || "";
+    saveInputs.key.hidden = false;
+    saveInputs.state_file.hidden = false;
+    fillChoices(projectChoice, [], "Nytt projekt…");
+    keyChoice.hidden = true;
+    saveError.textContent = "";
+    savePanel.hidden = false;
+    saveInputs.state_file.focus();
+    command("save_choices", {}, [], reply => {
+      if (!reply.ok || savePanel.hidden || saving || generation !== saveGeneration) return;
+      saveChoices = reply.choices;
+      fillChoices(projectChoice, saveChoices.map(choice => ({value: choice.state_file, label: choice.name})), "Nytt projekt…");
+      const selected = saveChoices.find(choice => choice.state_file === saveInputs.state_file.value
+        || (saveInputs.state_file.value === initialFile && storage && choice.path === storage.path));
+      projectChoice.value = selected?.state_file || "";
+      if (selected) {
+        saveInputs.state_file.value = selected.state_file;
+        saveInputs.state_file.hidden = true;
+      }
+      showKeyChoices(selected);
     });
   });
+  saveActions.append(cancelSave, confirmSave);
+  savePanel.append(node("h4", "", "Spara projekt"), saveFields,
+    node("p", "gp-save-note", "Relativa sökvägar avser kernelns arbetsmapp. Kopiera argumenten till notebooken för automatisk återställning."),
+    saveError, saveActions);
+  const copyArguments = button("Kopiera projekt + key", async () => {
+    const argumentsText = projectStorage?.arguments;
+    if (!argumentsText) return;
+    try {
+      await navigator.clipboard.writeText(argumentsText);
+      if (!disposed) showMessage("Argumenten är kopierade. Klistra in dem i Grundplan(...).");
+    } catch {
+      if (disposed) return;
+      argumentsFallback.hidden = false;
+      argumentsFallback.value = argumentsText;
+      argumentsFallback.focus();
+      argumentsFallback.select?.();
+      showMessage("Kopiera argumenten från textfältet under verktygsraden.");
+    }
+  }, "gp-copy-storage");
+  if (!readOnly) heading.append(copyArguments, total);
+  const argumentsFallback = node("input", "gp-copy-arguments");
+  argumentsFallback.type = "text";
+  argumentsFallback.readOnly = true;
+  argumentsFallback.hidden = true;
+  argumentsFallback.setAttribute("aria-label", "Argument för Grundplan");
   const exportJson = button("Exportera JSON", () => {
     command("export_json", {}, [], reply => { if (reply.ok) downloadProject(reply); });
   });
   const projectFile = node("p", "gp-project-file");
+  let projectStorage = null;
+  function showStorage(storage) {
+    projectStorage = storage;
+    projectFile.hidden = !storage;
+    projectFile.textContent = storage ? "Projekt: " + storage.name + " · Fall: " + storage.key : "";
+    projectFile.title = storage?.path || "";
+    saveProject.title = storage ? "Välj projektfil och key. Nuvarande fil: " + storage.path : "Ange projektfil och key för lokal sparning";
+    copyArguments.disabled = !storage?.arguments;
+    argumentsFallback.hidden = true;
+  }
   const exports = [];
   for (const [format, mime] of [["PDF", "application/pdf"], ["HTML", "text/html;charset=utf-8"]]) {
     const entry = { busy: false };
@@ -379,7 +533,7 @@ function render({ model, el, readOnly = false }) {
   const help = node("p", "gp-help",
     "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
   root.append(heading, toolbar);
-  if (!readOnly) root.append(projectFile);
+  if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput);
   el.append(root);
@@ -943,15 +1097,12 @@ function render({ model, el, readOnly = false }) {
     showHeading();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
     const storage = data.storage;
-    projectFile.hidden = !storage;
-    projectFile.textContent = storage ? "Projekt: " + storage.key + " · Sparfil: " + storage.name : "";
-    projectFile.title = storage?.path || "";
-    saveProject.title = storage ? "Spara projektet lokalt i " + storage.path : "Ladda ned en portabel JSON-kopia";
-    exportJson.hidden = !storage;
+    showStorage(storage);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
     loadDrawing.disabled = data.tags.length > 0;
     loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
-    saveProject.disabled = !storage && !bg.url;
+    saveProject.disabled = saving;
+    exportJson.disabled = !bg.url;
     for (const entry of exports) entry.button.disabled = entry.busy || !bg.url;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
@@ -1124,6 +1275,10 @@ function render({ model, el, readOnly = false }) {
   dialogHeader.addEventListener("pointercancel", () => { dialogDrag = null; });
   root.addEventListener("keydown", (event) => {
     event.stopPropagation();
+    if (event.key === "Escape" && !savePanel.hidden) {
+      if (!saving) { savePanel.hidden = true; saveProject.focus(); }
+      return;
+    }
     if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta."); }
   });
   function receive(reply, buffers = []) {

@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import json
 import os
@@ -30,6 +31,87 @@ class TestGrundplanState(unittest.TestCase):
         plan = Grundplan(*args, **kwargs)
         self.addCleanup(plan.close)
         return plan
+
+    def command(self, plan, **message):
+        with patch.object(plan, "send") as send:
+            plan._on_message(None, message, [])
+            return send.call_args.args[0]
+
+    def test_first_ui_save_binds_destination_and_generates_pasteable_arguments(self):
+        plan = self.plan(self.drawing)
+        ident = plan.lagg_till(.2, .3, littera="VS1")
+        plan.berakna(ident)
+        key = "Fall '1' \\ ÅÄÖ"
+        filename = "Projekt 'A'.json"
+        with patch("os.getcwd", return_value=str(self.folder)):
+            reply = self.command(plan, action="save", key=key, state_file=filename)
+            self.assertTrue(reply["ok"])
+            self.assertEqual(plan.state_file, self.folder / filename)
+            args = {item.arg: ast.literal_eval(item.value) for item in
+                    ast.parse("Grundplan(" + reply["storage"]["arguments"] + ")", mode="eval").body.keywords}
+            self.assertEqual(args, {"key": key, "state_file": filename})
+            restored = self.plan(**args)
+        self.assertEqual(restored.taggar, plan.taggar)
+        self.assertEqual(plan.key, key)
+        self.assertNotIn("download", reply)
+
+    def test_ui_destination_validation_and_write_failure_do_not_change_binding(self):
+        plan = self.plan(self.drawing, key="Original", state_file=self.store)
+        plan.spara()
+        before = self.store.read_bytes()
+        for payload in ({"key": "", "state_file": "new.json"}, {"key": "Ny", "state_file": ""},
+                        {"key": "Ny"}, {"state_file": "new.json"}, {"key": "Ny", "state_file": "x.pdf"}):
+            reply = self.command(plan, action="save", **payload)
+            self.assertFalse(reply["ok"])
+        destination = self.folder / "new.json"
+        with patch.object(Path, "replace", side_effect=OSError("Skrivfel")):
+            reply = self.command(plan, action="save", key="Ny", state_file=str(destination))
+        self.assertFalse(reply["ok"])
+        self.assertEqual((plan.key, plan.state_file), ("Original", self.store))
+        self.assertEqual(self.store.read_bytes(), before)
+        self.assertFalse(destination.exists())
+
+    def test_ui_existing_destination_requires_confirmation_and_preserves_other_keys(self):
+        old = self.plan(self.drawing, key="A", state_file=self.store)
+        old.titel = "Tidigare A"
+        old.spara()
+        other = self.plan(self.drawing, key="B", state_file=self.store)
+        other.titel = "Behåll B"
+        other.spara()
+        new = self.plan(self.drawing)
+        new.titel = "Nytt A"
+        before = self.store.read_bytes()
+        reply = self.command(new, action="save", key="A", state_file=str(self.store))
+        self.assertTrue(reply["conflict"])
+        self.assertFalse(reply["ok"])
+        self.assertIsNone(new.key)
+        self.assertEqual(self.store.read_bytes(), before)
+        reply = self.command(new, action="save", key="A", state_file=str(self.store), overwrite=True)
+        self.assertTrue(reply["ok"])
+        projects = json.loads(self.store.read_text())["projects"]
+        self.assertEqual(projects["A"]["title"], "Nytt A")
+        self.assertEqual(projects["B"]["title"], "Behåll B")
+        new.titel = "Ändra samma projekt"
+        reply = self.command(new, action="save", key="A", state_file=str(self.store))
+        self.assertTrue(reply["ok"], "Normal save to the current destination needs no collision confirmation")
+
+    def test_save_choices_include_known_file_and_local_projects_only(self):
+        known = self.plan(self.drawing, key="B", state_file=self.store)
+        known.spara()
+        self.plan(self.drawing, key="A", state_file=self.store).spara()
+        nearby = self.folder / "nearby"
+        nearby.mkdir()
+        (nearby / "unrelated.json").write_text('{"unrelated":true}')
+        (nearby / "corrupt.json").write_text("invalid JSON")
+        self.plan(self.drawing, key="C", state_file=nearby / "hus_c.json").spara()
+        with patch("os.getcwd", return_value=str(nearby)):
+            reply = self.command(known, action="save_choices")
+        self.assertTrue(reply["ok"])
+        by_file = {item["state_file"]: item for item in reply["choices"]}
+        self.assertEqual(set(by_file), {str(self.store), "hus_c.json"})
+        self.assertEqual(by_file[str(self.store)]["keys"], ["A", "B"])
+        self.assertEqual(by_file["hus_c.json"]["keys"], ["C"])
+        self.assertNotIn("projects", by_file["hus_c.json"], "Choice metadata omits drawings and calculation inputs")
 
     def test_key_restores_drawing_results_and_metadata_without_original_file(self):
         plan = self.plan(self.drawing, key="Hus A", state_file=self.store)

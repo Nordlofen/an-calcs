@@ -275,9 +275,10 @@ test("heading edits persist before export and pending typing survives older mode
 test("key saves to the kernel file while JSON export downloads a portable copy", async t => {
   const ui = setup(t);
   const save = ui.byText("Spara projekt"), exportJson = ui.byText("Exportera JSON");
-  assert.equal(exportJson.hidden, true, "Legacy save already downloads JSON");
+  assert.equal(exportJson.hidden, false, "Portable export is available independently of local saving");
   const path = "/notebooks/.an_calcs_grundplan_state.json";
-  ui.data.state.storage = {key: "Hus A", path, name: ".an_calcs_grundplan_state.json"};
+  ui.data.state.storage = {key: "Hus A", path, state_file: ".an_calcs_grundplan_state.json", name: ".an_calcs_grundplan_state.json",
+    arguments: "state_file='.an_calcs_grundplan_state.json', key='Hus A'"};
   ui.changed();
   assert.equal(exportJson.hidden, false);
   assert.ok(ui.byClass("gp-project-file").textContent.includes("Hus A"));
@@ -286,7 +287,12 @@ test("key saves to the kernel file while JSON export downloads a portable copy",
   t.mock.method(URL, "revokeObjectURL", () => {});
   t.mock.method(globalThis, "setTimeout", fn => { fn(); return 0; });
   save.click();
+  assert.equal(ui.sent.at(-1).action, "save_choices");
+  ui.ack(ui.sent.at(-1), {choices: []});
+  ui.byText("Spara").click();
   assert.equal(ui.sent.at(-1).action, "save");
+  assert.equal(ui.sent.at(-1).state_file, ".an_calcs_grundplan_state.json");
+  assert.equal(ui.sent.at(-1).key, "Hus A");
   ui.ack(ui.sent.at(-1), {saved_file: path});
   assert.equal(downloaded, undefined);
   assert.deepEqual(document.downloads, []);
@@ -300,6 +306,75 @@ test("key saves to the kernel file while JSON export downloads a portable copy",
   assert.deepEqual(document.downloads, [{href: "blob:project-json", filename: "grundplan.json"}]);
   ui.data.background = {}; ui.data.state.tags = []; ui.changed();
   assert.equal(save.disabled, false, "An empty named project can be saved");
+});
+
+test("save dialog requires project and key, offers existing files and retains failed-save drafts", t => {
+  const ui = setup(t);
+  ui.byText("Spara projekt").click();
+  const panel = ui.byClass("gp-save-panel");
+  const project = ui.find(el => el.getAttribute("aria-label") === "Projektfil");
+  const key = ui.find(el => el.getAttribute("aria-label") === "key");
+  ui.ack(ui.sent.at(-1), {choices: [{name: "hus_a.json", state_file: "hus_a.json", keys: ["Fall 1", "Fall 2"]}]});
+  const before = ui.sent.length;
+  ui.byText("Spara").click();
+  assert.equal(ui.sent.length, before, "Missing fields cannot send a save command");
+  assert.ok(ui.byClass("gp-save-error").textContent.includes("projektfil och key"));
+  const chooser = ui.find(el => el.getAttribute("aria-label") === "Välj projekt");
+  chooser.value = "hus_a.json"; chooser.dispatch("change");
+  assert.equal(project.value, "hus_a.json");
+  assert.equal(project.hidden, true);
+  assert.equal(key.value, "Fall 1");
+  const keyChooser = ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall");
+  keyChooser.value = "Fall 2"; keyChooser.dispatch("change");
+  ui.byText("Spara").click();
+  const request = ui.sent.at(-1);
+  assert.equal(request.key, "Fall 2");
+  ui.ack(request, {ok: false, error: "Skrivfel"});
+  assert.equal(panel.hidden, false);
+  assert.equal(key.value, "Fall 2");
+  assert.equal(ui.byClass("gp-save-error").textContent, "Skrivfel");
+  chooser.value = ""; chooser.dispatch("change");
+  assert.equal(project.hidden, false);
+  project.value = "hus_b.json"; key.value = "Ny";
+  ui.byText("Spara").click();
+  assert.equal(ui.sent.at(-1).state_file, "hus_b.json");
+  ui.ack(ui.sent.at(-1), {saved_file: "/notebooks/hus_b.json", storage: {state_file: "hus_b.json", key: "Ny", name: "hus_b.json", path: "/notebooks/hus_b.json", arguments: "state_file='hus_b.json', key='Ny'"}});
+  assert.equal(panel.hidden, true);
+  assert.equal(ui.byText("Kopiera projekt + key").disabled, false);
+});
+
+test("save destination collisions require confirmation and copying has a selectable fallback", async t => {
+  const ui = setup(t);
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: []});
+  ui.find(el => el.getAttribute("aria-label") === "Projektfil").value = "projekt.json";
+  ui.find(el => el.getAttribute("aria-label") === "key").value = "A";
+  ui.byText("Spara").click();
+  const request = ui.sent.at(-1);
+  window.confirm = () => false;
+  ui.ack(request, {ok: false, conflict: true, error: "Ersätt?"});
+  assert.equal(ui.sent.at(-1), request, "Cancel never retries with overwrite permission");
+  window.confirm = () => true;
+  ui.byText("Spara").click();
+  ui.ack(ui.sent.at(-1), {ok: false, conflict: true, error: "Ersätt?"});
+  assert.equal(ui.sent.at(-1).overwrite, true);
+  const argumentsText = 'state_file="Projekt \'A\'.json", key="Fall \'1\'"';
+  const storage = {state_file: "Projekt 'A'.json", key: "Fall '1'", path: "/notebooks/Projekt 'A'.json", name: "Projekt 'A'.json", arguments: argumentsText};
+  ui.data.state.storage = storage; ui.changed();
+  ui.ack(ui.sent.at(-1), {saved_file: storage.path, storage});
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let copied;
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async text => {copied = text;}}}});
+  t.after(() => { if (oldNavigator) Object.defineProperty(globalThis, "navigator", oldNavigator); else delete globalThis.navigator; });
+  ui.byText("Kopiera projekt + key").click();
+  await Promise.resolve();
+  assert.equal(copied, argumentsText);
+  assert.ok(ui.byClass("gp-status").textContent.includes("kopierade"));
+  navigator.clipboard.writeText = async () => { throw new Error("Clipboard denied"); };
+  ui.byText("Kopiera projekt + key").click();
+  await Promise.resolve();
+  assert.equal(ui.byClass("gp-copy-arguments").hidden, false);
+  assert.equal(ui.byClass("gp-copy-arguments").value, argumentsText);
 });
 
 for (const [format, mime, content, filename] of [
@@ -346,7 +421,7 @@ test("standalone result labels open read-only values and remember expanded secti
   ui.tag.summary.b = 1.8;
   const original = structuredClone(ui.snapshot);
   ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
-  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
+  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
   assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
   ui.marker().click();
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · 1,8 × 2,4 m");
