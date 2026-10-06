@@ -378,8 +378,9 @@ function render({ model, el, readOnly = false }) {
   }
   if (!readOnly) toolbar.append(loadDrawing, loadProject, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
   const modes = new Map();
-  for (const [key, label] of [["pan", "Panorera"], ["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
-    const b = button(label, () => setMode(key));
+  for (const [key, label] of [["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
+    const b = button(label, () => setMode(mode === key ? "pan" : key));
+    b.title = "Välj för att placera en sula. Klicka igen eller tryck Escape för att avbryta.";
     modes.set(key, b);
     if (!readOnly) toolbar.append(b);
   }
@@ -592,6 +593,7 @@ function render({ model, el, readOnly = false }) {
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
+    else showMessage("Dra i ritningen för att panorera. Välj Väggsula eller Pelarsula för att placera en ny sula.");
   }
   function showLabelSize(value) {
     sizeInput.value = value;

@@ -82,6 +82,10 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    i etikettens hovringstext.
    Klicka på taggen igen för att öppna samma indata.
 
+Panorering är grundläget och har ingen egen knapp. Efter en placering
+avslutas sulverktyget automatiskt. Klicka på den valda sulknappen igen
+eller tryck Escape för att avbryta en påbörjad placering.
+
 Under resultatraderna visar etiketten ifyllda yttre laster som inte är noll,
 grupperade i **Brott** och **Bruk**. Bruk visas när isolering är aktiverad.
 Lastraderna avser inmatade värden **exklusive sulans egentyngd**; resultatskissen

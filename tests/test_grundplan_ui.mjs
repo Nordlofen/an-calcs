@@ -595,6 +595,34 @@ test("labels follow drawing zoom while the size control persists their base size
   assert.equal(slider.value, "160");
 });
 
+for (const [label, kind] of [["+ Väggsula", "vaggsula"], ["+ Pelarsula", "pelarsula"]]) {
+  test(label + " toggles placement and returns to default panning after one tag", t => {
+    const ui = setup(t);
+    const button = ui.byText(label);
+    assert.equal(ui.viewport.style.cursor, "grab");
+    button.click();
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    assert.equal(ui.viewport.style.cursor, "crosshair");
+    button.click();
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    assert.equal(ui.viewport.style.cursor, "grab");
+    ui.place();
+    assert.equal(ui.sent.length, 0, "Canceling the tool cannot place a footing on the next click");
+    button.click();
+    ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+    ui.place();
+    assert.equal(ui.sent.length, 0);
+    button.click();
+    ui.place();
+    assert.equal(ui.sent.at(-1).action, "add");
+    assert.equal(ui.sent.at(-1).kind, kind);
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    assert.equal(ui.viewport.style.cursor, "grab");
+    ui.place();
+    assert.equal(ui.sent.filter(request => request.action === "add").length, 1);
+  });
+}
+
 test("pan moves a fitted drawing freely and Fit restores the centered full drawing", t => {
   const ui = setup(t);
   const sheet = ui.byClass("gp-sheet");
