@@ -5,6 +5,9 @@ description = "Calculation helpers for AN Suite."
 readme = "README.md"
 requires-python = ">=3.13"
 
+[project.optional-dependencies]
+notebook = ["anywidget>=0.9,<1", "Pillow>=11", "pypdfium2>=4.30,<6"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

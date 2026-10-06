@@ -96,6 +96,64 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Interaktiv grundplan i JupyterLab
+
+`Grundplan` visar en PDF eller bild med klickbara taggar för väggsulor och
+pelarsulor. Varje tagg har egna indata och använder
+`an_calcs.geo.allmanna_barighetsekvationen` i Python-kerneln.
+
+Installera från GitHub i samma Pythonmiljö som notebookens kernel.
+Kör följande i terminalen, från mappen där din `.venv` finns:
+
+```sh
+source .venv/bin/activate
+uv pip install --upgrade --refresh "an-calcs[notebook] @ git+https://github.com/Nordlofen/an-calcs.git"
+```
+
+Starta om notebookens kernel efter uppdatering. För lokal utveckling kan du
+i stället köra `uv pip install -e ".[notebook]"` från repositoryts rot
+med rätt virtuella miljö aktiverad.
+
+```python
+from an_calcs.notebook import Grundplan
+
+plan = Grundplan()  # Välj PDF/bild med knappen Öppna ritning.
+plan
+```
+
+Eller ange sökväg och PDF-sida direkt:
+
+```python
+plan = Grundplan("grundplan.pdf", sida=1, titel="Grundläggning")
+plan
+```
+
+Välj **+ Väggsula** eller **+ Pelarsula** och klicka på ritningen. Ange
+littera och indata, tryck **Beräkna** och **Minimera**. Klicka på taggen för
+att ändra värden. Resultatet blir inaktuellt när beräkningsindata ändras.
+Indata är grupperade i utfällbara avsnitt. Dra dialogens rubrik för att
+flytta den; dra i ritningen för att panorera och använd zoomknapparna för
+att förstora. PDF-sidor väljs i verktygsraden och har separata markeringar.
+
+**Spara projekt** laddar ned en JSON-fil med originalritningen och taggarna.
+**Öppna projekt** återställer den. Spara projektet separat även om notebooken
+sparas: en sparad widgetvy ersätter inte projektfilen eller en aktiv kernel.
+Motsvarande Pythonanrop:
+
+```python
+plan.spara("grundplan.json")
+plan = Grundplan.oppna("grundplan.json")
+plan
+```
+
+Se [exempelnotebooken](notebooks/Sulgrundlaggning.ipynb) och
+[användning, lastkonventioner och begränsningar](docs/grundplan.md).
+
+Notebookvyn ligger separat i `an_calcs.notebook`. Tilläggsbiblioteken
+importeras inte när vanliga beräkningsfunktioner används. Detta är
+Jupyterversionen; export till en fristående beräkningsbar HTML-fil ingår
+ännu inte.
+
 ## Böjstyvhet - Betongpålar
 
 `an_calcs.betong.bojstyvhet_betongpalar` beräknar modifierad nominell böjstyvhet för en
