@@ -63,6 +63,24 @@ class TestGrundplanHtml(unittest.TestCase):
     def snapshot(self):
         return HtmlSnapshot(self.plan._html_bytes().decode("utf-8")).snapshot
 
+    def test_sliding_snapshot_includes_all_pages_global_totals_and_saved_positions(self):
+        self.tag(indata={"glid_x": True, "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3})
+        self.tag(sida=2, indata={"lang": 0, "glid_x": True, "glid_y": True,
+                                "V_Ed_EQU": 240, "glid_mu": .4})
+        self.plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
+                              "H_x_Ed": 180, "H_y_Ed": 120,
+                              "placements": {"2": {"symbol": {"x": .1, "y": .2, "size": 220},
+                                                    "legend": {"x": .4, "y": .5}}}}
+        snapshot = self.snapshot()
+        self.assertEqual(snapshot["state"]["sliding"], self.plan.glidning)
+        self.assertEqual(snapshot["state"]["sliding_result"], self.plan.glidningsresultat)
+        self.assertEqual(snapshot["state"]["sliding_result"]["x"]["H_Rd"], 240)
+        self.assertEqual(snapshot["state"]["sliding_result"]["x"]["count"], 2)
+        self.assertEqual(snapshot["state"]["sliding_result"]["y"]["H_Rd"], 96)
+        fields = {field["name"]: field for field in snapshot["schema"]["fields"]}
+        self.assertEqual(fields["V_Ed_EQU"]["display_symbol"], {"base": "V", "subscript": "Ed,EQU"})
+        self.assertEqual(snapshot["state"]["tags"][0]["sliding"]["x"], 144)
+
     def test_alla_sidor_och_aktuella_data_baddas_in_utan_externa_filer(self):
         ident = self.tag(indata={"b": 1, "t": .4, "F_vy": 100, "isolering": True,
                                 "F_vy_bruk": 70, "f_d_brott": 200, "f_d_bruk": 50,

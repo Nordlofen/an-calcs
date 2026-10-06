@@ -93,6 +93,7 @@ const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
+names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
@@ -107,9 +108,10 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
+  Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
-    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page: 1,
@@ -131,7 +133,7 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
   const marker = () => byClass("gp-tag");
   const position = () => [parseFloat(marker().style.left) / 100, parseFloat(marker().style.top) / 100];
   const ack = (request, extra = {}, buffers = []) => handlers.get("msg:custom")({ ...request, ok: true, ...extra }, buffers);
-  const changed = () => handlers.get("change:state")();
+  const changed = () => standalone ? model.send({action: "label_size", value: 100}) : handlers.get("change:state")();
   const start = (target = marker(), x = 300, y = 300) => viewport.dispatch("pointerdown", { target, clientX: x, clientY: y });
   const move = (x, y) => viewport.dispatch("pointermove", { clientX: x, clientY: y });
   const finish = (x, y) => viewport.dispatch("pointerup", { clientX: x, clientY: y });
@@ -143,6 +145,148 @@ function setup(t, { readOnly = false, standalone = false } = {}) {
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+function slidingFixture(ui, enabled = true) {
+  Object.assign(ui.tag.values, {glid_x: true, glid_y: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
+  ui.tag.sliding = {x: 144, y: 144, status: "ready"};
+  ui.data.state.sliding = {enabled, check_x: true, check_y: true, H_x_Ed: 100, H_y_Ed: 180, placements: {}};
+  ui.data.state.sliding_result = {
+    x: {H_Ed: 100, H_Rd: 144, count: 1, contributors: [{label: "VS1"}], missing: [], status: "ok", utilization: 100 / 144},
+    y: {H_Ed: 180, H_Rd: 144, count: 1, contributors: [{label: "VS1"}], missing: [], status: "over", utilization: 1.25},
+  };
+  Object.assign(ui.model.get("state"), {sliding: ui.data.state.sliding, sliding_result: ui.data.state.sliding_result});
+  if (ui.model.get("state").tags[0] !== ui.tag) Object.assign(ui.model.get("state").tags[0], ui.tag);
+  ui.changed();
+}
+
+test("sliding toggle and directional demands preserve settings while hidden", t => {
+  const ui = setup(t);
+  slidingFixture(ui, false);
+  const toggle = ui.byText("Glidningskontroll");
+  assert.equal(toggle.getAttribute("aria-pressed"), "false");
+  assert.equal(ui.byClass("gp-global-axes").hidden, true);
+  toggle.click();
+  assert.equal(ui.sent.at(-1).action, "sliding");
+  assert.deepEqual(ui.sent.at(-1).settings, {enabled: true});
+  assert.equal(toggle.getAttribute("aria-pressed"), "true");
+  assert.equal(ui.byClass("gp-sliding-legend").hidden, false);
+  ui.data.state.sliding.enabled = true; ui.changed(); ui.ack(ui.sent.at(-1));
+  ui.byText("Godkänd"); ui.byText("Överskriden");
+  const yCheck = ui.find(e => e.getAttribute("aria-label") === "Kontroll Y_g");
+  const yDemand = ui.find(e => e.getAttribute("aria-label") === "Global H_y,Ed i kN, EQU");
+  yCheck.checked = false; yCheck.dispatch("change");
+  assert.equal(yDemand.parent.hidden, true);
+  ui.data.state.sliding.check_y = false; ui.changed(); ui.ack(ui.sent.at(-1));
+  yCheck.checked = true; yCheck.dispatch("change");
+  assert.equal(yDemand.parent.hidden, false);
+  assert.equal(yDemand.value, "180");
+  ui.data.state.sliding.check_y = true; ui.changed(); ui.ack(ui.sent.at(-1));
+  yDemand.focus(); yDemand.value = "-190,5"; yDemand.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).settings, {H_y_Ed: -190.5});
+  assert.ok(ui.elements().some(e => e.textContent === "Ofullständig"), "Pending demand cannot show a pass");
+  yDemand.value = ""; yDemand.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).settings, {H_y_Ed: null}, "Empty demand is not zero");
+});
+
+for (const readOnly of [false, true]) test(`compact sliding labels exclude insulation and pad length (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui);
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children.length, 4, "Strip has V and L");
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children.length, 4, "Both selected capacities");
+  ui.byText("120 kN/m"); ui.byText("144 kN");
+  ui.tag.values.lang = 0; ui.tag.values.glid_y = false; ui.changed();
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children.length, 2);
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children.length, 2);
+  ui.byText("120 kN");
+  ui.tag.values.isolering = true; ui.changed();
+  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
+  ui.tag.values.isolering = false; ui.data.state.sliding.enabled = false; ui.changed();
+  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
+});
+
+test("gliding inputs follow footing type and edits hide old resistance without invalidating bearing", t => {
+  const ui = setup(t);
+  slidingFixture(ui);
+  ui.marker().click();
+  assert.equal(ui.field("V_Ed_EQU").disabled, false);
+  assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN/m");
+  ui.field("V_Ed_EQU").value = "160"; ui.field("V_Ed_EQU").dispatch("input");
+  assert.match(ui.marker().className, /gp-tag-ok/);
+  assert.ok(ui.elements().some(e => e.textContent === "Ofullständig"));
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "—");
+  const edit = ui.sent.at(-1);
+  Object.assign(ui.tag.values, edit.values);
+  ui.tag.sliding = {x: 192, y: 192, status: "ready"};
+  ui.data.state.sliding_result.x.H_Rd = 192;
+  ui.changed(); ui.ack(edit);
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "192 kN");
+  ui.field("lang").value = 0; ui.field("lang").dispatch("input");
+  assert.equal(ui.field("glid_L").parent.hidden, true);
+  assert.equal(ui.field("glid_L").disabled, true);
+  assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN");
+  ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
+  assert.equal(ui.field("glid_x").disabled, true);
+  assert.equal(ui.field("V_Ed_EQU").parent.hidden, true);
+});
+
+test("global symbol drag and proportional corner resize use drawing zoom and survive delayed replies", t => {
+  const ui = setup(t);
+  slidingFixture(ui);
+  ui.byText("+").click();
+  const symbol = ui.byClass("gp-global-axes"), handle = ui.byClass("gp-axis-resize");
+  assert.equal(symbol.style.width, "200px");
+  assert.equal(handle.hidden, true);
+  ui.start(ui.byClass("gp-axis-symbol")); ui.move(400, 375); ui.finish(400, 375);
+  const first = ui.sent.at(-1);
+  assert.equal(first.action, "sliding_placement");
+  assert.equal(first.kind, "symbol");
+  near(first.position.x, .16); near(first.position.y, .65);
+  assert.equal(handle.hidden, false);
+  ui.start(handle); ui.move(350, 350); ui.finish(350, 350);
+  const second = ui.sent.at(-1);
+  assert.equal(second.position.size, 200);
+  assert.equal(symbol.style.width, "250px");
+  ui.data.state.sliding.placements = {"1": {symbol: first.position}};
+  ui.changed(); ui.ack(first);
+  assert.equal(symbol.style.width, "250px", "Older move cannot undo pending resize");
+  ui.data.state.sliding.placements["1"].symbol = second.position;
+  ui.changed(); ui.ack(second);
+  assert.equal(symbol.style.width, "250px");
+  const before = ui.sent.length;
+  ui.start(handle); ui.move(600, 600); ui.viewport.dispatch("pointercancel");
+  assert.equal(symbol.style.width, "250px");
+  assert.equal(ui.sent.length, before);
+  ui.byText("Anpassa").click();
+  assert.equal(symbol.style.width, "200px", "Saved base size follows drawing zoom");
+});
+
+test("legend moves by its header while result cells cannot move it", t => {
+  const ui = setup(t);
+  slidingFixture(ui);
+  ui.start(ui.byClass("gp-sliding-header")); ui.move(220, 360); ui.finish(220, 360);
+  const request = ui.sent.at(-1);
+  assert.equal(request.kind, "legend");
+  near(request.position.x, .4); near(request.position.y, .14);
+  const before = ui.sent.length;
+  ui.start(ui.byClass("gp-sliding-value")); ui.move(400, 400); ui.finish(400, 400);
+  assert.equal(ui.sent.length, before);
+});
+
+test("standalone sliding overlays and contributions remain visible but cannot be edited", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  slidingFixture(ui);
+  assert.equal(ui.byClass("gp-global-axes").hidden, false);
+  assert.equal(ui.byClass("gp-sliding-legend").hidden, false);
+  ui.byText("144 kN"); ui.byText("Godkänd");
+  assert.equal(ui.byClass("gp-axis-resize").hidden, true);
+  const symbol = ui.byClass("gp-global-axes"), legend = ui.byClass("gp-sliding-legend");
+  const before = structuredClone(ui.model.get("state"));
+  ui.start(ui.byClass("gp-axis-symbol")); ui.move(450, 420); ui.finish(450, 420);
+  assert.equal(symbol.style.left, "6%");
+  ui.start(ui.byClass("gp-sliding-header")); ui.move(450, 420); ui.finish(450, 420);
+  assert.equal(legend.style.left, "50%");
+  assert.deepEqual(ui.model.get("state"), before);
+});
 
 for (const readOnly of [false, true]) test(`outside click minimizes without losing drafts or section state (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
@@ -465,7 +609,7 @@ test("standalone page and label-size controls work locally and reject calculatio
   size.value = 180; size.dispatch("input"); size.dispatch("change");
   assert.equal(ui.model.get("state").label_size, 180);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
-  for (const action of ["calculate", "update", "delete", "copy", "add", "save", "export_pdf"]) {
+  for (const action of ["calculate", "update", "delete", "copy", "add", "save", "export_pdf", "sliding", "sliding_placement"]) {
     ui.model.send({ action, id: ui.tag.id, values: { b: 55 }, view: "test", request: 1 });
     assert.equal(replies.at(-1).ok, false);
   }

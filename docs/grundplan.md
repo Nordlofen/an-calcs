@@ -173,6 +173,74 @@ Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
 ny beräkning har körts. Att bara byta littera påverkar inte beräkningen.
 Varje tagg har oberoende indata.
 
+## Global glidningskontroll
+
+Knappen **Glidningskontroll** aktiverar funktionen och markeras med färg.
+Avstängning döljer kontrollerna och överlagringarna men behåller indata.
+Kryssa i **Kontroll X_g** och/eller **Kontroll Y_g** för att ange globala
+dimensionerande horisontallaster Hₓ,Ed och Hᵧ,Ed i kN, för lastkombination EQU.
+X_g pekar åt höger på ritningen och Y_g uppåt. Koordinatsystemet är separat
+från sulornas lokala x/y-axlar. Lokala horisontallaster från bärighetskontrollen
+summeras inte automatiskt till dessa globala lasteffekter.
+
+**X och Y kontrolleras var för sig, som separata lastfall.** Funktionen
+kontrollerar inte samtidigt verkande horisontalkomponenter eller vridning.
+Lastens absolutvärde jämförs med motståndet i vald riktning.
+
+Under **Glidning** i respektive sulas indatadialog anges:
+
+- **Bidrar i global X-led/Y-led:** de riktningar där sulans motstånd får räknas med.
+  Inga riktningar är förvalda. Valen beskriver den antagna kraftöverföringen;
+  parallella eller tvärgående sulor väljs manuellt. Funktionen kontrollerar
+  inte att konstruktionen kan överföra krafterna till sulan.
+- **V_Ed,EQU:** färdig dimensionerande vertikal kontaktlast i EQU, **inklusive
+  sulans egentyngd**. Ange kN/m för väggsula och kN för pelarsula. Ingen
+  egentyngd eller lastfaktor tillkommer i glidningsberäkningen.
+- **μ_d:** färdig dimensionerande friktionskoefficient mellan sulan och
+  underlaget. Ingen ytterligare partialkoefficient tillkommer.
+- **L:** väggsulans hela bidragande längd i m. Detta är ett separat mått från
+  bärighetskontrollens enmetersremsa. För pelarsulor används ingen längdfaktor.
+
+Motståndet för en vald riktning beräknas som
+`H_Rd,i = V_Ed,EQU × L × μ_d` för väggsulor och
+`H_Rd,i = V_Ed,EQU × μ_d` för pelarsulor. **Sulor med isolering bidrar alltid
+med 0 kN**, oavsett tidigare glidningsindata. V och μ ska vara minst noll;
+väggsulans L ska vara större än noll.
+
+Motstånden summeras för varje riktning över **alla ritningssidor**. Den flyttbara
+resultatrutan visar H_Ed, H_Rd, `U = |H_Ed| / H_Rd` och antal sulor med positivt
+bidrag. Grönt betyder U ≤ 100 %, rött U > 100 %. Saknade eller ogiltiga indata
+hos en vald sula gör kontrollen **Ofullständig**; ett delmotstånd redovisas då
+inte som ett komplett resultat. En tom horisontallast tolkas inte som noll.
+Resultaten uppdateras direkt när indata ändras, utan en separat beräkningsknapp.
+
+På etiketten visas **Glidmotstånd – globalt** med V_Ed,EQU och L till vänster
+och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger. Glidningsblocket döljs på isolerade sulor
+och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avser
+fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
+den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
+
+Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
+och dra hörnhandtaget för proportionell storleksändring. Piltangenter flyttar
+symbolen; plus/minus ändrar storleken när hörnhandtaget har fokus. Dra
+resultatrutans rubrik för att flytta rutan. Symbol och ruta följer ritningens
+zoom och får separata placeringar på varje sida.
+
+All glidningsindata och alla placeringar sparas med projektet. Äldre projekt
+öppnas med glidningskontrollen avstängd. PDF-exporten innehåller fasta
+överlagringar; HTML-exporten visar samma resultat och expanderbara indata,
+utan möjlighet att ändra beräkningar.
+
+Python kan också användas för att aktivera kontroller och läsa resultat:
+
+```python
+plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 180}
+plan.uppdatera(tagg_id, indata={
+    "glid_x": True, "V_Ed_EQU": 120, "glid_mu": 0.4, "glid_L": 3.0,
+})
+plan.glidningsresultat["x"]  # H_Rd = 144 kN för denna väggsula
+```
+
 ## Lastkonvention och resultat
 
 Jordkontrollen anropar den befintliga beräkningsfunktionen med hävarmen satt

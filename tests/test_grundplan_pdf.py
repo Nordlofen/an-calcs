@@ -49,6 +49,35 @@ class TestGrundplanPdf(unittest.TestCase):
         canvas.save()
         return source
 
+    def test_sliding_overlays_share_global_totals_on_every_page_and_hide_insulated_contributions(self):
+        plan = self.plan(self.drawing())
+        self.tag(plan, littera="VS1", sida=1, indata={"glid_x": True, "glid_y": True,
+                 "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3})
+        self.tag(plan, littera="PS1", sida=2, indata={"lang": 0, "glid_x": True,
+                 "V_Ed_EQU": 240, "glid_mu": .4})
+        self.tag(plan, littera="Isolerad", sida=1, indata={"isolering": True, "glid_x": True})
+        plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
+                        "H_x_Ed": 180, "H_y_Ed": 200}
+        before = plan._document()
+        reader = PdfReader(io.BytesIO(plan._pdf_bytes()))
+        for page in reader.pages:
+            text = page.extract_text()
+            self.assertIn("Glidningskontroll", text)
+            self.assertIn("240 kN", text)
+            self.assertIn("144 kN", text)
+            self.assertIn("75 %", text)
+            self.assertIn("Överskriden", text)
+            self.assertFalse(page.images)
+        self.assertEqual(reader.pages[0].extract_text().count("Glidmotstånd – globalt"), 1)
+        self.assertIn("120 kN/m", reader.pages[0].extract_text())
+        self.assertIn("96 kN", reader.pages[1].extract_text())
+        self.assertNotIn("Glidmotstånd – globalt", reader.pages[2].extract_text())
+        self.assertEqual(plan._document(), before)
+        plan.glidning = {"enabled": False}
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertNotIn("Glidningskontroll", text)
+        self.assertNotIn("Glidmotstånd – globalt", text)
+
     def render(self, data, page=0, scale=2):
         with pdfium.PdfDocument(data) as document:
             pdf_page = document[page]

@@ -17,10 +17,12 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from .grundplan_labels import LOAD_GROUPS
+from .grundplan_sliding import contribution, project_results, DEFAULT_SETTINGS, DEFAULT_PLACEMENT
 
 
 _REGULAR = "Grundplan-Vera"
 _BOLD = "Grundplan-Vera-Bold"
+_ITALIC = "Grundplan-Vera-Italic"
 _COLORS = {
     "new": ("#8da4aa", "#ffffff", "#7f969d"),
     "stale": ("#ac802f", "#fffbef", "#7f969d"),
@@ -33,12 +35,14 @@ _COLORS = {
 def _fonts():
     # Bundled fonts make Swedish labels portable, with no OS font dependency.
     directory = Path(reportlab.__file__).parent / "fonts"
-    for name, filename in ((_REGULAR, "Vera.ttf"), (_BOLD, "VeraBd.ttf")):
+    for name, filename in ((_REGULAR, "Vera.ttf"), (_BOLD, "VeraBd.ttf"), (_ITALIC, "VeraIt.ttf")):
         if name not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(TTFont(name, str(directory / filename)))
 
 
 def _number(value, digits=2):
+    if value != 0 and (abs(value) < 1e-6 or abs(value) >= 1e9):
+        return format(value, ".2e").replace(".", ",")
     rounded = Decimal(str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
     whole, _, fraction = format(rounded, "f").partition(".")
     sign = "-" if rounded < 0 else ""
@@ -65,6 +69,31 @@ def _draw_text(canvas, x, y, text, font, size):
         canvas.setFont(font, pt)
         canvas.drawString(x, y + offset, part)
         x += pdfmetrics.stringWidth(part, font, pt)
+
+
+def _math_width(base, index, size):
+    return pdfmetrics.stringWidth(base, _ITALIC, size) + pdfmetrics.stringWidth(index, _REGULAR, size * .65)
+
+
+def _draw_math(canvas, x, y, base, index, size):
+    canvas.setFont(_ITALIC, size)
+    canvas.drawString(x, y, base)
+    canvas.setFont(_REGULAR, size * .65)
+    canvas.drawString(x + pdfmetrics.stringWidth(base, _ITALIC, size), y - size * .22, index)
+
+
+def _sliding_rows(values):
+    if values.get("isolering") or not (values.get("glid_x") or values.get("glid_y")):
+        return [], []
+    result = contribution(values)
+    def value(name, unit):
+        return "—" if values.get(name) is None else _number(values[name], 3) + " " + unit
+    left = [("V", "Ed,EQU", value("V_Ed_EQU", "kN/m" if values["lang"] == 1 else "kN"))]
+    if values["lang"] == 1:
+        left.append(("L", "", value("glid_L", "m")))
+    right = [("H", axis + ",Rd,i", "—" if result[axis] is None else _number(result[axis], 3) + " kN")
+             for axis in ("x", "y") if values.get("glid_" + axis)]
+    return left, right
 
 
 def _load_rows(values):
@@ -133,7 +162,7 @@ def _draw_insulation(canvas, left, top, insulated, background):
     canvas.restoreState()
 
 
-def _draw_labels(canvas, width, height, preview_size, tags, label_size):
+def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_enabled=False):
     """Map normalized image positions and CSS label size into page coordinates."""
     _fonts()
     for tag in tags:
@@ -148,6 +177,15 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size):
         box_height = 16 + sum(size * 1.3 for _, _, size in lines) + 2 * (len(lines) - 1)
         if loads:
             box_height += 8 + 14 * len(loads)
+        slide_left, slide_right = _sliding_rows(tag["values"]) if sliding_enabled else ([], [])
+        slide_size = 8.2
+        if slide_left:
+            left_symbols = max(_math_width(base, index, slide_size) for base, index, _ in slide_left)
+            right_symbols = max(_math_width(base, index, slide_size) for base, index, _ in slide_right)
+            left_width = left_symbols + 8 + max(_text_width(value, _REGULAR, slide_size) for _, _, value in slide_left)
+            right_width = right_symbols + 8 + max(_text_width(value, _BOLD, slide_size) for _, _, value in slide_right)
+            box_width = max(box_width, 20 + left_width + 16 + right_width + 12)
+            box_height += 24 + 12 * max(len(slide_left), len(slide_right))
         # The drawing and labels share zoom in the widget. Export uses their
         # saved ratio, independent of current viewport zoom or pan.
         scale = label_size / 100 * min(width / preview_size[0], height / preview_size[1])
@@ -198,7 +236,98 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size):
                 canvas.setFillColor(HexColor("#18333b"))
                 _draw_text(canvas, 58, top_of_line, text, _REGULAR, 10)
                 top_of_line -= 14
+        if slide_left:
+            canvas.setDash()
+            canvas.setStrokeColor(HexColor("#d4e0e1"))
+            canvas.setLineWidth(.6)
+            canvas.line(20, top_of_line + 4, box_width - 12, top_of_line + 4)
+            canvas.setFillColor(HexColor("#58717a"))
+            _draw_text(canvas, 20, top_of_line - 9, "Glidmotstånd – globalt", _BOLD, 9)
+            canvas.setFillColor(HexColor("#18333b"))
+            for rows, x, symbols, font in ((slide_left, 20, left_symbols, _REGULAR),
+                                          (slide_right, 20 + left_width + 16, right_symbols, _BOLD)):
+                for i, (base, index, value) in enumerate(rows):
+                    y = top_of_line - 23 - i * 12
+                    _draw_math(canvas, x, y, base, index, slide_size)
+                    _draw_text(canvas, x + symbols + 8, y, value, font, slide_size)
         canvas.restoreState()
+
+
+def _draw_project_overlays(canvas, width, height, preview_size, page, settings, results):
+    if not settings["enabled"]:
+        return
+    _fonts()
+    placement = settings["placements"].get(str(page), {})
+    symbol = placement.get("symbol", DEFAULT_PLACEMENT["symbol"])
+    image_scale = min(width / preview_size[0], height / preview_size[1])
+    size = symbol["size"] * image_scale
+    left = min(symbol["x"] * width, max(0, width - size))
+    top = min(symbol["y"] * height, max(0, height - size))
+    canvas.saveState()
+    canvas.translate(left, height - top)
+    canvas.scale(size / 200, size / 200)
+    canvas.setStrokeColor(HexColor("#19343d"))
+    canvas.setFillColor(HexColor("#19343d"))
+    canvas.setLineWidth(3)
+    canvas.line(32, -156, 158, -156)
+    canvas.line(32, -156, 32, -36)
+    for points in (((158, -156), (147, -151), (147, -161)), ((32, -36), (27, -47), (37, -47))):
+        path = canvas.beginPath()
+        path.moveTo(*points[0])
+        for point in points[1:]: path.lineTo(*point)
+        path.close()
+        canvas.drawPath(path, stroke=0, fill=1)
+    canvas.setFillColor(HexColor("#ffffff"))
+    canvas.setLineWidth(2)
+    canvas.circle(32, -156, 4, stroke=1, fill=1)
+    canvas.setFillColor(HexColor("#19343d"))
+    _draw_math(canvas, 168, -163, "X", "g", 22)
+    _draw_math(canvas, 24, -24, "Y", "g", 22)
+    canvas.restoreState()
+
+    axes = [axis for axis in ("x", "y") if settings["check_" + axis]]
+    box_width, box_height = 410, 88 + 46 * len(axes)
+    legend = placement.get("legend", DEFAULT_PLACEMENT["legend"])
+    scale = min(image_scale, width / box_width, height / box_height)
+    left = min(legend["x"] * width, max(0, width - box_width * scale))
+    top = min(legend["y"] * height, max(0, height - box_height * scale))
+    canvas.saveState()
+    canvas.translate(left, height - top)
+    canvas.scale(scale, scale)
+    canvas.setFillColor(HexColor("#ffffff"))
+    canvas.setStrokeColor(HexColor("#9fbbbf"))
+    canvas.setLineWidth(1)
+    canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
+    canvas.setFillColor(HexColor("#19343d"))
+    _draw_text(canvas, 14, -25, "Glidningskontroll", _BOLD, 15)
+    canvas.setFillColor(HexColor("#58717a"))
+    _draw_text(canvas, 14, -41, "X och Y kontrolleras var för sig", _REGULAR, 10)
+    if axes:
+        for x, caption in ((14, "Riktning"), (85, "Lasteffekt"), (185, "Motstånd"), (288, "U"), (366, "Sulor*")):
+            _draw_text(canvas, x, -63, caption, _REGULAR, 9)
+        for i, axis in enumerate(axes):
+            r, y = results[axis], -80 - i * 46
+            color = {"ok": "#1e8063", "over": "#b6443f", "incomplete": "#94691f"}[r["status"]]
+            canvas.setStrokeColor(HexColor("#d4e0e1"))
+            canvas.line(14, y + 8, box_width - 14, y + 8)
+            canvas.setFillColor(HexColor(color))
+            _draw_math(canvas, 14, y - 12, axis.upper(), "g", 13)
+            for x, name, suffix in ((85, "H_Ed", "Ed"), (185, "H_Rd", "Rd")):
+                canvas.setFillColor(HexColor("#58717a"))
+                _draw_math(canvas, x, y, "H", axis + "," + suffix, 10)
+                canvas.setFillColor(HexColor("#19343d"))
+                _draw_text(canvas, x, y - 18, "—" if r[name] is None else _number(r[name]) + " kN", _BOLD, 10)
+            canvas.setFillColor(HexColor(color))
+            use = "—" if r["status"] == "incomplete" else "∞" if r["utilization"] is None else _number(r["utilization"] * 100, 1) + " %"
+            _draw_text(canvas, 288, y, use, _BOLD, 12)
+            _draw_text(canvas, 288, y - 17, {"ok": "Godkänd", "over": "Överskriden", "incomplete": "Ofullständig"}[r["status"]], _REGULAR, 8)
+            canvas.setFillColor(HexColor("#19343d"))
+            _draw_text(canvas, 376, y - 12, str(r["count"]), _BOLD, 12)
+        canvas.setFillColor(HexColor("#58717a"))
+        _draw_text(canvas, 14, -box_height + 12, "* Sulor med positivt bidrag i respektive riktning.", _REGULAR, 9)
+    else:
+        _draw_text(canvas, 14, -65, "Ingen global riktning vald.", _REGULAR, 11)
+    canvas.restoreState()
 
 
 def _page_geometry(page):
@@ -229,7 +358,7 @@ def _page_geometry(page):
     return width, height, Transformation(matrices[rotation])
 
 
-def render_pdf(source, tags, label_size, title):
+def render_pdf(source, tags, label_size, title, sliding=None):
     """Return a PDF containing every original page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -237,12 +366,14 @@ def render_pdf(source, tags, label_size, title):
     for tag in tags:
         by_page[tag["page"]].append(tag)
     writer = PdfWriter()
+    settings = sliding or DEFAULT_SETTINGS
+    results = project_results(tags, settings)
     if source.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(source))
         with pdfium.PdfDocument(source) as document:
             for index, original in enumerate(reader.pages):
                 page = writer.add_page(original)
-                if not by_page[index + 1]:
+                if not by_page[index + 1] and not settings["enabled"]:
                     continue
                 width, height, transform = _page_geometry(page)
                 preview_page = document[index]
@@ -255,7 +386,8 @@ def render_pdf(source, tags, label_size, title):
                 preview_size = (math.ceil(pw * preview_scale), math.ceil(ph * preview_scale))
                 overlay = io.BytesIO()
                 canvas = Canvas(overlay, pagesize=(width, height), pageCompression=1)
-                _draw_labels(canvas, width, height, preview_size, by_page[index + 1], label_size)
+                _draw_labels(canvas, width, height, preview_size, by_page[index + 1], label_size, settings["enabled"])
+                _draw_project_overlays(canvas, width, height, preview_size, index + 1, settings, results)
                 canvas.showPage()
                 canvas.save()
                 page.merge_transformed_page(PdfReader(overlay).pages[0], transform, over=True, expand=False)
@@ -272,7 +404,8 @@ def render_pdf(source, tags, label_size, title):
         stream = io.BytesIO()
         canvas = Canvas(stream, pagesize=(width, height), pageCompression=1)
         canvas.drawImage(ImageReader(picture), 0, 0, width, height)
-        _draw_labels(canvas, width, height, preview.size, by_page[1], label_size)
+        _draw_labels(canvas, width, height, preview.size, by_page[1], label_size, settings["enabled"])
+        _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
         canvas.showPage()
         canvas.save()
         writer.add_page(PdfReader(stream).pages[0])

@@ -99,6 +99,10 @@ function render({ model, el, readOnly = false }) {
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   let headingDraft = null;
+  let slidingDraft = null, overlaySelected = null;
+  const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
+  const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
+  const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
@@ -113,6 +117,8 @@ function render({ model, el, readOnly = false }) {
   }).format(value);
   const precise = value => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
     ? value.toExponential(2).replace(".", ",") : number(value, 6);
+  const compactNumber = (value, digits) => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
+    ? precise(value) : number(value, digits);
   const button = (text, fn, className = "") => {
     const b = node("button", className, text);
     b.type = "button";
@@ -384,6 +390,40 @@ function render({ model, el, readOnly = false }) {
     modes.set(key, b);
     if (!readOnly) toolbar.append(b);
   }
+  const slidingToggle = button("Glidningskontroll", () => {
+    setMode("pan");
+    setSliding({enabled: !sliding().enabled});
+  });
+  slidingToggle.title = "Visa globala riktningskontroller, koordinatsymbol och glidningsresultat.";
+  if (!readOnly) toolbar.append(slidingToggle);
+  const slidingControls = node("div", "gp-sliding-controls");
+  const globalInputs = new Map();
+  for (const axis of ["x", "y"]) {
+    const choice = node("label", "gp-sliding-choice");
+    const check = node("input");
+    check.type = "checkbox";
+    check.setAttribute("aria-label", "Kontroll " + axis.toUpperCase() + "_g");
+    const caption = node("span");
+    caption.append(node("span", "", "Kontroll "), symbolNode({base: axis.toUpperCase(), subscript: "g"}));
+    choice.append(check, caption);
+    const demand = node("label", "gp-sliding-demand");
+    const input = node("input");
+    input.type = "text"; input.inputMode = "decimal";
+    input.setAttribute("aria-label", "Global H_" + axis + ",Ed i kN, EQU");
+    input.title = "Total dimensionerande horisontallast i EQU. Riktningarna kontrolleras var för sig.";
+    demand.append(symbolNode({base: "H", subscript: axis + ",Ed"}), input, node("span", "", "kN"));
+    const group = node("div", "gp-sliding-control");
+    group.append(choice, demand);
+    slidingControls.append(group);
+    check.addEventListener("change", () => setSliding({["check_" + axis]: check.checked}));
+    input.addEventListener("input", () => {
+      const value = input.value.trim().replace(",", ".");
+      const numeric = value === "" ? NaN : Number(value);
+      setSliding({["H_" + axis + "_Ed"]: Number.isFinite(numeric) ? numeric : null});
+    });
+    globalInputs.set(axis, {check, input, demand});
+  }
+  if (!readOnly) toolbar.append(slidingControls);
   const cancelCopy = button("Avbryt kopiering", () => {
     setMode("pan");
     showMessage("Kopieringen avbröts.");
@@ -435,7 +475,42 @@ function render({ model, el, readOnly = false }) {
   picture.alt = "Grundläggningsritning";
   picture.draggable = false;
   const markers = node("div", "gp-markers");
-  sheet.append(picture, markers);
+  const overlays = node("div", "gp-overlays");
+  const axesOverlay = node("div", "gp-sliding-overlay gp-global-axes");
+  axesOverlay.dataset.kind = "symbol";
+  const axesButton = button("", () => { overlaySelected = "symbol"; renderSlidingGeometry(); }, "gp-axis-symbol gp-sliding-handle");
+  axesButton.setAttribute("aria-label", "Globalt koordinatsystem: X_g åt höger, Y_g uppåt." + (readOnly ? "" : " Dra för att flytta."));
+  const svgNode = (name, attributes, text) => {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+    if (text !== undefined) element.textContent = text;
+    return element;
+  };
+  const axesSvg = svgNode("svg", {viewBox: "0 0 200 200", "aria-hidden": "true"});
+  axesSvg.append(svgNode("path", {d: "M32 156H158M32 156V36", fill: "none", stroke: "currentColor", "stroke-width": 3}),
+    svgNode("path", {d: "M158 156L147 151V161ZM32 36L27 47H37Z", fill: "currentColor"}),
+    svgNode("circle", {cx: 32, cy: 156, r: 4, stroke: "currentColor", "stroke-width": 2, fill: "white"}));
+  for (const [letter, x, y] of [["X", 168, 163], ["Y", 24, 24]]) {
+    const text = svgNode("text", {x, y, fill: "currentColor", "font-size": 22, "font-style": "italic"}, letter);
+    text.append(svgNode("tspan", {"baseline-shift": "sub", "font-size": 13}, "g"));
+    axesSvg.append(text);
+  }
+  axesButton.append(axesSvg);
+  const axesResize = button("", () => {}, "gp-axis-resize");
+  axesResize.setAttribute("aria-label", "Ändra koordinatsymbolens storlek. Dra hörnet eller använd plus och minus.");
+  axesResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
+  axesOverlay.append(axesButton, axesResize);
+  const slidingLegend = node("section", "gp-sliding-overlay gp-sliding-legend");
+  slidingLegend.dataset.kind = "legend";
+  slidingLegend.setAttribute("aria-label", "Globala glidningsresultat");
+  const slidingHeader = button("Glidningskontroll", () => {}, "gp-sliding-header gp-sliding-handle");
+  slidingHeader.title = readOnly ? "Globala glidningsresultat" : "Dra rubriken för att flytta resultatrutan";
+  slidingHeader.setAttribute("aria-label", "Glidningskontroll." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
+  const slidingBody = node("div", "gp-sliding-body");
+  slidingBody.setAttribute("aria-live", "polite");
+  slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody);
+  overlays.append(axesOverlay, slidingLegend);
+  sheet.append(picture, markers, overlays);
   viewport.append(sheet);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
@@ -565,9 +640,11 @@ function render({ model, el, readOnly = false }) {
           positions.clear();
           pendingPositions.clear();
           sectionStates.clear();
-      sketchStates.clear();
-      areaPhases.clear();
+          sketchStates.clear();
+          areaPhases.clear();
           headingDraft = null;
+          slidingDraft = null; overlaySelected = null;
+          overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
           inputSections.length = resultSections.length = 0;
           setMode("pan");
           update();
@@ -600,6 +677,109 @@ function render({ model, el, readOnly = false }) {
     sizeText.textContent = value + "%";
     root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
   }
+  function setSliding(patch) {
+    if (patch.enabled === false) { cancelDrag(); overlaySelected = null; }
+    const draft = {...sliding(), ...patch};
+    slidingDraft = draft;
+    update();
+    command("sliding", {settings: patch}, [], () => {
+      if (slidingDraft === draft) { slidingDraft = null; update(); }
+    });
+  }
+  function overlayPosition(kind) {
+    const key = background().page + ":" + kind;
+    return overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind]
+      || (kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04});
+  }
+  function saveOverlayPosition(kind, page, position) {
+    const key = page + ":" + kind;
+    overlayPositions.set(key, position);
+    pendingOverlayPositions.set(key, position);
+    command("sliding_placement", {kind, page, position}, [], () => {
+      if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
+      if (overlayPositions.get(key) === position) overlayPositions.delete(key);
+      renderSlidingGeometry();
+    });
+  }
+  for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true], [slidingHeader, "legend", false]]) {
+    element.addEventListener("keydown", event => {
+      if (readOnly) return;
+      const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
+      if (resize && ["+", "=", "-"].includes(event.key)) {
+        p.size = Math.max(50, Math.min(600, p.size + (event.key === "-" ? -step : step)));
+      } else if (!resize && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        p.x = Math.max(0, Math.min(1, p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0) / background().width));
+        p.y = Math.max(0, Math.min(1, p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) / background().height));
+      } else return;
+      event.preventDefault();
+      saveOverlayPosition(kind, background().page, p);
+      renderSlidingGeometry();
+    });
+  }
+  function renderSlidingGeometry() {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"]]) {
+      const p = overlayPosition(kind);
+      element.hidden = !sliding().enabled || !background().url;
+      element.style.left = p.x * 100 + "%";
+      element.style.top = p.y * 100 + "%";
+      element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
+      if (kind === "symbol") {
+        element.style.width = element.style.height = p.size * zoom + "px";
+        axesResize.hidden = readOnly || overlaySelected !== "symbol";
+      } else element.style.transform = "scale(" + zoom + ")";
+    }
+  }
+  function showSliding() {
+    const settings = sliding();
+    slidingToggle.classList.toggle("gp-selected", !!settings.enabled);
+    slidingToggle.setAttribute("aria-pressed", String(!!settings.enabled));
+    slidingToggle.disabled = !background().url;
+    slidingControls.hidden = !settings.enabled;
+    for (const [axis, {check, input, demand}] of globalInputs) {
+      check.checked = !!settings["check_" + axis];
+      demand.hidden = !check.checked;
+      if (document.activeElement !== input) input.value = settings["H_" + axis + "_Ed"] ?? "";
+    }
+    slidingBody.replaceChildren();
+    const table = node("table", "gp-sliding-table");
+    const head = node("thead"), row = node("tr");
+    for (const caption of ["Riktning", "Lasteffekt", "Motstånd", "U", "Sulor*"]) row.append(node("th", "", caption));
+    head.append(row); table.append(head);
+    const body = node("tbody");
+    for (const axis of ["x", "y"]) {
+      if (!settings["check_" + axis]) continue;
+      const saved = state().sliding_result?.[axis];
+      const r = saved || {status: "incomplete"};
+      const waiting = slidingDraft || slidingDirty.size;
+      const status = waiting ? "incomplete" : r.status;
+      const tr = node("tr", "gp-slide-" + status);
+      const direction = node("th");
+      direction.append(symbolNode({base: axis.toUpperCase(), subscript: "g"}));
+      tr.append(direction);
+      for (const [value, suffix] of [[r.H_Ed, "Ed"], [r.H_Rd, "Rd"]]) {
+        const cell = node("td");
+        cell.append(symbolNode({base: "H", subscript: axis + "," + suffix}),
+          node("span", "gp-sliding-value", waiting || value == null ? "—" : compactNumber(value, 2) + " kN"));
+        tr.append(cell);
+      }
+      const use = node("td");
+      const label = {ok: "Godkänd", over: "Överskriden", off: "Ej vald", incomplete: "Ofullständig"}[status];
+      use.append(node("strong", "", status === "incomplete" ? "—"
+        : r.utilization == null ? "∞" : compactNumber(r.utilization * 100, 1) + " %"), node("small", "", label));
+      const count = node("td", "gp-sliding-count", waiting ? "—" : String(r.count ?? 0));
+      count.title = (r.contributors || []).map(tag => tag.label).join(", ") || "Inga sulor med positivt bidrag";
+      tr.append(use, count); body.append(tr);
+      if (!waiting && r.missing?.length) {
+        const missing = node("tr"), cell = node("td", "gp-slide-missing", "Kontrollera glidningsindata: " + r.missing.join(", "));
+        cell.setAttribute("colspan", "5"); missing.append(cell); body.append(missing);
+      }
+    }
+    table.append(body);
+    if (settings.check_x || settings.check_y) slidingBody.append(table,
+      node("p", "gp-sliding-note", "* Sulor med positivt bidrag i respektive riktning."));
+    else slidingBody.append(mathText("p", "gp-sliding-note", "Välj Kontroll X_g eller Kontroll Y_g i verktygsraden."));
+    renderSlidingGeometry();
+  }
   function setZoom(value) {
     const bg = background();
     if (!bg.width) return;
@@ -613,6 +793,7 @@ function render({ model, el, readOnly = false }) {
     showLabelSize(sizeDraft ?? state().label_size ?? 100);
     placeSheet();
     zoomText.textContent = Math.round(zoom * 100) + "%";
+    renderSlidingGeometry();
   }
   function placeSheet() {
     sheet.style.left = panX + "px";
@@ -768,6 +949,27 @@ function render({ model, el, readOnly = false }) {
         marker.title += " · Yttre laster, exklusive sulans egentyngd";
         marker.setAttribute("aria-label", marker.getAttribute("aria-label") + ", yttre laster: " + accessibleLoads.join("; "));
       }
+      if (sliding().enabled && !insulated && (values.glid_x || values.glid_y)) {
+        const section = node("span", "gp-tag-sliding");
+        section.append(node("strong", "gp-tag-sliding-heading", "Glidmotstånd – globalt"));
+        const grid = node("span", "gp-tag-sliding-grid");
+        const data = node("span", "gp-tag-sliding-inputs"), capacities = node("span", "gp-tag-sliding-capacities");
+        const add = (parent, base, subscript, value, bold = false) => {
+          parent.append(symbolNode({base, subscript}), node(bold ? "b" : "span", "", value));
+        };
+        const value = (name, unit) => {
+          const raw = values[name];
+          const n = raw == null || raw === "" ? NaN : Number(String(raw).replace(",", "."));
+          return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
+        };
+        add(data, "V", "Ed,EQU", value("V_Ed_EQU", values.lang == 1 ? "kN/m" : "kN"));
+        if (values.lang == 1) add(data, "L", "", value("glid_L", "m"));
+        for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
+          const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
+          add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 3) + " kN", true);
+        }
+        grid.append(data, capacities); section.append(grid); marker.append(section);
+      }
       markers.append(marker);
     }
   }
@@ -781,6 +983,8 @@ function render({ model, el, readOnly = false }) {
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
       "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Kontroll: V / (b_x,eff × b_y,eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
+    ["Glidning", ["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],
+      "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
   function rememberSections(sections) {
@@ -809,6 +1013,7 @@ function render({ model, el, readOnly = false }) {
       if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
+        if (!field) continue;
         const row = node(readOnly ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
         const notation = field.display_symbol || {};
@@ -870,7 +1075,7 @@ function render({ model, el, readOnly = false }) {
         else row.append(caption, symbol, input, unit);
         group.append(row);
         inputs.set(name, { input, unit, row, group });
-        input.addEventListener("input", () => edit(field.type !== "text"));
+        input.addEventListener("input", () => edit(field.type !== "text" && !slidingNames.has(name)));
       }
       fieldsBox.append(group);
     }
@@ -888,12 +1093,24 @@ function render({ model, el, readOnly = false }) {
   function fieldUnits() {
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
     const insulated = readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked;
+    const selected = readOnly ? current()?.values.glid_x || current()?.values.glid_y
+      : inputs.get("glid_x")?.input.checked || inputs.get("glid_y")?.input.checked;
     basis.textContent = readOnly
       ? (strip ? "Väggsula: laster och moment avser en meter vägg." : "Pelarsula: laster och moment avser hela sulan.") + " Egentyngd ingår i beräkningsresultatet."
       : strip
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
         : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     for (const [name, entry] of inputs) {
+      if (slidingNames.has(name)) {
+        entry.group.hidden = !sliding().enabled;
+        const numeric = !["glid_x", "glid_y"].includes(name);
+        const disabled = !sliding().enabled || insulated || (numeric && !selected) || (name === "glid_L" && !strip);
+        entry.row.hidden = (name === "glid_L" && !strip) || (numeric && (!selected || insulated));
+        entry.unit.textContent = name === "V_Ed_EQU" ? (strip ? "kN/m" : "kN") : fieldSchema.get(name).unit;
+        if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled;
+          if (disabled) entry.input.setCustomValidity(""); }
+        continue;
+      }
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
@@ -921,10 +1138,16 @@ function render({ model, el, readOnly = false }) {
     });
     fieldUnits();
     const values = readValues();
+    if (sliding().enabled) slidingDirty.add(active);
     showResult();
     renderMarkers();
+    showSliding();
     const label = labelInput.value.trim();
-    command("update", { id: active, values, ...(label ? { label } : {}) });
+    const id = active, revision = edits.get(id);
+    command("update", { id, values, ...(label ? { label } : {}) }, [], () => {
+      if (edits.get(id) === revision) slidingDirty.delete(id);
+      showSliding(); renderMarkers();
+    });
   }
   labelInput.addEventListener("input", () => edit(false));
   form.addEventListener("submit", (event) => {
@@ -1147,6 +1370,7 @@ function render({ model, el, readOnly = false }) {
       showResult();
     } else sketch.hidden = true;
     renderMarkers();
+    showSliding();
   }
   let drag = null;
   function cancelDrag() {
@@ -1156,6 +1380,12 @@ function render({ model, el, readOnly = false }) {
       if (pendingPositions.has(previous.id)) positions.set(previous.id, pendingPositions.get(previous.id));
       else positions.delete(previous.id);
     }
+    if (previous?.overlay) {
+      const key = previous.page + ":" + previous.overlay;
+      if (pendingOverlayPositions.has(key)) overlayPositions.set(key, pendingOverlayPositions.get(key));
+      else overlayPositions.delete(key);
+      renderSlidingGeometry();
+    }
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     if (previous && viewport.hasPointerCapture(previous.pointerId)) viewport.releasePointerCapture(previous.pointerId);
@@ -1163,6 +1393,21 @@ function render({ model, el, readOnly = false }) {
   }
   viewport.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || drag || !background().url) return;
+    const overlay = event.target.closest(".gp-sliding-overlay");
+    if (overlay) {
+      if (readOnly || (!event.target.closest(".gp-sliding-handle") && event.target !== axesResize)) return;
+      event.preventDefault();
+      setMode("pan");
+      overlaySelected = overlay.dataset.kind;
+      renderSlidingGeometry();
+      drag = {overlay: overlay.dataset.kind, page: background().page, resize: event.target === axesResize,
+        position: {...overlayPosition(overlay.dataset.kind)}, x: event.clientX, y: event.clientY,
+        moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId);
+      return;
+    }
+    overlaySelected = null;
+    renderSlidingGeometry();
     const marker = event.target.closest(".gp-tag");
     const tag = marker && state().tags.find((t) => t.id === marker.dataset.tagId);
     if (!tag && event.target.closest("button")) return;
@@ -1177,7 +1422,18 @@ function render({ model, el, readOnly = false }) {
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     if (drag.moved) {
-      if (drag.id) {
+      if (drag.overlay) {
+        const p = {...drag.position};
+        if (drag.resize) p.size = Math.max(50, Math.min(600, p.size + (dx + dy) / (2 * zoom)));
+        else {
+          const rect = picture.getBoundingClientRect();
+          p.x = Math.max(0, Math.min(1, p.x + dx / rect.width));
+          p.y = Math.max(0, Math.min(1, p.y + dy / rect.height));
+        }
+        overlayPositions.set(drag.page + ":" + drag.overlay, p);
+        renderSlidingGeometry();
+        closeDialog();
+      } else if (drag.id) {
         if (readOnly) return;
         const rect = picture.getBoundingClientRect();
         positions.set(drag.id, {
@@ -1196,11 +1452,15 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const { moved, id } = drag;
+    const { moved, id, overlay, page } = drag;
     drag = null;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if (overlay) {
+      if (moved) saveOverlayPosition(overlay, page, overlayPositions.get(page + ":" + overlay));
+      return;
+    }
     if (id) {
       const tag = state().tags.find((t) => t.id === id);
       if (!moved) { if (tag) openDialog(tag); return; }
@@ -1281,7 +1541,7 @@ function render({ model, el, readOnly = false }) {
       if (!saving) { savePanel.hidden = true; saveProject.focus(); }
       return;
     }
-    if (event.key === "Escape") { cancelDrag(); closeDialog(); setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta."); }
+    if (event.key === "Escape") { cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); setMode("pan"); showMessage(readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta."); }
   });
   function receive(reply, buffers = []) {
     if (reply.view !== view) return;

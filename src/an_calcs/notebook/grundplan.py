@@ -21,6 +21,8 @@ except ImportError as exc:
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
+from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
+                               DEFAULT_SETTINGS, contribution, project_results, validate_settings)
 
 
 _ASSETS = Path(__file__).parent
@@ -47,9 +49,10 @@ _EXTRA_FIELDS = [
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
+    *SLIDING_FIELDS,
 ]
 _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
-            "display_symbol": DISPLAY_SYMBOLS.get(field["name"])}
+            "display_symbol": DISPLAY_SYMBOLS.get(field["name"], field.get("display_symbol"))}
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 
@@ -66,17 +69,18 @@ def _values(values, *, draft=False):
         raise ValueError("Indata måste innehålla jordberäkningens 24 fält och endast kända tilläggsfält.")
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    if not isinstance(values["isolering"], bool):
-        raise ValueError("isolering måste vara True eller False.")
+    for name in ("isolering", "glid_x", "glid_y"):
+        if not isinstance(values[name], bool):
+            raise ValueError(f"{name} måste vara True eller False.")
     for name, value in values.items():
-        if name == "isolering":
+        if name in ("isolering", "glid_x", "glid_y"):
             continue
         if name == "isolerprodukt":
             if not isinstance(value, str):
                 raise ValueError("Isolerprodukt måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or optional) and value is None and name != "lang":
+        if (draft or optional or name in SLIDING_NAMES) and value is None and name != "lang":
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -276,6 +280,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = title
         self._subtitle = subtitle
         self._label_size = 100
+        self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS)}
@@ -374,8 +379,10 @@ class Grundplan(anywidget.AnyWidget):
         self.state = {
             "title": self._title,
             "subtitle": self._subtitle,
-            "tags": copy.deepcopy(self._tags),
+            "tags": self.taggar,
             "label_size": self._label_size,
+            "sliding": copy.deepcopy(self._gliding),
+            "sliding_result": self.glidningsresultat,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
         }
@@ -384,6 +391,7 @@ class Grundplan(anywidget.AnyWidget):
         rendered = _render_source(data, filename, page)
         self._source = bytes(data)
         self._filename = Path(filename).name
+        self._gliding["placements"] = {}
         self.background = rendered
 
     def _tag(self, tagg):
@@ -456,7 +464,7 @@ class Grundplan(anywidget.AnyWidget):
                     raise ValueError(f"{name} måste ligga mellan 0 och 1.")
                 updated[name] = value
         if any(updated["values"][name] != value for name, value in tag["values"].items()
-               if name != "isolerprodukt"):
+               if name != "isolerprodukt" and name not in SLIDING_NAMES):
             updated.update(status="stale", summary=None, error="")
             self._details.pop(tagg, None)
         tag.update(updated)
@@ -486,7 +494,24 @@ class Grundplan(anywidget.AnyWidget):
     @property
     def taggar(self):
         """Kopior av taggar, indata och aktuella resultatsammanfattningar."""
-        return copy.deepcopy(self._tags)
+        return [{**copy.deepcopy(tag), "sliding": contribution(tag["values"])} for tag in self._tags]
+
+    @property
+    def glidning(self):
+        """Globala kontroller och placeringar. X och Y är separata lastfall."""
+        return copy.deepcopy(self._gliding)
+
+    @glidning.setter
+    def glidning(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Glidning anges som en dict med inställningar.")
+        self._gliding = validate_settings({**self._gliding, **changes}, self.background.get("page_count"))
+        self._publish()
+
+    @property
+    def glidningsresultat(self):
+        """Summerade, aktuella glidmotstånd från alla ritningssidor."""
+        return project_results(self._tags, self._gliding)
 
     @property
     def resultat(self):
@@ -535,11 +560,12 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 3,
+            "version": 4,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
             "label_size": self._label_size,
+            "sliding": copy.deepcopy(self._gliding),
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -596,7 +622,7 @@ class Grundplan(anywidget.AnyWidget):
             from .grundplan_pdf import render_pdf
         except ImportError as exc:
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
-        return render_pdf(self._source, self._tags, self._label_size, self._title)
+        return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding)
 
     def exportera_pdf(self, fil):
         """Exportera alla ritningssidor med fasta etiketter till en PDF.
@@ -630,7 +656,8 @@ class Grundplan(anywidget.AnyWidget):
                           for page in range(2, first["page_count"] + 1))]
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
-                      "label_size": self._label_size, "tags": self.taggar},
+                      "label_size": self._label_size, "tags": self.taggar,
+                      "sliding": self.glidning, "sliding_result": self.glidningsresultat},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -676,19 +703,20 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1, 2 eller 3.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–4.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
         drawing = document["drawing"]
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
+        gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         tags = document["tags"]
         if not isinstance(tags, list) or len(tags) > _MAX_TAGS:
             raise ValueError("Projektet har för många eller ogiltiga taggar.")
         valid_tags, details_by_id, ids = [], {}, set()
-        same_calculator = document["version"] == 3 and document.get("calculator_version") == _CALCULATOR_VERSION
+        same_calculator = document["version"] in (3, 4) and document.get("calculator_version") == _CALCULATOR_VERSION
         for saved in tags:
             ident = saved["id"]
             if not isinstance(ident, str) or not ident or len(ident) > 80 or ident in ids:
@@ -718,6 +746,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = title
         self._subtitle = subtitle
         self._label_size = label_size
+        self._gliding = gliding
         self._tags = valid_tags
         self._details = details_by_id
         self.background = rendered
@@ -751,6 +780,16 @@ class Grundplan(anywidget.AnyWidget):
                 self.etikettstorlek = content["value"]
             elif action == "heading":
                 self._set_heading(content["title"], content["subtitle"])
+            elif action == "sliding":
+                self.glidning = content["settings"]
+            elif action == "sliding_placement":
+                page = _page_number(content["page"], self.background.get("page_count", 0))
+                kind = content["kind"]
+                if kind not in ("symbol", "legend"):
+                    raise ValueError("Okänd glidningssymbol.")
+                placements = copy.deepcopy(self._gliding["placements"])
+                placements.setdefault(str(page), {})[kind] = content["position"]
+                self.glidning = {"placements": placements}
             elif action == "drawing":
                 if self._tags:
                     raise ValueError("Starta en ny Grundplan för att byta ritning när taggar finns.")
