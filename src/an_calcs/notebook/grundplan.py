@@ -30,6 +30,7 @@ _CALCULATOR_VERSION = hashlib.sha256(
     _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-v1"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
+_STATE_FORMAT = "an-calcs-grundplan-state"
 _DEFAULT_SUBTITLE = "Sulgrundläggning · jordens bärighet"
 _MAX_FILE_BYTES = 40 * 1024 * 1024
 _MAX_PROJECT_BYTES = 60 * 1024 * 1024
@@ -224,7 +225,7 @@ class Grundplan(anywidget.AnyWidget):
 
     Exempel:
         from an_calcs.notebook import Grundplan
-        plan = Grundplan("grundplan.pdf", sida=1)
+        plan = Grundplan("Hus A")  # Återställ lokalt sparat projekt med denna key.
         plan
 
     Koordinater för taggar är relativa bildkoordinater (0–1), med origo uppe
@@ -237,8 +238,22 @@ class Grundplan(anywidget.AnyWidget):
     schema = traitlets.Dict().tag(sync=True)
     state = traitlets.Dict().tag(sync=True)
     background = traitlets.Dict().tag(sync=True)
+    STATE_FILENAME = ".an_calcs_grundplan_state.json"
+    _STATE_FILE = None
 
-    def __init__(self, ritning=None, *, sida=1, titel="Grundplan", underrubrik=_DEFAULT_SUBTITLE):
+    def __init__(self, ritning=None, *, key=None, state_file=None, sida=1, titel="Grundplan", underrubrik=_DEFAULT_SUBTITLE):
+        # Preserve existing drawing paths; a plain positional name is a project key.
+        if key is None and isinstance(ritning, str) and not Path(ritning).suffix and not any(c in ritning for c in "/\\"):
+            key, ritning = ritning, None
+        self._key = _heading_text(str(key).strip(), "Key") if key is not None else None
+        if self._key == "":
+            raise ValueError("Key får inte vara tom.")
+        if state_file is not None and self._key is None:
+            raise ValueError("Ange key när du använder state_file.")
+        self._state_file = (Path(state_file or self._STATE_FILE or self.STATE_FILENAME).expanduser().resolve()
+                            if self._key is not None else None)
+        if self._state_file is not None and self._state_file.suffix.lower() != ".json":
+            raise ValueError("State-filen måste sluta med .json.")
         title = _heading_text(str(titel), "Rubrik")
         subtitle = _heading_text(str(underrubrik), "Underrubrik")
         super().__init__()
@@ -253,17 +268,50 @@ class Grundplan(anywidget.AnyWidget):
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS)}
         self.background = {}
-        if ritning is not None:
-            path = Path(ritning)
-            try:
+        try:
+            projects = self._read_state_file()["projects"] if self._key is not None else {}
+            if self._key in projects:
+                self._load_document(json.dumps(projects[self._key], ensure_ascii=False, allow_nan=False).encode("utf-8"))
+            elif ritning is not None:
+                path = Path(ritning)
                 if path.stat().st_size > _MAX_FILE_BYTES:
                     raise ValueError("Ritningen får vara högst 40 MB.")
                 self._set_source(path.read_bytes(), path.name, sida)
-            except Exception:
-                self.close()
-                raise
+        except Exception:
+            self.close()
+            raise
         self._publish()
         self.on_msg(self._on_message)
+
+    @classmethod
+    def configure_state_file(cls, state_file):
+        """Välj defaultfil för efterföljande Grundplan(key), som i Panel.
+
+        Relativa sökvägar avser kernelns arbetsmapp. None återställer standardfilen.
+        """
+        cls._STATE_FILE = state_file
+
+    @property
+    def key(self):
+        """Nyckeln för det lokalt sparade projektet, eller None i portabelt läge."""
+        return self._key
+
+    @property
+    def state_file(self):
+        """Lokal JSON-fil för nyckelstyrd lagring. Sökvägen binds när vyn skapas."""
+        return self._state_file
+
+    def _read_state_file(self):
+        try:
+            state = json.loads(self._state_file.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {"format": _STATE_FORMAT, "version": 1, "projects": {}}
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"State-filen innehåller ogiltig JSON: {self._state_file}") from exc
+        if (not isinstance(state, dict) or state.get("format") != _STATE_FORMAT
+                or state.get("version") != 1 or not isinstance(state.get("projects"), dict)):
+            raise ValueError(f"Filen är inte en Grundplan-state-fil: {self._state_file}")
+        return state
 
     def _publish(self):
         # Never accept client state as calculation evidence.
@@ -273,6 +321,8 @@ class Grundplan(anywidget.AnyWidget):
             "tags": copy.deepcopy(self._tags),
             "label_size": self._label_size,
             "calculator_version": _CALCULATOR_VERSION,
+            "storage": {"key": self._key, "path": str(self._state_file), "name": self._state_file.name}
+            if self._key is not None else None,
         }
 
     def _set_source(self, data, filename, page=1):
@@ -448,10 +498,24 @@ class Grundplan(anywidget.AnyWidget):
             ],
         }
 
-    def spara(self, fil):
-        """Spara ett portabelt JSON-projekt inklusive originalritningen."""
-        path = Path(fil)
-        data = json.dumps(self._document(), ensure_ascii=False, indent=2, allow_nan=False)
+    def spara(self, fil=None):
+        """Spara till nyckelns lokala state-fil eller exportera till en angiven fil.
+
+        Båda innehåller originalritningen. Namngivna projekt delar en state-fil
+        utan att skriva över varandras nycklar. En explicit fil är alltid portabel.
+        """
+        document = self._document()
+        if fil is None:
+            if self._key is None:
+                raise ValueError("Ange en fil eller skapa Grundplan med key för lokal lagring.")
+            path = self._state_file
+            state = self._read_state_file()
+            state["projects"][self._key] = document
+            document = state
+            path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            path = Path(fil)
+        data = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False)
         # An interrupted write must not destroy an existing project.
         temporary = None
         try:
@@ -636,6 +700,11 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "open":
                 self._load_document(bytes(buffers[0]))
             elif action == "save":
+                if self._key is not None:
+                    reply["saved_file"] = str(self.spara())
+                else:
+                    reply["download"] = json.dumps(self._document(), ensure_ascii=False, allow_nan=False)
+            elif action == "export_json":
                 reply["download"] = json.dumps(self._document(), ensure_ascii=False, allow_nan=False)
             elif action == "export_pdf":
                 data = self._pdf_bytes()

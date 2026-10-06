@@ -272,6 +272,36 @@ test("heading edits persist before export and pending typing survives older mode
   assert.deepEqual(ui.tag, original);
 });
 
+test("key saves to the kernel file while JSON export downloads a portable copy", async t => {
+  const ui = setup(t);
+  const save = ui.byText("Spara projekt"), exportJson = ui.byText("Exportera JSON");
+  assert.equal(exportJson.hidden, true, "Legacy save already downloads JSON");
+  const path = "/notebooks/.an_calcs_grundplan_state.json";
+  ui.data.state.storage = {key: "Hus A", path, name: ".an_calcs_grundplan_state.json"};
+  ui.changed();
+  assert.equal(exportJson.hidden, false);
+  assert.ok(ui.byClass("gp-project-file").textContent.includes("Hus A"));
+  let downloaded;
+  t.mock.method(URL, "createObjectURL", blob => { downloaded = blob; return "blob:project-json"; });
+  t.mock.method(URL, "revokeObjectURL", () => {});
+  t.mock.method(globalThis, "setTimeout", fn => { fn(); return 0; });
+  save.click();
+  assert.equal(ui.sent.at(-1).action, "save");
+  ui.ack(ui.sent.at(-1), {saved_file: path});
+  assert.equal(downloaded, undefined);
+  assert.deepEqual(document.downloads, []);
+  assert.equal(ui.byClass("gp-status").textContent, "Projektet sparat i " + path);
+  const portable = '{"format":"an-calcs-grundplan","version":3}';
+  exportJson.click();
+  assert.equal(ui.sent.at(-1).action, "export_json");
+  ui.ack(ui.sent.at(-1), {download: portable});
+  assert.equal(await downloaded.text(), portable);
+  assert.equal(downloaded.type, "application/json");
+  assert.deepEqual(document.downloads, [{href: "blob:project-json", filename: "grundplan.json"}]);
+  ui.data.background = {}; ui.data.state.tags = []; ui.changed();
+  assert.equal(save.disabled, false, "An empty named project can be saved");
+});
+
 for (const [format, mime, content, filename] of [
   ["PDF", "application/pdf", "%PDF-1.4\nTest PDF\n", "plan_med_etiketter.pdf"],
   ["HTML", "text/html;charset=utf-8", "<!doctype html><p>ÅÄÖ · resultat</p>", "plan_resultat.html"],

@@ -24,11 +24,18 @@ ritningar skickas till en extern tjänst. I en fjärransluten Jupytermiljö
 ```python
 from an_calcs.notebook import Grundplan
 
-plan = Grundplan()  # Välj fil i gränssnittet.
+plan = Grundplan("Hus A")  # Projektnyckel: välj ritning första gången.
 plan
 ```
 
-Alternativt `Grundplan("grundplan.pdf", sida=2, titel="Hus A")`.
+**Spara projekt** skriver till `.an_calcs_grundplan_state.json` i kernelns
+arbetsmapp, normalt mappen med notebooken. När samma cell körs igen, även
+efter kernelomstart, läses projektet med nyckeln `Hus A` in automatiskt.
+Ritningen ingår i JSON-filen; originalfilen behöver inte finnas kvar.
+
+Alternativt kan en startritning anges:
+`Grundplan("grundplan.pdf", key="Hus A", sida=2, titel="Hus A")`.
+Om nyckeln redan är sparad återställs dess projekt i stället för startritningen.
 Klicka direkt i rubriken eller underrubriken överst för att ändra texten.
 Båda sparas i JSON-projektet och visas med samma innehåll i HTML-exporten.
 Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra
@@ -233,15 +240,50 @@ krypdeformation eller sättning. Resultatavsnitten **Isolering – Brott** och
 
 ## Spara och återöppna
 
-**Spara projekt** laddar ned en JSON-fil. Den innehåller originalritningen,
-aktuellt sidnummer, alla taggpositioner, littera, indata och beräkningskodens
-versionsavtryck. Filen kan öppnas med **Öppna projekt** eller från Python:
+Med `Grundplan("Hus A")` eller `Grundplan(key="Hus A")` fungerar lagringen
+som i `Panel(..., key=...)`: **Spara projekt** skriver till en lokal JSON-fil
+och nästa instans med samma nyckel återställer projektet automatiskt.
+Spara innan du stänger eller startar om kerneln; ändringar sparas inte
+automatiskt. Från Python gör `plan.spara()` samma sak som knappen.
+
+Standardfilen `.an_calcs_grundplan_state.json` finns i kernelns arbetsmapp.
+Kontrollera den fullständiga sökvägen med `plan.state_file` eller håll musen
+över sparfilens namn i gränssnittet. Varje nyckel har sitt eget projekt i
+filen. En ny nyckel börjar tom och ersätter inte andra nycklar. JSON-filen
+innehåller originalritningen, aktuellt sidnummer, rubriker, etikettstorlek,
+alla taggpositioner, littera, indata och beräkningskodens versionsavtryck.
+
+En annan sparfil kan väljas för alla efterföljande instanser:
+
+```python
+Grundplan.configure_state_file("projekt.grundplan_state.json")
+plan = Grundplan("Hus A")
+plan
+```
+
+Eller för en enskild instans: `Grundplan(key="Hus A", state_file="projekt.json")`.
+Ett explicit `state_file` går före den konfigurerade filen.
+`Grundplan.configure_state_file(None)` återställer standardfilen. Relativa
+sökvägar avser arbetsmappen när vyn skapas. Ange `key=` för nycklar som
+innehåller punkt eller snedstreck; ett sådant första positionsargument
+tolkas som en ritningssökväg. Ett `Path`-objekt tolkas alltid som en ritning.
+
+För att börja använda ett befintligt nedladdat projekt, skapa exempelvis
+`Grundplan("Hus A")`, välj **Öppna projekt** och därefter **Spara projekt**.
+Projektet sparas då under den valda nyckeln.
+
+**Exportera JSON** laddar ned en portabel kopia av det aktuella projektet.
+Den kan öppnas med **Öppna projekt** eller från Python:
 
 ```python
 plan.spara("hus_a.grundplan.json")
 ateroppnad = Grundplan.oppna("hus_a.grundplan.json")
 ateroppnad
 ```
+
+Utan nyckel, med `Grundplan()` eller `Grundplan("grundplan.pdf")`, behålls
+det tidigare upplägget: **Spara projekt** laddar ned en portabel JSON-fil.
+En sparad notebook ersätter inte projektfilen.
 
 Vid återöppning beräknas tidigare beräknade taggar på nytt från sparade
 indata. Sparade resultat behandlas aldrig som verifierade numeriska data.

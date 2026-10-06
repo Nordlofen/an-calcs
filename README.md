@@ -117,14 +117,14 @@ med rätt virtuella miljö aktiverad.
 ```python
 from an_calcs.notebook import Grundplan
 
-plan = Grundplan()  # Välj PDF/bild med knappen Öppna ritning.
+plan = Grundplan("Hus A")  # Projektnyckel; välj PDF/bild första gången.
 plan
 ```
 
 Eller ange sökväg och PDF-sida direkt:
 
 ```python
-plan = Grundplan("grundplan.pdf", sida=1, titel="Grundläggning")
+plan = Grundplan("grundplan.pdf", key="Hus A", sida=1, titel="Grundläggning")
 plan
 ```
 
@@ -165,10 +165,18 @@ får eget littera och kan ändras oberoende av originalet. Reglaget
 och förminskas tillsammans med ritningen när du zoomar. Positioner och
 grundstorlek sparas i projektet.
 
-**Spara projekt** laddar ned en JSON-fil med originalritningen och taggarna.
-**Öppna projekt** återställer den. Spara projektet separat även om notebooken
-sparas: en sparad widgetvy ersätter inte projektfilen eller en aktiv kernel.
-Motsvarande Pythonanrop:
+Med en `key` skriver **Spara projekt** till `.an_calcs_grundplan_state.json`
+i kernelns arbetsmapp, normalt nära notebooken. Nästa `Grundplan("Hus A")`
+läser automatiskt in projektet, även efter kernelomstart. Flera nycklar
+kan sparas i samma fil. Ritningen ingår; originalfilen behöver inte finnas
+kvar. Spara före omstart: ändringar sparas först när du trycker Spara.
+Från Python används `plan.spara()`. Filen visas i `plan.state_file` och kan
+väljas med `state_file=` eller `Grundplan.configure_state_file(...)`.
+
+**Exportera JSON** laddar ned en portabel kopia. **Öppna projekt** läser en
+sådan kopia, som därefter kan sparas under den aktuella nyckeln.
+Utan nyckel behåller **Spara projekt** sin tidigare nedladdningsfunktion.
+En sparad notebook ersätter inte projektfilen. Portabla kopior från Python:
 
 ```python
 plan.spara("grundplan.json")

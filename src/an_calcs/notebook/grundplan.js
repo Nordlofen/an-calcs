@@ -176,20 +176,28 @@ function render({ model, el, readOnly = false }) {
       projectInput.click();
     }
   });
+  const downloadProject = reply => {
+    const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
+    const a = node("a");
+    a.href = url;
+    a.download = "grundplan.json";
+    root.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showMessage("Projektet har exporterats till din nedladdningsmapp.");
+  };
   const saveProject = button("Spara projekt", () => {
     command("save", {}, [], (reply) => {
       if (!reply.ok) return;
-      const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
-      const a = node("a");
-      a.href = url;
-      a.download = "grundplan.json";
-      root.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showMessage("Projektet har exporterats till din nedladdningsmapp.");
+      if (reply.saved_file) showMessage("Projektet sparat i " + reply.saved_file);
+      else downloadProject(reply);
     });
   });
+  const exportJson = button("Exportera JSON", () => {
+    command("export_json", {}, [], reply => { if (reply.ok) downloadProject(reply); });
+  });
+  const projectFile = node("p", "gp-project-file");
   const exports = [];
   for (const [format, mime] of [["PDF", "application/pdf"], ["HTML", "text/html;charset=utf-8"]]) {
     const entry = { busy: false };
@@ -214,7 +222,7 @@ function render({ model, el, readOnly = false }) {
     });
     exports.push(entry);
   }
-  if (!readOnly) toolbar.append(loadDrawing, loadProject, saveProject, ...exports.map(entry => entry.button), node("span", "gp-separator"));
+  if (!readOnly) toolbar.append(loadDrawing, loadProject, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
   const modes = new Map();
   for (const [key, label] of [["pan", "Panorera"], ["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(key));
@@ -370,7 +378,9 @@ function render({ model, el, readOnly = false }) {
   }
   const help = node("p", "gp-help",
     "Dra en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Dra i ritningen för att panorera. Etiketterna följer ritningens zoom.");
-  root.append(heading, toolbar, board, status, legend);
+  root.append(heading, toolbar);
+  if (!readOnly) root.append(projectFile);
+  root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput);
   el.append(root);
 
@@ -932,10 +942,16 @@ function render({ model, el, readOnly = false }) {
     const data = state();
     showHeading();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
+    const storage = data.storage;
+    projectFile.hidden = !storage;
+    projectFile.textContent = storage ? "Projekt: " + storage.key + " · Sparfil: " + storage.name : "";
+    projectFile.title = storage?.path || "";
+    saveProject.title = storage ? "Spara projektet lokalt i " + storage.path : "Ladda ned en portabel JSON-kopia";
+    exportJson.hidden = !storage;
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
     loadDrawing.disabled = data.tags.length > 0;
     loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
-    saveProject.disabled = !bg.url;
+    saveProject.disabled = !storage && !bg.url;
     for (const entry of exports) entry.button.disabled = entry.busy || !bg.url;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
