@@ -203,7 +203,7 @@ function render({ model, el, readOnly = false }) {
   const importActions = node("div", "gp-import-actions");
   importActions.append(importPause, importCancel);
   importBar.append(importInstruction, importLoads,
-    node("p", "gp-field-note", "Klicka på ritningen för att placera nästa sula. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
+    node("p", "gp-field-note", "Dra i ritningen för att panorera. Klicka för att placera nästa sula. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
     const a = node("a");
@@ -1068,9 +1068,14 @@ function render({ model, el, readOnly = false }) {
       heading.append(node("strong", "", label), insulation);
       const geometry = summary ? (tag.values.lang === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
-      const text = summary
+      const showSlidingBlock = sliding().enabled && !insulated && (values.glid_x || values.glid_y);
+      const rawLength = values.glid_L;
+      const length = rawLength == null || rawLength === "" ? NaN : Number(String(rawLength).replace(",", "."));
+      const lengthText = Number(values.lang) === 1 && Number.isFinite(length) && length > 0 && !showSlidingBlock
+        ? " · L " + precise(length) + " m" : "";
+      const text = (summary
         ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
-        : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad");
+        : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad")) + lengthText;
       const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
@@ -1102,7 +1107,7 @@ function render({ model, el, readOnly = false }) {
         marker.title += " · Yttre laster, exklusive sulans egentyngd";
         marker.setAttribute("aria-label", marker.getAttribute("aria-label") + ", yttre laster: " + accessibleLoads.join("; "));
       }
-      if (sliding().enabled && !insulated && (values.glid_x || values.glid_y)) {
+      if (showSlidingBlock) {
         const section = node("span", "gp-tag-sliding");
         section.append(node("strong", "gp-tag-sliding-heading", "Glidmotstånd – globalt"));
         const grid = node("span", "gp-tag-sliding-grid");
@@ -1131,7 +1136,7 @@ function render({ model, el, readOnly = false }) {
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
-      "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
+      "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Värden kan anges även utan isolering; kontrollen används när isolering aktiveras."],
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
@@ -1390,7 +1395,7 @@ function render({ model, el, readOnly = false }) {
       if (fieldSchema.get(name).type === "text") return [name, input.value];
       const raw = input.value.trim().replace(",", ".");
       const value = raw === "" ? NaN : Number(raw);
-      input.setCustomValidity(input.disabled || Number.isFinite(value) ? "" : "Ange ett tal.");
+      input.setCustomValidity(input.disabled || (!input.required && raw === "") || Number.isFinite(value) ? "" : "Ange ett tal.");
       return [name, Number.isFinite(value) ? value : null];
     }));
   }
@@ -1408,22 +1413,24 @@ function render({ model, el, readOnly = false }) {
       if (slidingNames.has(name)) {
         entry.group.hidden = !sliding().enabled;
         const numeric = !["glid_x", "glid_y"].includes(name);
-        const disabled = !sliding().enabled || insulated || (numeric && !selected) || (name === "glid_L" && !strip);
-        entry.row.hidden = (name === "glid_L" && !strip) || (numeric && (!selected || insulated));
+        const length = name === "glid_L";
+        const disabled = !sliding().enabled || (length ? !strip : insulated);
+        entry.row.hidden = length ? !strip : numeric && insulated;
         entry.unit.textContent = name === "V_Ed_EQU" ? (strip ? "kN/m" : "kN") : fieldSchema.get(name).unit;
-        if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled;
+        if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated;
           if (disabled) entry.input.setCustomValidity(""); }
         continue;
       }
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
-      const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
+      const insulationField = name.startsWith("f_d_");
       if (readOnly) {
-        entry.row.hidden = (strip && name === "l") || (!insulated && insulationField);
+        entry.row.hidden = (strip && name === "l") || (!insulated && (insulationField || name.endsWith("_bruk")));
         continue;
       }
       entry.input.disabled = insulationField && !insulated;
-      entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text" && !entry.input.disabled;
+      entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
+        && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
       entry.row.hidden = (strip && name === "l") || (!insulated && name.startsWith("f_d_"));
     }
@@ -1704,8 +1711,9 @@ function render({ model, el, readOnly = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || drag || bulkBusy || importBusy || !background().url) return;
+    if (event.button !== 0 || drag || bulkBusy || !background().url) return;
     const overlay = event.target.closest(".gp-sliding-overlay");
+    if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
       const resize = event.target === axesResize || event.target === legendResize;
       if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
@@ -1730,6 +1738,7 @@ function render({ model, el, readOnly = false }) {
     const position = tag && (positions.get(tag.id) || tag);
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
       moved: false, pointerId: event.pointerId, id: tag?.id, position,
+      placementBlocked: importBusy,
       select: !!tag && !readOnly && (mode === "select" || event.shiftKey || event.ctrlKey || event.metaKey) };
     viewport.setPointerCapture(event.pointerId);
   });
@@ -1773,7 +1782,7 @@ function render({ model, el, readOnly = false }) {
   });
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const { moved, id, overlay, page, select } = drag;
+    const { moved, id, overlay, page, select, placementBlocked } = drag;
     drag = null;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
@@ -1798,7 +1807,7 @@ function render({ model, el, readOnly = false }) {
       });
       return;
     }
-    if (readOnly || moved || mode === "pan" || mode === "select") return;
+    if (readOnly || moved || placementBlocked || mode === "pan" || mode === "select") return;
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;

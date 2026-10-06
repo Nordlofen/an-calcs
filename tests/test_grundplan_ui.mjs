@@ -212,8 +212,11 @@ test("placement advances once per acknowledged click, shows types and creates no
 
 test("failed placement, panning and outside clicks do not discard or advance the queue", t => {
   const ui = setup(t); importFixture(ui);
+  const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
   ui.start(ui.byClass("gp-picture")); ui.move(500, 500); ui.finish(500, 500);
+  near(parseFloat(sheet.style.left), left + 200); near(parseFloat(sheet.style.top), top + 200);
   assert.equal(ui.sent.length, 0, "Dragging the background pans instead of placing");
+  assert.equal(ui.data.state.load_import.index, 0);
   ui.place(-100, -100); assert.equal(ui.sent.length, 0);
   ui.place(); const request = ui.sent.at(-1);
   ui.ack(request, {ok: false, error: "Littera finns redan"});
@@ -221,6 +224,21 @@ test("failed placement, panning and outside clicks do not discard or advance the
   assert.equal(ui.byClass("gp-status").textContent, "Littera finns redan");
   assert.equal(ui.byText("Pausa placering").disabled, false);
   ui.place(); assert.equal(ui.sent.at(-1).index, 0, "Failed support remains available for retry");
+});
+
+test("drawing can pan while placement is awaiting the kernel and pending clicks cannot place another support", t => {
+  const ui = setup(t), imported = importFixture(ui);
+  ui.place(); const request = ui.sent.at(-1), count = ui.sent.length;
+  const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
+  ui.start(ui.byClass("gp-picture"), 450, 450); ui.move(490, 500);
+  near(parseFloat(sheet.style.left), left + 40); near(parseFloat(sheet.style.top), top + 50);
+  imported.added(0, request); ui.finish(490, 500);
+  assert.equal(ui.sent.length, count);
+  assert.equal(ui.data.state.load_import.index, 1, "Pan never consumes the next support");
+  ui.place(600, 450); const second = ui.sent.at(-1);
+  ui.start(ui.byClass("gp-picture"), 450, 450);
+  ui.ack(second, {ok: false, error: "Försök igen"}); ui.finish(450, 450);
+  assert.equal(ui.sent.length, count + 1, "Gesture begun during a pending request is not a new placement");
 });
 
 test("pause, page change, resume and Escape preserve the pending support", t => {
@@ -255,6 +273,35 @@ test("cancelling import leaves placed tags, and other tools pause instead of los
   ui.data.state.load_import = null; ui.changed(); ui.ack(cancel);
   assert.equal(ui.data.state.tags.length, 2);
   assert.equal(ui.byClass("gp-import-bar").hidden, true);
+});
+
+test("imported footing inputs remain editable including unused Bruk and EQU loads", t => {
+  const ui = setup(t), original = structuredClone(ui.tag), imported = importFixture(ui);
+  ui.place(); imported.added(0, ui.sent.at(-1));
+  ui.place(500, 400); imported.added(1, ui.sent.at(-1));
+  ui.data.state.sliding = {enabled: true, check_x: false, check_y: false}; ui.changed();
+  const wall = ui.data.state.tags.find(tag => tag.id === "W1");
+  const pad = structuredClone(ui.data.state.tags.find(tag => tag.id === "P1"));
+  const marker = () => ui.find(e => e.dataset.tagId === "W1");
+  marker().click();
+  for (const [name, text, value] of [["F_vy", "150", 150], ["F_vy_bruk", "60", 60],
+      ["V_Ed_EQU", "70", 70], ["glid_L", "7,5", 7.5], ["b", "0,9", .9]]) {
+    const field = ui.field(name);
+    assert.equal(field.disabled, false, name + " is editable");
+    assert.equal(field.parent.hidden, false, name + " is visible");
+    field.value = text; field.dispatch("input");
+    const request = ui.sent.at(-1);
+    assert.equal(request.action, "update"); assert.equal(request.id, "W1"); assert.equal(request.values[name], value);
+    Object.assign(wall.values, request.values); wall.status = "stale";
+    ui.changed(); ui.ack(request);
+  }
+  assert.deepEqual(ui.tag, original);
+  assert.deepEqual(ui.data.state.tags.find(tag => tag.id === "P1"), pad);
+  ui.byText("Minimera").click(); marker().click();
+  assert.equal(ui.field("glid_L").value, "7,5");
+  assert.equal(ui.field("V_Ed_EQU").value, "70");
+  assert.equal(ui.field("F_vy_bruk").value, "60");
+  assert.equal(wall.values.glid_x, false); assert.equal(wall.values.isolering, false);
 });
 
 function slidingFixture(ui, enabled = true) {
@@ -470,6 +517,52 @@ test("gliding inputs follow footing type and edits hide old resistance without i
   ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("glid_x").disabled, true);
   assert.equal(ui.field("V_Ed_EQU").parent.hidden, true);
+});
+
+for (const readOnly of [false, true]) test(`wall length is visible before choosing sliding directions (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui);
+  ui.tag.values.glid_x = ui.tag.values.glid_y = false; ui.changed();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · L 3 m");
+  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
+  ui.marker().click();
+  const row = readOnly ? ui.find(e => e.getAttribute("aria-label") === "glid_L") : ui.field("glid_L").parent;
+  assert.equal(row.hidden, false);
+  assert.equal(row.parent.hidden, false);
+  if (!readOnly) {
+    assert.equal(ui.field("glid_L").disabled, false);
+    assert.equal(ui.field("glid_L").required, false);
+    ui.field("glid_L").value = "6,2"; ui.field("glid_L").dispatch("input");
+    assert.equal(ui.sent.at(-1).values.glid_L, 6.2);
+    assert.match(ui.byClass("gp-tag-result").textContent, /L 6,2 m$/);
+    assert.match(ui.marker().className, /gp-tag-ok/, "Length alone does not invalidate bearing");
+    ui.field("glid_L").value = ""; ui.field("glid_L").dispatch("input");
+    assert.equal(ui.field("glid_L").validity.valid, true, "Unused length may be left empty");
+    assert.ok(!ui.byClass("gp-tag-result").textContent.includes(" · L "));
+    ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
+    assert.equal(ui.field("glid_L").parent.hidden, false);
+    assert.equal(ui.field("glid_L").disabled, false, "Insulation does not remove wall geometry");
+  }
+});
+
+for (const readOnly of [false, true]) test(`length stays on inactive/new wall labels and is not repeated or applied to pads (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui, false);
+  assert.match(ui.byClass("gp-tag-result").textContent, /L 3 m$/);
+  ui.tag.status = "new"; ui.tag.summary = null; ui.changed();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad · L 3 m");
+  ui.data.state.sliding.enabled = true; ui.changed();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
+  ui.tag.values.isolering = true; ui.changed();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad · L 3 m");
+  ui.tag.values.lang = 0; ui.changed();
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+  ui.tag.values.lang = 1;
+  for (const length of [null, "", "saknas", 0, -1]) {
+    ui.tag.values.glid_L = length; ui.changed();
+    assert.equal(ui.byClass("gp-tag-result").textContent, "Ej beräknad");
+  }
 });
 
 test("global symbol drag and proportional corner resize use drawing zoom and survive delayed replies", t => {
@@ -1114,7 +1207,7 @@ test("raw input drafts survive minimize and stale calculation acknowledgments", 
   assert.equal(ui.label().value, "VS3");
 });
 
-test("insulation toggles required capacities and service loads, retaining drafts and boolean values", t => {
+test("insulation toggles required capacities and service load requirements, retaining editable drafts", t => {
   const ui = setup(t);
   ui.marker().dispatch("click");
   ui.byText("Laster – Brott"); ui.byText("Laster – Bruk"); ui.byText("Isolering");
@@ -1122,7 +1215,7 @@ test("insulation toggles required capacities and service loads, retaining drafts
   assert.equal(enabled.type, "checkbox");
   assert.equal(enabled.checked, false);
   assert.equal(ui.field("f_d_bruk").parent.hidden, true);
-  assert.equal(ui.field("F_vy_bruk").disabled, true);
+  assert.equal(ui.field("F_vy_bruk").disabled, false);
   assert.equal(ui.field("F_vy_bruk").required, false);
   ui.byClass("gp-form").dispatch("submit");
   const soil = ui.sent.at(-1);

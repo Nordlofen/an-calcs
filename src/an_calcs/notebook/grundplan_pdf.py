@@ -121,7 +121,7 @@ def _load_rows(values):
     return rows
 
 
-def _label(tag):
+def _label(tag, sliding_enabled=False):
     lines = [(" ".join(tag["label"].split()), _BOLD, 13)]
     summary = tag.get("summary") if tag["status"] == "calculated" else None
     if summary:
@@ -135,6 +135,13 @@ def _label(tag):
         status = tag["status"] if tag["status"] in ("new", "stale", "error") else "new"
         text = {"new": "Ej beräknad", "stale": "Ändrad · beräkna", "error": "Kontrollera indata"}[status]
         lines.append((text, _REGULAR, 11))
+    values = tag["values"]
+    length = values.get("glid_L")
+    sliding_block = sliding_enabled and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))
+    if (values["lang"] == 1 and isinstance(length, (int, float)) and not isinstance(length, bool)
+            and math.isfinite(length) and length > 0 and not sliding_block):
+        text, font, size = lines[1]
+        lines[1] = (text + " · L " + _number(length, 6) + " m", font, size)
     return lines, status
 
 
@@ -166,7 +173,7 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_
     """Map normalized image positions and CSS label size into page coordinates."""
     _fonts()
     for tag in tags:
-        lines, status = _label(tag)
+        lines, status = _label(tag, sliding_enabled)
         insulated = tag["values"]["isolering"]
         insulation_text = "Med isolering" if insulated else "Utan isolering"
         heading_width = _text_width(*lines[0])

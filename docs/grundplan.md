@@ -104,6 +104,9 @@ Instruktionen visar exempelvis **Placera S.1 – väggsula (1 av 5)**, tillsamma
 med stödets laster och eventuell längd. Klicka på ritningen där etiketten ska
 placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordning.
 Ingen indatadialog öppnas mellan placeringarna. Befintliga sulor behålls.
+Dra i ritningen för att panorera under placeringen; ett kort klick placerar
+nästa sula. Panorering förbrukar inga stöd i kön och fungerar även medan
+en placering väntar på svar från kerneln.
 
 | JSON-fält | Indata i Grundplan |
 | --- | --- |
@@ -126,6 +129,10 @@ Kontrollera geometri, jord, isolering och glidningsinställningar efter
 placeringen, gärna med **Markera flera**. Bidragsriktningarna för glidning är
 inte förvalda. EQU-lasten ska redan innehålla sulans egentyngd; vid beräkning
 behandlas Brott och Bruk på samma sätt som manuellt inmatade yttre laster.
+Importerade värden är vanliga redigerbara indata. Bruklasterna kan ändras även
+utan isolering, och under Glidning kan EQU-lasten, friktionen och vägglängden
+anges innan någon bidragsriktning väljs. Tomma, ännu oanvända värden krävs inte
+för jordens bärighetskontroll.
 
 **Pausa placering** eller Escape behåller kön så att du kan arbeta med
 ritningen och befintliga sulor. Tryck **Fortsätt placera** för att fortsätta.
@@ -251,6 +258,8 @@ Under **Glidning** i respektive sulas indatadialog anges:
   underlaget. Ingen ytterligare partialkoefficient tillkommer.
 - **L:** väggsulans hela bidragande längd i m. Detta är ett separat mått från
   bärighetskontrollens enmetersremsa. För pelarsulor används ingen längdfaktor.
+  Längdfältet visas för väggsulor även innan en bidragsriktning har valts och
+  även med isolering. Det kan lämnas tomt tills sulan ska bidra med glidmotstånd.
 
 Motståndet för en vald riktning beräknas som
 `H_Rd,i = V_Ed,EQU × L × μ_d` för väggsulor och
@@ -270,6 +279,9 @@ och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger. Glidningsblocket döljs på isolerade
 och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avser
 fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
 den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
+När glidningsblocket är dolt visas en angiven positiv vägglängd i stället på
+etikettens resultatrad, exempelvis `Ej beräknad · L 6,2 m` eller
+`U 78 % · bₓ 0,6 m · L 6,2 m`. Detta gäller också PDF och resultat-HTML.
 
 Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
 och dra hörnhandtaget för proportionell storleksändring. Piltangenter flyttar

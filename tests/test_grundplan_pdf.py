@@ -90,6 +90,30 @@ class TestGrundplanPdf(unittest.TestCase):
             finally:
                 pdf_page.close()
 
+    def test_wall_length_is_exported_without_sliding_direction_and_not_repeated_when_active(self):
+        plan = self.plan()
+        ident = self.tag(plan, indata={"glid_L": 6.2})
+        for calculated in (False, True):
+            if calculated:
+                plan.berakna(ident)
+            for enabled in (False, True):
+                plan.glidning = {"enabled": enabled}
+                text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+                self.assertIn(" · L 6,2 m", text)
+                self.assertNotIn("Glidmotstånd – globalt", text)
+        plan.uppdatera(ident, indata={"glid_x": True, "V_Ed_EQU": 120, "glid_mu": .4})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertNotIn(" · L 6,2 m", text)
+        self.assertIn("Glidmotstånd – globalt", text)
+        self.assertEqual(text.count("6,2 m"), 1)
+        plan.uppdatera(ident, indata={"isolering": True})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn(" · L 6,2 m", text)
+        self.assertNotIn("Glidmotstånd – globalt", text)
+        plan.uppdatera(ident, indata={"lang": 0})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertNotIn("6,2 m", text)
+
     def test_legend_scales_all_pdf_content_without_changing_axes_or_calculations(self):
         Image.new("RGB", (1600, 1000), "white").save(self.image)
         plan = self.plan()
