@@ -38,9 +38,15 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 2. Välj **+ Väggsula** eller **+ Pelarsula** och klicka vid konstruktionen.
 3. Ange littera. Öppna indataavsnitten och anpassa samtliga relevanta värden.
    Startvärdena kommer från beräkningens panel-schema och är exempel.
+   Ange brottlasterna under **Laster – Brott**. Om sulan har isolering,
+   kryssa i **Underliggande isolering** under **Isolering**, ange `f_d.brott`
+   och `f_d.bruk` i kPa samt långtidslasterna under **Laster – Bruk**.
 4. Tryck **Beräkna**. Dialogen visar utnyttjandegrad, dimensionerande last,
-   bärförmåga och effektiv bredd.
+   bärförmåga och effektiv bredd. Med isolering visas tre separata kontroller:
+   jord i brott, isolering i brott och isolering i bruk.
 5. Tryck **Minimera**. Taggen visar littera, utnyttjandegrad och bredd.
+   Utnyttjandegraden är den högsta av de aktiva kontrollerna; med isolering
+   visas också vilken kontroll som styr.
    Klicka på taggen igen för att öppna samma indata.
 
 **Flytta:** dra etiketten till önskat läge och släpp. Ett kort klick öppnar
@@ -70,8 +76,8 @@ Varje tagg har oberoende indata.
 
 ## Lastkonvention och resultat
 
-Gränssnittet anropar den befintliga beräkningsfunktionen utan att ändra dess
-formler, koefficienter eller antaganden.
+Jordkontrollen anropar den befintliga beräkningsfunktionen utan att ändra dess
+formler, koefficienter eller antaganden. Isoleringen har en separat beräkning.
 
 - **Väggsula:** `lang=1`. Funktionen använder en referenslängd på **1 m**.
   Krafter anges i kN/m och moment i kNm/m. Värdena förs till funktionen som
@@ -81,17 +87,64 @@ formler, koefficienter eller antaganden.
   `b` respektive `l` i m.
 - Fundamentets egentyngd läggs till enligt den befintliga modellen:
   `F_v = F_vy + 1.5 * 25 * b * l_ref * t`.
-- Utnyttjandegraden definieras här som `U = F_v / F_bd`. För väggsulor avser
+- Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. För väggsulor avser
   både täljare och nämnare en meter. `F_bd` är exakt den bärförmåga som
   ursprungsfunktionen returnerar: `q_bd * b` respektive `q_bd * b * l`.
-  Gränssnittet inför ingen alternativ effektiv-area-modell.
+  Denna jordkontroll är oförändrad när isoleringskontrollen aktiveras.
 - I den befintliga funktionens `details` står vissa lastposter i kN även
   för enmetersremsan. Planvyn visar dem med den uttryckliga per-meter-
-  konventionen ovan. De returnerade `details` ändras inte.
+  konventionen ovan. Jordens poster i `details` ändras inte; med isolering
+  tillkommer poster med namn som börjar med `isolering_`.
 
-Kontrollen avser jordens bärighet i brottgränstillstånd enligt repositoryts
+Jordkontrollen avser bärighet i brottgränstillstånd enligt repositoryts
 befintliga Mathcad-baserade modell. Sättningar, betongdimensionering,
 armering och pålbärförmåga ingår inte i taggens utnyttjandegrad.
+
+## Isolering under sulan
+
+Kryssrutan **Underliggande isolering** aktiverar kontrollen. När den är
+avmarkerad används bara jordkontrollen, och fälten för isolering och brukslast
+behöver inte fyllas i. Tidigare angivna värden behålls vid avmarkering.
+Isoleringsval, bärförmågor och brukslaster följer med vid kopiering och sparning.
+
+Ange färdiga dimensionerande bärförmågor `f_d.brott` och `f_d.bruk` i kPa,
+där bruksvärdet gäller långtidsbelastning. Programmet tillämpar ingen extra
+materialfaktor och väljer inte materialvärden automatiskt. Korttidsvärden
+och långtidsvärden i produktdata avser olika provningsvillkor; se exempelvis
+[BEWI:s tekniska EPS-tabell](https://www.bewi.com/wp-content/uploads/2023/09/Teknisk-tabell-EPS-SE-11-2023.pdf).
+Produktklassens tryckhållfasthet omvandlas inte automatiskt till `f_d`.
+
+**Laster – Bruk** har egna fält för vertikallast, horisontallaster,
+inspänningsmoment och hävarm. Ange den färdiga långtidslastkombinationen,
+exklusive sulans egentyngd, med samma teckenkonvention som brottlasterna.
+Vertikal brukslast och båda bärförmågorna saknar startvärden och måste anges
+för att kontrollen ska kunna genomföras.
+
+Beräkningen använder följande uttryck separat i brott och bruk:
+
+```text
+EG_k = 25 × b × l_ref × t
+N_brott = F_vy + 1,5 × EG_k
+N_bruk  = F_vy_bruk + 1,0 × EG_k
+
+e_b = abs(e_b_plac + (M_insp_l − F_hb × l_h) / N)
+e_l = abs(e_l_plac + (M_insp_b − F_hl × l_h) / N)
+b_eff = b − 2 × e_b
+l_eff = l_ref − 2 × e_l
+q_Ed = N / (b_eff × l_eff)
+U_isolering = q_Ed / f_d
+```
+
+Varje kombination använder sina egna laster, moment och hävarm. `l_ref` är
+1 m för väggsula och `l` för pelarsula. Egentyngdsfaktorn 1,5 i brott följer
+den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
+genereras från karakteristiska laster. Effektiva mått, total last och
+bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjandegrad.
+
+Isoleringen förutsätts täcka hela den effektiva arean. Kontrollen gäller
+trycket över effektiv area, inte maximalt kanttryck. Den beräknar inte
+krypdeformation eller sättning. Resultatavsnitten **Isolering – Brott** och
+**Isolering – Bruk** visar last, effektiva mått och area, lasteffekt och bärförmåga.
 
 ## Spara och återöppna
 
@@ -110,6 +163,9 @@ indata. Sparade resultat behandlas aldrig som verifierade numeriska data.
 Om beräkningskodens versionsavtryck har ändrats markeras taggarna som
 inaktuella och måste beräknas igen. Ofullständiga indata får sparas som
 utkast.
+
+Projekt sparas i formatversion 2. Äldre projekt i formatversion 1 kan öppnas;
+deras sulor får isoleringen avstängd och befintliga jordindata bevaras.
 
 En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
 1 000 taggar. Visningsbilden begränsas till 2 800 pixlar längs längsta sidan
@@ -131,6 +187,13 @@ plan.uppdatera(tagg_id, x=0.45, y=0.3)  # Flytta utan att ändra resultat.
 kopia_id = plan.kopiera(tagg_id, 0.6, 0.4, indata={"F_vy": 150.0})
 plan.berakna(kopia_id)
 plan.etikettstorlek = 120  # Grundstorlek i procent, vid 100 % ritningszoom.
+
+# Exempelvärden: anpassa bärförmågor och långtidslast för aktuellt projekt.
+plan.uppdatera(tagg_id, indata={
+    "isolering": True, "f_d_brott": 200.0, "f_d_bruk": 80.0,
+    "F_vy_bruk": 60.0,
+})
+details = plan.berakna(tagg_id)
 
 from an_print import CalcBlock
 CalcBlock(details).SR(visa=True, etikett=True)
@@ -158,4 +221,6 @@ python -m unittest discover -s tests
 Notebooktesterna hoppas över om tilläggen saknas. Med tilläggen installerade
 kontrollerar de bland annat per-meter-laster, oberoende taggar,
 ogiltiga eller ändrade indata, projektets återöppning och PDF med flera sidor.
+Isoleringstesterna omfattar olika effektiva areor i brott/bruk, egentyngd,
+styrande kontroll, saknade värden och import av äldre projekt.
 Interaktionerna kan testas med `node tests/test_grundplan_ui.mjs`.

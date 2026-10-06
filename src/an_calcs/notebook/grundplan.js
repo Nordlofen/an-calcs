@@ -142,6 +142,8 @@ function render({ model, el }) {
   const minimize = button("Minimera", closeDialog);
   dialogHeader.append(dialogTitle, minimize);
   const form = node("form", "gp-form");
+  // Reveal invalid fields inside collapsed groups before browser validation.
+  form.noValidate = true;
   const fieldsBox = node("div", "gp-fields");
   const labelRow = node("label", "gp-label-row", "Littera");
   const labelInput = node("input");
@@ -315,24 +317,31 @@ function render({ model, el }) {
         : ({ new: "Ej beräknad", stale: "Ändrad · beräkna", error: "Kontrollera indata" }[tagState] || "Ej beräknad");
       marker.setAttribute("aria-label", tag.label + ", " + text);
       marker.append(heading, node("span", "", text));
+      if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
       markers.append(marker);
     }
   }
   const groups = [
     ["Geometri", ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac"]],
-    ["Laster", ["F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h"]],
+    ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h"],
+      "Yttre dimensionerande laster. Sulans egentyngd tillkommer med faktor 1,5."],
+    ["Laster – Bruk", ["F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk"],
+      "Yttre långtidslaster för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Aktivera underliggande isolering för att ange värden."],
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
+    ["Isolering", ["isolering", "f_d_brott", "f_d_bruk"],
+      "Ange färdiga dimensionerande bärförmågor. Kontroll: N / (b_eff × l_eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
   function buildFields(tag) {
     fieldsBox.replaceChildren();
     inputs.clear();
     const draft = drafts.get(tag.id);
-    for (const [index, [label, names]] of groups.entries()) {
+    for (const [index, [label, names, note]] of groups.entries()) {
       const group = node("details", "gp-group");
       group.open = index < 2;
       group.append(node("summary", "", label));
+      if (note) group.append(node("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
         const row = node("label", "gp-field");
@@ -346,16 +355,21 @@ function render({ model, el }) {
             opt.value = option.value;
             input.append(opt);
           }
+        } else if (field.type === "bool") {
+          input.type = "checkbox";
+          row.classList.add("gp-check-field");
         } else {
           input.type = "text";
           input.inputMode = "decimal";
           input.required = true;
         }
-        input.value = draft?.values[name] ?? tag.values[name] ?? "";
+        if (field.type === "bool") input.checked = draft?.values[name] ?? tag.values[name] ?? false;
+        else input.value = draft?.values[name] ?? tag.values[name] ?? "";
         const unit = node("span", "gp-unit", field.unit);
-        row.append(caption, input, unit);
+        if (field.type === "bool") row.append(input, caption);
+        else row.append(caption, input, unit);
         group.append(row);
-        inputs.set(name, { input, unit, row });
+        inputs.set(name, { input, unit, row, group });
         input.addEventListener("input", () => edit(true));
       }
       fieldsBox.append(group);
@@ -363,21 +377,27 @@ function render({ model, el }) {
   }
   function readValues() {
     return Object.fromEntries([...inputs].map(([name, { input }]) => {
+      if (input.type === "checkbox") return [name, input.checked];
       const raw = input.value.trim().replace(",", ".");
       const value = raw === "" ? NaN : Number(raw);
-      input.setCustomValidity(Number.isFinite(value) ? "" : "Ange ett tal.");
+      input.setCustomValidity(input.disabled || Number.isFinite(value) ? "" : "Ange ett tal.");
       return [name, Number.isFinite(value) ? value : null];
     }));
   }
   function fieldUnits() {
     const strip = inputs.get("lang")?.input.value === "1";
+    const insulated = inputs.get("isolering")?.input.checked;
     basis.textContent = strip
       ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
       : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     for (const [name, entry] of inputs) {
       const unit = fieldSchema.get(name).unit;
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
-      entry.row.hidden = strip && name === "l";
+      const insulationField = name.endsWith("_bruk") || name === "f_d_brott";
+      entry.input.disabled = insulationField && !insulated;
+      entry.input.required = entry.input.type !== "checkbox" && !entry.input.disabled;
+      if (entry.input.disabled) entry.input.setCustomValidity("");
+      entry.row.hidden = (strip && name === "l") || (!insulated && name.startsWith("f_d_"));
     }
   }
   function edit(calculationInput) {
@@ -389,10 +409,10 @@ function render({ model, el }) {
     // Keep raw text until calculation is acknowledged, including across minimization.
     drafts.set(active, {
       label: labelInput.value,
-      values: Object.fromEntries([...inputs].map(([name, { input }]) => [name, input.value])),
+      values: Object.fromEntries([...inputs].map(([name, { input }]) => [name, input.type === "checkbox" ? input.checked : input.value])),
     });
-    const values = readValues();
     fieldUnits();
+    const values = readValues();
     showResult();
     renderMarkers();
     const label = labelInput.value.trim();
@@ -402,6 +422,9 @@ function render({ model, el }) {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const values = readValues();
+    for (const { input, group } of inputs.values()) {
+      if (!input.disabled && input.validity && !input.validity.valid) group.open = true;
+    }
     if (!form.reportValidity()) return;
     const id = active;
     const revision = edits.get(id) || 0;
@@ -440,13 +463,38 @@ function render({ model, el }) {
     headline.append(node("span", "", "Utnyttjandegrad"), node("strong", "", number(r.utnyttjandegrad * 100, 1) + "%"));
     const table = node("dl", "gp-result-list");
     for (const [label, value] of [
-      ["Dimensionerande last", number(r.last) + " " + r.lastenhet],
-      ["Bärförmåga", number(r.barformaga) + " " + r.lastenhet],
+      ["Dimensionerande last – brott", number(r.last) + " " + r.lastenhet],
+      ["Jordens bärförmåga", number(r.barformaga) + " " + r.lastenhet],
       ["Bärförmåga q_bd", number(r.q_bd) + " kPa"],
       ["Effektiv bredd", number(r.b_ef, 3) + " m"],
     ]) table.append(node("dt", "", label), node("dd", "", value));
-    results.append(headline, table, node("p", "gp-result-note",
-      "U = last / bärförmåga enligt befintlig modell. Avser jordens bärighet i brottgränstillstånd."));
+    results.append(headline);
+    if (r.isolering) {
+      const checks = node("dl", "gp-result-list gp-checks");
+      for (const check of r.kontroller) {
+        checks.append(node("dt", "", check.label), node("dd", check.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail",
+          number(check.utnyttjandegrad * 100, 1) + "%"));
+      }
+      results.append(node("p", "gp-field-note", "Styrande: " + r.styrande), checks);
+    }
+    results.append(table, node("p", "gp-result-note", "Jord: U = last / bärförmåga i brottgränstillstånd enligt befintlig modell."));
+    if (r.isolering) {
+      for (const [phase, label] of [["brott", "Brott"], ["bruk", "Bruk · långtidslast"]]) {
+        const values = r.isolering;
+        const group = node("details", "gp-group gp-insulation-result");
+        group.append(node("summary", "", "Isolering – " + label));
+        const list = node("dl", "gp-result-list");
+        for (const [name, caption, unit] of [
+          ["N", "Last inkl. egentyngd", r.lastenhet],
+          ["b_eff", "Effektiv bredd", "m"], ["l_eff", "Effektiv längd", "m"],
+          ["A_eff", "Effektiv area", "m²"],
+          ["q_Ed", "Lasteffekt q_Ed", "kPa"], ["f_d", "Bärförmåga f_d." + phase, "kPa"],
+        ]) list.append(node("dt", "", caption), node("dd", "", number(values["isolering_" + name + "_" + phase], 3) + " " + unit));
+        group.append(list);
+        results.append(group);
+      }
+      results.append(node("p", "gp-result-note", "Isolering: q_Ed = N / (b_eff × l_eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
+    }
   }
   function update() {
     const bg = background();
@@ -487,7 +535,10 @@ function render({ model, el }) {
         buildFields(tag);
       } else if (!dirty.has(tag.id)) {
         for (const [name, { input }] of inputs) {
-          if (document.activeElement !== input) input.value = draft?.values[name] ?? tag.values[name] ?? "";
+          if (document.activeElement !== input) {
+            if (input.type === "checkbox") input.checked = draft?.values[name] ?? tag.values[name] ?? false;
+            else input.value = draft?.values[name] ?? tag.values[name] ?? "";
+          }
         }
         if (document.activeElement !== labelInput) labelInput.value = draft?.label ?? tag.label;
       }

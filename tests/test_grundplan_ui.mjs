@@ -13,6 +13,7 @@ class Element {
     this.style = { setProperty(name, value) { this[name] = value; } };
     this.className = this.textContent = this.value = "";
     this.hidden = false;
+    this.checked = false;
     this.clientWidth = 848;
     this.clientHeight = 648;
     this.offsetWidth = 355;
@@ -44,7 +45,10 @@ class Element {
   setAttribute() {}
   removeAttribute() {}
   setCustomValidity(value) { this.validityMessage = value; }
-  reportValidity() { return true; }
+  get validity() {
+    return { valid: this.disabled || (!this.validityMessage && (!this.required || this.value !== "")) };
+  }
+  reportValidity() { return this.validity.valid && this.children.every(child => child.reportValidity()); }
   focus() { document.activeElement = this; }
   closest(selector) {
     if (selector.startsWith(".") ? this.className.split(" ").includes(selector.slice(1)) : this.tag === selector) return this;
@@ -75,6 +79,7 @@ class Element {
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "l_h", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
+names.push("isolering", "f_d_brott", "f_d_bruk", "F_vy_bruk", "F_hb_bruk", "F_hl_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "l_h_bruk");
 
 function setup(t) {
   globalThis.document = { createElement: tag => new Element(tag), activeElement: null };
@@ -83,10 +88,11 @@ function setup(t) {
   globalThis.requestAnimationFrame = fn => fn();
   const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page: 1,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
-    summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
+      summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
+  Object.assign(tag.values, {isolering: false, f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   const data = { state: { title: "Test", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page: 1, page_count: 1 },
-    schema: { fields: names.map(name => ({ name, label: name, type: name === "lang" ? "choice" : "number",
+    schema: { fields: names.map(name => ({ name, label: name, type: name === "isolering" ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], handlers = new Map();
   const model = { get: name => data[name], send: payload => sent.push(payload),
@@ -275,4 +281,78 @@ test("raw input drafts survive minimize and stale calculation acknowledgments", 
   ui.changed(); ui.ack(second); reopen();
   assert.equal(ui.field("b").value, "1.2");
   assert.equal(ui.label().value, "VS3");
+});
+
+test("insulation toggles required capacities and service loads, retaining drafts and boolean values", t => {
+  const ui = setup(t);
+  ui.marker().dispatch("click");
+  ui.byText("Laster – Brott"); ui.byText("Laster – Bruk"); ui.byText("Isolering");
+  const enabled = ui.field("isolering");
+  assert.equal(enabled.type, "checkbox");
+  assert.equal(enabled.checked, false);
+  assert.equal(ui.field("f_d_bruk").parent.hidden, true);
+  assert.equal(ui.field("F_vy_bruk").disabled, true);
+  assert.equal(ui.field("F_vy_bruk").required, false);
+  ui.byClass("gp-form").dispatch("submit");
+  const soil = ui.sent.at(-1);
+  assert.equal(soil.action, "calculate", "Empty inactive fields cannot block the soil calculation");
+  assert.equal(soil.values.isolering, false);
+  ui.ack(soil);
+  enabled.checked = true; enabled.dispatch("input");
+  assert.equal(ui.field("f_d_brott").parent.hidden, false);
+  assert.equal(ui.field("F_vy_bruk").disabled, false);
+  assert.equal(ui.field("F_vy_bruk").required, true);
+  const before = ui.sent.length;
+  ui.byClass("gp-form").dispatch("submit");
+  assert.equal(ui.sent.length, before, "Active insulation requires strengths and an explicit long-term load");
+  assert.equal(ui.field("F_vy_bruk").closest("details").open, true);
+  assert.equal(ui.field("f_d_bruk").closest("details").open, true);
+  for (const [name, value] of [["F_vy_bruk", "70,5"], ["f_d_brott", "200"], ["f_d_bruk", "80"]]) {
+    ui.field(name).value = value; ui.field(name).dispatch("input");
+  }
+  ui.byText("Minimera").dispatch("click"); ui.marker().dispatch("click");
+  assert.equal(ui.field("isolering").checked, true);
+  assert.equal(ui.field("F_vy_bruk").value, "70,5");
+  ui.byClass("gp-form").dispatch("submit");
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "calculate");
+  assert.equal(request.values.isolering, true);
+  assert.equal(request.values.F_vy_bruk, 70.5);
+  assert.equal(request.values.f_d_brott, 200);
+  assert.equal(request.values.f_d_bruk, 80);
+  ui.field("isolering").checked = false; ui.field("isolering").dispatch("input");
+  assert.equal(ui.field("f_d_bruk").value, "80", "Deactivation retains values for reuse");
+  ui.ack(request);
+  assert.equal(ui.field("isolering").checked, false, "A stale calculation cannot reactivate insulation");
+  ui.byText("Kopiera sula").dispatch("click"); ui.place();
+  const copy = ui.sent.at(-1);
+  assert.equal(copy.action, "copy");
+  assert.equal(copy.values.isolering, false);
+  assert.equal(copy.values.F_vy_bruk, 70.5);
+  assert.equal(copy.values.f_d_bruk, 80);
+});
+
+test("the label and result show governing insulation with separate soil, ULS and SLS checks", t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.summary, {
+    utnyttjandegrad: 1.6, styrande: "Isolering · bruk",
+    kontroller: [
+      {label: "Jord · brott", utnyttjandegrad: .75},
+      {label: "Isolering · brott", utnyttjandegrad: .575},
+      {label: "Isolering · bruk", utnyttjandegrad: 1.6},
+    ],
+    isolering: Object.fromEntries(["brott", "bruk"].flatMap(phase =>
+      ["N", "b_eff", "l_eff", "A_eff", "q_Ed", "f_d"].map(name => ["isolering_" + name + "_" + phase, 1]))),
+  });
+  ui.changed();
+  assert.match(ui.marker().className, /gp-tag-over/);
+  assert.ok(ui.marker().children.some(child => child.textContent === "Styrande: Isolering · bruk"));
+  ui.marker().dispatch("click");
+  const checks = ui.byClass("gp-checks").children;
+  assert.deepEqual(checks.map(child => child.textContent), [
+    "Jord · brott", "75%", "Isolering · brott", "57,5%", "Isolering · bruk", "160%",
+  ]);
+  assert.match(checks[5].className, /gp-fail/);
+  assert.match(checks[1].className, /gp-pass/);
+  ui.byText("Isolering – Brott"); ui.byText("Isolering – Bruk · långtidslast");
 });

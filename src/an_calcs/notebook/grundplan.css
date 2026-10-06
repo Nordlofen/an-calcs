@@ -82,6 +82,12 @@
 .an-grundplan .gp-field { display: grid; grid-template-columns: minmax(0, 1fr) 75px 44px; gap: 7px; align-items: center; padding: 4px 0; }
 .an-grundplan .gp-field-caption { font-size: 11px; line-height: 1.3; }
 .an-grundplan .gp-field input { width: 100%; text-align: right; }
+.an-grundplan .gp-check-field { display: flex; gap: 9px; padding: 9px 0; }
+.an-grundplan .gp-check-field input { width: 16px; height: 16px; margin: 0; accent-color: var(--gp-accent); }
+.an-grundplan .gp-field input:disabled { background: #f2f5f4; color: #829091; }
+.an-grundplan .gp-field-note { font-size: 11px; color: var(--gp-muted); padding: 2px 0 8px; }
+.an-grundplan .gp-checks { padding-bottom: 10px; border-bottom: 1px solid var(--gp-line); }
+.an-grundplan .gp-governing { font-size: 10px; }
 .an-grundplan .gp-field select { grid-column: 2 / 4; width: 100%; padding: 5px 2px; border: 1px solid #b8c9cd; border-radius: 4px; background: white; font-size: 11px; }
 .an-grundplan .gp-unit { font-size: 10px; color: var(--gp-muted); }
 .an-grundplan .gp-results { border-top: 1px solid var(--gp-line); padding: 12px 0; font-size: 12px; }

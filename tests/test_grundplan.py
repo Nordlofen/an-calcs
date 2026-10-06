@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -59,6 +60,111 @@ class TestGrundplan(unittest.TestCase):
         self.plan.uppdatera(ident, indata={"l": 1})
         self.plan.berakna(ident)
         self.assertEqual(first, self.plan.taggar[0]["summary"])
+
+    def insulated(self):
+        return self.add(indata={
+            "isolering": True, "b": 1, "t": 0.4, "F_vy": 100,
+            "F_vy_bruk": 70, "f_d_brott": 200, "f_d_bruk": 50,
+        })
+
+    def test_isolering_bruk_kan_styra_trots_godkand_jord_och_brott(self):
+        ident = self.insulated()
+        details = self.plan.berakna(ident)
+        summary = self.plan._tag(ident)["summary"]
+        checks = {check["id"]: check["utnyttjandegrad"] for check in summary["kontroller"]}
+        self.assertLess(checks["jord_brott"], 1)
+        self.assertAlmostEqual(checks["isolering_brott"], 115 / 200)
+        self.assertAlmostEqual(checks["isolering_bruk"], 80 / 50)
+        self.assertAlmostEqual(summary["utnyttjandegrad"], 1.6)
+        self.assertEqual(summary["styrande"], "Isolering · bruk")
+        self.assertAlmostEqual(summary["isolering"]["isolering_A_eff_bruk"], 1)
+        outputs = {item["namn"]: item["value"] for item in details["slutresultat"]["items"]}
+        self.assertEqual(outputs["isolering_U_bruk"], summary["utnyttjandegrad"])
+        self.assertIn("F_bd", outputs)
+
+    def test_avstangd_isolering_behaller_indata_men_anvander_bara_jord(self):
+        ident = self.insulated()
+        self.plan.berakna(ident)
+        self.plan.uppdatera(ident, indata={"isolering": False})
+        self.assertIsNone(self.plan._tag(ident)["summary"])
+        details = self.plan.berakna(ident)
+        tag = self.plan._tag(ident)
+        expected = allmanna_barighetsekvationen([
+            tag["values"][name] for name in allmanna_barighetsekvationen.panel_schema["px"]
+        ])
+        self.assertEqual(details, expected)
+        self.assertEqual(tag["values"]["f_d_bruk"], 50)
+        self.assertEqual(len(tag["summary"]["kontroller"]), 1)
+        self.assertNotIn("isolering", tag["summary"])
+        self.assertLess(tag["summary"]["utnyttjandegrad"], 1)
+
+    def test_isoleringsfel_tar_bort_tidigare_godkant_resultat(self):
+        ident = self.insulated()
+        for invalid in ({"f_d_bruk": None}, {"F_vy_bruk": None}, {"f_d_brott": 0},
+                        {"f_d_bruk": -1}, {"M_insp_l_bruk": 1000}):
+            with self.subTest(invalid=invalid):
+                self.plan.uppdatera(ident, indata={
+                    "f_d_brott": 200, "f_d_bruk": 150, "F_vy_bruk": 70, "M_insp_l_bruk": 0,
+                })
+                self.plan.berakna(ident)
+                self.assertLess(self.plan._tag(ident)["summary"]["utnyttjandegrad"], 1)
+                self.plan.uppdatera(ident, indata=invalid)
+                with self.assertRaises(ValueError):
+                    self.plan.berakna(ident)
+                self.assertEqual(self.plan._tag(ident)["status"], "error")
+                self.assertIsNone(self.plan._tag(ident)["summary"])
+                self.assertNotIn(ident, self.plan.resultat)
+        with self.assertRaisesRegex(ValueError, "True eller False"):
+            self.plan.uppdatera(ident, indata={"isolering": 1})
+
+    def test_isolering_kopieras_sparas_och_ateroppnas_oberoende(self):
+        ident = self.insulated()
+        self.plan.berakna(ident)
+        original = self.plan.taggar[0]
+        copied_id = self.plan.kopiera(ident, 0.8, 0.8)
+        self.assertEqual(self.plan._tag(copied_id)["values"], original["values"])
+        self.plan.uppdatera(copied_id, indata={"F_vy_bruk": 50, "f_d_bruk": 200})
+        self.plan.berakna(copied_id)
+        self.assertEqual(self.plan._tag(ident), original)
+        loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "isolering.json"))
+        self.addCleanup(loaded.close)
+        self.assertEqual(loaded.taggar, self.plan.taggar)
+        self.assertEqual(loaded.resultat, self.plan.resultat)
+        self.assertEqual(loaded._document()["version"], 2)
+
+    def test_aldre_projekt_far_isolering_avstangd_och_samma_jordresultat(self):
+        ident = self.add()
+        details = self.plan.berakna(ident)
+        document = self.plan._document()
+        document["version"] = 1
+        soil_file = Path(__file__).resolve().parents[1] / "src/an_calcs/geo/allmanna_barighetsekvationen.py"
+        document["calculator_version"] = hashlib.sha256(soil_file.read_bytes()).hexdigest()
+        old_values = document["tags"][0]["values"]
+        document["tags"][0]["values"] = {
+            name: old_values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
+        }
+        self.plan._load_document(json.dumps(document).encode())
+        tag = self.plan._tag(ident)
+        self.assertIs(tag["values"]["isolering"], False)
+        self.assertIsNone(tag["values"]["F_vy_bruk"])
+        self.assertIsNone(tag["values"]["f_d_brott"])
+        self.assertIsNone(tag["values"]["f_d_bruk"])
+        self.assertEqual(tag["status"], "calculated")
+        self.assertEqual(self.plan.resultat[ident], details)
+
+    def test_ui_isolering_beraknas_och_saknad_brukslast_ger_fel(self):
+        ident = self.insulated()
+        with patch.object(self.plan, "send") as send:
+            command = {"action": "calculate", "id": ident, "label": "VS1",
+                       "values": self.plan._tag(ident)["values"], "request": 1}
+            self.plan._on_message(None, command, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+            self.assertEqual(self.plan._tag(ident)["summary"]["styrande"], "Isolering · bruk")
+            command["values"] = {**command["values"], "F_vy_bruk": None}
+            self.plan._on_message(None, command, [])
+            self.assertFalse(send.call_args.args[0]["ok"])
+            self.assertIn("F_vy_bruk", send.call_args.args[0]["error"])
+            self.assertIsNone(self.plan._tag(ident)["summary"])
 
     def test_fel_ersatter_gammalt_resultat_och_kan_repareras(self):
         ident = self.add()

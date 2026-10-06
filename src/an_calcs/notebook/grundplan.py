@@ -19,18 +19,26 @@ except ImportError as exc:
         'Grundplan kräver notebook-tilläggen. Installera med: pip install -e ".[notebook]"'
     ) from exc
 
-from an_calcs.geo import allmanna_barighetsekvationen
+from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 
 
 _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
-_CALCULATOR_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes()).hexdigest()
+_INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
+_GEOTECH_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes()).hexdigest()
+_CALCULATOR_VERSION = hashlib.sha256(_CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes()).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _MAX_FILE_BYTES = 40 * 1024 * 1024
 _MAX_PROJECT_BYTES = 60 * 1024 * 1024
 _MAX_TAGS = 1000
 _FIELDS = allmanna_barighetsekvationen.panel_schema["fields"]
 _NAMES = allmanna_barighetsekvationen.panel_schema["px"]
+_INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"] if field["name"] not in _NAMES]
+_EXTRA_FIELDS = [
+    {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
+    *_INSULATION_FIELDS,
+]
+_FIELDS = [*_FIELDS, *_EXTRA_FIELDS]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 
 
@@ -41,10 +49,16 @@ def _number(value, name):
 
 
 def _values(values, *, draft=False):
-    if not isinstance(values, dict) or set(values) != set(_NAMES):
-        raise ValueError("Indata måste innehålla precis beräkningens 25 fält.")
+    if not isinstance(values, dict) or not set(_NAMES) <= set(values) or set(values) - set(_DEFAULTS):
+        raise ValueError("Indata måste innehålla jordberäkningens 25 fält och endast kända tilläggsfält.")
+    values = {**_DEFAULTS, **values}
+    if not isinstance(values["isolering"], bool):
+        raise ValueError("isolering måste vara True eller False.")
     for name, value in values.items():
-        if draft and value is None and name != "lang":
+        if name == "isolering":
+            continue
+        optional = name not in _NAMES and not values["isolering"]
+        if (draft or optional) and value is None and name != "lang":
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -140,6 +154,20 @@ def _calculate(values):
         "b": values["b"],
         "b_ef": result["b_ef"],
     }
+    checks = [{"id": "jord_brott", "label": "Jord · brott", "utnyttjandegrad": utilization}]
+    if values["isolering"]:
+        insulation = isolering_under_sula([values[name] for name in isolering_under_sula.panel_schema["px"]])
+        insulation_values = {item["namn"]: item["value"] for section in ("delresultat", "slutresultat")
+                             for item in insulation[section]["items"]}
+        summary["isolering"] = insulation_values
+        for phase in ("brott", "bruk"):
+            checks.append({"id": "isolering_" + phase, "label": "Isolering · " + phase,
+                           "utnyttjandegrad": insulation_values["isolering_U_" + phase]})
+        for section in ("metodbeskrivning", "indata", "delresultat", "slutresultat", "ekvationer"):
+            details[section]["items"].extend(insulation[section]["items"])
+    governing = max(checks, key=lambda check: check["utnyttjandegrad"])
+    summary.update(kontroller=checks, styrande=governing["label"],
+                   utnyttjandegrad=governing["utnyttjandegrad"])
     return details, summary
 
 
@@ -171,6 +199,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = str(titel)
         self._label_size = 100
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
+        self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS)}
         self.background = {}
         if ritning is not None:
             path = Path(ritning)
@@ -323,7 +352,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 1,
+            "version": 2,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "label_size": self._label_size,
@@ -376,8 +405,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") != 1:
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1 eller 2.")
         label_size = _label_size(document.get("label_size", 100))
         drawing = document["drawing"]
         source = base64.b64decode(drawing["data"], validate=True)
@@ -402,7 +431,9 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved["values"], draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
-            if saved.get("calculated") is True and same_calculator:
+            legacy_soil = (document["version"] == 1 and not tag["values"]["isolering"]
+                           and document.get("calculator_version") == _GEOTECH_VERSION)
+            if saved.get("calculated") is True and (same_calculator or legacy_soil):
                 try:
                     details, summary = _calculate(tag["values"])
                     tag.update(status="calculated", summary=summary)

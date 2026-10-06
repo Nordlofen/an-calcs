@@ -135,6 +135,14 @@ Indata är grupperade i utfällbara avsnitt. Dra dialogens rubrik för att
 flytta den; dra i ritningen för att panorera och använd zoomknapparna för
 att förstora. PDF-sidor väljs i verktygsraden och har separata markeringar.
 
+Indata innehåller **Laster – Brott**, **Laster – Bruk** och **Isolering**.
+Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
+i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
+`N / (b_eff × l_eff)` för respektive lastkombination. Resultatet visar
+jordkontrollen och båda isoleringskontrollerna; etiketten visar högsta
+utnyttjandegrad och styrande kontroll. Se lastantagandena i
+[användningsbeskrivningen](docs/grundplan.md#isolering-under-sulan).
+
 Dra en etikett för att flytta den. **Kopiera sula** i indatadialogen tar med
 alla indata till en ny sula som placeras med ett klick på ritningen. Kopian
 får eget littera och kan ändras oberoende av originalet. Reglaget
