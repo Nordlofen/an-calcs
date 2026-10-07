@@ -1850,12 +1850,12 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "d", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
       "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Värden kan anges även utan isolering; kontrollen används när isolering aktiveras."],
-    ["Jord - Allm. Bärighets.", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha",
+    ["Jord - Allm. Bärighets.", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "d", "delta_h", "beta", "alpha",
       "eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
       "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Trycket över effektiv area kontrolleras i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],

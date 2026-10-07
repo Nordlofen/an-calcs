@@ -346,7 +346,7 @@ Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
 ny beräkning har körts. Att bara byta littera påverkar inte beräkningen.
 Varje tagg har oberoende indata.
 
-Jorddata, grundvatten och samtliga koefficienter samlas under
+Jorddata, grundvatten, grundläggningsdjup **d** och samtliga koefficienter samlas under
 **Jord - Allm. Bärighets.** i dialogen, flerredigeringen och tabellen.
 Samma indelning används i resultat-HTML.
 

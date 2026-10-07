@@ -674,14 +674,14 @@ for (const readOnly of [false, true]) test(`soil and coefficients share one inpu
   const ui = setup(t, {readOnly}), original = structuredClone(ui.tag);
   ui.marker().click();
   const label = "Jord - Allm. Bärighets.", section = inputSection(ui, label);
-  const fields = ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
+  const fields = ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "d", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
   for (const name of fields) {
     const caption = ui.find(e => e.className === "gp-field-caption" && e.textContent === name);
     assert.equal(caption.closest("details"), section);
     assert.ok(ui.elements().some(e => e.tag === "th" && e.getAttribute("aria-label") === label + ": " + name));
   }
   const header = ui.find(e => e.className === "gp-table-group" && e.children[0]?.textContent === "▾ " + label);
-  assert.equal(header.getAttribute("colspan"), "12");
+  assert.equal(header.getAttribute("colspan"), "13");
   assert.equal(ui.elements().some(e => ["Jord och grundvatten", "Koefficienter"].includes(e.textContent)), false);
   assert.deepEqual(ui.tag, original);
   if (!readOnly) {
