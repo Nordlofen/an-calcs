@@ -65,6 +65,8 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 _TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
 _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascending"}}
+_LAYOUT_DEFAULTS = {"board_height": None, "table_height": None}
+_LAYOUT_LIMITS = {"board_height": (280, 2400), "table_height": (160, 1800)}
 _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 # These fields have different meanings/units for strips and pads.
@@ -127,6 +129,16 @@ def _table_view(value):
             or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status"})
             or sort["direction"] not in ("ascending", "descending")):
         raise ValueError("Ogiltig tabellsortering.")
+    return result
+
+
+def _layout(value):
+    if not isinstance(value, dict) or set(value) - set(_LAYOUT_DEFAULTS):
+        raise ValueError("Ogiltiga höjdinställningar.")
+    result = {**_LAYOUT_DEFAULTS, **value}
+    for name, (low, high) in _LAYOUT_LIMITS.items():
+        if result[name] is not None and not low <= _number(result[name], name) <= high:
+            raise ValueError(f"{name} ska vara {low}–{high} px.")
     return result
 
 
@@ -432,6 +444,7 @@ class Grundplan(anywidget.AnyWidget):
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self._colour = copy.deepcopy(DEFAULT_COLOUR)
         self._table_view = copy.deepcopy(_TABLE_DEFAULTS)
+        self._layout = copy.deepcopy(_LAYOUT_DEFAULTS)
         self._insulation_widget = copy.deepcopy(_INSULATION_WIDGET_DEFAULTS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
@@ -539,6 +552,7 @@ class Grundplan(anywidget.AnyWidget):
             "sliding_result": self.glidningsresultat,
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
+            "layout": self.visningshojder,
             "insulation_widget": self.isoleringswidget,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
@@ -902,6 +916,18 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     @property
+    def visningshojder(self):
+        """Arbetsytans och tabellens höjd i px; None använder standardhöjden."""
+        return copy.deepcopy(self._layout)
+
+    @visningshojder.setter
+    def visningshojder(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Visningshöjder anges som en dict.")
+        self._layout = _layout({**self._layout, **changes})
+        self._publish()
+
+    @property
     def isoleringswidget(self):
         """Antal isolerade/oisolerade sulor och oisolerade littera på ritningen."""
         return copy.deepcopy(self._insulation_widget)
@@ -980,6 +1006,7 @@ class Grundplan(anywidget.AnyWidget):
             "sliding": copy.deepcopy(self._gliding),
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
+            "layout": self.visningshojder,
             "insulation_widget": self.isoleringswidget,
             "drawing": {
                 "name": self._filename,
@@ -1075,6 +1102,7 @@ class Grundplan(anywidget.AnyWidget):
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
+                      "layout": self.visningshojder,
                       "insulation_widget": self.isoleringswidget},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
@@ -1136,6 +1164,7 @@ class Grundplan(anywidget.AnyWidget):
         calibration = _calibration(document.get("calibration"), rendered)
         colour = validate_colour(document.get("colour_grouping", {}))
         table_view = _table_view(document.get("table_view", {}))
+        layout = _layout(document.get("layout", {}))
         insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
@@ -1190,6 +1219,7 @@ class Grundplan(anywidget.AnyWidget):
         self._gliding = gliding
         self._colour = colour
         self._table_view = table_view
+        self._layout = layout
         self._insulation_widget = insulation_widget
         self._tags = valid_tags
         self._load_import = None
@@ -1248,6 +1278,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.farggruppering = content["settings"]
             elif action == "table_view":
                 self.tabellvy = content["settings"]
+            elif action == "layout":
+                self.visningshojder = content["settings"]
             elif action == "insulation_widget":
                 self.isoleringswidget = content["settings"]
             elif action == "insulation_placement":

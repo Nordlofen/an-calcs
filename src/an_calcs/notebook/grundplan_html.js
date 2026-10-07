@@ -1,5 +1,5 @@
 /* Local display state for an exported result view. No kernel or calculation engine. */
-export function createResultModel(snapshot, validateCalibration) {
+export function createResultModel(snapshot, validateCalibration, validateLayout) {
   const handlers = new Map();
   const data = {
     state: { ...snapshot.state },
@@ -23,6 +23,12 @@ export function createResultModel(snapshot, validateCalibration) {
                  Number.isFinite(message.value) && message.value >= 60 && message.value <= 180) {
         data.state = { ...data.state, label_size: message.value };
         emit("change:state");
+      } else if (message.action === "layout") {
+        try {
+          if (!message.settings || typeof message.settings !== "object" || Array.isArray(message.settings)) throw new Error("Ogiltiga höjdinställningar.");
+          data.state = {...data.state, layout: validateLayout({...data.state.layout, ...message.settings})};
+          emit("change:state");
+        } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
       } else if (message.action === "table_view") {
         try {
           const value = {...(data.state.table_view || {collapsed: [], sort: {key: null, direction: "ascending"}}), ...message.settings};

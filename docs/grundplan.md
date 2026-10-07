@@ -348,6 +348,24 @@ Jorddata, grundvatten och samtliga koefficienter samlas under
 **Jord - Allm. Bärighets.** i dialogen, flerredigeringen och tabellen.
 Samma indelning används i resultat-HTML.
 
+## Arbetsytans och tabellens höjd
+
+Arbetsytans och tabellens höjder kan justeras oberoende med de smala draghandtagen
+under respektive yta. Dra uppåt eller nedåt; ritningens zoom, etikettplaceringar,
+markeringar och indata behålls. Tabellen får egen vertikal rullning när alla rader
+inte ryms. Dubbelklick återställer standardhöjden. När handtaget har fokus kan
+piltangenterna ändra höjden (20 px, eller 100 px med Shift); Home/End väljer
+minsta/största höjd. Escape avbryter pågående dragning.
+
+Valda höjder sparas med projektet och följer med till resultat-HTML. Där kan
+visningshöjderna också ändras lokalt utan att låsa upp indatavärden. PDF-exporten
+påverkas inte av arbetsytans eller tabellens visningshöjd.
+
+```python
+plan.visningshojder = {"board_height": 850, "table_height": 350}  # px
+plan.visningshojder = {"board_height": None}  # Standardhöjd för arbetsytan.
+```
+
 ## Kommentarer och isoleringswidget
 
 **Kommentar** är en egen huvudkategori sist i dialogen och längst till höger i tabellen. Fältet tillåter flera rader och kan redigeras gemensamt för markerade sulor, även vid blandade sultyper. Texten sparas med sulan och påverkar inga beräkningsresultat.

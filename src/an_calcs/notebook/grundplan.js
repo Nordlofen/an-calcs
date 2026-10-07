@@ -4,6 +4,19 @@ const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: 
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
+const LAYOUT_DEFAULTS = {board_height: null, table_height: null};
+const LAYOUT_LIMITS = {board_height: [280, 2400], table_height: [160, 1800]};
+export function validateLayout(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).some(key => !Object.hasOwn(LAYOUT_DEFAULTS, key))) throw new Error("Ogiltiga höjdinställningar.");
+  const result = {...LAYOUT_DEFAULTS, ...value};
+  for (const [name, [low, high]] of Object.entries(LAYOUT_LIMITS)) {
+    const height = result[name];
+    if (height !== null && (typeof height !== "number" || !Number.isFinite(height) || height < low || height > high))
+      throw new Error("Ogiltig höjd för " + name + ".");
+  }
+  return result;
+}
 const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
   "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
 const COLOUR_INSULATION_GROUPS = [
@@ -222,6 +235,8 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
+  let layoutDraft = null, heightDrag = null;
+  const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
   const bearingOnlyNames = new Set(["b", "l", "l_override", "L_vagg_minst_1", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
@@ -260,7 +275,7 @@ function render({ model, el, readOnly = false }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
-    if (readOnly && !["label_size", "calibration", "export_pdf", "table_view"].includes(action)) return;
+    if (readOnly && !["label_size", "calibration", "export_pdf", "table_view", "layout"].includes(action)) return;
     const request = ++sequence;
     pending.set(request, onDone);
     model.send({ action, ...payload, request, view }, undefined, buffers);
@@ -1026,6 +1041,83 @@ function render({ model, el, readOnly = false }) {
       ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."
       : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
+  const heightHandles = new Map();
+  function showLayout() {
+    const values = heightDrag?.preview || layout();
+    for (const [name, entry] of heightHandles) {
+      const height = values[name];
+      entry.target.style.height = height == null ? "" : height + "px";
+      if (name === "table_height") entry.target.style.maxHeight = height == null ? "" : height + "px";
+      const [low, high] = LAYOUT_LIMITS[name];
+      const actual = height ?? entry.target.getBoundingClientRect().height;
+      entry.handle.setAttribute("aria-valuenow", Math.round(Math.max(low, Math.min(high, actual))));
+      entry.handle.setAttribute("aria-valuetext", Math.round(actual) + " pixlar" + (height == null ? ", standardhöjd" : ""));
+    }
+  }
+  function setLayout(patch) {
+    const draft = {...layout(), ...patch}; layoutDraft = draft; showLayout();
+    command("layout", {settings: patch}, [], reply => {
+      if (layoutDraft === draft) {layoutDraft = null; showLayout();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  }
+  function endHeightDrag(commit = false) {
+    const previous = heightDrag;
+    if (!previous) return;
+    heightDrag = null; root.classList.remove("gp-resizing-panels");
+    if (previous.handle.hasPointerCapture(previous.pointerId)) previous.handle.releasePointerCapture(previous.pointerId);
+    if (commit && previous.moved) setLayout({[previous.name]: previous.preview[previous.name]});
+    else showLayout();
+  }
+  function heightHandle(name, target, label) {
+    const handle = node("div", "gp-height-resize");
+    handle.tabIndex = 0; handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-label", label); handle.setAttribute("aria-orientation", "horizontal");
+    target.id = "gp-" + name + "-" + view; handle.setAttribute("aria-controls", target.id);
+    const [low, high] = LAYOUT_LIMITS[name];
+    handle.setAttribute("aria-valuemin", low); handle.setAttribute("aria-valuemax", high);
+    handle.title = "Dra uppåt eller nedåt. Piltangenter ändrar höjden. Dubbelklick återställer standardhöjden.";
+    handle.append(node("span", "gp-height-grip"));
+    heightHandles.set(name, {handle, target});
+    handle.addEventListener("pointerdown", event => {
+      if (event.button !== 0 || heightDrag) return;
+      event.preventDefault(); event.stopPropagation(); cancelDrag();
+      handle.focus({preventScroll: true});
+      heightDrag = {name, handle, pointerId: event.pointerId, startY: event.clientY,
+        startHeight: target.getBoundingClientRect().height, preview: layout(), moved: false};
+      root.classList.add("gp-resizing-panels"); handle.setPointerCapture(event.pointerId);
+    });
+    handle.addEventListener("pointermove", event => {
+      if (!heightDrag || heightDrag.pointerId !== event.pointerId || heightDrag.handle !== handle) return;
+      event.preventDefault();
+      const delta = event.clientY - heightDrag.startY;
+      if (!heightDrag.moved && Math.abs(delta) < 3) return;
+      heightDrag.moved = true;
+      heightDrag.preview[name] = Math.round(Math.max(low, Math.min(high, heightDrag.startHeight + delta)));
+      showLayout();
+    });
+    handle.addEventListener("pointerup", event => {
+      if (heightDrag?.handle === handle && heightDrag.pointerId === event.pointerId) endHeightDrag(true);
+    });
+    for (const eventName of ["pointercancel", "lostpointercapture"]) handle.addEventListener(eventName, event => {
+      if (heightDrag?.handle === handle && heightDrag.pointerId === event.pointerId) endHeightDrag();
+    });
+    handle.addEventListener("dblclick", () => {endHeightDrag(); setLayout({[name]: null});});
+    handle.addEventListener("keydown", event => {
+      if (event.key === "Escape" && heightDrag) {
+        event.preventDefault(); event.stopPropagation(); endHeightDrag(); return;
+      }
+      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+      event.preventDefault(); event.stopPropagation();
+      const currentHeight = layout()[name] ?? target.getBoundingClientRect().height;
+      const value = event.key === "Home" ? low : event.key === "End" ? high
+        : currentHeight + (event.key === "ArrowDown" ? 1 : -1) * (event.shiftKey ? 100 : 20);
+      setLayout({[name]: Math.round(Math.max(low, Math.min(high, value)))});
+    });
+    return handle;
+  }
+  const boardHeightHandle = heightHandle("board_height", board, "Justera arbetsytans höjd");
+  tableSection.append(heightHandle("table_height", tableScroll, "Justera tabellens höjd"));
   root.append(heading);
   root.append(toolbar);
   if (!readOnly) root.append(colourControls);
@@ -1035,7 +1127,7 @@ function render({ model, el, readOnly = false }) {
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
   root.append(board, status, legend);
   if (!readOnly) root.append(help, fileInput, projectInput, loadsInput);
-  root.append(tableSection);
+  root.append(boardHeightHandle, tableSection);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -2703,6 +2795,7 @@ function render({ model, el, readOnly = false }) {
     if (!bulkDialog.hidden && bulkIds.some(id => !selected.has(id))) {
       closeBulk(); bulkSignature = "";
     }
+    showLayout();
     showHeading();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
     const storage = data.storage;
@@ -2752,6 +2845,7 @@ function render({ model, el, readOnly = false }) {
     showSliding();
     showColour();
     showTable();
+    showLayout();
     showMeasurement();
   }
   let drag = null;
@@ -3016,6 +3110,7 @@ function render({ model, el, readOnly = false }) {
   const outsideDown = event => {
     outsidePress = null;
     if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden) || insideDialog(event.target)
+      || event.target?.closest?.(".gp-height-resize")
       || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
     outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY,
       tagId: active, bulk: !bulkDialog.hidden, moved: false};
@@ -3082,6 +3177,7 @@ function render({ model, el, readOnly = false }) {
     onDone?.(reply, buffers);
   }
   const resizeObserver = new ResizeObserver(() => {
+    showLayout();
     resizeSubtitle();
     renderMeasurement();
     if (!dialog.hidden) placeDialog(dialog.offsetLeft, dialog.offsetTop);
@@ -3091,6 +3187,7 @@ function render({ model, el, readOnly = false }) {
     }
   });
   resizeObserver.observe(board);
+  resizeObserver.observe(tableScroll);
   if (!readOnly) resizeObserver.observe(headingText);
   model.on("change:state", update);
   model.on("change:background", update);
@@ -3102,6 +3199,7 @@ function render({ model, el, readOnly = false }) {
   update();
   return () => {
     disposed = true;
+    endHeightDrag();
     document.removeEventListener("pointerdown", outsideDown, true);
     document.removeEventListener("pointermove", outsideMove, true);
     document.removeEventListener("pointerup", outsideUp, true);
