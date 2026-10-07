@@ -165,9 +165,11 @@ gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande
 jordens bärighet.
 
 bᵧ kan ändras även för väggsulor, i dialogen, tabellen och för flera markerade
-sulor. Standardvärdet är 1 m. Laster anges fortfarande per meter vägg och
+sulor. Den lilla kryssrutan **Egen längd** låser upp måttet; avmarkerad
+visar den ett grått, låst 1 m-fält. Laster anges fortfarande per meter vägg och
 glidlängden L är separat. Det valda måttet används i skissen för effektiv area
-och sparas med projektet; äldre projekt behåller sin tidigare remslängd på 1 m.
+och sparas med projektet. Tidigare sparade egna mått får kryssrutan aktiverad;
+projekt från tiden före bᵧ-redigeringen behåller sin remslängd på 1 m.
 
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som

@@ -30,7 +30,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-v1"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-v2"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -47,6 +47,7 @@ _FIELDS = [field for field in allmanna_barighetsekvationen.panel_schema["fields"
 _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"]
                       if field["name"] not in _SOIL_NAMES and field["name"] not in _REMOVED_FIELDS]
 _EXTRA_FIELDS = [
+    {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
@@ -57,7 +58,7 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"l", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"l", "l_override", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"}
 
 
@@ -73,11 +74,12 @@ def _values(values, *, draft=False):
         raise ValueError("Indata måste innehålla jordberäkningens 24 fält och endast kända tilläggsfält.")
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    for name in ("isolering", "glid_x", "glid_y"):
+    boolean_names = {"isolering", "glid_x", "glid_y", "l_override"}
+    for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
     for name, value in values.items():
-        if name in ("isolering", "glid_x", "glid_y"):
+        if name in boolean_names:
             continue
         if name == "isolerprodukt":
             if not isinstance(value, str):
@@ -89,7 +91,18 @@ def _values(values, *, draft=False):
         _number(value, name)
     if values["lang"] not in (0, 1):
         raise ValueError("Fundamenttyp måste vara 0 eller 1.")
+    if values["lang"] == 1 and not values["l_override"]:
+        values["l"] = 1.0
     return copy.deepcopy(values)
+
+
+def _updated_values(current, updates):
+    # Explicit Python length updates keep their existing meaning. The UI sends
+    # the checkbox too, so unchecking it always restores the standard strip.
+    values = {**current, **updates}
+    if values["lang"] == 1 and "l" in updates and "l_override" not in updates:
+        values["l_override"] = updates["l"] != 1
+    return _values(values, draft=True)
 
 
 def _label(value):
@@ -465,7 +478,7 @@ class Grundplan(anywidget.AnyWidget):
         values.update(indata or {})
         if values["lang"] == 1 and "l" not in (indata or {}):
             values["l"] = 1.0
-        values = _values(values, draft=True)
+        values = _updated_values(values, indata or {})
         prefix = "VS" if values["lang"] == 1 else "PS"
         if littera is None:
             existing = {tag["label"] for tag in self._tags}
@@ -597,7 +610,7 @@ class Grundplan(anywidget.AnyWidget):
         tag = self._tag(tagg)
         updated = copy.deepcopy(tag)
         if indata is not None:
-            updated["values"] = _values({**tag["values"], **indata}, draft=True)
+            updated["values"] = _updated_values(tag["values"], indata)
         if littera is not None:
             updated["label"] = _label(littera)
         for name, value in (("x", x), ("y", y)):
@@ -656,7 +669,9 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
         if types == {0} and "glid_L" in indata:
             raise ValueError("Glidlängden L gäller endast väggsulor.")
-        prepared = [_values({**tag["values"], **indata}, draft=True) for tag in tags]
+        if types == {0} and "l_override" in indata:
+            raise ValueError("Egen remslängd gäller endast väggsulor.")
+        prepared = [_updated_values(tag["values"], indata) for tag in tags]
         for tag, values in zip(tags, prepared):
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name != "isolerprodukt" and name not in SLIDING_NAMES)
@@ -778,7 +793,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 5,
+            "version": 6,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -923,8 +938,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–5.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–6.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -952,16 +967,19 @@ class Grundplan(anywidget.AnyWidget):
             for name in ("x", "y"):
                 if not 0 <= _number(saved[name], name) <= 1:
                     raise ValueError("Taggens position ligger utanför ritningen.")
+            saved_values = saved["values"]
+            if document["version"] < 6 and isinstance(saved_values, dict):
+                # Before v5, wall l was unused. In v5 it was an explicit override.
+                saved_values = {**saved_values, "l_override": document["version"] == 5
+                                and saved_values.get("lang") == 1 and saved_values.get("l") != 1}
+                if document["version"] < 5 and saved_values.get("lang") == 1:
+                    saved_values["l"] = 1.0
             tag = {
                 "id": ident, "label": _label(saved["label"]), "page": page,
                 "x": saved["x"], "y": saved["y"],
-                "values": _values(saved["values"], draft=True),
+                "values": _values(saved_values, draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
-            # Older wall projects stored an unused pad dimension in l. Their
-            # calculation always used 1 m; do not turn that value into an override.
-            if document["version"] < 5 and tag["values"]["lang"] == 1:
-                tag["values"]["l"] = 1.0
             try:
                 details, summary = _calculate(tag["values"])
                 tag.update(status="calculated", summary=summary)

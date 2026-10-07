@@ -184,6 +184,8 @@
 .an-grundplan .gp-group summary { cursor: pointer; font-weight: 650; padding: 3px 0 7px; }
 .an-grundplan .gp-field { display: grid; grid-template-columns: minmax(0, 1fr) 54px 75px 44px; gap: 7px; align-items: center; padding: 4px 0; }
 .an-grundplan .gp-field-caption { font-size: 11px; line-height: 1.3; }
+.an-grundplan .gp-length-override { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 9px; font-weight: 400; color: var(--gp-muted); cursor: pointer; }
+.an-grundplan .gp-length-override input[type="checkbox"] { width: 11px; height: 11px; margin: 0; accent-color: var(--gp-accent); }
 .an-grundplan .gp-math { font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif; white-space: nowrap; }
 .an-grundplan .gp-math sub { font: normal .7em -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; vertical-align: sub; }
 .an-grundplan .gp-field-symbol { font-size: 16px; }

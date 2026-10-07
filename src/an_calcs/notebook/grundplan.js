@@ -1337,7 +1337,7 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -1345,7 +1345,7 @@ function render({ model, el, readOnly = false }) {
     ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
     ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
-      "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Kontroll: V / (b_x,eff × b_y,eff) i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
+      "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Trycket över effektiv area kontrolleras i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
     ["Glidning", ["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],
       "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
   ];
@@ -1383,7 +1383,8 @@ function render({ model, el, readOnly = false }) {
         head.setAttribute("scope", "col");
         head.title = label + ": " + field.label;
         head.setAttribute("aria-label", head.title);
-        const notation = field.display_symbol || (name === "glid_x" || name === "glid_y"
+        const notation = field.display_symbol || (name === "l_override" ? {prefix: "Egen ", base: "b", subscript: "y"}
+          : name === "glid_x" || name === "glid_y"
           ? {prefix: "Bidrar ", base: name === "glid_x" ? "X" : "Y", subscript: "g"} : {});
         if (notation.base || notation.text) head.append(symbolNode(notation, "gp-table-symbol"));
         else head.append(node("span", "", name === "lang" ? "Typ" : name === "isolerprodukt" ? "Produkt" : field.label));
@@ -1397,7 +1398,7 @@ function render({ model, el, readOnly = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
-    if (name === "glid_L" && tag.values.lang === 0) return "—";
+    if (["glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
     if (value == null || value === "") return "—";
     const field = fieldSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
@@ -1436,9 +1437,11 @@ function render({ model, el, readOnly = false }) {
     const revisions = new Map();
     for (const target of targets) {
       const draft = drafts.get(target.id) || {label: target.label,
-        values: Object.fromEntries([...fieldSchema.keys()].map(key => [key, tableText(target.values[key])]))};
+        values: Object.fromEntries([...fieldSchema].map(([key, field]) => [key,
+          field.type === "bool" ? target.values[key] : tableText(target.values[key])]))};
       if (name === "label") draft.label = raw;
       else draft.values[name] = raw;
+      if (name === "l_override" && !value && target.values.lang === 1) draft.values.l = "1";
       drafts.set(target.id, draft);
       if (calculationInput && value !== target.values[name]) dirty.add(target.id);
       const revision = (edits.get(target.id) || 0) + 1;
@@ -1539,11 +1542,13 @@ function render({ model, el, readOnly = false }) {
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
-        control.disabled = busy || blocked || (name === "glid_L" && tag.values.lang === 0);
+        const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
+        control.disabled = busy || blocked || (["glid_L", "l_override"].includes(name) && tag.values.lang === 0)
+          || (name === "l" && tag.values.lang === 1 && !ownLength);
         control.title = blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
-          : name === "l" && tag.values.lang === 1 ? "Beräkningsremsans längd. Standard är 1 m. Väggens totala glidlängd anges separat som L." : "";
+          : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra standardmåttet 1 m. Väggens totala glidlängd anges separat som L." : "";
       }
     }
   }
@@ -1603,7 +1608,7 @@ function render({ model, el, readOnly = false }) {
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
-    ["l", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+    ["l", "l_override", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
@@ -1651,6 +1656,14 @@ function render({ model, el, readOnly = false }) {
     bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
     const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
     const strip = !mixed && types.has(1);
+    const syncLength = () => {
+      const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
+      if (!strip || !length || !override) return;
+      const enabled = override.choose.checked ? override.input.value === "true" : tags.every(tag => tag.values.l_override);
+      length.input.disabled = length.choose.disabled = !enabled;
+      if (!enabled) length.choose.checked = false;
+      length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
+    };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
         : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulor: laster anges för hela sulan. ")
@@ -1663,7 +1676,7 @@ function render({ model, el, readOnly = false }) {
       if (note) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        if (!field || name === "lang" || (!mixed && !strip && name === "glid_L")) continue;
+        if (!field || name === "lang" || (!mixed && !strip && ["glid_L", "l_override"].includes(name))) continue;
         const row = node("div", "gp-bulk-field");
         const choose = node("input");
         choose.type = "checkbox";
@@ -1699,7 +1712,7 @@ function render({ model, el, readOnly = false }) {
         const blocked = mixed && sameTypeFields.has(name);
         choose.disabled = input.disabled = blocked;
         if (blocked) row.title = "Välj samma sultyp för att ändra detta fält gemensamt.";
-        const sync = () => { input.setCustomValidity(""); row.classList.toggle("gp-bulk-changed", choose.checked); };
+        const sync = () => { input.setCustomValidity(""); row.classList.toggle("gp-bulk-changed", choose.checked); syncLength(); };
         choose.addEventListener("change", sync);
         input.addEventListener(field.type === "bool" ? "change" : "input", () => {
           choose.checked = true; sync();
@@ -1709,6 +1722,7 @@ function render({ model, el, readOnly = false }) {
       }
       bulkFields.append(group);
     }
+    syncLength();
   }
   function applyBulk() {
     if (readOnly || bulkBusy) return;
@@ -1780,9 +1794,24 @@ function render({ model, el, readOnly = false }) {
       if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        if (!field) continue;
-        const row = node(readOnly ? "div" : "label", "gp-field");
+        if (!field || name === "l_override") continue;
+        const row = node(readOnly || name === "l" ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
+        if (name === "l" && fieldSchema.has("l_override")) {
+          const override = node(readOnly ? "span" : "label", "gp-length-override");
+          const control = node(readOnly ? "span" : "input");
+          if (readOnly) {control.textContent = "Egen längd: " + (tag.values.l_override ? "Ja" : "Nej"); override.append(control);}
+          else {
+            control.type = "checkbox"; control.name = "l_override";
+            control.setAttribute("aria-label", "Egen längd för bᵧ");
+            control.checked = draft?.values.l_override ?? tag.values.l_override ?? false;
+            control.title = "Avmarkerad använder bᵧ = 1 m. Markerad tillåter eget mått.";
+            override.append(control, node("span", "", "Egen längd"));
+            control.addEventListener("input", () => edit(true));
+          }
+          caption.append(override);
+          inputs.set("l_override", {input: control, row: override, unit: node("span"), group});
+        }
         const notation = field.display_symbol || {};
         const symbol = symbolNode(notation, "gp-field-symbol");
         symbol.setAttribute("aria-hidden", "true");
@@ -1868,6 +1897,11 @@ function render({ model, el, readOnly = false }) {
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
         : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     for (const [name, entry] of inputs) {
+      if (name === "l_override") {
+        entry.row.hidden = !strip;
+        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false;}
+        continue;
+      }
       if (slidingNames.has(name)) {
         entry.group.hidden = !sliding().enabled;
         const numeric = !["glid_x", "glid_y"].includes(name);
@@ -1886,7 +1920,9 @@ function render({ model, el, readOnly = false }) {
         entry.row.hidden = !insulated && (insulationField || name.endsWith("_bruk"));
         continue;
       }
-      entry.input.disabled = insulationField && !insulated;
+      entry.input.disabled = (insulationField && !insulated)
+        || (name === "l" && strip && !inputs.get("l_override")?.input.checked);
+      if (name === "l" && strip && entry.input.disabled) entry.input.value = "1";
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
         && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
@@ -1900,12 +1936,12 @@ function render({ model, el, readOnly = false }) {
       dirty.add(active);
     }
     edits.set(active, (edits.get(active) || 0) + 1);
+    fieldUnits();
     // Keep raw text until calculation is acknowledged, including across minimization.
     drafts.set(active, {
       label: labelInput.value,
       values: Object.fromEntries([...inputs].map(([name, { input }]) => [name, input.type === "checkbox" ? input.checked : input.value])),
     });
-    fieldUnits();
     const values = readValues();
     if (sliding().enabled) slidingDirty.add(active);
     showResult();

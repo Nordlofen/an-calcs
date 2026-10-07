@@ -172,6 +172,39 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(self.plan._tag(pad)["values"]["l"],
                          allmanna_barighetsekvationen.panel_schema["fields"][1]["default"])
 
+    def test_wall_own_length_toggle_resets_calculation_and_survives_copy_and_reload(self):
+        ident = self.insulated()
+        original = copy.deepcopy(self.plan._tag(ident)["summary"])
+        self.assertIs(self.plan._tag(ident)["values"]["l_override"], False)
+        self.plan.uppdatera(ident, indata={"l_override": True, "l": 2.5})
+        self.assertEqual(self.plan._tag(ident)["summary"]["effective_area"]["brott"]["by"], 2.5)
+        copied = self.plan.kopiera(ident, .6, .5)
+        self.assertIs(self.plan._tag(copied)["values"]["l_override"], True)
+        self.plan.uppdatera(ident, indata={"l_override": False})
+        self.assertEqual(self.plan._tag(ident)["values"]["l"], 1)
+        self.assertEqual(self.plan._tag(ident)["summary"], original)
+        self.plan.uppdatera(copied, indata={"l_override": False, "l": 9})
+        self.assertEqual(self.plan._tag(copied)["values"]["l"], 1)
+        reopened = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "by-checkbox.json"))
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.taggar, self.plan.taggar)
+        for value in (1, "true", None):
+            with self.assertRaises(ValueError):
+                self.plan.uppdatera(ident, indata={"l_override": value})
+
+    def test_version_five_activates_checkbox_for_existing_custom_wall_length(self):
+        ident = self.add(indata={"l": 2.5})
+        pad = self.add(typ="pelarsula", indata={"l": 3})
+        original = self.plan.taggar
+        document = self.plan._document()
+        document["version"] = 5
+        for tag in document["tags"]:
+            del tag["values"]["l_override"]
+        self.plan._load_document(json.dumps(document).encode())
+        self.assertEqual(self.plan.taggar, original)
+        self.assertIs(self.plan._tag(ident)["values"]["l_override"], True)
+        self.assertIs(self.plan._tag(pad)["values"]["l_override"], False)
+
     def insulated(self):
         return self.add(indata={
             "isolering": True, "b": 1, "t": 0.4, "F_vy": 100,
@@ -248,7 +281,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 5)
+        self.assertEqual(loaded._document()["version"], 6)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())

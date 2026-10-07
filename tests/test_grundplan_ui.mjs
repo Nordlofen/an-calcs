@@ -106,6 +106,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
+names.push("l_override");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
@@ -121,9 +122,10 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
+  tag.values.l_override = false;
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
-    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y", "l_override"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -605,7 +607,7 @@ test("table contains every input without page information or navigation, with ty
     for (const name of names) assert.ok(tableField(ui, tag.id, name));
     assert.ok(tableField(ui, tag.id, "label"));
   }
-  assert.equal(tableField(ui, "tag1", "l").disabled, false);
+  assert.equal(tableField(ui, "tag1", "l").disabled, true);
   assert.equal(tableField(ui, "tag2", "l").disabled, false);
   assert.equal(tableField(ui, "tag2", "glid_L").disabled, true);
   assert.equal(tableField(ui, "tag1", "V_Ed_EQU").disabled, false, "Gliding can be preconfigured before enabling the global check");
@@ -616,13 +618,20 @@ test("table contains every input without page information or navigation, with ty
 test("wall by is editable in table and dialog and can be overridden for selected walls", t => {
   const ui = setup(t);
   const length = tableField(ui, ui.tag.id, "l");
-  assert.equal(length.value, "1"); assert.equal(length.disabled, false);
-  assert.match(length.title, /Standard är 1 m/);
+  assert.equal(length.value, "1"); assert.equal(length.disabled, true);
+  assert.match(length.title, /Aktivera Egen längd/);
   ui.marker().click();
   assert.equal(ui.field("l").parent.parent.hidden, false);
+  assert.equal(ui.field("l").disabled, true);
+  assert.equal(ui.field("l_override").parent.className, "gp-length-override");
   const second = {...structuredClone(ui.tag), id: "tag2", label: "VS2"};
   ui.data.state.tags.push(second); ui.changed();
   selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  const ownLength = tableField(ui, ui.tag.id, "l_override");
+  ownLength.checked = true; ownLength.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).values, {l_override: true});
+  ui.tag.values.l_override = second.values.l_override = true; ui.changed(); ui.ack(ui.sent.at(-1));
+  assert.equal(length.disabled, false);
   length.value = "2,4"; length.dispatch("input");
   assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
   assert.deepEqual(ui.sent.at(-1).values, {l: 2.4});
@@ -632,6 +641,39 @@ test("wall by is editable in table and dialog and can be overridden for selected
   assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
   ui.byText("Ändra markerade").click();
   assert.ok(ui.find(e => e.name === "bulk_l"), "Bulk dialog also includes wall by");
+  const bulkOwn = ui.find(e => e.name === "bulk_l_override");
+  bulkOwn.value = "false"; bulkOwn.dispatch("change");
+  assert.equal(ui.find(e => e.name === "bulk_l").disabled, true);
+  ui.byText("Tillämpa").click();
+  assert.deepEqual(ui.sent.at(-1).values, {l_override: false});
+});
+
+test("compact dialog checkbox enables wall by and restores one metre when unchecked", t => {
+  const ui = setup(t);
+  ui.marker().click();
+  const own = ui.field("l_override"), length = ui.field("l");
+  assert.equal(own.checked, false); assert.equal(length.disabled, true); assert.equal(length.value, "1");
+  own.checked = true; own.dispatch("input");
+  assert.equal(length.disabled, false);
+  length.value = "2,5"; length.dispatch("input");
+  assert.equal(ui.sent.at(-1).values.l, 2.5); assert.equal(ui.sent.at(-1).values.l_override, true);
+  own.checked = false; own.dispatch("input");
+  assert.equal(length.value, "1"); assert.equal(length.disabled, true);
+  assert.equal(ui.sent.at(-1).values.l, 1); assert.equal(ui.sent.at(-1).values.l_override, false);
+  ui.field("lang").value = "0"; ui.field("lang").dispatch("input");
+  assert.equal(length.disabled, false); assert.equal(own.parent.hidden, true);
+});
+
+test("bulk wall length requires enabling own length and can be reset for all selected walls", t => {
+  const ui = setup(t), bulk = bulkFixture(ui);
+  bulk.select(); ui.byText("Ändra markerade").click();
+  const length = ui.find(e => e.name === "bulk_l"), own = ui.find(e => e.name === "bulk_l_override");
+  assert.equal(length.disabled, true);
+  own.value = "true"; own.dispatch("change");
+  assert.equal(length.disabled, false);
+  length.value = "2,4"; length.dispatch("input");
+  ui.byText("Tillämpa").click();
+  assert.deepEqual(ui.sent.at(-1).values, {l: 2.4, l_override: true});
 });
 
 test("table littera sorting is natural, reversible and preserves selected objects and input controls", t => {
@@ -1209,7 +1251,7 @@ const resultTableValue = (ui, id, name) => ui.find(e => e.className === "gp-tabl
 
 test("standalone table includes all fields and formats read-only numbers, booleans, types and literal comments", t => {
   const ui = setup(t, {readOnly: true, standalone: true});
-  Object.assign(ui.tag.values, {b: .95, l: 2.4, isolering: true, F_vy: -150.5, F_vy_bruk: 0,
+  Object.assign(ui.tag.values, {b: .95, l: 2.4, l_override: true, isolering: true, F_vy: -150.5, F_vy_bruk: 0,
     isolerprodukt: '<img src=x onerror=alert(1)> EPS ÅÄÖ', glid_x: false});
   const pad = {...structuredClone(ui.tag), id: "pad", label: "PS2", values: {...ui.tag.values, lang: 0, isolering: false},
     status: "error", summary: null, error: "Ange giltig last"};
@@ -1224,6 +1266,8 @@ test("standalone table includes all fields and formats read-only numbers, boolea
   }
   assert.equal(resultTableValue(ui, "tag1", "b").textContent, "0,95");
   assert.equal(resultTableValue(ui, "tag1", "l").textContent, "2,4");
+  assert.equal(resultTableValue(ui, "tag1", "l_override").textContent, "Ja");
+  assert.equal(resultTableValue(ui, "pad", "l_override").textContent, "—");
   assert.equal(resultTableValue(ui, "pad", "l").textContent, "2,4");
   assert.equal(resultTableValue(ui, "tag1", "lang").textContent, "Väggsula");
   assert.equal(resultTableValue(ui, "pad", "lang").textContent, "Pelarsula");

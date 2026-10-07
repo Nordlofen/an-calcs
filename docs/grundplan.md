@@ -227,11 +227,18 @@ Blandade sultyper kan redigeras gemensamt för typoberoende fält, exempelvis
 bₓ och isolering. Last- och längdfält kräver samma sultyp och är avstängda
 vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
 för pelarsulor. bᵧ är redigerbart även för väggsulor, i dialogen, tabellen
-och vid flerredigering. Standardvärdet är 1 m och lasterna anges fortfarande
+och vid flerredigering. Aktivera den lilla kryssrutan **Egen längd** vid bᵧ
+för att låsa upp inmatningen. När den är av visas ett grått, låst **1 m**.
+Avmarkering återställer måttet till 1 m och räknar om sulan direkt.
+Inställningen sparas och kopieras med sulan. Pelarsulors bᵧ är alltid
+redigerbart. Standardvärdet för väggsulor är 1 m och lasterna anges fortfarande
 per meter vägg. Det valda måttet sparas och används i skissen för effektiv
 area. När bᵧ avviker från 1 m visar även väggsuletiketten bₓ × bᵧ.
-Äldre projekt återställs med 1 m, eftersom deras sparade längdvärde tidigare
-inte användes för väggsulor. Glidlängden L används endast för
+Tidigare sparade egna väggsulemått aktiverar kryssrutan vid återöppning.
+Projekt från tiden före bᵧ-redigeringen återställs med 1 m, eftersom deras
+sparade längdvärde tidigare inte användes för väggsulor. Från Python aktiverar
+`indata={"l": 2.4}` egen längd automatiskt; `indata={"l_override": False}`
+återställer 1 m. Glidlängden L används endast för
 väggsulor. Glidningsindata kan förberedas innan global glidningskontroll
 aktiveras. Escape avmarkerar ritning och tabell.
 
