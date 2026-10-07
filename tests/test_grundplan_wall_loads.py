@@ -36,6 +36,113 @@ class TestWallLoads(unittest.TestCase):
         self.plan._start_load_import(loads(), "loads.json")
         return self.plan.placera_lasteffekt(.2, .3)
 
+    def test_pad_model_line_actions_match_independent_total_actions_for_short_and_long_walls(self):
+        for length in (.6, 1, 2.4):
+            with self.subTest(length=length):
+                actions = {"F_vy": 200, "F_vy_bruk": 100, "F_hb": 5, "F_hl": -3,
+                           "M_insp_b": 10, "M_insp_l": -5, "M_insp_b_bruk": 4, "M_insp_l_bruk": -2}
+                geometry = {"b": 1.2, "l": 1.3, "t": .4, "isolering": True,
+                            "f_d_brott": 200, "f_d_bruk": 100}
+                line = self.plan.lagg_till(.2, .3, typ="pelarsula", indata={
+                    **geometry, **actions, "lasttyp": 1, "L_vagg": length})
+                point = self.plan.lagg_till(.5, .6, typ="pelarsula", indata={
+                    **geometry, **{name: value * length for name, value in actions.items()}})
+                a, b = (self.plan._tag(ident)["summary"] for ident in (line, point))
+                for name in ("last", "barformaga", "utnyttjandegrad", "effective_area", "isolering", "kontroller"):
+                    self.assertEqual(a[name], b[name], name)
+                self.assertEqual(a["load_conversion"]["brott"], 200 * length)
+                self.assertEqual(a["load_conversion"]["bruk"], 100 * length)
+                self.assertFalse(a["load_conversion"]["at_least_one"])
+                self.assertAlmostEqual(a["last"], 200 * length + 1.5 * 25 * 1.2 * 1.3 * .4)
+                self.assertEqual(self.plan._tag(line)["values"]["F_vy"], 200)
+
+    def test_imported_wall_keeps_line_basis_during_model_changes_and_updates(self):
+        self.plan._start_load_import(loads(2.4), "loads.json")
+        ident = self.plan.placera_lasteffekt(.2, .3)
+        self.plan.uppdatera(ident, indata={"lang": 0, "b": 1.2, "l": 1.3, "glid_x": True, "glid_mu": .4})
+        tag = self.plan.taggar[0]
+        self.assertEqual(tag["values"]["lasttyp"], 1)
+        self.assertEqual(tag["load_resultants"], {"brott": 480, "bruk": 240})
+        self.assertEqual(tag["sliding"]["x"], 150 * 2.4 * .4)
+        self.plan._start_load_import(loads(3, brott=220, bruk=110, equ=160), "new.json")
+        tag = self.plan.taggar[0]
+        self.assertEqual((tag["values"]["lang"], tag["values"]["lasttyp"], tag["values"]["l"]), (0, 1, 1.3))
+        self.assertEqual(tag["load_resultants"], {"brott": 660, "bruk": 330})
+        self.assertEqual(tag["sliding"]["x"], 160 * 3 * .4)
+        self.plan.uppdatera(ident, indata={"lang": 1})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": 220, "bruk": 110})
+        self.plan.uppdatera(ident, indata={"lang": 0})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": 660, "bruk": 330})
+        self.assertEqual(self.plan.taggar[0]["values"]["F_vy"], 220)
+
+    def test_line_pad_length_is_required_and_footing_dimensions_never_replace_it(self):
+        ident = self.plan.lagg_till(.2, .3, typ="pelarsula", indata={"lasttyp": 1,
+            "F_vy": 200, "F_vy_bruk": 100, "V_Ed_EQU": 150, "glid_x": True, "glid_mu": .4, "glid_L": 8})
+        for length in (None, 0, -1):
+            self.plan.uppdatera(ident, indata={"L_vagg": length})
+            tag = self.plan.taggar[0]
+            self.assertEqual(tag["status"], "error")
+            self.assertEqual(tag["load_resultants"], {"brott": None, "bruk": None})
+            self.assertEqual(tag["sliding"]["status"], "incomplete")
+        self.plan.uppdatera(ident, indata={"L_vagg": 5})
+        before = self.plan.taggar[0]["load_resultants"], self.plan.taggar[0]["sliding"]
+        self.plan.uppdatera(ident, indata={"b": 2, "l": 3, "glid_L": 10})
+        self.assertEqual((self.plan.taggar[0]["load_resultants"], self.plan.taggar[0]["sliding"]), before)
+        self.plan.uppdatera(ident, indata={"lasttyp": 0})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": 200, "bruk": 100})
+        self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 60)
+
+    def test_resultants_are_independent_of_other_errors_but_never_reuse_invalid_or_missing_loads(self):
+        ident = self.imported()
+        self.plan.uppdatera(ident, indata={"b": None})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": 120, "bruk": 60})
+        self.plan.uppdatera(ident, indata={"F_vy": None, "F_vy_bruk": 0})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": None, "bruk": 0})
+        self.plan.uppdatera(ident, indata={"F_vy": -10})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"]["brott"], -6)
+        self.plan.uppdatera(ident, indata={"endast_h_stabilitet": True})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": None, "bruk": None})
+
+    def test_pad_line_basis_survives_copy_save_old_imported_project_and_exports(self):
+        ident = self.imported()
+        self.plan.uppdatera(ident, indata={"lang": 0, "b": 1.2, "l": 1.3, "isolering": True})
+        copied = self.plan.kopiera(ident, .5, .6)
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "line-pad.json"))
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.taggar, self.plan.taggar)
+        self.assertEqual(restored._tag(copied)["values"]["lasttyp"], 1)
+        document = restored._document(); document["version"] = 11
+        for tag in document["tags"]:
+            del tag["values"]["lasttyp"]
+        restored._load_document(json.dumps(document).encode())
+        self.assertEqual(restored.taggar, self.plan.taggar)
+        snapshot = json.loads(restored._html_bytes().decode().split('<script id="grundplan-data" type="application/json">')[1].split('</script>')[0])
+        self.assertEqual(snapshot["state"]["tags"][0]["load_resultants"], {"brott": 120, "bruk": 60})
+        from an_calcs.notebook.grundplan_pdf import _fonts, _load_rows
+        _fonts()
+        self.assertIn("V 200 kN/m -> 120 kN", str(_load_rows(restored._tag(ident)["values"])))
+        restored.tabellvy = {"sort": {"key": "V_res_bruk", "direction": "descending"}}
+        self.assertEqual(restored._document()["table_view"]["sort"]["key"], "V_res_bruk")
+
+    def test_bulk_line_pads_edit_length_and_loads_but_mixed_units_are_rejected(self):
+        first = self.imported()
+        self.plan.uppdatera(first, indata={"lang": 0})
+        second = self.plan.kopiera(first, .5, .6)
+        self.plan.uppdatera_flera([first, second], indata={"L_vagg": 2.4, "F_vy": 220})
+        for tag in self.plan.taggar:
+            self.assertEqual(tag["load_resultants"]["brott"], 528)
+        point = self.plan.lagg_till(.7, .7, typ="pelarsula")
+        before = self.plan.taggar
+        with self.assertRaisesRegex(ValueError, "samma lasttyp"):
+            self.plan.uppdatera_flera([first, point], indata={"F_vy": 100})
+        self.assertEqual(self.plan.taggar, before)
+        self.plan.uppdatera_flera([first, point], indata={"lasttyp": 1, "L_vagg": .8, "F_vy": 100})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"]["brott"], 80)
+        self.assertEqual(self.plan.taggar[-1]["load_resultants"]["brott"], 80)
+        for bad in (None, True, "line", 2):
+            with self.assertRaises(ValueError):
+                self.plan.uppdatera(first, indata={"lasttyp": bad})
+
     def test_short_support_import_keeps_line_loads_and_converts_actual_total(self):
         ident = self.imported()
         v = self.plan._tag(ident)["values"]
@@ -249,5 +356,5 @@ class TestWallLoads(unittest.TestCase):
         self.plan.uppdatera(pad, indata={"L_vagg": .2})
         self.assertEqual(self.plan._tag(pad)["summary"], before)
         self.assertAlmostEqual(self.plan.taggar[-1]["sliding"]["x"], 60)
-        with self.assertRaisesRegex(ValueError, "endast väggsulor"):
+        with self.assertRaisesRegex(ValueError, "endast linjelaster"):
             self.plan.uppdatera_flera([pad], indata={"L_vagg": .5})

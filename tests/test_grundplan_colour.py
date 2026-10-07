@@ -224,7 +224,7 @@ class TestGrundplanColour(unittest.TestCase):
         self.plan.farggruppering = {"colors": {key: "#0000ff"}}
         content = self.plan._pdf_bytes()
         text = PdfReader(io.BytesIO(content)).pages[0].extract_text()
-        for expected in ("Färggruppering", "Vertikallast V", "Pelarsulor [kN]", "100 ≤ V < 200"):
+        for expected in ("Färggruppering", "Vertikallast V", "Totala laster [kN]", "100 ≤ V < 200"):
             self.assertIn(expected, text)
         with pdfium.PdfDocument(content) as pdf:
             image = pdf[0].render(scale=96 / 72).to_pil().convert("RGB")

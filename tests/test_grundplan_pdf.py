@@ -60,7 +60,7 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIn("Glidmotstånd – globalt", text)
         self.assertIn("144 kN", text)
         self.assertNotIn("Styrande", text)
-        plan.uppdatera(ident, indata={"lang": 0})
+        plan.uppdatera(ident, indata={"lang": 0, "lasttyp": 0})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("Endast H-stabilitet", text)
         self.assertIn("48 kN", text)
@@ -153,7 +153,7 @@ class TestGrundplanPdf(unittest.TestCase):
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertNotIn(" · L 6,2 m", text)
         self.assertNotIn("Glidmotstånd – globalt", text)
-        plan.uppdatera(ident, indata={"lang": 0})
+        plan.uppdatera(ident, indata={"lang": 0, "lasttyp": 0})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertNotIn("6,2 m", text)
 
@@ -302,7 +302,7 @@ class TestGrundplanPdf(unittest.TestCase):
         for expected in ("Brott", "Bruk", "V 100 kN/m", "Mₓ -0,25 kNm/m", "Mᵧ 1,00e-08 kNm/m", "V 50 kN/m"):
             self.assertIn(expected, text)
         self.assertNotIn("H", text)
-        values.update(lang=0, isolering=False)
+        values.update(lang=0, lasttyp=0, isolering=False)
         rows = _load_rows(values)
         text = " ".join(caption + " " + line for caption, line in rows)
         self.assertNotIn("/m", text)

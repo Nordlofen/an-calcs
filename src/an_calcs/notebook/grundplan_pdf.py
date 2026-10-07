@@ -16,6 +16,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from .grundplan_labels import LOAD_GROUPS
+from .grundplan_loads import line_loads, load_resultants
 from .grundplan_sliding import contribution, project_results, DEFAULT_SETTINGS, DEFAULT_PLACEMENT
 from .grundplan_colour import group_data, CATEGORIES, PHASES
 
@@ -95,11 +96,11 @@ def _sliding_rows(values):
     result = contribution(values)
     def value(name, unit):
         return "—" if values.get(name) is None else _number(values[name], 3) + " " + unit
-    left = [("V", "Ed,EQU", value("V_Ed_EQU", "kN/m" if values["lang"] == 1 else "kN"))]
+    left = [("V", "Ed,EQU", value("V_Ed_EQU", "kN/m" if line_loads(values) else "kN"))]
     if values["lang"] == 1:
         left.append(("L", "su", value("glid_L", "m")))
-        if values.get("L_vagg") is not None:
-            left.append(("L", "vägg", value("L_vagg", "m")))
+    if line_loads(values) and values.get("L_vagg") is not None:
+        left.append(("L", "vägg", value("L_vagg", "m")))
     right = [("H", axis + ",Rd,i", "—" if result[axis] is None else _number(result[axis], 1) + " kN")
              for axis in ("x", "y") if values.get("glid_" + axis)]
     return left, right
@@ -119,8 +120,11 @@ def _load_rows(values):
                 continue
             number = (format(value, ".2e").replace(".", ",") if abs(value) < 1e-6 or abs(value) >= 1e9
                       else _number(value, 6))
-            unit = field["unit"] + ("/m" if values["lang"] == 1 else "")
+            unit = field["unit"] + ("/m" if line_loads(values) else "")
             token = f'{field["symbol"]} {number} {unit}'
+            if values["lang"] == 0 and line_loads(values) and field["name"] in ("F_vy", "F_vy_bruk"):
+                total = load_resultants(values)["brott" if field["name"] == "F_vy" else "bruk"]
+                token += " -> " + (_number(total, 3) + " kN" if total is not None else "—")
             candidate = line + "   " + token if line else token
             if line and _text_width(candidate, _REGULAR, 10) > 235:
                 rows.append((caption, line))
@@ -421,7 +425,7 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
         if group["count"] <= 0:
             continue
         if settings["category"] == "V" and group["kind"] != previous_kind and group["kind"] in ("pad", "wall"):
-            rows.append(("heading", "Väggsulor [kN/m]" if group["kind"] == "wall" else "Pelarsulor [kN]"))
+            rows.append(("heading", "Linjelaster [kN/m]" if group["kind"] == "wall" else "Totala laster [kN]"))
         previous_kind = group["kind"]
         if group["kind"] == "combination":
             caption = [({"t": "t ", "b": "bₓ ", "l": "bᵧ "}.get(category, "") + _colour_caption(part)

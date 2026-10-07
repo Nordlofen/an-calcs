@@ -289,7 +289,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 11)
+        self.assertEqual(loaded._document()["version"], 12)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())

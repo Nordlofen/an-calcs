@@ -1,4 +1,5 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
+const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
@@ -70,7 +71,7 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     }
   } else if (category === "V") {
     for (const kind of ["pad", "wall"]) {
-      if (!tags.some(tag => (tag.values.lang === 1) === (kind === "wall"))) continue;
+      if (!tags.some(tag => lineLoads(tag.values) === (kind === "wall"))) continue;
       const bounds = settings.bounds[kind];
       for (let i = 0; i <= bounds.length; i++) {
         const low = i ? bounds[i - 1] : null, high = bounds[i] ?? null;
@@ -106,7 +107,7 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       }
       group = special.get(key);
     } else if (category === "V") {
-      const kind = values.lang === 1 ? "wall" : "pad";
+      const kind = lineLoads(values) ? "wall" : "pad";
       const index = settings.bounds[kind].filter(bound => value >= bound).length;
       group = byKey.get(kind + ":" + index);
     } else group = byKey.get(category + ":" + colourNumberKey(value));
@@ -687,7 +688,7 @@ function render({ model, el, readOnly = false }) {
     colourPhaseButtons.set(phase, choice); phaseChoices.append(choice);
   }
   const typeChoices = node("div", "gp-colour-choices");
-  for (const [kind, caption] of [["pad", "Pelarsulor [kN]"], ["wall", "Väggsulor [kN/m]"]]) {
+  for (const [kind, caption] of [["pad", "Totala laster [kN]"], ["wall", "Linjelaster [kN/m]"]]) {
     const choice = button(caption, () => {
       colourError.textContent = ""; colourBounds.setCustomValidity("");
       colourEditType = kind; colourBounds.value = colour().bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
@@ -1041,8 +1042,8 @@ function render({ model, el, readOnly = false }) {
   inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
   tableSection.append(tableHeader,
     node("p", "gp-field-note", readOnly
-      ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."
-      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."),
+      ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Med markering sorteras bara markerade rader och samlas överst. Lasttypen avgör lastenheten. V_res visar yttre lastresultant i kN, exklusive egentyngd."
+      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Med markering sorteras bara markerade rader och samlas överst. Lasttypen avgör lastenheten. V_res visar yttre lastresultant i kN, exklusive egentyngd."),
     tableFeedback, tableScroll);
   const workspace = node("section", "gp-workspace");
   const panelHandles = new Map();
@@ -1202,7 +1203,7 @@ function render({ model, el, readOnly = false }) {
               const tag = state().tags.find(tag => tag.id === id), draft = drafts.get(id);
               if (tag && draft) {
                 // Keep unfinished geometry text, but never let an old load draft mask imported values.
-                for (const name of ["F_vy", "F_vy_bruk", "V_Ed_EQU", ...(tag.values.lang === 1 ? ["L_vagg", "L_vagg_minst_1", "glid_L"] : [])]) {
+                for (const name of ["lasttyp", "F_vy", "F_vy_bruk", "V_Ed_EQU", ...(lineLoads(tag.values) ? ["L_vagg", "L_vagg_minst_1", "glid_L"] : [])]) {
                   draft.values[name] = typeof tag.values[name] === "boolean" ? tag.values[name] : String(tag.values[name]).replace(".", ",");
                 }
               }
@@ -1446,9 +1447,9 @@ function render({ model, el, readOnly = false }) {
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
       colourBounds.value = settings.bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
     }
-    colourHint.textContent = settings.secondary ? "Välj högst två kategorier. Samma kombination ger samma färg. Avmarkera en kategori för att byta. " + (hasV ? "Väggsulor och pelarsulor har separata lastintervall. " : "") + "Klicka på en färgruta för att välja färg."
+    colourHint.textContent = settings.secondary ? "Välj högst två kategorier. Samma kombination ger samma färg. Avmarkera en kategori för att byta. " + (hasV ? "Linjelaster och totala laster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
       : settings.category === "V"
-      ? "Pelarsulor och väggsulor har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
+      ? "Linjelaster och totala laster har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
       : settings.category === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
@@ -1467,7 +1468,7 @@ function render({ model, el, readOnly = false }) {
     for (const group of data.groups.filter(group => group.count > 0)) {
       if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
         colourLegendBody.append(node("strong", "gp-colour-legend-section",
-          group.kind === "wall" ? "Väggsulor [kN/m]" : "Pelarsulor [kN]"));
+          group.kind === "wall" ? "Linjelaster [kN/m]" : "Totala laster [kN]"));
       }
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
@@ -1824,8 +1825,13 @@ function render({ model, el, readOnly = false }) {
           const raw = values[field.name];
           const value = typeof raw === "string" ? Number(raw.replace(",", ".")) : raw;
           if (typeof value !== "number" || !Number.isFinite(value) || value === 0) continue;
-          const unit = field.unit + (Number(values.lang) === 1 ? "/m" : "");
-          tokens.push(field.symbol + " " + precise(value) + " " + unit);
+          const unit = field.unit + (lineLoads(values) ? "/m" : "");
+          let token = field.symbol + " " + precise(value) + " " + unit;
+          if (Number(values.lang) === 0 && lineLoads(values) && ["F_vy", "F_vy_bruk"].includes(field.name)) {
+            const total = dirty.has(tag.id) ? null : tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"];
+            token += " → " + (Number.isFinite(total) ? precise(total) + " kN" : "—");
+          }
+          tokens.push(token);
         }
         if (!tokens.length) continue;
         const row = node("span", "gp-tag-load-row");
@@ -1853,11 +1859,11 @@ function render({ model, el, readOnly = false }) {
           const n = raw == null || raw === "" ? NaN : Number(String(raw).replace(",", "."));
           return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
         };
-        add(data, "V", "Ed,EQU", value("V_Ed_EQU", values.lang == 1 ? "kN/m" : "kN"));
+        add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
         if (values.lang == 1) {
           add(data, "L", "su", value("glid_L", "m"));
-          if (values.L_vagg != null && values.L_vagg !== "") add(data, "L", "vägg", value("L_vagg", "m"));
         }
+        if (lineLoads(values) && values.L_vagg != null && values.L_vagg !== "") add(data, "L", "vägg", value("L_vagg", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
           add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
@@ -1869,7 +1875,7 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -1883,7 +1889,12 @@ function render({ model, el, readOnly = false }) {
     ["Kommentar", ["kommentar"]],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
-  const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))]);
+  const resultantFields = new Map(["brott", "bruk"].map(phase => ["V_res_" + phase,
+    {name: "V_res_" + phase, type: "result", phase, label: "Yttre lastresultant – " + phase, unit: "kN",
+      display_symbol: {base: "V", subscript: "res"}}]));
+  const tableSchema = new Map([...fieldSchema, ...resultantFields]);
+  const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))
+    .flatMap(name => [name, ...(name === "F_vy" ? ["V_res_brott"] : name === "F_vy_bruk" ? ["V_res_bruk"] : [])])]);
   const groupedNames = new Set(tableGroups.flatMap(([, names]) => names));
   const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
   if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
@@ -1931,7 +1942,7 @@ function render({ model, el, readOnly = false }) {
       const placeholder = node("th", "gp-table-folded-space"); placeholder.hidden = true; fieldRow.append(placeholder);
       tableGroupHeads.set(key, {th, fold, placeholder, names, label});
       for (const name of names) {
-        const field = fieldSchema.get(name), head = node("th", tableFieldClass(field));
+        const field = tableSchema.get(name), head = node("th", tableFieldClass(field));
         head.setAttribute("scope", "col");
         head.title = label + ": " + field.label;
         head.setAttribute("aria-label", head.title);
@@ -1941,10 +1952,10 @@ function render({ model, el, readOnly = false }) {
         const sortButton = button("", () => chooseTableSort(name), "gp-table-sort");
         sortButton.setAttribute("aria-label", "Sortera efter " + field.label);
         if (notation.base || notation.text) sortButton.append(symbolNode(notation, "gp-table-symbol"));
-        else sortButton.append(node("span", "", name === "lang" ? "Typ" : name === "endast_h_stabilitet" ? "Endast H"
+        else sortButton.append(node("span", "", name === "lang" ? "Modell" : name === "lasttyp" ? "Lasttyp" : name === "endast_h_stabilitet" ? "Endast H"
           : name === "isolerprodukt" ? "Produkt" : field.label));
         const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
-        if (unit) sortButton.append(node("span", "gp-table-unit", "[" + (["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
+        if (unit) sortButton.append(node("span", "gp-table-unit", "[" + (field.type !== "result" && ["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
         const arrow = node("span", "gp-table-sort-arrow", "↕"); sortButton.append(arrow); head.append(sortButton);
         head.setAttribute("aria-sort", "none");
         tableSortHeads.set(name, {th: head, button: sortButton, arrow}); tableFieldHeads.set(name, head);
@@ -1956,11 +1967,17 @@ function render({ model, el, readOnly = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
+    if (resultantFields.has(name)) {
+      const total = dirty.has(tag.id) ? null : tag.load_resultants?.[resultantFields.get(name).phase];
+      return Number.isFinite(total) ? precise(total) : "—";
+    }
     if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
     if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
     if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
-    if (["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
-    if (name === "L_vagg" && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
+    if (["L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (name === "lasttyp" && tag.values.lang === 1) return "—";
+    if (name === "L_vagg" && !lineLoads(tag.values)) return "—";
+    if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
     if (value == null || value === "") return "—";
     const field = fieldSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
@@ -1973,7 +1990,7 @@ function render({ model, el, readOnly = false }) {
       (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id)));
   }
   function tableEdit(id, name, control) {
-    if (readOnly || importBusy || bulkBusy || deleteBusy) return;
+    if (readOnly || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
     const tag = state().tags.find(tag => tag.id === id);
     if (!tag) return;
     tableFeedback.replaceChildren();
@@ -1985,6 +2002,10 @@ function render({ model, el, readOnly = false }) {
     const targets = tableTargets(id, name), mixed = new Set(targets.map(tag => tag.values.lang)).size > 1;
     if (mixed && sameTypeFields.has(name)) {
       tableFeedback.replaceChildren(node("p", "gp-error-text", "Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält gemensamt."));
+      return;
+    }
+    if (loadTypeFields.has(name) && new Set(targets.map(tag => lineLoads(tag.values))).size > 1) {
+      tableFeedback.replaceChildren(node("p", "gp-error-text", "Välj samma lasttyp för att ändra last- och linjestödslängdfält gemensamt."));
       return;
     }
     let value = raw;
@@ -2054,14 +2075,18 @@ function render({ model, el, readOnly = false }) {
     const result = node("td", "gp-table-status");
     row.append(labelCell, result);
     for (const name of tableNames) {
-      const field = fieldSchema.get(name), cell = node("td", tableFieldClass(field));
+      const field = tableSchema.get(name), cell = node("td", tableFieldClass(field));
       if (tableGroupHeads.has(name)) {
         const placeholder = node("td", "gp-table-folded-space"); placeholder.hidden = true;
         row.append(placeholder); placeholders.set(name, placeholder);
       }
       cells.set(name, cell);
-      if (readOnly) {
+      if (readOnly || field.type === "result") {
         const value = node("span", "gp-table-value");
+        if (field.type === "result") {
+          value.dataset.field = name;
+          cell.title = "Yttre lastresultant i kN, exklusive sulans egentyngd. Uppdateras automatiskt.";
+        }
         cell.append(value); row.append(cell); controls.set(name, value);
         continue;
       }
@@ -2080,7 +2105,7 @@ function render({ model, el, readOnly = false }) {
     }
     for (const [name, control] of controls) {
       control.dataset.tagId = tag.id; control.dataset.field = name;
-      if (readOnly) continue;
+      if (readOnly || resultantFields.has(name)) continue;
       const field = fieldSchema.get(name);
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
       control.addEventListener("keydown", event => {
@@ -2101,6 +2126,7 @@ function render({ model, el, readOnly = false }) {
     tableSelectionInfo.hidden = !selected.size;
     tableSelectionInfo.textContent = selected.size + (readOnly ? " markerade" : " markerade · ändra en cell för gemensamt värde");
     const mixed = new Set(selectionTags().map(tag => tag.values.lang)).size > 1;
+    const mixedLoads = new Set(selectionTags().map(tag => lineLoads(tag.values))).size > 1;
     for (const tag of tags) {
       const entry = tableRows.get(tag.id);
       if (!entry) continue;
@@ -2110,20 +2136,24 @@ function render({ model, el, readOnly = false }) {
       entry.row.classList.toggle("gp-table-row-selected", selected.has(tag.id));
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
-        const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
+        if (resultantFields.has(name)) continue;
+        const values = {...tag.values, ...drafts.get(tag.id)?.values};
+        const blocked = selected.has(tag.id) && (mixed && sameTypeFields.has(name) || mixedLoads && loadTypeFields.has(name));
         const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
         const atLeastOne = drafts.get(tag.id)?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1;
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
-        control.disabled = busy || blocked || (["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0)
+        control.hidden = name === "lasttyp" && Number(values.lang) === 1;
+        control.disabled = busy || blocked || (["L_vagg_minst_1", "glid_L", "l_override"].includes(name) && Number(values.lang) === 0)
+          || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
-          || (name === "L_vagg" && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
+          || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
         control.title = ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
           : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
-          : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
+          : blocked ? "Välj samma beräkningsmodell och lasttyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
-          : name === "L_vagg" && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Hela sparade Lvägg används för glidning. Avmarkera för att ange ett kortare linjestöd."
+          : name === "L_vagg" && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Hela sparade Lvägg används för glidning. Avmarkera för att ange ett kortare linjestöd."
           : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
       }
     }
@@ -2145,9 +2175,9 @@ function render({ model, el, readOnly = false }) {
         : summary.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail" : "");
       result.title = tag.error || (summary?.endast_h_stabilitet ? "Jordens bärighet och isolering kontrolleras inte." : summary?.styrande) || "";
       for (const [name, control] of controls) {
-        const field = fieldSchema.get(name);
+        const field = tableSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
-        if (readOnly) {
+        if (readOnly || field?.type === "result") {
           control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tag.values[name], tag);
           continue;
         }
@@ -2200,8 +2230,9 @@ function render({ model, el, readOnly = false }) {
         const [rankA, valueA] = statusKey(a), [rankB, valueB] = statusKey(b);
         return direction * (rankA - rankB || valueA - valueB) || tableCollator.compare(label(a), label(b));
       }
-      const name = tableSort.key, field = fieldSchema.get(name);
+      const name = tableSort.key, field = tableSchema.get(name);
       const value = tag => {
+        if (field?.type === "result") return dirty.has(tag.id) ? null : tag.load_resultants?.[field.phase];
         const raw = drafts.get(tag.id)?.values[name] ?? tag.values[name];
         if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return 1;
         if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
@@ -2221,7 +2252,8 @@ function render({ model, el, readOnly = false }) {
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
-    ["l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+    ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+  const loadTypeFields = new Set(["L_vagg", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
@@ -2269,33 +2301,53 @@ function render({ model, el, readOnly = false }) {
     bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
     const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
     const strip = !mixed && types.has(1);
+    const mixedLoads = new Set(tags.map(tag => lineLoads(tag.values))).size > 1;
     const onlyH = tags.every(tag => tag.values.endast_h_stabilitet);
     const syncLength = () => {
       const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
-      if (!strip) return;
-      if (length && override) {
+      if (strip && length && override) {
         const enabled = override.choose.checked ? override.input.value === "true" : tags.every(tag => tag.values.l_override);
         length.input.disabled = length.choose.disabled = !enabled;
         if (!enabled) length.choose.checked = false;
         length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
       }
       const support = bulkInputs.get("L_vagg"), minimum = bulkInputs.get("L_vagg_minst_1");
-      if (support && minimum && !onlyH) {
+      if (strip && support && minimum && !onlyH) {
         const enabled = minimum.choose.checked ? minimum.input.value === "false" : tags.every(tag => !tag.values.L_vagg_minst_1);
         support.input.disabled = support.choose.disabled = !enabled;
         if (!enabled) support.choose.checked = false;
         support.row.title = enabled ? "" : "Avmarkera Minst 1 m för att ange en kort linjestödslängd.";
       }
+      if (!mixed && !strip) {
+        const choice = bulkInputs.get("lasttyp");
+        const common = choice?.choose.checked ? choice.input.value === "1" : !mixedLoads && tags.every(tag => lineLoads(tag.values));
+        if (support) {
+          support.blocked = !common;
+          support.choose.disabled = support.input.disabled = !common;
+          if (!common) support.choose.checked = false;
+          support.row.hidden = !common;
+        }
+        for (const [name, entry] of bulkInputs) if (loadTypeFields.has(name) && name !== "L_vagg") {
+          const blocked = mixedLoads && !choice?.choose.checked;
+          entry.blocked = blocked;
+          entry.choose.disabled = entry.input.disabled = blocked;
+          if (blocked) entry.choose.checked = false;
+          const unit = fieldSchema.get(name).unit;
+          const unitElement = [...entry.row.children[1].children].find(child => child.className === "gp-unit");
+          if (unitElement) unitElement.textContent = common && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
+        }
+      }
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
-        : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulor: laster anges för hela sulan. ")
+        : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller totalt. ")
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
       const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
-        && !(!mixed && !strip && ["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name)));
+        && !(strip && name === "lasttyp")
+        && !(!mixed && !strip && ["L_vagg_minst_1", "glid_L", "l_override"].includes(name)));
       if (!available.length) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
@@ -2309,7 +2361,7 @@ function render({ model, el, readOnly = false }) {
         choose.setAttribute("aria-label", "Ändra " + field.label);
         choose.title = "Ändra " + field.label + " för alla markerade sulor";
         const controlRow = node("div", "gp-field");
-        const input = node(field.multiline ? "textarea" : field.type === "bool" ? "select" : "input");
+        const input = node(field.multiline ? "textarea" : ["bool", "choice"].includes(field.type) ? "select" : "input");
         if (field.multiline) input.rows = 3;
         input.name = "bulk_" + name;
         input.setAttribute("aria-label", "Gemensamt värde: " + field.label);
@@ -2321,6 +2373,12 @@ function render({ model, el, readOnly = false }) {
           }
           input.value = same ? String(value) : "";
           controlRow.classList.add("gp-choice-field");
+        } else if (field.type === "choice") {
+          const empty = node("option", "", "Olika värden"); empty.value = ""; input.append(empty);
+          for (const option of field.options) {
+            const item = node("option", "", option.label); item.value = option.value; input.append(item);
+          }
+          input.value = same ? value : ""; controlRow.classList.add("gp-choice-field");
         } else {
           if (!field.multiline) input.type = "text";
           if (field.type !== "text") input.inputMode = "decimal";
@@ -2332,16 +2390,16 @@ function render({ model, el, readOnly = false }) {
         const symbol = symbolNode(field.display_symbol || {}, "gp-field-symbol");
         symbol.setAttribute("aria-hidden", "true");
         const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
-        const unitText = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
+        const unitText = tags.every(tag => lineLoads(tag.values)) && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
         if (field.type === "text") controlRow.append(caption, input);
-        else if (field.type === "bool") controlRow.append(caption, symbol, input);
+        else if (["bool", "choice"].includes(field.type)) controlRow.append(caption, symbol, input);
         else controlRow.append(caption, symbol, input, node("span", "gp-unit", unitText));
-        const blocked = mixed && sameTypeFields.has(name);
+        const blocked = mixed && sameTypeFields.has(name) || mixedLoads && loadTypeFields.has(name);
         choose.disabled = input.disabled = blocked;
         if (blocked) row.title = "Välj samma sultyp för att ändra detta fält gemensamt.";
         const sync = () => { input.setCustomValidity(""); row.classList.toggle("gp-bulk-changed", choose.checked); syncLength(); };
         choose.addEventListener("change", sync);
-        input.addEventListener(field.type === "bool" ? "change" : "input", () => {
+        input.addEventListener(["bool", "choice"].includes(field.type) ? "change" : "input", () => {
           choose.checked = true; sync();
         });
         row.append(choose, controlRow); group.append(row);
@@ -2464,7 +2522,8 @@ function render({ model, el, readOnly = false }) {
         if (readOnly) {
           const value = tag.values[name];
           const text = field.type === "bool" ? (value ? "Ja" : "Nej")
-            : field.type === "choice" ? (value === 1 ? "Väggsula (per meter)" : "Pelarsula")
+            : field.type === "choice" ? (name === "lang" ? value === 1 ? "Väggsula" : "Pelarsula"
+              : field.options.find(option => option.value === value)?.label ?? "—")
             : field.type === "text" ? (value || "—")
             : value == null ? "—" : number(value, 10);
           const output = node("span", "gp-value", text);
@@ -2488,7 +2547,7 @@ function render({ model, el, readOnly = false }) {
         input.setAttribute("aria-label", accessibleLabel);
         if (field.type === "choice") {
           for (const option of field.options) {
-            const opt = node("option", "", option.value === 1 ? "Väggsula (per meter)" : "Pelarsula");
+            const opt = node("option", "", name === "lang" ? option.value === 1 ? "Väggsula" : "Pelarsula" : option.label);
             opt.value = option.value;
             input.append(opt);
           }
@@ -2535,6 +2594,8 @@ function render({ model, el, readOnly = false }) {
   }
   function fieldUnits() {
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
+    if (strip && !readOnly && inputs.has("lasttyp")) inputs.get("lasttyp").input.value = "1";
+    const line = strip || (readOnly ? lineLoads(current()?.values || {}) : inputs.get("lasttyp")?.input.value === "1");
     const onlyH = readOnly ? current()?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
     const atLeastOne = readOnly ? current()?.values.L_vagg_minst_1 : inputs.get("L_vagg_minst_1")?.input.checked;
     if (onlyH && !readOnly && inputs.has("isolering")) inputs.get("isolering").input.checked = false;
@@ -2551,8 +2612,14 @@ function render({ model, el, readOnly = false }) {
         + (atLeastOne ? "1 m (Minst 1 m)." : "kort L_vägg.")
         + " Sulmåttet b_y anger fördelningslängden under sulan och ändrar inte den yttre lastresultanten. Egentyngd tillkommer."));
     }
+    if (!strip && line) basis.replaceChildren(mathText("span", "", "Pelarsulemodell med linjelast: laster och moment anges per meter linjestöd och multipliceras med hela L_vägg. b_x och b_y anger kontaktmåtten. Egentyngd tillkommer i beräkningen."));
     if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
+      if (name === "lasttyp") {
+        entry.row.hidden = strip;
+        if (!readOnly) {entry.input.disabled = strip; entry.input.required = !strip;}
+        continue;
+      }
       if (name === "l_override") {
         entry.row.hidden = !strip || onlyH;
         if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
@@ -2564,16 +2631,17 @@ function render({ model, el, readOnly = false }) {
         continue;
       }
       if (name === "L_vagg") {
-        entry.row.hidden = !strip;
+        entry.row.hidden = !line;
         entry.unit.textContent = "m";
-        entry.row.title = "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder hela sparade linjestödslängden.";
-        if (readOnly) entry.input.textContent = atLeastOne && !onlyH ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
+        entry.row.title = strip ? "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder hela sparade linjestödslängden."
+          : "Hela linjestödslängden används för att omräkna linjelasten till total kraft. Sulmåtten ändrar inte resultanten.";
+        if (readOnly) entry.input.textContent = strip && atLeastOne && !onlyH ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
         else {
           entry.input.hidden = strip && atLeastOne && !onlyH;
           entry.fixed.hidden = !entry.input.hidden;
-          entry.input.disabled = !strip || (atLeastOne && !onlyH);
-          entry.input.required = strip && !atLeastOne && !onlyH;
-          entry.input.placeholder = onlyH ? "Hela linjestödslängden" : "Kortare än 1 m";
+          entry.input.disabled = !line || (strip && atLeastOne && !onlyH);
+          entry.input.required = line && !(strip && atLeastOne) && !onlyH;
+          entry.input.placeholder = onlyH || !strip ? "Hela linjestödslängden" : "Kortare än 1 m";
           if (entry.input.disabled) entry.input.setCustomValidity("");
         }
         continue;
@@ -2583,7 +2651,7 @@ function render({ model, el, readOnly = false }) {
         const length = name === "glid_L";
         const disabled = (!sliding().enabled && !onlyH) || (length ? !strip : insulated);
         entry.row.hidden = (!sliding().enabled && !onlyH) || (length ? !strip : numeric && insulated);
-        entry.unit.textContent = name === "V_Ed_EQU" ? (strip ? "kN/m" : "kN") : fieldSchema.get(name).unit;
+        entry.unit.textContent = name === "V_Ed_EQU" ? (line ? "kN/m" : "kN") : fieldSchema.get(name).unit;
         const supportRaw = inputs.get("L_vagg")?.input.value;
         const hasSupportLength = supportRaw != null && supportRaw !== "";
         if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated && !(length && hasSupportLength);
@@ -2591,7 +2659,7 @@ function render({ model, el, readOnly = false }) {
         continue;
       }
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
-      entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
+      entry.unit.textContent = line && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.startsWith("f_d_");
       const ignored = onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name));
       if (readOnly) {
@@ -2629,6 +2697,7 @@ function render({ model, el, readOnly = false }) {
     renderMarkers();
     showSliding();
     showColour();
+    showTable();
     const label = labelInput.value.trim();
     const id = active, revision = edits.get(id);
     command("update", { id, values, ...(label ? { label } : {}) }, [], reply => {

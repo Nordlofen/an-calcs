@@ -5,6 +5,7 @@ import json
 import math
 import re
 from bisect import bisect_right
+from .grundplan_loads import line_loads
 
 
 PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
@@ -121,7 +122,7 @@ def group_data(tags, settings):
             by_key[suffix] = make("isolering:" + suffix, color, label=label, kind="insulation", unit="")
     elif category == "V":
         for kind in ("pad", "wall"):
-            if not any((tag["values"]["lang"] == 1) == (kind == "wall") for tag in tags):
+            if not any(line_loads(tag["values"]) == (kind == "wall") for tag in tags):
                 continue
             bounds = settings["bounds"][kind]
             for index in range(len(bounds) + 1):
@@ -157,7 +158,7 @@ def group_data(tags, settings):
                 special[key] = group
             group = special[key]
         elif category == "V":
-            kind = "wall" if values["lang"] == 1 else "pad"
+            kind = "wall" if line_loads(values) else "pad"
             group = by_key[kind, bisect_right(settings["bounds"][kind], value)]
         else:
             group = by_key[category + ":" + number_key(value)]

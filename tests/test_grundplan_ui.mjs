@@ -121,7 +121,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "kommentar");
+names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "kommentar", "lasttyp");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
@@ -142,12 +142,14 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
   tag.values.L_vagg_minst_1 = true;
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
+  tag.values.lasttyp = 0; // A wall model always uses line units; pads default to total inputs.
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
-      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
-      unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"].includes(name) ? "bool" : ["lang", "lasttyp"].includes(name) ? "choice" : "number",
+      unit: loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
+      options: name === "lasttyp" ? [{value: 0, label: "Total last [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
   const model = standalone ? createResultModel(snapshot, validateCalibration, validateLayout) : { get: name => data[name], send: (payload, _, buffers) => {
@@ -1531,7 +1533,7 @@ for (const readOnly of [false, true]) test(`compact sliding labels exclude insul
   assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
 });
 
-test("gliding inputs follow footing type and edits hide old resistance without invalidating bearing", t => {
+test("gliding inputs follow load basis and edits hide old resistance without invalidating bearing", t => {
   const ui = setup(t);
   slidingFixture(ui);
   ui.marker().click();
@@ -1550,6 +1552,8 @@ test("gliding inputs follow footing type and edits hide old resistance without i
   ui.field("lang").value = 0; ui.field("lang").dispatch("input");
   assert.equal(ui.field("glid_L").parent.hidden, true);
   assert.equal(ui.field("glid_L").disabled, true);
+  assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN/m");
+  ui.field("lasttyp").value = 0; ui.field("lasttyp").dispatch("input");
   assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN");
   ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("glid_x").disabled, true);
@@ -2603,7 +2607,7 @@ test("custom intervals accept decimal comma with semicolons, validate boundaries
   const field = ui.find(e => e.getAttribute("aria-label") === "Intervallgränser för färggruppering");
   field.value = "100,5; 200,5; 399,5"; field.dispatch("change");
   assert.deepEqual(ui.sent.at(-1).settings, {bounds: {pad: [100.5, 200.5, 399.5]}}); accept(ui.sent.at(-1));
-  ui.byText("Väggsulor [kN/m]").click(); accept(ui.sent.at(-1));
+  ui.byText("Linjelaster [kN/m]").click(); accept(ui.sent.at(-1));
   assert.equal(field.value, "100; 200; 400");
   field.value = "100, 300, 600"; field.dispatch("change"); accept(ui.sent.at(-1));
   assert.deepEqual(ui.data.state.colour_grouping.bounds, {pad: [100.5, 200.5, 399.5], wall: [100, 300, 600]});
@@ -2611,7 +2615,7 @@ test("custom intervals accept decimal comma with semicolons, validate boundaries
     const before = ui.sent.length; field.value = value; field.dispatch("change");
     assert.equal(ui.sent.length, before); assert.ok(field.validityMessage);
   }
-  ui.byText("Pelarsulor [kN]").click(); accept(ui.sent.at(-1));
+  ui.byText("Totala laster [kN]").click(); accept(ui.sent.at(-1));
   assert.equal(field.value, "100,5; 200,5; 399,5");
   assert.equal(field.validityMessage, "", "Changing footing type restores its valid saved intervals");
   assert.equal(ui.byClass("gp-colour-error").textContent, "");
@@ -2781,7 +2785,7 @@ test("all columns sort numerically or by text with natural littera ties and miss
     {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
   ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 2);
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 4);
   tableSortButton(ui, "b").click();
   assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
   tableSortButton(ui, "b").click();
@@ -3190,4 +3194,118 @@ test("size validation restores missing widths in old projects and rejects invali
   for (const value of [null, [], 5, {unknown: 400}, {toString: 5}, {board_height: true},
     {board_height: Infinity}, {board_height: "700"}, {board_height: 279}, {table_height: 1801},
     {board_width: true}, {table_width: NaN}, {board_width: 319}, {table_width: 4001}]) assert.throws(() => validateLayout(value));
+});
+
+for (const readOnly of [false, true]) test(`pad models expose the load basis and full wall length independently of model geometry (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: 2.4, L_vagg_minst_1: true,
+    F_vy: 200, F_vy_bruk: 100, V_Ed_EQU: 150, isolering: true});
+  ui.tag.load_resultants = {brott: 480, bruk: 240};
+  ui.data.state.sliding = {enabled: true}; ui.changed(); ui.marker().click();
+  assert.match(elementText(ui.byClass('gp-basis')), /hela Lvägg/);
+  assert.match(elementText(ui.marker()), /V 200 kN\/m → 480 kN/);
+  assert.equal(resultTableValue(ui, 'tag1', 'V_res_brott').textContent, '480');
+  assert.equal(resultTableValue(ui, 'tag1', 'V_res_bruk').textContent, '240');
+  if (!readOnly) {
+    assert.equal(ui.field('lasttyp').parent.hidden, false);
+    assert.equal(ui.field('L_vagg').disabled, false);
+    assert.equal(ui.field('L_vagg').hidden, false);
+    assert.equal(ui.field('L_vagg').required, true);
+    assert.equal(ui.field('L_vagg').value, '2.4');
+    assert.equal(ui.field('L_vagg_minst_1').parent.hidden, true);
+    assert.equal(ui.field('F_vy').parent.children.find(e => e.className === 'gp-unit').textContent, 'kN/m');
+    assert.equal(tableField(ui, 'tag1', 'L_vagg').value, '2,4');
+    assert.equal(tableField(ui, 'tag1', 'L_vagg').disabled, false);
+    ui.field('lasttyp').value = '0'; ui.field('lasttyp').dispatch('input');
+    assert.equal(ui.sent.at(-1).values.lasttyp, 0);
+    assert.equal(ui.field('L_vagg').parent.hidden, true);
+    assert.equal(ui.field('F_vy').parent.children.find(e => e.className === 'gp-unit').textContent, 'kN');
+    assert.equal(resultTableValue(ui, 'tag1', 'V_res_brott').textContent, '—', 'Pending changes cannot display old totals');
+  } else {
+    assert.equal(resultTableValue(ui, 'tag1', 'lasttyp').textContent, 'Linjelast [kN/m]');
+    assert.equal(resultTableValue(ui, 'tag1', 'L_vagg').textContent, '2,4');
+  }
+});
+
+test('a wall switched to a pad retains line input, while a new pad defaults to total input', t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {lasttyp: 1, L_vagg: .6}); ui.changed(); ui.marker().click();
+  assert.equal(ui.field('lasttyp').parent.hidden, true);
+  assert.equal(tableField(ui, 'tag1', 'lasttyp').hidden, true);
+  ui.field('lang').value = '0'; ui.field('lang').dispatch('input');
+  assert.equal(ui.sent.at(-1).values.lasttyp, 1);
+  assert.equal(ui.sent.at(-1).values.F_vy, 1, 'Changing models cannot multiply stored inputs');
+  assert.equal(ui.field('lasttyp').parent.hidden, false);
+  assert.equal(ui.field('L_vagg').value, '0.6');
+  assert.equal(ui.field('L_vagg').disabled, false);
+  ui.field('lasttyp').value = '0'; ui.field('lasttyp').dispatch('input');
+  assert.equal(ui.field('L_vagg').parent.hidden, true);
+});
+
+for (const readOnly of [false, true]) test(`resultant columns are locked, sortable and folded with their load group (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  ui.data.state.tags = [['tag1', 'VS10', 120, 60], ['tag2', 'VS2', 120, 60], ['tag3', 'VS1', 80, 0]]
+    .map(([id, label, brott, bruk]) => ({...structuredClone(ui.tag), id, label, load_resultants: {brott, bruk}}));
+  ui.changed();
+  const result = resultTableValue(ui, 'tag1', 'V_res_brott');
+  assert.equal(result.tag, 'span'); assert.equal(result.listeners.size, 0);
+  assert.equal(ui.elements().some(e => e.name === 'table_V_res_brott' || e.name === 'V_res_brott'), false);
+  const sort = ui.find(e => e.getAttribute('aria-label') === 'Sortera efter Yttre lastresultant – brott');
+  sort.click(); assert.deepEqual(tableOrder(ui), ['tag3', 'tag2', 'tag1']);
+  const request = ui.sent.at(-1);
+  if (!readOnly) {ui.data.state.table_view = {collapsed: [], sort: {key: 'V_res_brott', direction: 'ascending'}}; ui.changed(); ui.ack(request);}
+  sort.click(); assert.deepEqual(tableOrder(ui), ['tag2', 'tag1', 'tag3']);
+  const fold = ui.find(e => e.getAttribute('aria-label') === 'Visa eller dölj Laster – Brott');
+  fold.click(); assert.equal(result.parent.hidden, true);
+  assert.equal(resultTableValue(ui, 'tag1', 'V_res_bruk').parent.hidden, false);
+});
+
+test('line pad import updates discard old load and length drafts but retain chosen model and geometry', async t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: 2.4}); ui.changed(); ui.marker().click();
+  ui.field('b').value = '1,23'; ui.field('b').dispatch('input'); ui.ack(ui.sent.at(-1));
+  ui.field('F_vy').value = '999'; ui.field('F_vy').dispatch('input'); ui.ack(ui.sent.at(-1));
+  const input = ui.find(e => e.getAttribute('aria-label') === 'Lasteffektfil');
+  const buffer = new TextEncoder().encode('{"schemaVersion":1}').buffer;
+  input.files = [{name: 'updated.json', size: buffer.byteLength, arrayBuffer: async () => buffer}];
+  await input.listeners.get('change')[0]();
+  const request = ui.sent.at(-1);
+  Object.assign(ui.tag.values, {F_vy: 220, L_vagg: 3}); ui.changed();
+  ui.ack(request, {report: {updated: 1, new: 0, updated_ids: ['tag1']}});
+  ui.marker().click();
+  assert.equal(ui.field('F_vy').value, '220');
+  assert.equal(ui.field('L_vagg').value, '3');
+  assert.equal(ui.field('b').value, '1,23');
+  ui.field('L_vagg').value = '2,8'; ui.field('L_vagg').dispatch('input');
+  assert.equal(ui.sent.at(-1).values.lang, 0);
+  assert.equal(ui.sent.at(-1).values.lasttyp, 1);
+  assert.equal(ui.sent.at(-1).values.L_vagg, 2.8);
+  assert.equal(ui.sent.at(-1).values.b, 1.23);
+});
+
+test('mixed load units block joint loads while allowing geometry and an explicit common load basis', t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: .6});
+  const other = structuredClone(ui.tag); other.id = 'tag2'; other.label = 'PS2'; other.values.lasttyp = 0;
+  ui.data.state.tags.push(other); ui.changed();
+  selectTableRow(ui, 'VS1'); selectTableRow(ui, 'PS2');
+  assert.equal(tableField(ui, 'tag1', 'F_vy').disabled, true);
+  assert.equal(tableField(ui, 'tag1', 'b').disabled, false);
+  assert.equal(tableField(ui, 'tag1', 'lasttyp').disabled, false);
+  ui.byText('Ändra markerade').click();
+  assert.equal(ui.field('bulk_F_vy').disabled, true);
+  ui.field('bulk_lasttyp').value = '1'; ui.field('bulk_lasttyp').dispatch('change');
+  assert.equal(ui.field('bulk_F_vy').disabled, false);
+  assert.equal(ui.field('bulk_L_vagg').disabled, false);
+  ui.field('bulk_L_vagg').value = '2,4'; ui.field('bulk_L_vagg').dispatch('input');
+  ui.byText('Tillämpa').click();
+  assert.deepEqual(ui.sent.at(-1).values, {lasttyp: 1, L_vagg: 2.4});
+});
+
+test('load colour intervals use input units rather than the bearing model', t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, F_vy: 150});
+  const settings = {enabled: true, category: 'V', secondary: null, phase: 'brott', colors: {}, bounds: {pad: [100, 200], wall: [100, 200]}};
+  const group = colourGroups([ui.tag], settings).assignments.get('tag1');
+  assert.equal(group.kind, 'wall'); assert.equal(group.unit, 'kN/m');
 });

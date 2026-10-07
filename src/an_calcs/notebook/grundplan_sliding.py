@@ -7,6 +7,7 @@ this module does not distribute horizontal forces or combine X and Y.
 
 import copy
 import math
+from .grundplan_loads import line_loads
 
 
 FIELDS = [
@@ -76,7 +77,11 @@ def contribution(values):
     # Missing support length means the legacy per-metre footing input. Never
     # infer a support length from an independently edited footing length.
     length_name = "L_vagg" if support_length is not None else "glid_L"
-    names = ["V_Ed_EQU", "glid_mu"] + ([length_name] if values["lang"] == 1 else [])
+    names = ["V_Ed_EQU", "glid_mu"] + ([length_name] if line_loads(values) else [])
+    if line_loads(values) and values["lang"] == 0 and support_length is None:
+        # A finite pad model with line input needs the actual support length.
+        # The unrelated footing length must not stand in for a missing wall.
+        names[-1] = length_name = "L_vagg"
     for name in names:
         value = values.get(name)
         if not _finite(value) or value < 0 or (name in ("glid_L", "L_vagg") and value == 0):
@@ -85,7 +90,7 @@ def contribution(values):
             return {**result, "status": "incomplete", "capacity": None,
                     **{axis: None if selected[axis] else 0 for axis in selected},
                     "error": "Kontrollera " + caption.lower() + "."}
-    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values[length_name] if values["lang"] == 1 else 1)
+    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values[length_name] if line_loads(values) else 1)
     if not math.isfinite(capacity):
         return {**result, "status": "incomplete", "capacity": None,
                 **{axis: None if selected[axis] else 0 for axis in selected},

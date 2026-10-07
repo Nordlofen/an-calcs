@@ -7,6 +7,46 @@ MAX_BYTES = 5 * 1024 * 1024
 CATEGORIES = {"Brott": "F_vy", "Bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
 
 
+def line_loads(values):
+    """Load units are independent of the selected bearing model."""
+    return values.get("lang") == 1 or values.get("lasttyp", 0) == 1
+
+
+def bearing_load_length(values):
+    """Length converting external line actions to the local resultant."""
+    if not line_loads(values):
+        return None
+    strip = values["lang"] == 1
+    length = 1.0 if strip and values.get("L_vagg_minst_1", True) else values.get("L_vagg")
+    if length is None:
+        raise ValueError("Ange linjestödslängden L_vägg." if not strip else
+                         "Ange en kort linjestödslängd L_vägg eller aktivera Minst 1 m.")
+    length = _number(length, "L_vägg")
+    if length <= 0 or strip and length > 1:
+        raise ValueError("Ange L_vägg större än noll och högst 1 m, eller aktivera Minst 1 m." if strip else
+                         "Ange L_vägg större än noll.")
+    return length
+
+
+def load_resultants(values):
+    """Display external totals even if unrelated geometry/soil inputs are invalid."""
+    result = {"brott": None, "bruk": None}
+    if values.get("endast_h_stabilitet"):
+        return result
+    try:
+        length = bearing_load_length(values)
+    except ValueError:
+        return result
+    for phase, name in (("brott", "F_vy"), ("bruk", "F_vy_bruk")):
+        value = values.get(name)
+        if type(value) not in (int, float) or not math.isfinite(value):
+            continue
+        total = value * (length if length is not None else 1)
+        if math.isfinite(total):
+            result[phase] = total
+    return result
+
+
 def _pairs(pairs):
     result = {}
     for key, value in pairs:
@@ -55,7 +95,7 @@ def read_loads(data, *, existing_labels=(), available=1000):
         kind = support.get("type")
         if kind not in ("line", "point"):
             raise ValueError(f"{label}: type måste vara line eller point.")
-        values = {}
+        values = {"lasttyp": 1 if kind == "line" else 0}
         if kind == "line":
             if document.get("distribution") != "uniform":
                 raise ValueError(f"{label}: väggsulor kräver distribution uniform.")

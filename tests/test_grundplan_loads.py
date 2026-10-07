@@ -37,8 +37,8 @@ class TestLoadParser(unittest.TestCase):
         before = copy.deepcopy(data)
         items = read_loads(encode(data))
         self.assertEqual(items, [
-            {"label": "W1", "kind": "vaggsula", "values": {"F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2, "L_vagg_minst_1": True}},
-            {"label": "P1", "kind": "pelarsula", "values": {"F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
+            {"label": "W1", "kind": "vaggsula", "values": {"lasttyp": 1, "F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2, "L_vagg_minst_1": True}},
+            {"label": "P1", "kind": "pelarsula", "values": {"lasttyp": 0, "F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
         self.assertEqual(data, before)
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
 
@@ -50,7 +50,7 @@ class TestLoadParser(unittest.TestCase):
         data["supports"][0]["results"].reverse()
         items = read_loads(encode(data))
         self.assertEqual([item["label"] for item in items], ["P1", "W1"])
-        self.assertEqual(items[0]["values"], {"V_Ed_EQU": 60, "F_vy_bruk": 0, "F_vy": -10.5})
+        self.assertEqual(items[0]["values"], {"lasttyp": 0, "V_Ed_EQU": 60, "F_vy_bruk": 0, "F_vy": -10.5})
 
     def test_units_missing_categories_duplicates_and_bad_geometry_are_rejected(self):
         def invalid(field, value):

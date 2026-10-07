@@ -291,6 +291,8 @@
 .an-grundplan .gp-input-table .gp-table-number input { width: 70px; }
 .an-grundplan .gp-input-table .gp-table-bool { min-width: 76px; }
 .an-grundplan .gp-input-table .gp-table-choice select { width: 96px; }
+.an-grundplan .gp-input-table .gp-table-choice select[name="table_lasttyp"] { width: 155px; }
+.an-grundplan .gp-input-table .gp-table-number .gp-table-value { display: block; padding: 4px 2px; text-align: right; font-variant-numeric: tabular-nums; }
 .an-grundplan .gp-input-table input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--gp-accent); cursor: pointer; vertical-align: middle; }
 .an-grundplan .gp-input-table .gp-table-select { position: sticky; left: 0; min-width: 36px; width: 36px; z-index: 2; }
 .an-grundplan .gp-input-table .gp-table-label { position: sticky; left: 36px; min-width: 120px; width: 120px; z-index: 2; }
