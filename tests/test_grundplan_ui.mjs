@@ -3325,6 +3325,9 @@ test('drawing heading and date buttons create independent objects and prevent du
   const add = ui.byText('Lägg till rubrik');
   add.click(); const request = ui.sent.at(-1);
   assert.equal(request.action, 'text_add'); assert.equal(request.kind, 'heading');
+  assert.equal(request.text, ui.data.state.title); assert.equal(request.subtitle, ui.data.state.subtitle);
+  assert.equal(request.width, ui.byClass('gp-subtitle').clientWidth + 8);
+  assert.equal(request.size, 20);
   assert.equal(add.disabled, true);
   add.click(); assert.equal(ui.sent.at(-1), request);
   ui.data.state.text_objects = [{id: 'heading1', kind: 'heading', text: 'Rubrik', x: request.x, y: request.y, size: 28}];
@@ -3341,10 +3344,30 @@ test('drawing heading and date buttons create independent objects and prevent du
   assert.deepEqual(ui.tag, before);
 });
 
+test('add heading copies current header typing and its width even before older edits are acknowledged', t => {
+  const ui = setup(t), title = ui.byClass('gp-title'), subtitle = ui.byClass('gp-subtitle');
+  title.value = 'Grundläggningssulor - Hus 1'; title.dispatch('input'); const first = ui.sent.at(-1);
+  subtitle.value = '26017 - Norrbodahöjden\nKontroller: bärighet, isolering och H-stabilitet\nV-last bottenplan ej inkluderad';
+  subtitle.dispatch('input'); const latest = ui.sent.at(-1);
+  Object.assign(ui.data.state, {title:first.title, subtitle:first.subtitle}); ui.changed(); ui.ack(first);
+  subtitle.clientWidth = 1250;
+  ui.byText('+').click(); // The drawing zooms to 125%; the interface heading stays at 20 px.
+  ui.byText('Lägg till rubrik').click(); const copied = ui.sent.at(-1);
+  assert.equal(copied.text, latest.title); assert.equal(copied.subtitle, latest.subtitle); assert.equal(copied.width, 1258);
+  near(copied.size * 1.25, 20);
+  ui.data.state.text_objects = [{id:'copied', kind:'heading', text:copied.text, subtitle:copied.subtitle,
+    width:copied.width, x:copied.x, y:copied.y, size:copied.size}]; ui.changed(); ui.ack(copied, {id:'copied'});
+  assert.equal(ui.byClass('gp-annotation-heading').style.transform, 'scale(1)');
+  assert.equal(ui.byClass('gp-annotation-heading').style.width, '1258px');
+  assert.equal(ui.byClass('gp-annotation-title').textContent, latest.title);
+  assert.equal(ui.byClass('gp-annotation-subtitle').textContent, latest.subtitle);
+  assert.equal(ui.byClass('gp-annotation-editor').hidden, true, 'The copy is ready without typing again');
+});
+
 test('drawing text drag, proportional resize, cancel and pending edit replies retain the latest values', t => {
   const ui = setup(t);
   const original = structuredClone(ui.tag);
-  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Hus 1', subtitle:'Grundsulor', x:.1, y:.2, size:20}]; ui.changed();
+  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Hus 1', subtitle:'Grundsulor', width:200, x:.1, y:.2, size:20}]; ui.changed();
   const element = ui.byClass('gp-text-annotation'), text = ui.byClass('gp-annotation-text'), resize = ui.byClass('gp-text-resize');
   const accept = request => {
     Object.assign(ui.data.state.text_objects[0], request.changes); ui.changed(); ui.ack(request);
@@ -3393,11 +3416,12 @@ test('drawing text deletion removes only that annotation', t => {
 
 test('HTML drawing headings and dates display saved text and geometry without editing controls', t => {
   const ui = setup(t, {readOnly:true});
-  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Rubrik', subtitle:'Revision A\nGrundsulor', x:.2, y:.3, size:40}]; ui.changed();
+  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Rubrik', subtitle:'Revision A\nGrundsulor', width:1200, x:.2, y:.3, size:40}]; ui.changed();
   const element = ui.byClass('gp-text-annotation'), text = ui.byClass('gp-annotation-text');
   assert.equal(ui.byClass('gp-annotation-title').textContent, 'Rubrik'); assert.equal(text.tag, 'span');
   assert.equal(ui.byClass('gp-annotation-subtitle').textContent, 'Revision A\nGrundsulor');
   assert.equal(element.style.transform, 'scale(2)'); assert.equal(element.style.left, '20%');
+  assert.equal(element.style.width, '1200px');
   assert.ok(!ui.elements().some(e => e.className === 'gp-annotation-editor'));
   assert.ok(!ui.elements().some(e => e.textContent === 'Lägg till rubrik'));
   ui.start(text); ui.move(400, 400); ui.finish(400, 400); assert.equal(ui.sent.length, 0);

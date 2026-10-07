@@ -16,7 +16,7 @@ def validate_text_objects(value):
     ids = set()
     for item in value:
         required = {"id", "kind", "text", "x", "y", "size"}
-        if not isinstance(item, dict) or set(item) not in (required, required | {"subtitle"}):
+        if not isinstance(item, dict) or not required <= set(item) or set(item) - required - {"subtitle", "width"}:
             raise ValueError("Ogiltigt textobjekt.")
         ident = item["id"]
         if not isinstance(ident, str) or not ident or len(ident) > 80 or ident in ids:
@@ -31,4 +31,7 @@ def validate_text_objects(value):
             number = item[name]
             if type(number) not in (int, float) or not math.isfinite(number) or not low <= number <= high:
                 raise ValueError(f"Textobjektets {name} ska vara {low}–{high}.")
-    return [{**copy.deepcopy(item), "subtitle": item.get("subtitle", "")} for item in value]
+        width = item.get("width", 420)
+        if type(width) not in (int, float) or not math.isfinite(width) or not 80 <= width <= 10000:
+            raise ValueError("Textobjektets bredd ska vara 80–10000 px.")
+    return [{**copy.deepcopy(item), "subtitle": item.get("subtitle", ""), "width": item.get("width", 420)} for item in value]

@@ -528,7 +528,7 @@ def _draw_text_objects(canvas, width, height, preview_size, objects):
         return
     _fonts()
     image_scale = min(width / preview_size[0], height / preview_size[1])
-    def wrapped(text, font, size, spacing=0):
+    def wrapped(text, font, size, width, spacing=0):
         if not text:
             return []
         lines = []
@@ -536,8 +536,12 @@ def _draw_text_objects(canvas, width, height, preview_size, objects):
             line = ""
             for character in paragraph:
                 candidate = line + character
-                if line and pdfmetrics.stringWidth(candidate, font, size) + spacing * (len(candidate) - 1) > 412:
-                    lines.append(line); line = ""
+                if line and pdfmetrics.stringWidth(candidate, font, size) + spacing * (len(candidate) - 1) > width:
+                    boundary = line.rfind(" ")
+                    if boundary > 0:
+                        lines.append(line[:boundary]); line = line[boundary + 1:]
+                    else:
+                        lines.append(line); line = ""
                 line += character
             lines.append(line)
         return lines
@@ -552,8 +556,9 @@ def _draw_text_objects(canvas, width, height, preview_size, objects):
     for item in objects:
         heading = item["kind"] == "heading"
         font, spacing = (_BOLD, -.5) if heading else (_REGULAR, 0)
-        lines = wrapped(item["text"], font, 20, spacing)
-        subtitles = wrapped(item.get("subtitle", ""), _REGULAR, 13) if heading else []
+        wrap_width = item.get("width", 420) - 8
+        lines = wrapped(item["text"], font, 20, wrap_width, spacing)
+        subtitles = wrapped(item.get("subtitle", ""), _REGULAR, 13, wrap_width) if heading else []
         scale = image_scale * item["size"] / 20
         canvas.saveState()
         canvas.translate(item["x"] * width, height - item["y"] * height)

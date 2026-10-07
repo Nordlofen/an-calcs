@@ -60,9 +60,10 @@ texterna via `plan.titel` och `plan.underrubrik`. En tom underrubrik döljs
 i HTML-exporten. Ändringarna påverkar inte sulornas beräkningar.
 
 **Lägg till rubrik** och **Lägg till datum (åå/mm/dd)** skapar separata textobjekt
-på ritningen. Rubrikobjektet har en rubrik och en valfri underrubrik i samma
-typsnitt och textstil som interfacets rubrik och underrubrik. Båda flyttas och
-skalas tillsammans. Datumet börjar med dagens datum i Stockholm, exempelvis `26/10/08`,
+på ritningen. **Lägg till rubrik** kopierar direkt den befintliga rubriken och
+hela underrubriken från interfacet, inklusive radbrytningar och textbredd.
+Typsnitt och textstil är desamma. Du behöver inte skriva in texterna igen.
+Båda flyttas och skalas tillsammans. Datumet börjar med dagens datum i Stockholm, exempelvis `26/10/08`,
 och ändras inte när projektet öppnas igen. Dra texten för att flytta den och dra
 hörnhandtaget för att förstora/förminska. Klicka på texten för att visa **Redigera**
 och **×** (ta bort). Dubbelklick öppnar också textredigeringen; **Shift + Enter**

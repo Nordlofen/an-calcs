@@ -55,7 +55,7 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual((self.plan.taggar, self.plan.resultat), before)
 
     def test_drawing_text_roundtrip_replacement_and_legacy_project(self):
-        ident = self.plan.lagg_till_rubrik("Rubrik med åäö", underrubrik="Underrubrik\n" + "Lång text " * 40, x=.25, y=.35, storlek=40)
+        ident = self.plan.lagg_till_rubrik("Rubrik med åäö", underrubrik="Underrubrik\n" + "Lång text " * 40, x=.25, y=.35, storlek=40, bredd=1150)
         self.plan.lagg_till_datum("25/12/31", x=.6, y=.7, storlek=24)
         self.plan.uppdatera_text(ident, text="Revision B", size=48)
         loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "text.json"))
@@ -64,13 +64,33 @@ class TestGrundplan(unittest.TestCase):
         loaded.importera_ritning(self.path)
         self.assertEqual(loaded.textobjekt, self.plan.textobjekt)
         without_subtitle = self.plan._document()
+        without_subtitle["version"] = 13
         for item in without_subtitle["text_objects"]:
             del item["subtitle"]
+            del item["width"]
         loaded._load_document(json.dumps(without_subtitle).encode())
         self.assertEqual([item["subtitle"] for item in loaded.textobjekt], ["", ""])
+        self.assertEqual([item["width"] for item in loaded.textobjekt], [420, 420])
         legacy = self.plan._document(); legacy["version"] = 12; del legacy["text_objects"]
         loaded._load_document(json.dumps(legacy).encode())
         self.assertEqual(loaded.textobjekt, [])
+
+    def test_add_heading_copies_existing_text_and_protocol_can_capture_pending_header_edits(self):
+        self.plan.titel = "Grundläggningssulor - Hus 1"
+        self.plan.underrubrik = "26017 - Norrbodahöjden\nKontroller: bärighet, isolering och glidning\n" + "Kommentar " * 40
+        self.plan.lagg_till_rubrik(bredd=1300)
+        copied = self.plan.textobjekt[0]
+        self.assertEqual((copied["text"], copied["subtitle"], copied["size"], copied["width"]),
+                         (self.plan.titel, self.plan.underrubrik, 20, 1300))
+        self.plan.titel = "Revision B"
+        self.assertEqual(self.plan.textobjekt[0], copied, "A placed copy keeps its saved contents")
+        with patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "text_add", "kind": "heading", "text": "Ny rubrik",
+                "subtitle": "Senast skriven text\nRad två", "width": 1200}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+        self.assertEqual(self.plan.textobjekt[-1]["text"], "Ny rubrik")
+        self.assertEqual(self.plan.textobjekt[-1]["subtitle"], "Senast skriven text\nRad två")
+        self.assertEqual(self.plan.textobjekt[-1]["width"], 1200)
 
     def test_default_drawing_date_uses_stockholm_timezone_and_two_digit_year(self):
         from datetime import datetime
@@ -83,7 +103,8 @@ class TestGrundplan(unittest.TestCase):
     def test_invalid_text_updates_and_project_leave_existing_text_intact(self):
         ident = self.plan.lagg_till_rubrik()
         original = self.plan._document()
-        for changes in ({"x": -1}, {"y": float("nan")}, {"size": True}, {"size": 0}, {"text": 12}, {"subtitle": 12}, {"kind": "date"}):
+        for changes in ({"x": -1}, {"y": float("nan")}, {"size": True}, {"size": 0}, {"text": 12}, {"subtitle": 12},
+                        {"kind": "date"}, {"width": 0}, {"width": True}, {"width": float("inf")}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.plan.uppdatera_text(ident, **changes)
             self.assertEqual(self.plan._document(), original)
@@ -356,7 +377,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 13)
+        self.assertEqual(loaded._document()["version"], 14)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())

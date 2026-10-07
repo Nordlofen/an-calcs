@@ -986,26 +986,27 @@ class Grundplan(anywidget.AnyWidget):
         """Placerade rubriker och datum; storlek anges i px vid ritningszoom 100 %."""
         return copy.deepcopy(self._text_objects)
 
-    def _add_text(self, kind, text, x, y, size, subtitle=""):
+    def _add_text(self, kind, text, x, y, size, subtitle="", width=420):
         if not self._source:
             raise ValueError("Importera en ritning först.")
         ident = uuid.uuid4().hex
         self._text_objects = validate_text_objects([*self._text_objects,
-            {"id": ident, "kind": kind, "text": text, "subtitle": subtitle, "x": x, "y": y, "size": size}])
+            {"id": ident, "kind": kind, "text": text, "subtitle": subtitle, "x": x, "y": y, "size": size, "width": width}])
         self._publish()
         return ident
 
-    def lagg_till_rubrik(self, text="Rubrik", *, underrubrik="", x=.08, y=.08, storlek=28):
-        """Lägg till rubrik och underrubrik som flyttas och skalas tillsammans."""
-        return self._add_text("heading", text, x, y, storlek, underrubrik)
+    def lagg_till_rubrik(self, text=None, *, underrubrik=None, x=.08, y=.08, storlek=20, bredd=420):
+        """Kopiera befintlig rubrik och underrubrik om nya texter inte anges."""
+        return self._add_text("heading", self._title if text is None else text, x, y, storlek,
+                              self._subtitle if underrubrik is None else underrubrik, bredd)
 
     def lagg_till_datum(self, text=None, *, x=.08, y=.18, storlek=18):
         """Lägg till datum; dagens datum i Stockholm används om text utelämnas."""
         return self._add_text("date", today_text() if text is None else text, x, y, storlek)
 
     def uppdatera_text(self, ident, **changes):
-        if set(changes) - {"text", "subtitle", "x", "y", "size"}:
-            raise ValueError("Ändra text, subtitle, x, y eller size för textobjektet.")
+        if set(changes) - {"text", "subtitle", "x", "y", "size", "width"}:
+            raise ValueError("Ändra text, subtitle, x, y, size eller width för textobjektet.")
         if not any(item["id"] == ident for item in self._text_objects):
             raise ValueError("Textobjektet finns inte.")
         self._text_objects = validate_text_objects([
@@ -1071,7 +1072,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 13,
+            "version": 14,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1226,8 +1227,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–13.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–14.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1367,8 +1368,12 @@ class Grundplan(anywidget.AnyWidget):
                 kind = content["kind"]
                 if kind not in ("heading", "date"):
                     raise ValueError("Välj rubrik eller datum.")
-                method = self.lagg_till_rubrik if kind == "heading" else self.lagg_till_datum
-                reply["id"] = method(x=content.get("x", .08), y=content.get("y", .08 if kind == "heading" else .18))
+                if kind == "heading":
+                    reply["id"] = self.lagg_till_rubrik(content.get("text"), underrubrik=content.get("subtitle"),
+                        x=content.get("x", .08), y=content.get("y", .08), bredd=content.get("width", 420),
+                        storlek=content.get("size", 20))
+                else:
+                    reply["id"] = self.lagg_till_datum(x=content.get("x", .08), y=content.get("y", .18))
             elif action == "text_update":
                 self.uppdatera_text(content["id"], **content["changes"])
             elif action == "text_delete":

@@ -148,7 +148,7 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertIn("L\nsu\n 6,2 m", text)
 
     def test_drawing_headings_and_dates_are_embedded_in_html_and_its_pdf(self):
-        self.plan.lagg_till_rubrik("Grundsulor – Hus 1", underrubrik="Revision A", x=.2, y=.1, storlek=40)
+        self.plan.lagg_till_rubrik("Grundsulor – Hus 1", underrubrik="Revision A", x=.2, y=.1, storlek=40, bredd=1200)
         self.plan.lagg_till_datum("26/10/08", x=.2, y=.3, storlek=24)
         snapshot = self.snapshot()
         self.assertEqual(snapshot["state"]["text_objects"], self.plan.textobjekt)

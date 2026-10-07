@@ -109,17 +109,26 @@ class TestGrundplanPdf(unittest.TestCase):
 
     def test_heading_subtitle_and_date_overlay_pdf_without_any_footings(self):
         plan = self.plan(self.drawing(), sida=2)
-        plan.lagg_till_rubrik("Hus 1 – X_g", underrubrik="Revision A\nKontroll av bärighet", x=.1, y=.1)
+        subtitle = "Kontroller: allmänna bärighetsekvationen, isolering och H-stabilitet i X-led"
+        plan.lagg_till_rubrik("Hus 1 – X_g", underrubrik="Revision A\n" + subtitle, x=.1, y=.1, bredd=1000)
         plan.lagg_till_datum("26/10/08", x=.7, y=.1)
         before = plan._document()
         reader = PdfReader(io.BytesIO(plan._pdf_bytes()))
         self.assertEqual(len(reader.pages), 1)
         page = reader.pages[0]
-        for expected in ("ORIGINAL 2", "Hus 1 – X_g", "Revision A", "Kontroll av bärighet", "26/10/08"):
+        for expected in ("ORIGINAL 2", "Hus 1 – X_g", "Revision A", subtitle, "26/10/08"):
             self.assertIn(expected, page.extract_text())
         self.assertFalse(page.images)
         self.assertEqual(tuple(page.mediabox), (0, 0, 700, 500))
         self.assertEqual(plan._document(), before)
+
+    def test_heading_text_width_does_not_change_its_drawing_position_or_font_size(self):
+        plan = self.plan()
+        ident = plan.lagg_till_rubrik("Hus 1", underrubrik="Revision A", x=.3, y=.2, bredd=400)
+        before = self.render(plan._pdf_bytes())
+        plan.uppdatera_text(ident, width=1200)
+        after = self.render(plan._pdf_bytes())
+        self.assertIsNone(ImageChops.difference(before, after).getbbox())
 
     def test_sliding_capacity_rounds_display_to_one_decimal_but_preserves_result_precision(self):
         plan = self.plan()

@@ -121,6 +121,8 @@
 .an-grundplan .gp-annotation-title, .an-grundplan .gp-annotation-subtitle { display: block; }
 .an-grundplan .gp-annotation-text, .an-grundplan button.gp-annotation-text { display: block; max-width: 420px; padding: 4px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; cursor: grab; }
 .an-grundplan .gp-annotation-editor { display: block; width: 420px; padding: 4px; border: 1px solid #258879; background: white; color: inherit; font: inherit; line-height: inherit; resize: none; overflow: hidden; }
+.an-grundplan .gp-annotation-heading { max-width: none; }
+.an-grundplan .gp-annotation-heading .gp-annotation-text, .an-grundplan .gp-annotation-heading .gp-annotation-editor { width: 100%; max-width: none; }
 .an-grundplan .gp-annotation-heading .gp-annotation-editor { font-weight: 700; letter-spacing: -.5px; }
 .an-grundplan .gp-annotation-heading .gp-annotation-subtitle-editor { font-size: 13px; font-weight: 400; letter-spacing: normal; color: var(--gp-muted); margin-top: 3px; }
 .an-grundplan .gp-annotation-tools { position: absolute; top: -29px; left: 0; display: flex; gap: 4px; transform-origin: top left; font-weight: 400; }

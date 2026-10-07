@@ -668,15 +668,18 @@ function render({ model, el, readOnly = false }) {
       const rect = picture.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
       const x = Math.max(0, Math.min(.9, (Math.max(bounds.left, rect.left) + 35 - rect.left) / rect.width));
       const y = Math.max(0, Math.min(.9, (Math.max(bounds.top, rect.top) + (kind === "heading" ? 35 : 85) - rect.top) / rect.height));
-      command("text_add", {kind, x, y}, [], reply => {
+      // Copy the visible heading, including any typing awaiting a kernel reply.
+      const contents = kind === "heading" ? {text: title.value, subtitle: subtitle.value,
+        width: Math.max(80, Math.min(10000, subtitle.clientWidth + 8)), size: overlaySize("text:", 20 / zoom)} : {};
+      command("text_add", {kind, x, y, ...contents}, [], reply => {
         textAddBusy = false;
         if (reply.ok) overlaySelected = "text:" + reply.id;
         showTextObjects();
-        if (reply.ok) showMessage((kind === "heading" ? "Rubrik tillagd." : "Datum tillagt.")
+        if (reply.ok) showMessage((kind === "heading" ? "Rubrik och underrubrik kopierade till ritningen." : "Datum tillagt.")
           + " Dra texten för att flytta, dra hörnet för att skala och klicka på Redigera för att ändra texten.");
       });
     });
-    add.title = "Lägg till en flyttbar och skalbar text på ritningen.";
+    add.title = kind === "heading" ? "Kopiera befintlig rubrik och underrubrik till ritningen." : "Lägg till ett flyttbart och skalbart datum på ritningen.";
     textAddButtons.push(add);
     if (!readOnly) toolbar.append(add);
   }
@@ -1638,6 +1641,7 @@ function render({ model, el, readOnly = false }) {
       const value = textDrafts.get(item.id)?.text ?? item.text;
       const subtitleValue = textDrafts.get(item.id)?.subtitle ?? item.subtitle ?? "";
       entry.element.classList.toggle("gp-annotation-heading", item.kind === "heading");
+      if (item.kind === "heading") entry.element.style.width = (item.width ?? 420) + "px";
       entry.title.textContent = value || (readOnly ? "" : item.kind === "heading" ? "Rubrik" : "Datum");
       entry.title.hidden = !value && readOnly;
       entry.subtitle.textContent = subtitleValue; entry.subtitle.hidden = !subtitleValue;
