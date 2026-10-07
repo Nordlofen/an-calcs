@@ -129,7 +129,7 @@ function render({ model, el, readOnly = false }) {
   const selected = new Set(), bulkInputs = new Map();
   let tableAnchor = null;
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
-  let importBusy = false, deleteBusy = false, lastImportToken = null;
+  let importBusy = false, drawingBusy = false, deleteBusy = false, lastImportToken = null;
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   const state = () => model.get("state") || { tags: [] };
   const loadImport = () => state().load_import;
@@ -209,6 +209,7 @@ function render({ model, el, readOnly = false }) {
   fileInput.type = "file";
   fileInput.accept = ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp";
   fileInput.hidden = true;
+  fileInput.setAttribute("aria-label", "Ritningsfil");
   const projectInput = node("input");
   projectInput.type = "file";
   projectInput.accept = ".json";
@@ -216,7 +217,7 @@ function render({ model, el, readOnly = false }) {
   const loadsInput = node("input");
   loadsInput.type = "file"; loadsInput.accept = ".json"; loadsInput.hidden = true;
   loadsInput.setAttribute("aria-label", "Lasteffektfil");
-  const loadDrawing = button("Öppna ritning", () => fileInput.click());
+  const loadDrawing = button("Importera/Uppdatera ritning", () => fileInput.click());
   const loadProject = button("Öppna projekt", () => {
     if (!state().tags.length || window.confirm("Ersätt projektet? Spara först om du vill behålla dina ändringar.")) {
       projectInput.click();
@@ -569,7 +570,7 @@ function render({ model, el, readOnly = false }) {
   referenceLabel.append(referenceInput, node("span", "", " m"));
   const referenceValue = () => Number(referenceInput.value.trim().replace(",", "."));
   const calibrationApply = button("Spara kalibrering", () => {
-    if (calibrationBusy || measurePoints.length !== 2) return;
+    if (calibrationBusy || drawingBusy || measurePoints.length !== 2) return;
     let value;
     try {
       value = validateCalibration({start: measurePoints[0], end: measurePoints[1], length_m: referenceValue()}, background());
@@ -819,7 +820,8 @@ function render({ model, el, readOnly = false }) {
   async function upload(input, action) {
     const file = input.files[0];
     if (!file) return;
-    if (deleteBusy || (action === "import_loads" && (importBusy || bulkBusy || loadImport()))) {
+    if (deleteBusy || drawingBusy || (action === "drawing" && (importBusy || bulkBusy || calibrationBusy))
+      || (action === "import_loads" && (importBusy || bulkBusy || loadImport()))) {
       input.value = "";
       return;
     }
@@ -829,6 +831,8 @@ function render({ model, el, readOnly = false }) {
       return;
     }
     showMessage("Öppnar " + file.name + "…");
+    const updatingDrawing = action === "drawing" && !!background().url;
+    if (action === "drawing") { drawingBusy = true; cancelDrag(); update(); }
     if (action === "import_loads") {
       importBusy = true;
       // Keep drafts, but prevent a dialog from submitting older loads during import.
@@ -838,6 +842,19 @@ function render({ model, el, readOnly = false }) {
       const buffer = await file.arrayBuffer();
       if (disposed) return;
       command(action, { name: file.name }, [buffer], (reply) => {
+        if (action === "drawing") {
+          drawingBusy = false;
+          if (reply.ok) {
+            measurePoints = []; measureCursor = null; calibrationDraft = null;
+            if (measuring()) setMode(loadImport() && !loadImport().paused ? "import" : "pan");
+            overlayPositions.clear(); pendingOverlayPositions.clear();
+            update();
+            showMessage(file.name + (updatingDrawing
+              ? " uppdaterad. Sulor, indata och placeringar behållna. Kalibrera om mätverktyget vid behov."
+              : " importerad."));
+          } else { update(); showMessage(reply.error, true); }
+          return;
+        }
         if (action === "import_loads") {
           importBusy = false;
           if (reply.ok) {
@@ -887,6 +904,7 @@ function render({ model, el, readOnly = false }) {
         }
       });
     } catch (error) {
+      if (action === "drawing") { drawingBusy = false; update(); }
       if (action === "import_loads") { importBusy = false; showLoadImport(); }
       showMessage(error.message, true);
     }
@@ -938,7 +956,7 @@ function render({ model, el, readOnly = false }) {
     if (mode === "calibrate" && measurePoints.length === 2) referenceInput.focus({preventScroll: true});
   }
   function showMeasurement() {
-    measureTool.disabled = !background().url || calibrationBusy || bulkBusy || importBusy || deleteBusy;
+    measureTool.disabled = !background().url || calibrationBusy || bulkBusy || importBusy || drawingBusy || deleteBusy;
     measureTool.classList.toggle("gp-selected", measuring());
     measureTool.setAttribute("aria-pressed", String(measuring()));
     root.classList.toggle("gp-measuring", measuring());
@@ -946,8 +964,8 @@ function render({ model, el, readOnly = false }) {
     calibrationFields.hidden = mode !== "calibrate" || measurePoints.length !== 2;
     calibrateTool.hidden = mode !== "measure";
     clearMeasurement.hidden = mode !== "measure" || !measurePoints.length;
-    referenceInput.disabled = calibrationBusy;
-    calibrationApply.disabled = calibrationBusy || !Number.isFinite(referenceValue()) || referenceValue() <= 0;
+    referenceInput.disabled = calibrationBusy || drawingBusy;
+    calibrationApply.disabled = calibrationBusy || drawingBusy || !Number.isFinite(referenceValue()) || referenceValue() <= 0;
     const end = measurePoints[1] || measureCursor;
     measurementOutput.textContent = mode === "measure" && end && measurePoints[0] && calibration()
       ? new Intl.NumberFormat("sv-SE", {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(measuredDistance(measurePoints[0], end, background(), calibration())) + " m" : "";
@@ -987,7 +1005,7 @@ function render({ model, el, readOnly = false }) {
   function showLoadImport() {
     const queue = loadImport();
     importBar.hidden = readOnly || !queue;
-    loadEffects.disabled = !background().url || !!queue || importBusy || bulkBusy || deleteBusy;
+    loadEffects.disabled = !background().url || !!queue || importBusy || drawingBusy || bulkBusy || deleteBusy;
     deleteAll.disabled = (!state().tags.length && !queue) || importBusy || bulkBusy || deleteBusy;
     importPause.disabled = importCancel.disabled = importBusy || deleteBusy;
     if (!queue) {
@@ -2133,15 +2151,15 @@ function render({ model, el, readOnly = false }) {
     const storage = data.storage;
     showStorage(storage);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
-    loadDrawing.disabled = data.tags.length > 0;
-    loadDrawing.title = loadDrawing.disabled ? "Starta en ny Grundplan för en annan ritning." : "";
+    loadDrawing.disabled = drawingBusy || importBusy || bulkBusy || calibrationBusy || deleteBusy;
+    loadDrawing.title = "Ersätt PDF eller bild och behåll sulor, indata och relativa placeringar. Mätverktyget behöver kalibreras om.";
     saveProject.disabled = saving;
     exportJson.disabled = !bg.url;
     for (const entry of exports) entry.button.disabled = entry.busy || !bg.url;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
-    for (const b of modes.values()) b.disabled = !bg.url;
+    for (const b of modes.values()) b.disabled = !bg.url || drawingBusy;
     showSelection();
     showLoadImport();
     if (bg.url !== lastBackground) {
@@ -2238,7 +2256,7 @@ function render({ model, el, readOnly = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (![0, 2].includes(event.button) || drag || deleteBusy || !background().url) return;
+    if (![0, 2].includes(event.button) || drag || drawingBusy || deleteBusy || !background().url) return;
     if (event.button === 2) {
       event.preventDefault();
       viewport.focus({preventScroll: true});

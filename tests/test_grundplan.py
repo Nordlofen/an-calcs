@@ -634,6 +634,59 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(plan.background["page"], 2)
         self.assertEqual(plan.background["width"], 600)
 
+    def test_drawing_replacement_preserves_footings_results_and_overlays(self):
+        self.add(indata={"b": .8, "F_vy": 100, "glid_x": True, "V_Ed_EQU": 80,
+                         "glid_mu": .4, "glid_L": 5})
+        self.add(typ="pelarsula", littera="PS1", indata={"F_vy": 200, "b": 1.5, "l": 2})
+        self.plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 100,
+                             "placements": {"1": {"symbol": {"x": .2, "y": .7, "size": 180},
+                                                    "legend": {"x": .5, "y": .1, "size": 350}}}}
+        self.plan.kalibrering = {"start": {"x": .1, "y": .1}, "end": {"x": .6, "y": .1}, "length_m": 10}
+        self.plan.underrubrik = "Revision B\nGrundläggning"
+        self.plan.etikettstorlek = 120
+        tags, results, gliding = self.plan.taggar, self.plan.resultat, self.plan.glidning
+        replacement = Path(self.tmp.name) / "revision_b.png"
+        Image.new("RGB", (1200, 500), "#d3eadc").save(replacement)
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Must not recalculate")):
+            self.plan.importera_ritning(replacement)
+        self.assertEqual((self.plan.taggar, self.plan.resultat, self.plan.glidning), (tags, results, gliding))
+        self.assertIsNone(self.plan.kalibrering)
+        self.assertEqual(self.plan.background["name"], replacement.name)
+        self.assertEqual((self.plan.background["width"], self.plan.background["height"]), (1200, 500))
+        self.assertEqual(self.plan._source, replacement.read_bytes())
+        restored = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "updated.json"))
+        self.addCleanup(restored.close)
+        self.assertEqual(restored._document(), self.plan._document())
+
+    def test_invalid_drawing_replacement_leaves_project_and_results_intact(self):
+        self.add()
+        self.plan.kalibrering = {"start": {"x": .1, "y": .1}, "end": {"x": .6, "y": .1}, "length_m": 10}
+        original = self.plan._document(), self.plan.resultat, copy.deepcopy(self.plan.background)
+        with patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "drawing", "name": "broken.pdf"}, [b"broken"])
+            self.assertFalse(send.call_args.args[0]["ok"])
+        self.assertEqual((self.plan._document(), self.plan.resultat, self.plan.background), original)
+
+    def test_drawing_update_keeps_selected_page_or_moves_overlays_and_footings_to_first_page(self):
+        pdf_path = Path(self.tmp.name) / "two-pages.pdf"
+        Image.new("RGB", (400, 300), "white").save(
+            pdf_path, save_all=True, append_images=[Image.new("RGB", (300, 400), "gray")])
+        plan = Grundplan(pdf_path, sida=2)
+        self.addCleanup(plan.close)
+        ident = plan.lagg_till(.2, .3)
+        position = {"x": .1, "y": .7, "size": 190}
+        plan.glidning = {"placements": {"2": {"symbol": position}}}
+        plan.importera_ritning(pdf_path)
+        self.assertEqual(plan.background["page"], 2)
+        plan.importera_ritning(self.path)
+        self.assertEqual(plan.background["page"], 1)
+        self.assertEqual(plan._tag(ident)["page"], 1)
+        self.assertEqual((plan._tag(ident)["x"], plan._tag(ident)["y"]), (.2, .3))
+        self.assertEqual(plan.glidning["placements"], {"1": {"symbol": position}})
+        restored = Grundplan.oppna(plan.spara(Path(self.tmp.name) / "single-page.json"))
+        self.addCleanup(restored.close)
+        self.assertEqual(restored._document(), plan._document())
+
     def test_old_multi_page_project_is_rejected_without_losing_current_data(self):
         pdf_path = Path(self.tmp.name) / "old.pdf"
         Image.new("RGB", (400, 300), "white").save(
@@ -787,7 +840,8 @@ class TestGrundplan(unittest.TestCase):
             self.assertTrue(send.call_args.args[0]["ok"])
             self.assertEqual(self.plan.taggar[0]["status"], "calculated")
             self.plan._on_message(None, {"action": "drawing", "name": "other.png"}, [self.path.read_bytes()])
-            self.assertFalse(send.call_args.args[0]["ok"])
+            self.assertTrue(send.call_args.args[0]["ok"])
+            self.assertTrue(send.call_args.args[0]["updated"])
             self.assertEqual(self.plan.taggar[0]["label"], "VS2")
 
 

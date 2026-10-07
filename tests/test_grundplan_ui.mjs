@@ -306,6 +306,45 @@ function importFixture(ui) {
   }};
 }
 
+test("drawing update keeps selection, unfinished input text, dialog sections and tag positions", async t => {
+  const ui = setup(t);
+  ui.marker().click(); ui.field("b").value = "0,"; ui.field("b").dispatch("input");
+  const section = ui.byClass("gp-group"); section.open = false; section.dispatch("toggle");
+  ui.byText("Minimera").click(); ui.marker().dispatch("click", {shiftKey: true});
+  const button = ui.byText("Importera/Uppdatera ritning"), original = structuredClone(ui.tag), point = ui.position();
+  assert.equal(button.disabled, false, "Existing footings allow replacing the drawing");
+  const input = ui.find(e => e.getAttribute("aria-label") === "Ritningsfil"), buffer = new ArrayBuffer(4);
+  input.files = [{name: "revision_b.png", size: 4, arrayBuffer: async () => buffer}];
+  await input.listeners.get("change")[0]();
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "drawing");
+  assert.equal(button.disabled, true);
+  assert.equal(ui.transfers.at(-1).buffers[0], buffer);
+  ui.data.background = {...ui.data.background, url: "data:revision-b", width: 1200, height: 500};
+  ui.changed(); ui.ack(request, {updated: true, page: 1});
+  assert.equal(button.disabled, false);
+  assert.deepEqual(ui.tag, original);
+  assert.deepEqual(ui.position(), point);
+  assert.equal(ui.marker().getAttribute("aria-pressed"), "true");
+  ui.marker().click();
+  assert.equal(ui.field("b").value, "0,");
+  assert.equal(ui.byClass("gp-group").open, false);
+  assert.match(ui.byClass("gp-status").textContent, /uppdaterad/);
+});
+
+test("failed drawing update leaves draft and selection editable and allows another file", async t => {
+  const ui = setup(t);
+  ui.marker().click(); ui.field("b").value = "0,"; ui.field("b").dispatch("input");
+  const input = ui.find(e => e.getAttribute("aria-label") === "Ritningsfil");
+  input.files = [{name: "bad.png", size: 4, arrayBuffer: async () => new ArrayBuffer(4)}];
+  await input.listeners.get("change")[0]();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Ogiltig ritning"});
+  assert.equal(ui.byText("Importera/Uppdatera ritning").disabled, false);
+  assert.equal(ui.field("b").value, "0,");
+  assert.equal(ui.byClass("gp-status").textContent, "Ogiltig ritning");
+  assert.equal(ui.byClass("gp-dialog").hidden, false);
+});
+
 test("load import uploads JSON bytes without replacing existing footing drafts", async t => {
   const ui = setup(t);
   ui.marker().click(); ui.field("b").value = "0,8"; ui.field("b").dispatch("input");
@@ -1821,7 +1860,7 @@ test("standalone result labels open read-only values and remember expanded secti
   ui.tag.summary.b = 1.8;
   const original = structuredClone(ui.snapshot);
   ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
-  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Öppna ritning", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
+  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Importera/Uppdatera ritning", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
   assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
   ui.marker().click();
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · 1,8 × 2,4 m");

@@ -131,6 +131,10 @@ plan = Grundplan()  # Välj PDF/bild och ange projektfil/key när du sparar.
 plan
 ```
 
+**Importera/Uppdatera ritning** ersätter PDF/bild även när sulor redan finns.
+Indata, resultat och relativa placeringar behålls. Kalibrera mätverktyget på
+nytt efter uppdatering; den nya ritningen sparas och följer med exporterna.
+
 Eller ange sökväg och PDF-sida direkt:
 
 ```python

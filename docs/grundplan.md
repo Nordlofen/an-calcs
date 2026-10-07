@@ -579,8 +579,16 @@ avstängd.
 
 En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
 1 000 taggar. Visningsbilden begränsas till 2 800 pixlar längs längsta sidan
-för minnesanvändningens skull; originalfilen bevaras i projektet. Starta ett
-nytt `Grundplan()` för att byta ritning när taggar redan finns.
+för minnesanvändningens skull; originalfilen bevaras i projektet.
+
+**Importera/Uppdatera ritning** väljer en ny PDF eller bild även när sulor
+redan finns. Sulor, indata, resultat, rubriker och placeringar behålls;
+etiketter och glidningssymboler ligger kvar på samma relativa bildkoordinater.
+Kontrollera placeringen om den nya ritningens utsnitt eller marginaler ändrats.
+Mätverktygets kalibrering återställs och behöver anges på nytt. Den tidigare
+PDF-sidan används om den finns i den nya filen, annars sida 1. En ogiltig fil
+lämnar projektet orört. Den nya ritningen följer med sparning och export.
+Från Python: `plan.importera_ritning("grundplan_rev_B.pdf")`.
 
 ## Exportera ritning med etiketter som PDF
 

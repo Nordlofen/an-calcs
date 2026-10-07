@@ -168,7 +168,7 @@ def _calibration(value, background):
     return {"start": points[0], "end": points[1], "length_m": length}
 
 
-def _render_source(data, filename, page=1):
+def _render_source(data, filename, page=1, *, fallback_page=False):
     """Normalisera rasterbilder och rendera en PDF-sida lokalt till PNG."""
     if not data or len(data) > _MAX_FILE_BYTES:
         raise ValueError("Ritningen måste vara mellan 1 byte och 40 MB.")
@@ -179,6 +179,8 @@ def _render_source(data, filename, page=1):
             raise ImportError("PDF kräver pypdfium2. Installera notebook-tilläggen.") from exc
         with pdfium.PdfDocument(data) as document:
             count = len(document)
+            if fallback_page and page > count:
+                page = 1
             _page_number(page, count)
             pdf_page = document[page - 1]
             try:
@@ -194,6 +196,8 @@ def _render_source(data, filename, page=1):
             finally:
                 pdf_page.close()
     else:
+        if fallback_page and page > 1:
+            page = 1
         _page_number(page, 1)
         count = 1
         with Image.open(io.BytesIO(data)) as source:
@@ -438,14 +442,30 @@ class Grundplan(anywidget.AnyWidget):
         }
 
     def _set_source(self, data, filename, page=None):
-        rendered = _render_source(data, filename, self._initial_page if page is None else page)
+        # Validate/render first; a failed replacement must leave the project intact.
+        rendered = _render_source(data, filename, self._initial_page if page is None else page,
+                                  fallback_page=page is None and bool(self.background))
+        placements = self._gliding["placements"].get(str(self.background.get("page")), {})
+        self._gliding["placements"] = {str(rendered["page"]): placements} if placements else {}
+        for tag in self._tags:
+            tag["page"] = rendered["page"]
         self._source = bytes(data)
-        self._load_import = None
         self._filename = Path(filename).name
-        self._gliding["placements"] = {}
         self._calibration = None
         self.background = rendered
         self._initial_page = rendered["page"]
+
+    def importera_ritning(self, fil, *, sida=None):
+        """Importera eller ersätt ritningen; behåll sulor och relativa placeringar.
+
+        Mätkalibreringen återställs. Utan sida används den tidigare sidan om
+        den finns, annars sida 1. Beräkningar och eventuell placeringskö behålls.
+        """
+        path = Path(fil)
+        if path.stat().st_size > _MAX_FILE_BYTES:
+            raise ValueError("Ritningen får vara högst 40 MB.")
+        self._set_source(path.read_bytes(), path.name, sida)
+        self._publish()
 
     def _view_page(self, sida=None):
         if not self.background:
@@ -1057,10 +1077,10 @@ class Grundplan(anywidget.AnyWidget):
                 placements.setdefault(str(page), {})[kind] = content["position"]
                 self.glidning = {"placements": placements}
             elif action == "drawing":
-                if self._tags:
-                    raise ValueError("Starta en ny Grundplan för att byta ritning när taggar finns.")
+                updated = bool(self._source)
                 self._set_source(bytes(buffers[0]), content["name"])
                 self._publish()
+                reply.update(updated=updated, page=self.background["page"])
             elif action == "open":
                 self._load_document(bytes(buffers[0]))
             elif action == "save_choices":
