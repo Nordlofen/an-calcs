@@ -1,3 +1,4 @@
+import base64
 import copy
 from html.parser import HTMLParser
 import importlib.util
@@ -10,10 +11,11 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-HAS_NOTEBOOK = all(importlib.util.find_spec(name) for name in ("anywidget", "PIL", "pypdfium2"))
+HAS_NOTEBOOK = all(importlib.util.find_spec(name) for name in ("anywidget", "PIL", "pypdfium2", "reportlab", "pypdf"))
 if HAS_NOTEBOOK:
     from PIL import Image
     from an_calcs.notebook import Grundplan
+    from pypdf import PdfReader
 
 
 class HtmlSnapshot(HTMLParser):
@@ -62,6 +64,22 @@ class TestGrundplanHtml(unittest.TestCase):
 
     def snapshot(self):
         return HtmlSnapshot(self.plan._html_bytes().decode("utf-8")).snapshot
+
+    def test_html_contains_calibration_and_offline_pdf_of_selected_page(self):
+        self.tag(littera="VS1")
+        self.plan.kalibrering = {"start": {"x": .1, "y": .2}, "end": {"x": .7, "y": .2}, "length_m": 12.5}
+        original = self.plan._document(), self.plan.taggar, self.plan.resultat
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("No calculation")):
+            data = self.snapshot()
+        self.assertEqual(data["state"]["calibration"], self.plan.kalibrering)
+        self.assertEqual(data["pdf"]["filename"], "ritning_med_etiketter.pdf")
+        pdf = base64.b64decode(data["pdf"]["data"], validate=True)
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+        reader = PdfReader(io.BytesIO(pdf))
+        self.assertEqual(len(reader.pages), 1)
+        self.assertGreater(float(reader.pages[0].mediabox.height), float(reader.pages[0].mediabox.width))
+        self.assertIn("VS1", reader.pages[0].extract_text())
+        self.assertEqual((self.plan._document(), self.plan.taggar, self.plan.resultat), original)
 
     def test_sliding_snapshot_includes_selected_page_totals_and_saved_positions(self):
         self.tag(indata={"glid_x": True, "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3})

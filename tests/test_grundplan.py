@@ -31,6 +31,56 @@ class TestGrundplan(unittest.TestCase):
     def add(self, **kwargs):
         return self.plan.lagg_till(0.3, 0.4, **kwargs)
 
+    def test_calibration_is_saved_restored_and_does_not_change_calculations(self):
+        self.add()
+        tags, results = self.plan.taggar, self.plan.resultat
+        value = {"start": {"x": .1, "y": .2}, "end": {"x": .6, "y": .2}, "length_m": 10}
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("No calculation")), patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "calibration", "calibration": value, "request": 9}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+        self.assertEqual(self.plan.kalibrering, value)
+        self.assertEqual(self.plan.state["calibration"], value)
+        self.assertEqual((self.plan.taggar, self.plan.resultat), (tags, results))
+        value["start"]["x"] = .8
+        copied = self.plan.kalibrering
+        copied["end"]["x"] = .9
+        self.assertEqual(self.plan.kalibrering["start"]["x"], .1)
+        self.assertEqual(self.plan.kalibrering["end"]["x"], .6)
+        loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "measurement.json"))
+        self.addCleanup(loaded.close)
+        self.assertEqual(loaded.kalibrering, self.plan.kalibrering)
+        legacy = self.plan._document()
+        del legacy["calibration"]
+        loaded._load_document(json.dumps(legacy).encode())
+        self.assertIsNone(loaded.kalibrering)
+        self.plan._set_source(self.path.read_bytes(), self.path.name)
+        self.plan._publish()
+        self.assertIsNone(self.plan.state["calibration"])
+
+    def test_invalid_calibration_does_not_replace_project_or_previous_reference(self):
+        self.add()
+        valid = {"start": {"x": .1, "y": .2}, "end": {"x": .6, "y": .2}, "length_m": 10}
+        self.plan.kalibrering = valid
+        original = self.plan._document()
+        invalid = [None, "10", 0, -1, float("nan"), float("inf"), True]
+        candidates = [{**valid, "length_m": length} for length in invalid]
+        candidates += [[], {}, {**valid, "start": None}, {**valid, "end": valid["start"]},
+                       {**valid, "end": {"x": 1.1, "y": .2}},
+                       {**valid, "end": {"x": False, "y": .2}},
+                       {**valid, "end": {"x": .6, "y": float("nan")}}]
+        for value in candidates:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    self.plan.kalibrering = value
+                self.assertEqual(self.plan._document(), original)
+                with self.assertRaises(ValueError):
+                    self.plan._load_document(json.dumps({**original, "calibration": value}).encode())
+                self.assertEqual(self.plan._document(), original)
+        empty = Grundplan()
+        self.addCleanup(empty.close)
+        with self.assertRaisesRegex(ValueError, "ritning"):
+            empty.kalibrering = valid
+
     def test_taggar_ar_oberoende_och_resultatet_anvander_befintlig_motor(self):
         first = self.add(littera="VS2", indata={"F_vy": 100, "b": 0.8})
         second = self.add(typ="pelarsula", indata={"F_vy": 600, "b": 2, "l": 3})

@@ -1,4 +1,21 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
+const drawingDistance = (start, end, background) => Math.hypot(
+  (end.x - start.x) * background.width, (end.y - start.y) * background.height);
+export function validateCalibration(value, background) {
+  if (value == null) return null;
+  if (!background?.url) throw new Error("Öppna en ritning före kalibrering.");
+  const validPoint = point => point && [point.x, point.y].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1);
+  if (!validPoint(value.start) || !validPoint(value.end) || typeof value.length_m !== "number"
+    || !Number.isFinite(value.length_m) || value.length_m <= 0) throw new Error("Ange två punkter och ett positivt referensmått.");
+  const distance = drawingDistance(value.start, value.end, background);
+  if (!Number.isFinite(distance) || distance < 1e-6 || !Number.isFinite(value.length_m / distance))
+    throw new Error("Ange ett positivt referensmått mellan två olika punkter.");
+  return {start: {x: value.start.x, y: value.start.y}, end: {x: value.end.x, y: value.end.y}, length_m: value.length_m};
+}
+export function measuredDistance(start, end, background, calibration) {
+  return drawingDistance(start, end, background) / drawingDistance(calibration.start, calibration.end, background) * calibration.length_m;
+}
+
 function definitionSketch(strip) {
   const make = (name, attributes, text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -113,6 +130,7 @@ function render({ model, el, readOnly = false }) {
   let tableAnchor = null;
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
   let importBusy = false, deleteBusy = false, lastImportToken = null;
+  let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   const state = () => model.get("state") || { tags: [] };
   const loadImport = () => state().load_import;
   const background = () => model.get("background") || {};
@@ -131,7 +149,7 @@ function render({ model, el, readOnly = false }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
-    if (readOnly && action !== "label_size") return;
+    if (readOnly && !["label_size", "calibration", "export_pdf"].includes(action)) return;
     const request = ++sequence;
     pending.set(request, onDone);
     model.send({ action, ...payload, request, view }, undefined, buffers);
@@ -429,6 +447,7 @@ function render({ model, el, readOnly = false }) {
     exports.push(entry);
   }
   if (!readOnly) toolbar.append(loadDrawing, loadProject, loadEffects, deleteAll, saveProject, exportJson, ...exports.map(entry => entry.button), node("span", "gp-separator"));
+  if (readOnly && model.get("pdf")) toolbar.append(exports[0].button);
   const modes = new Map();
   for (const [key, label] of [["vaggsula", "+ Väggsula"], ["pelarsula", "+ Pelarsula"]]) {
     const b = button(label, () => setMode(mode === key ? "pan" : key));
@@ -512,6 +531,53 @@ function render({ model, el, readOnly = false }) {
   });
   if (!readOnly) toolbar.append(cancelCopy);
   if (!readOnly) toolbar.append(sizeLabel);
+  const measuring = () => mode === "measure" || mode === "calibrate";
+  const calibration = () => calibrationDraft || state().calibration;
+  const measureTool = button("Mät", () => {
+    cancelDrag(); closeDialog(); closeBulk();
+    setMode(measuring() ? "pan" : calibration() ? "measure" : "calibrate");
+    viewport.focus({preventScroll: true});
+  });
+  measureTool.title = "Kalibrera med ett känt avstånd och mät mellan två punkter i meter.";
+  toolbar.append(measureTool);
+  const measurementBar = node("section", "gp-measurement-bar");
+  measurementBar.hidden = true;
+  measurementBar.setAttribute("aria-label", "Mätverktyg");
+  const measurementHint = node("span", "gp-measurement-hint");
+  const measurementOutput = node("output", "gp-measurement-value");
+  measurementOutput.setAttribute("aria-label", "Uppmätt längd i meter");
+  measurementOutput.setAttribute("aria-live", "polite");
+  const calibrationFields = node("div", "gp-calibration-fields");
+  const referenceLabel = node("label", "", "Referensmått ");
+  const referenceInput = node("input");
+  referenceInput.type = "text"; referenceInput.inputMode = "decimal";
+  referenceInput.setAttribute("aria-label", "Känt referensmått i meter");
+  referenceLabel.append(referenceInput, node("span", "", " m"));
+  const referenceValue = () => Number(referenceInput.value.trim().replace(",", "."));
+  const calibrationApply = button("Spara kalibrering", () => {
+    if (calibrationBusy || measurePoints.length !== 2) return;
+    let value;
+    try {
+      value = validateCalibration({start: measurePoints[0], end: measurePoints[1], length_m: referenceValue()}, background());
+    } catch (error) { showMessage(error.message, true); return; }
+    calibrationDraft = value; calibrationBusy = true; showMeasurement();
+    command("calibration", {calibration: value}, [], reply => {
+      calibrationDraft = null; calibrationBusy = false;
+      if (reply.ok && mode === "calibrate") setMode("measure");
+      showMeasurement();
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  }, "gp-primary");
+  referenceInput.addEventListener("input", showMeasurement);
+  referenceInput.addEventListener("keydown", event => {
+    if (event.key === "Enter") {event.preventDefault(); calibrationApply.click();}
+  });
+  calibrationFields.append(referenceLabel, calibrationApply);
+  const calibrateTool = button("Kalibrera om", () => {cancelDrag(); setMode("calibrate");});
+  const clearMeasurement = button("Rensa mått", () => {
+    measurePoints = []; measureCursor = null; showMeasurement();
+  });
+  measurementBar.append(measurementHint, measurementOutput, calibrationFields, calibrateTool, clearMeasurement);
   const board = node("div", "gp-board");
   const viewport = node("div", "gp-viewport");
   viewport.tabIndex = 0;
@@ -536,6 +602,11 @@ function render({ model, el, readOnly = false }) {
     if (text !== undefined) element.textContent = text;
     return element;
   };
+  const measurementOverlay = node("div", "gp-measurement-overlay");
+  measurementOverlay.setAttribute("aria-hidden", "true");
+  measurementOverlay.hidden = true;
+  const measurementSvg = svgNode("svg", {"aria-hidden": "true"});
+  measurementOverlay.append(measurementSvg);
   const axesSvg = svgNode("svg", {viewBox: "0 0 200 200", "aria-hidden": "true"});
   axesSvg.append(svgNode("path", {d: "M32 156H158M32 156V36", fill: "none", stroke: "currentColor", "stroke-width": 3}),
     svgNode("path", {d: "M158 156L147 151V161ZM32 36L27 47H37Z", fill: "currentColor"}),
@@ -569,7 +640,7 @@ function render({ model, el, readOnly = false }) {
   slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
   overlays.append(axesOverlay, slidingLegend);
   sheet.append(picture, markers, overlays);
-  viewport.append(sheet, selectionBox);
+  viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
     node("p", "", "Öppna en PDF eller bild. Placera sedan en tagg vid varje sula du vill beräkna."),
@@ -718,7 +789,7 @@ function render({ model, el, readOnly = false }) {
       : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
   root.append(heading);
-  if (!readOnly) root.append(toolbar);
+  root.append(toolbar, measurementBar);
   if (!readOnly) root.append(importBar);
   root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
@@ -814,6 +885,10 @@ function render({ model, el, readOnly = false }) {
     if (mode === "import" && value !== "import" && loadImport() && !loadImport().paused && !importBusy) {
       command("import_control", {token: loadImport().token, operation: "pause"});
     }
+    if (mode !== value || value === "calibrate") {
+      measurePoints = []; measureCursor = null;
+      if (value === "calibrate") referenceInput.value = "";
+    }
     mode = value;
     if (value !== "copy") copySource = null;
     cancelCopy.hidden = value !== "copy";
@@ -822,6 +897,8 @@ function render({ model, el, readOnly = false }) {
       b.setAttribute("aria-pressed", String(key === value));
     }
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
+    showMeasurement();
+    if (measuring()) return;
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value === "import") showMessage(importCaption());
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
@@ -829,6 +906,63 @@ function render({ model, el, readOnly = false }) {
     else showMessage(readOnly
       ? "Shift + klick eller Shift + vänsterdrag framhäver valda sulor i tabellen. Escape avmarkerar. Dra för att panorera och använd Shift + scroll för att zooma."
       : "Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
+  }
+  function measurementPoint(event) {
+    const rect = picture.getBoundingClientRect();
+    const point = {x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height};
+    return Object.values(point).every(value => Number.isFinite(value) && value >= 0 && value <= 1) ? point : null;
+  }
+  function chooseMeasurementPoint(event) {
+    const point = measurementPoint(event);
+    if (!point) {showMessage("Klicka på ritningen för att välja en mätpunkt."); return;}
+    if (measurePoints.length === 2) measurePoints = [];
+    if (measurePoints.length === 1 && drawingDistance(measurePoints[0], point, background()) < 1e-6) {
+      showMessage("Välj en annan punkt än startpunkten.", true); return;
+    }
+    measurePoints.push(point); measureCursor = null;
+    showMeasurement();
+    if (mode === "calibrate" && measurePoints.length === 2) referenceInput.focus({preventScroll: true});
+  }
+  function showMeasurement() {
+    measureTool.disabled = !background().url || calibrationBusy || bulkBusy || importBusy || deleteBusy;
+    measureTool.classList.toggle("gp-selected", measuring());
+    measureTool.setAttribute("aria-pressed", String(measuring()));
+    root.classList.toggle("gp-measuring", measuring());
+    measurementBar.hidden = !measuring();
+    calibrationFields.hidden = mode !== "calibrate" || measurePoints.length !== 2;
+    calibrateTool.hidden = mode !== "measure";
+    clearMeasurement.hidden = mode !== "measure" || !measurePoints.length;
+    referenceInput.disabled = calibrationBusy;
+    calibrationApply.disabled = calibrationBusy || !Number.isFinite(referenceValue()) || referenceValue() <= 0;
+    const end = measurePoints[1] || measureCursor;
+    measurementOutput.textContent = mode === "measure" && end && measurePoints[0] && calibration()
+      ? new Intl.NumberFormat("sv-SE", {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(measuredDistance(measurePoints[0], end, background(), calibration())) + " m" : "";
+    measurementHint.textContent = mode === "calibrate"
+      ? measurePoints.length === 2 ? "Ange det kända avståndet mellan punkterna." : "Kalibrering: klicka på " + (measurePoints.length ? "slutpunkten" : "startpunkten") + " för ett känt mått."
+      : measurePoints.length === 2 ? "Klicka för att börja en ny mätning."
+        : "Mätning: klicka på " + (measurePoints.length ? "slutpunkten" : "startpunkten") + ".";
+    if (measuring()) showMessage(measurementHint.textContent + " Dra för att panorera. Shift + scroll zoomar. Escape avslutar.");
+    renderMeasurement();
+  }
+  function renderMeasurement() {
+    measurementOverlay.hidden = !measuring() || !measurePoints.length;
+    measurementSvg.replaceChildren();
+    if (measurementOverlay.hidden) return;
+    const viewRect = viewport.getBoundingClientRect(), rect = picture.getBoundingClientRect();
+    measurementSvg.setAttribute("viewBox", `0 0 ${viewRect.width} ${viewRect.height}`);
+    const position = point => ({x: rect.left - viewRect.left + point.x * rect.width, y: rect.top - viewRect.top + point.y * rect.height});
+    const start = position(measurePoints[0]), endPoint = measurePoints[1] || measureCursor;
+    const color = mode === "calibrate" ? "#14695e" : "#a6473e";
+    const dot = point => svgNode("circle", {cx: point.x, cy: point.y, r: 4, fill: "white", stroke: color, "stroke-width": 2});
+    measurementSvg.append(dot(start));
+    if (!endPoint) return;
+    const end = position(endPoint);
+    measurementSvg.append(svgNode("line", {x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 2, "stroke-dasharray": measurePoints.length < 2 ? "5 4" : "none"}), dot(end));
+    const caption = mode === "calibrate" ? "Referens" : measurementOutput.textContent;
+    const x = (start.x + end.x) / 2, y = (start.y + end.y) / 2 - 12;
+    const width = Math.max(74, caption.length * 8 + 14);
+    measurementSvg.append(svgNode("rect", {x: x - width / 2, y: y - 17, width, height: 24, rx: 4, fill: "white", stroke: color}),
+      svgNode("text", {x, y, fill: color, "text-anchor": "middle", "font-size": 14, "font-weight": 600}, caption));
   }
   function importCaption() {
     const queue = loadImport();
@@ -1011,6 +1145,7 @@ function render({ model, el, readOnly = false }) {
   function placeSheet() {
     sheet.style.left = panX + "px";
     sheet.style.top = panY + "px";
+    renderMeasurement();
   }
   function fit() {
     const bg = background();
@@ -1113,6 +1248,7 @@ function render({ model, el, readOnly = false }) {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
         if (!event.detail) {
+          if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) return;
           if (event.shiftKey || event.ctrlKey || event.metaKey) toggleTag(tag);
           else openDialog(tag);
         }
@@ -1960,6 +2096,7 @@ function render({ model, el, readOnly = false }) {
     showLoadImport();
     if (bg.url !== lastBackground) {
       cancelDrag();
+      measurePoints = []; measureCursor = null; calibrationDraft = null;
       lastBackground = bg.url;
       if (bg.url) picture.src = bg.url;
       else picture.removeAttribute("src");
@@ -1989,6 +2126,7 @@ function render({ model, el, readOnly = false }) {
     renderMarkers();
     showSliding();
     showTable();
+    showMeasurement();
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -2060,6 +2198,14 @@ function render({ model, el, readOnly = false }) {
       return;
     }
     if (bulkBusy) return;
+    if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) {
+      if (calibrationBusy || importBusy) return;
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      drag = {measurement: true, x: event.clientX, y: event.clientY, left: panX, top: panY,
+        moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId);
+      return;
+    }
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
@@ -2094,9 +2240,19 @@ function render({ model, el, readOnly = false }) {
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {
+    if (!drag && measuring() && measurePoints.length === 1) {
+      measureCursor = measurementPoint(event); showMeasurement(); return;
+    }
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.measurement) {
+      if (drag.moved) {
+        panX = drag.left + dx; panY = drag.top + dy; placeSheet();
+        viewport.classList.add("gp-panning");
+      }
+      return;
+    }
     if (drag.select) return;
     if (drag.moved) {
       if (drag.box) {
@@ -2139,7 +2295,7 @@ function render({ model, el, readOnly = false }) {
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
-    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection } = drag;
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
@@ -2147,6 +2303,7 @@ function render({ model, el, readOnly = false }) {
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
     if (pan) return;
+    if (measurement) {if (!moved) chooseMeasurementPoint(event); return;}
     if (box) {
       if (moved) {
         if (selected.size !== beforeSelection.size || [...selected].some(id => !beforeSelection.has(id))) bulkSignature = "";
@@ -2209,6 +2366,9 @@ function render({ model, el, readOnly = false }) {
     });
   });
   viewport.addEventListener("pointercancel", cancelDrag);
+  viewport.addEventListener("pointerleave", () => {
+    if (!drag && measuring()) {measureCursor = null; showMeasurement();}
+  });
   viewport.addEventListener("lostpointercapture", cancelDrag);
   viewport.addEventListener("contextmenu", event => event.preventDefault());
   viewport.addEventListener("wheel", event => {
@@ -2280,9 +2440,10 @@ function render({ model, el, readOnly = false }) {
     if (event.key === "Escape") {
       event.preventDefault();
       const selecting = !!drag?.box || selected.size > 0;
+      const wasMeasuring = measuring();
       cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
       if (!bulkBusy) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); renderMarkers(); }
-      setMode("pan"); showMessage(selecting && !bulkBusy ? "Markeringen avbröts."
+      setMode("pan"); showMessage(wasMeasuring ? "Mätningen avslutades. Kalibreringen behålls." : selecting && !bulkBusy ? "Markeringen avbröts."
         : readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
     }
   });
@@ -2294,6 +2455,7 @@ function render({ model, el, readOnly = false }) {
     onDone?.(reply, buffers);
   }
   const resizeObserver = new ResizeObserver(() => {
+    renderMeasurement();
     if (!dialog.hidden) placeDialog(dialog.offsetLeft, dialog.offsetTop);
     if (!bulkDialog.hidden) {
       bulkDialog.style.left = Math.max(8, Math.min(board.clientWidth - bulkDialog.offsetWidth - 8, parseFloat(bulkDialog.style.left) || 8)) + "px";

@@ -49,7 +49,7 @@ body {{ padding: 12px; box-sizing: border-box; }}
 <script type="module">
 {script}
 const snapshot = JSON.parse(document.getElementById("grundplan-data").textContent);
-render({{ model: createResultModel(snapshot), el: document.getElementById("grundplan"), readOnly: true }});
+render({{ model: createResultModel(snapshot, validateCalibration), el: document.getElementById("grundplan"), readOnly: true }});
 </script>
 </body>
 </html>

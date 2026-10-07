@@ -593,6 +593,26 @@ JSON-projektet separat för att kunna redigera sulorna senare.
 PDF-export kräver `reportlab` och `pypdf`, som ingår i `an-calcs[notebook]`.
 Uppdatera med installationskommandot ovan om du har en äldre installation.
 
+## Mäta avstånd på ritningen
+
+1. Tryck **Mät** och klicka på start- och slutpunkten för ett känt referensmått.
+2. Ange det verkliga avståndet i meter och tryck **Spara kalibrering**. Både
+   decimalpunkt och decimalkomma fungerar.
+3. Klicka på två nya punkter. Avståndet visas vid mätlinjen och ovanför ritningen
+   i meter med en decimal. Ett tredje klick påbörjar nästa mätning.
+
+Mätningen följer ritningen vid zoom och panorering. Dra med vänster eller
+höger musknapp för att panorera; **Shift + scroll** zoomar även under mätning.
+**Rensa mått** tar bort den aktuella mätlinjen. **Kalibrera om** väljer ett
+nytt referensmått och Escape avslutar verktyget utan att radera kalibreringen.
+Under mätning används vanliga klick på ritningen och etiketterna som mätpunkter.
+
+Kalibreringen hör till vyns ritningssida och sparas med **Spara projekt**.
+Den återställs vid öppning av projektet och följer med HTML-exporten.
+En ny ritning behöver kalibreras på nytt. Mätlinjerna är tillfälliga och ingår
+inte i PDF-exporten. Kalibreringen förutsätter en ritning med samma skala i
+båda riktningarna.
+
 ## Exportera en interaktiv resultatvy som HTML
 
 Tryck **Exportera HTML** för att ladda ned en enda fil med ritningen och
@@ -608,6 +628,12 @@ internet; ritningsbilder, indata, resultat och gränssnitt finns i filen.
 Endast vyns valda PDF-sida följer med. Ritningsbilden har samma
 upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
 
+**Exportera PDF** i HTML-vyn laddar ned ritningen med fasta etiketter och
+eventuell glidningslegend. PDF-filen bäddas in när HTML-filen skapas och har
+samma innehåll som PDF-export från Jupyter, inklusive originalets vektorgrafik
+när ritningen är en PDF. Knappen fungerar även utan internet. Zoom, markeringar,
+öppna dialoger och tillfälliga mätlinjer ändrar inte PDF-innehållet.
+
 Klicka på en etikett för resultat och utfällbara indatakategorier. **Minimera**
 stänger dialogen, och samma avsnitt är utfällda när etiketten öppnas igen.
 Dra i ritningen med vänster eller höger musknapp för att panorera,
@@ -615,6 +641,8 @@ använd **Shift + scroll** eller +/− för zoom och **Anpassa** för
 att återställa vyn. Etiketterna använder storleken från exporten och följer
 ritningens zoom; HTML-filen har inget reglage för etikettstorlek.
 Visningsval gäller medan filen är öppen och ändrar inte det sparade projektet.
+**Mät** fungerar också i HTML-vyn. En eventuell omkalibrering där gäller bara
+den öppna vyn och skriver inte om HTML-filen eller det sparade projektet.
 
 Tabellen **Sulor – indata och resultat** följer med under ritningen. Alla
 indata och statusvärden visas som låst text. Shift + klick på etiketter eller

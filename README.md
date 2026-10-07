@@ -153,6 +153,12 @@ för att sortera; ett nytt klick vänder ordningen.
 Sulverktyget avslutas efter en placering;
 klicka på den valda sulknappen igen eller tryck Escape för att avbryta.
 
+**Mät** kalibreras genom två klick på ett känt mått och inmatning av avståndet
+i meter. Därefter visar två klick en längd med en decimal, även efter zoom
+och panorering. Kalibreringen följer med när projektet sparas och exporteras
+till HTML. HTML-vyn har också **Exportera PDF** för att ladda ned ritningen
+med etiketterna från exporttillfället, utan Jupyter eller internet.
+
 Indata innehåller **Laster – Brott**, **Laster – Bruk** och **Isolering**.
 Moment anges direkt vid sulan; inget momentbidrag från horisontallast
 gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande

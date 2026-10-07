@@ -131,6 +131,30 @@ def _label_size(value):
     return value
 
 
+def _calibration(value, background):
+    if value is None:
+        return None
+    if not background:
+        raise ValueError("Öppna en ritning före kalibrering.")
+    if not isinstance(value, dict):
+        raise ValueError("Kalibreringen måste innehålla två punkter och ett referensmått.")
+    points = []
+    for name in ("start", "end"):
+        point = value.get(name)
+        if not isinstance(point, dict):
+            raise ValueError("Kalibreringen måste innehålla två punkter.")
+        coords = {axis: _number(point.get(axis), "Kalibreringspunkt") for axis in ("x", "y")}
+        if any(not 0 <= coord <= 1 for coord in coords.values()):
+            raise ValueError("Kalibreringspunkten ligger utanför ritningen.")
+        points.append(coords)
+    length = _number(value.get("length_m"), "Referensmått")
+    distance = math.hypot((points[1]["x"] - points[0]["x"]) * background["width"],
+                          (points[1]["y"] - points[0]["y"]) * background["height"])
+    if length <= 0 or distance < 1e-6 or not math.isfinite(length / distance):
+        raise ValueError("Ange ett positivt referensmått mellan två olika punkter.")
+    return {"start": points[0], "end": points[1], "length_m": length}
+
+
 def _render_source(data, filename, page=1):
     """Normalisera rasterbilder och rendera en PDF-sida lokalt till PNG."""
     if not data or len(data) > _MAX_FILE_BYTES:
@@ -288,6 +312,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = title
         self._subtitle = subtitle
         self._label_size = 100
+        self._calibration = None
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
@@ -390,6 +415,7 @@ class Grundplan(anywidget.AnyWidget):
             "subtitle": self._subtitle,
             "tags": self.taggar,
             "label_size": self._label_size,
+            "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
             "sliding_result": self.glidningsresultat,
             "calculator_version": _CALCULATOR_VERSION,
@@ -403,6 +429,7 @@ class Grundplan(anywidget.AnyWidget):
         self._load_import = None
         self._filename = Path(filename).name
         self._gliding["placements"] = {}
+        self._calibration = None
         self.background = rendered
         self._initial_page = rendered["page"]
 
@@ -735,6 +762,16 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Öppna en ritning först.")
         self._view_page(sida)
 
+    @property
+    def kalibrering(self):
+        """Mätverktygets referensmått och två relativa ritningspunkter."""
+        return copy.deepcopy(self._calibration)
+
+    @kalibrering.setter
+    def kalibrering(self, value):
+        self._calibration = _calibration(value, self.background)
+        self._publish()
+
     def _document(self):
         return {
             "format": _FORMAT,
@@ -743,6 +780,7 @@ class Grundplan(anywidget.AnyWidget):
             "title": self._title,
             "subtitle": self._subtitle,
             "label_size": self._label_size,
+            "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
             "drawing": {
                 "name": self._filename,
@@ -833,11 +871,13 @@ class Grundplan(anywidget.AnyWidget):
         pages = [_render_source(self._source, self._filename, self.background["page"])]
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
-                      "label_size": self._label_size, "tags": self.taggar,
+                      "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
+            "pdf": {"filename": Path(self._filename).stem + "_med_etiketter.pdf",
+                    "data": base64.b64encode(self._pdf_bytes()).decode("ascii")},
         })
 
     def exportera_html(self, fil):
@@ -890,6 +930,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Sida måste vara ett positivt heltal.")
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
+        calibration = _calibration(document.get("calibration"), rendered)
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
@@ -927,6 +968,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = title
         self._subtitle = subtitle
         self._label_size = label_size
+        self._calibration = calibration
         self._gliding = gliding
         self._tags = valid_tags
         self._load_import = None
@@ -975,6 +1017,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.visa_sida(content["page"])
             elif action == "label_size":
                 self.etikettstorlek = content["value"]
+            elif action == "calibration":
+                self.kalibrering = content.get("calibration")
             elif action == "heading":
                 self._set_heading(content["title"], content["subtitle"])
             elif action == "sliding":

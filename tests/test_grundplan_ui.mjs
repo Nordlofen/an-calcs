@@ -100,7 +100,7 @@ class Element {
 }
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
-const { default: widget } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+const { default: widget, validateCalibration, measuredDistance } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -110,7 +110,7 @@ const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "H�
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
 
-function setup(t, { readOnly = false, standalone = false, page = 1 } = {}) {
+function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) {
   globalThis.document = Object.assign(new Element("document"), {
     createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] });
   globalThis.window = { confirm: () => true };
@@ -126,8 +126,8 @@ function setup(t, { readOnly = false, standalone = false, page = 1 } = {}) {
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
-  const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background] };
-  const model = standalone ? createResultModel(snapshot) : { get: name => data[name], send: (payload, _, buffers) => {
+  const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
+  const model = standalone ? createResultModel(snapshot, validateCalibration) : { get: name => data[name], send: (payload, _, buffers) => {
     sent.push(payload); if (buffers?.length) transfers.push({request: payload.request, buffers});
   },
     on: (name, fn) => handlers.set(name, fn), off: name => handlers.delete(name) };
@@ -157,6 +157,135 @@ function setup(t, { readOnly = false, standalone = false, page = 1 } = {}) {
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+function measurePoint(ui, x, y) {
+  const rect = ui.byClass("gp-picture").getBoundingClientRect();
+  ui.place(rect.left + x * rect.width, rect.top + y * rect.height);
+}
+
+function saveReference(ui, text = "10,0") {
+  const field = ui.find(e => e.getAttribute("aria-label") === "Känt referensmått i meter");
+  field.value = text; field.dispatch("input");
+  ui.byText("Spara kalibrering").click();
+  if (ui.sent.length) {
+    const request = ui.sent.at(-1);
+    ui.data.state.calibration = request.calibration; ui.changed(); ui.ack(request);
+  }
+}
+
+test("calibrated lengths use the drawing aspect ratio and survive render resolution changes", () => {
+  const bg = {url: "data:test", width: 800, height: 600};
+  const calibration = validateCalibration({start: {x: .1, y: .2}, end: {x: .6, y: .2}, length_m: 10}, bg);
+  near(measuredDistance({x: .1, y: .1}, {x: .4, y: .5}, bg, calibration), Math.hypot(240, 240) / 40);
+  near(measuredDistance({x: .1, y: .1}, {x: .4, y: .5}, {...bg, width: 1600, height: 1200}, calibration), Math.hypot(240, 240) / 40);
+  for (const length of [0, -1, NaN, Infinity, "10", true]) {
+    assert.throws(() => validateCalibration({...calibration, length_m: length}, bg));
+  }
+  assert.throws(() => validateCalibration({...calibration, end: calibration.start}, bg));
+  assert.throws(() => validateCalibration({...calibration, end: {x: 2, y: .2}}, bg));
+});
+
+test("measurement calibrates from two clicks, accepts decimal comma and displays exactly one decimal", t => {
+  const ui = setup(t), original = structuredClone(ui.tag);
+  ui.byText("Mät").click();
+  assert.equal(ui.byClass("gp-measurement-bar").hidden, false);
+  assert.match(ui.byClass("gp-measurement-hint").textContent, /startpunkten/);
+  measurePoint(ui, .1, .2); measurePoint(ui, .6, .2);
+  assert.equal(ui.byClass("gp-calibration-fields").hidden, false);
+  saveReference(ui);
+  assert.deepEqual(ui.data.state.calibration, {start: {x: .1, y: .2}, end: {x: .6, y: .2}, length_m: 10});
+  assert.equal(ui.sent.at(-1).action, "calibration");
+  measurePoint(ui, .1, .2); measurePoint(ui, .35, .2);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "5,0 m");
+  const line = ui.byClass("gp-measurement-overlay").children[0].children.find(e => e.tag === "line");
+  assert.equal(line.getAttribute("stroke-dasharray"), "none");
+  measurePoint(ui, .1, .2);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "", "Third click starts a new measurement");
+  measurePoint(ui, .4, .5);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "7,5 m");
+  assert.deepEqual(ui.tag, original);
+  assert.equal(ui.sent.length, 1, "Measurement does not send engineering updates");
+});
+
+test("measurement supports preview, zoom and both pan buttons without moving tags or adding false points", t => {
+  const ui = setup(t);
+  ui.data.state.calibration = {start: {x: .1, y: .2}, end: {x: .6, y: .2}, length_m: 10}; ui.changed();
+  ui.byText("Mät").click(); measurePoint(ui, .1, .2);
+  let rect = ui.byClass("gp-picture").getBoundingClientRect();
+  ui.move(rect.left + .35 * rect.width, rect.top + .2 * rect.height);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "5,0 m");
+  for (const button of [0, 2]) {
+    ui.start(ui.marker(), 200, 200, {button}); ui.move(240, 220); ui.finish(240, 220, {button});
+    assert.match(ui.byClass("gp-measurement-hint").textContent, /slutpunkten/);
+  }
+  ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -100, clientX: 400, clientY: 300});
+  measurePoint(ui, .35, .2);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "5,0 m");
+  ui.byText("Anpassa").click();
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "5,0 m");
+  assert.deepEqual(ui.position(), [.3, .4]);
+  assert.equal(ui.sent.length, 0);
+  ui.byText("Rensa mått").click();
+  assert.equal(ui.byClass("gp-measurement-overlay").hidden, true);
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.byClass("gp-measurement-bar").hidden, true);
+  ui.byText("Mät").click();
+  assert.match(ui.byClass("gp-measurement-hint").textContent, /^Mätning:/, "Escape retains calibration");
+});
+
+test("invalid reference, coincident points and failed calibration do not discard the old reference", t => {
+  const ui = setup(t);
+  const old = {start: {x: .1, y: .2}, end: {x: .6, y: .2}, length_m: 10};
+  ui.data.state.calibration = old; ui.changed(); ui.byText("Mät").click(); ui.byText("Kalibrera om").click();
+  ui.place(-100, -100);
+  assert.equal(ui.byClass("gp-measurement-overlay").hidden, true);
+  measurePoint(ui, .2, .3); measurePoint(ui, .2, .3);
+  assert.equal(ui.byClass("gp-calibration-fields").hidden, true);
+  measurePoint(ui, .5, .3);
+  const field = ui.find(e => e.getAttribute("aria-label") === "Känt referensmått i meter");
+  for (const text of ["", "0", "-10", "abc", "Infinity"]) {
+    field.value = text; field.dispatch("input");
+    assert.equal(ui.byText("Spara kalibrering").disabled, true);
+  }
+  field.value = "12"; field.dispatch("input"); ui.byText("Spara kalibrering").click();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Kalibreringen kunde inte sparas"});
+  assert.equal(ui.byClass("gp-status").textContent, "Kalibreringen kunde inte sparas");
+  assert.deepEqual(ui.data.state.calibration, old);
+  assert.equal(ui.byText("Spara kalibrering").disabled, false);
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+  ui.marker().click();
+  assert.equal(ui.byClass("gp-dialog").hidden, false, "Leaving measurement restores tag editing");
+});
+
+test("standalone calibration changes only local display state, with all footing values still read-only", t => {
+  const ui = setup(t, {readOnly: true, standalone: true}), original = structuredClone(ui.snapshot);
+  ui.byText("Mät").click(); measurePoint(ui, .1, .2); measurePoint(ui, .6, .2); saveReference(ui);
+  assert.equal(ui.model.get("state").calibration.length_m, 10);
+  measurePoint(ui, .1, .2); measurePoint(ui, .35, .2);
+  assert.equal(ui.byClass("gp-measurement-value").textContent, "5,0 m");
+  assert.deepEqual(ui.snapshot, original, "HTML file and embedded engineering snapshot remain unchanged");
+});
+
+test("standalone HTML downloads its embedded PDF without a kernel or external resources", async t => {
+  const bytes = Buffer.from([37, 80, 68, 70, 45, 10, 0, 128, 255]);
+  const ui = setup(t, {readOnly: true, standalone: true, pdf: {filename: "ritning_med_etiketter.pdf", data: bytes.toString("base64")}});
+  const original = structuredClone(ui.snapshot), downloads = [];
+  t.mock.method(URL, "createObjectURL", blob => { downloads.push(blob); return "blob:offline-pdf"; });
+  t.mock.method(URL, "revokeObjectURL", () => {});
+  t.mock.method(globalThis, "setTimeout", fn => {fn(); return 0;});
+  for (let i = 0; i < 2; i++) ui.byText("Exportera PDF").click();
+  assert.equal(downloads.length, 2);
+  assert.equal(downloads[0].type, "application/pdf");
+  assert.deepEqual(Buffer.from(await downloads[0].arrayBuffer()), bytes);
+  assert.equal(document.downloads[0].filename, "ritning_med_etiketter.pdf");
+  assert.equal(ui.byText("Exportera PDF").disabled, false);
+  assert.deepEqual(ui.snapshot, original);
+  ui.snapshot.pdf.data = "%%%";
+  ui.byText("Exportera PDF").click();
+  assert.equal(downloads.length, 2, "Invalid embedded data reports an error instead of a broken download");
+  assert.match(ui.byClass("gp-status").textContent, /PDF-filen kunde inte läsas/);
+  assert.equal(ui.byText("Exportera PDF").disabled, false);
+});
 
 function importFixture(ui) {
   const items = [
