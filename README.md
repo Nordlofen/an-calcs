@@ -202,6 +202,12 @@ Välj riktningarna och ange motsvarande horisontallast i EQU. Under **Glidning**
 i varje sulas dialog väljer du motståndsriktning och anger vertikallast i EQU
 (inklusive egentyngd), dimensionerande friktionskoefficient och, för väggsulor,
 hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
+
+**Endast H-stabilitet** under **Geometri** undantar en sula från jordens
+bärighetskontroll och isoleringskontrollen. Sulan bidrar fortfarande i sina
+valda glidningsriktningar. Valet kan även ändras för markerade rader i tabellen;
+övriga indatavärden behålls när läget växlas.
+
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans
 rubrik för att flytta den och dra dess hörnhandtag för att ändra storlek på
 hela rutan inklusive texten. Rutan visar last, summerat motstånd, utnyttjandegrad

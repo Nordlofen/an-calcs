@@ -38,6 +38,28 @@ class TestGrundplanPdf(unittest.TestCase):
             "x": .3, "y": .4, "indata": {"b": 1, "F_vy": 100}, **kwargs,
         })
 
+    def test_horizontal_only_exports_mode_and_contribution_without_bearing_results_or_loads(self):
+        plan = self.plan()
+        ident = self.tag(plan, indata={"endast_h_stabilitet": True, "glid_x": True, "glid_y": True,
+                        "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3,
+                        "F_vy": 999, "F_vy_bruk": 999, "b": None, "phi_k": None})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("Endast H-stabilitet", text)
+        self.assertIn("Glidmotstånd – globalt", text)
+        self.assertIn("120 kN/m", text)
+        self.assertIn("144 kN", text)
+        for absent in ("999", "Brott", "Bruk", "U 0", "Styrande", "None"):
+            self.assertNotIn(absent, text)
+        html = plan._html_bytes().decode()
+        self.assertIn('"endast_h_stabilitet": true', html)
+        self.assertIn('"utnyttjandegrad": null', html)
+        plan.uppdatera(ident, indata={"isolering": True, "f_d_brott": None, "f_d_bruk": None})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("Endast H-stabilitet", text)
+        self.assertIn("Med isolering", text)
+        self.assertNotIn("Glidmotstånd – globalt", text)
+        self.assertNotIn("Styrande", text)
+
     def drawing(self):
         source = self.root / "original.pdf"
         canvas = Canvas(str(source), pagesize=(500, 700))

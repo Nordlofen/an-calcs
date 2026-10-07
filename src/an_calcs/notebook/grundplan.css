@@ -134,6 +134,8 @@
 .an-grundplan .gp-selecting { cursor: crosshair !important; }
 .an-grundplan .gp-tag-ok { border-color: #319477; --gp-tag-bg: #f4fcf8; }
 .an-grundplan .gp-tag-ok::before { background: #238161; }
+.an-grundplan .gp-tag-horizontal { border-color: #708999; --gp-tag-bg: #f1f6fa; }
+.an-grundplan .gp-tag-horizontal::before { background: #708999; }
 .an-grundplan .gp-tag-over, .an-grundplan .gp-tag-error { border-color: #bc5750; --gp-tag-bg: #fff8f6; }
 .an-grundplan .gp-tag-over::before, .an-grundplan .gp-tag-error::before { background: #b4443d; }
 .an-grundplan .gp-tag-stale { border-style: dashed; border-color: #ac802f; --gp-tag-bg: #fffbef; }
@@ -207,6 +209,7 @@
 .an-grundplan .gp-result-main { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 10px; }
 .an-grundplan .gp-result-main strong { font-size: 28px; letter-spacing: -1px; }
 .an-grundplan .gp-pass { color: #197256; }
+.an-grundplan .gp-horizontal { color: #4c697b; }
 .an-grundplan .gp-fail, .an-grundplan .gp-error-text { color: #ad3932; }
 .an-grundplan .gp-result-list { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 0 0 8px; }
 .an-grundplan .gp-result-list dt, .an-grundplan .gp-result-list dd { width: auto; float: none; margin: 0; padding: 0; }

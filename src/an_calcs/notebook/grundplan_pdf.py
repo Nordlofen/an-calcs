@@ -28,6 +28,7 @@ _COLORS = {
     "error": ("#bc5750", "#fff8f6", "#b4443d"),
     "over": ("#bc5750", "#fff8f6", "#b4443d"),
     "ok": ("#319477", "#f4fcf8", "#238161"),
+    "horizontal": ("#708999", "#f1f6fa", "#708999"),
 }
 
 
@@ -96,6 +97,8 @@ def _sliding_rows(values):
 
 
 def _load_rows(values):
+    if values.get("endast_h_stabilitet"):
+        return []
     rows = []
     for group in LOAD_GROUPS:
         if group["label"] == "Bruk" and not values["isolering"]:
@@ -123,7 +126,16 @@ def _load_rows(values):
 def _label(tag, sliding_enabled=False):
     lines = [(" ".join(tag["label"].split()), _BOLD, 13)]
     summary = tag.get("summary") if tag["status"] == "calculated" else None
-    if summary:
+    values = tag["values"]
+    only_h = values.get("endast_h_stabilitet")
+    if summary and only_h:
+        status = "horizontal"
+        geometry = ""
+        if all(isinstance(values.get(name), (int, float)) and math.isfinite(values[name]) for name in ("b", "l")):
+            geometry = (f'bₓ {_number(values["b"])} m' if values["lang"] == 1 and values["l"] == 1
+                        else f'{_number(values["b"])} × {_number(values["l"])} m')
+        lines.append(("Endast H-stabilitet" + (" · " + geometry if geometry else ""), _REGULAR, 11))
+    elif summary:
         status = "ok" if summary["utnyttjandegrad"] <= 1 else "over"
         geometry = (f'bₓ {_number(summary["b"])} m' if tag["values"]["lang"] == 1 and tag["values"]["l"] == 1
                     else f'{_number(summary["b"])} × {_number(tag["values"]["l"])} m')
@@ -134,9 +146,8 @@ def _label(tag, sliding_enabled=False):
         status = tag["status"] if tag["status"] in ("new", "stale", "error") else "new"
         text = {"new": "Ej beräknad", "stale": "Ändrad · beräkna", "error": "Kontrollera indata"}[status]
         lines.append((text, _REGULAR, 11))
-    values = tag["values"]
     length = values.get("glid_L")
-    sliding_block = sliding_enabled and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))
+    sliding_block = (sliding_enabled or only_h) and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))
     if (values["lang"] == 1 and isinstance(length, (int, float)) and not isinstance(length, bool)
             and math.isfinite(length) and length > 0 and not sliding_block):
         text, font, size = lines[1]
@@ -183,7 +194,7 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_
         box_height = 16 + sum(size * 1.3 for _, _, size in lines) + 2 * (len(lines) - 1)
         if loads:
             box_height += 8 + 14 * len(loads)
-        slide_left, slide_right = _sliding_rows(tag["values"]) if sliding_enabled else ([], [])
+        slide_left, slide_right = _sliding_rows(tag["values"]) if sliding_enabled or tag["values"].get("endast_h_stabilitet") else ([], [])
         slide_size = 8.2
         if slide_left:
             left_symbols = max(_math_width(base, index, slide_size) for base, index, _ in slide_left)

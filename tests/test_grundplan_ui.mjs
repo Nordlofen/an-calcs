@@ -106,7 +106,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("l_override");
+names.push("l_override", "endast_h_stabilitet");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
@@ -123,9 +123,10 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.l_override = false;
+  tag.values.endast_h_stabilitet = false;
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
-    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y", "l_override"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -2295,4 +2296,71 @@ test("labels retain the governing check below insulation, utilization and geomet
   ui.byClass("an-grundplan").dispatch("keydown", { key: "Escape" });
   ui.marker().dispatch("click");
   assert.equal(service().open, false, "Collapsed result sections also survive closing with Escape");
+});
+
+const onlyHSummary = {endast_h_stabilitet: true, utnyttjandegrad: null, b: 1, kontroller: []};
+
+test("H-only checkbox hides bearing inputs, keeps stored values and restores them when unchecked", t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
+  ui.tag.sliding = {x: 144, y: 0, status: "ready"}; ui.changed();
+  ui.marker().click();
+  const toggle = ui.field("endast_h_stabilitet");
+  toggle.checked = true; toggle.dispatch("input");
+  assert.equal(ui.sent.at(-1).values.endast_h_stabilitet, true);
+  assert.equal(ui.sent.at(-1).values.F_vy, 1, "Unused bearing values are preserved");
+  assert.equal(ui.field("F_vy").parent.parent.hidden, true);
+  assert.equal(ui.field("phi_k").disabled, true);
+  assert.equal(ui.field("t").parent.hidden, true);
+  assert.equal(ui.field("glid_L").disabled, false);
+  assert.equal(ui.field("V_Ed_EQU").parent.parent.hidden, false, "Gliding data can be configured without global control");
+  Object.assign(ui.tag.values, ui.sent.at(-1).values);
+  ui.tag.summary = structuredClone(onlyHSummary); ui.changed(); ui.ack(ui.sent.at(-1));
+  assert.ok(ui.marker().className.includes("gp-tag-horizontal"));
+  assert.ok(ui.byClass("gp-tag-result").textContent.startsWith("Endast H-stabilitet"));
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "144 kN");
+  assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);
+  assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
+  assert.equal(tableField(ui, "tag1", "F_vy").disabled, true);
+  assert.equal(ui.byClass("gp-sketch-toggle").hidden, true);
+  toggle.checked = false; toggle.dispatch("input");
+  assert.equal(ui.field("F_vy").parent.parent.hidden, false);
+  assert.equal(ui.field("F_vy").value, "1");
+  assert.equal(ui.field("phi_k").disabled, false);
+  assert.equal(ui.byClass("gp-sketch-toggle").hidden, false);
+});
+
+test("H-only table checkbox changes selected walls and pads together", t => {
+  const ui = setup(t), pad = {...structuredClone(ui.tag), id: "pad", label: "PS1"};
+  pad.values.lang = 0; ui.data.state.tags.push(pad); ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "PS1");
+  const toggle = tableField(ui, "tag1", "endast_h_stabilitet");
+  assert.equal(toggle.disabled, false);
+  toggle.checked = true; toggle.dispatch("change");
+  assert.equal(ui.sent.at(-1).action, "bulk_update");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "pad"]);
+  assert.deepEqual(ui.sent.at(-1).values, {endast_h_stabilitet: true});
+  for (const tag of ui.data.state.tags) {
+    tag.values.endast_h_stabilitet = true; tag.summary = structuredClone(onlyHSummary);
+  }
+  ui.changed(); ui.ack(ui.sent.at(-1));
+  for (const id of ["tag1", "pad"]) {
+    assert.equal(tableField(ui, id, "F_vy").disabled, true);
+    assert.equal(tableField(ui, id, "b").disabled, false);
+  }
+  assert.equal(ui.elements().filter(e => e.textContent === "Endast H").length, 3);
+});
+
+test("read-only H-only labels and results have no bearing utilization or inactive loads", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  Object.assign(ui.tag.values, {endast_h_stabilitet: true, glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
+  ui.tag.summary = structuredClone(onlyHSummary); ui.tag.sliding = {x: 144, y: 0, status: "ready"}; ui.changed();
+  assert.ok(ui.marker().className.includes("gp-tag-horizontal"));
+  assert.equal(resultTableValue(ui, "tag1", "endast_h_stabilitet").textContent, "Ja");
+  assert.equal(resultTableValue(ui, "tag1", "F_vy").textContent, "—");
+  ui.marker().click();
+  assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
+  assert.ok(ui.elements().some(e => e.tag === "dd" && e.textContent === "144 kN"));
+  assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);
+  assert.equal(ui.sent.length, 0);
 });

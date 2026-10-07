@@ -119,6 +119,10 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
+  const bearingOnlyNames = new Set(["t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
+    "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
+    "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
+  const inputNotes = new Map();
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
@@ -764,7 +768,7 @@ function render({ model, el, readOnly = false }) {
   legend.setAttribute("role", "list");
   legend.setAttribute("aria-label", "Etikettförklaring");
   for (const [state, label] of [["error", "Fel i indata"], ["ok", "U ≤ 100 %"],
-    ["over", "U > 100 %"], ["stale", "Uppdaterar"]]) {
+    ["over", "U > 100 %"], ["horizontal", "Endast H-stabilitet"], ["stale", "Uppdaterar"]]) {
     const item = node("span", "gp-legend-item gp-tag-" + state, label);
     item.setAttribute("role", "listitem");
     legend.append(item);
@@ -1230,7 +1234,9 @@ function render({ model, el, readOnly = false }) {
   }
   function showSketch() {
     const tag = current();
-    const open = !!tag && !!sketchStates.get(tag.id) && !dialog.hidden;
+    const onlyH = readOnly ? tag?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
+    sketchToggle.hidden = !!onlyH;
+    const open = !!tag && !onlyH && !!sketchStates.get(tag.id) && !dialog.hidden;
     sketch.hidden = !open;
     sketchToggle.textContent = open ? "Dölj definitionsskiss" : "Visa definitionsskiss";
     sketchToggle.setAttribute("aria-expanded", String(open));
@@ -1275,7 +1281,10 @@ function render({ model, el, readOnly = false }) {
     for (const tag of state().tags.filter((t) => t.page === background().page)) {
       const summary = dirty.has(tag.id) ? null : tag.summary;
       const tagState = dirty.has(tag.id) ? "stale" : tag.status;
-      const color = summary ? (summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
+      const draft = drafts.get(tag.id);
+      const values = draft?.values || tag.values;
+      const onlyH = values.endast_h_stabilitet === true;
+      const color = summary ? (onlyH ? "horizontal" : summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
       const marker = button("", (event) => {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
@@ -1293,8 +1302,6 @@ function render({ model, el, readOnly = false }) {
       marker.classList.toggle("gp-active", active === tag.id);
       marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
       marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
-      const draft = drafts.get(tag.id);
-      const values = draft?.values || tag.values;
       const insulated = values.isolering === true;
       const insulationText = insulated ? "Med isolering" : "Utan isolering";
       const label = draft?.label.trim() || tag.label;
@@ -1302,15 +1309,16 @@ function render({ model, el, readOnly = false }) {
       const insulation = node("span", "gp-tag-insulation");
       insulation.append(insulationIcon(insulated), node("span", "", insulationText));
       heading.append(node("strong", "", label), insulation);
-      const geometry = summary ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
+      const geometry = summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l) ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
-      const showSlidingBlock = sliding().enabled && !insulated && (values.glid_x || values.glid_y);
+      const showSlidingBlock = (sliding().enabled || onlyH) && !insulated && (values.glid_x || values.glid_y);
       const rawLength = values.glid_L;
       const length = rawLength == null || rawLength === "" ? NaN : Number(String(rawLength).replace(",", "."));
       const lengthText = Number(values.lang) === 1 && Number.isFinite(length) && length > 0 && !showSlidingBlock
         ? " · L " + precise(length) + " m" : "";
       const text = (summary
-        ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
+        ? onlyH ? "Endast H-stabilitet" + (geometry ? " · " + geometry : "")
+          : "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
       const accessibleGeometry = summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
@@ -1321,6 +1329,7 @@ function render({ model, el, readOnly = false }) {
       const loads = node("span", "gp-tag-loads");
       const accessibleLoads = [];
       for (const group of model.get("schema").load_groups || []) {
+        if (onlyH) continue;
         if (group.label === "Bruk" && !insulated) continue;
         const tokens = [];
         for (const field of group.fields) {
@@ -1369,7 +1378,7 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -1419,7 +1428,8 @@ function render({ model, el, readOnly = false }) {
           : name === "glid_x" || name === "glid_y"
           ? {prefix: "Bidrar ", base: name === "glid_x" ? "X" : "Y", subscript: "g"} : {});
         if (notation.base || notation.text) head.append(symbolNode(notation, "gp-table-symbol"));
-        else head.append(node("span", "", name === "lang" ? "Typ" : name === "isolerprodukt" ? "Produkt" : field.label));
+        else head.append(node("span", "", name === "lang" ? "Typ" : name === "endast_h_stabilitet" ? "Endast H"
+          : name === "isolerprodukt" ? "Produkt" : field.label));
         const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
         if (unit) head.append(node("span", "gp-table-unit", "[" + (["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
         fieldRow.append(head);
@@ -1430,6 +1440,7 @@ function render({ model, el, readOnly = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
+    if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
     if (["glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
     if (value == null || value === "") return "—";
     const field = fieldSchema.get(name);
@@ -1575,9 +1586,11 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
         const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
+        const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet) && bearingOnlyNames.has(name);
         control.disabled = busy || blocked || (["glid_L", "l_override"].includes(name) && tag.values.lang === 0)
-          || (name === "l" && tag.values.lang === 1 && !ownLength);
-        control.title = blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
+          || ignored || (name === "l" && tag.values.lang === 1 && !ownLength);
+        control.title = ignored ? "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
+          : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
           : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra standardmåttet 1 m. Väggens totala glidlängd anges separat som L." : "";
@@ -1595,10 +1608,11 @@ function render({ model, el, readOnly = false }) {
       if (!tableRows.has(tag.id)) tableRows.set(tag.id, makeTableRow(tag));
       const {controls, result} = tableRows.get(tag.id), draft = drafts.get(tag.id);
       const stale = dirty.has(tag.id), summary = stale ? null : tag.summary;
-      result.textContent = summary ? "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
+      result.textContent = summary ? summary.endast_h_stabilitet ? "Endast H" : "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
         : stale || tag.status === "stale" ? "Uppdaterar…" : tag.status === "error" ? "Fel i indata" : "Kontrollera indata";
-      result.className = "gp-table-status " + (summary ? summary.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail" : "");
-      result.title = tag.error || summary?.styrande || "";
+      result.className = "gp-table-status " + (summary ? summary.endast_h_stabilitet ? "gp-horizontal"
+        : summary.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail" : "");
+      result.title = tag.error || (summary?.endast_h_stabilitet ? "Jordens bärighet och isolering kontrolleras inte." : summary?.styrande) || "";
       for (const [name, control] of controls) {
         const field = fieldSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
@@ -1701,7 +1715,7 @@ function render({ model, el, readOnly = false }) {
         : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulor: laster anges för hela sulan. ")
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
-      if (label === "Glidning" && !sliding().enabled) continue;
+      if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
       group.append(node("summary", "", label));
@@ -1819,11 +1833,15 @@ function render({ model, el, readOnly = false }) {
     rememberSections(inputSections);
     fieldsBox.replaceChildren();
     inputs.clear();
+    inputNotes.clear();
     const draft = drafts.get(tag.id);
     for (const [index, [label, names, note]] of groups.entries()) {
       if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
       const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
-      if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
+      if (note && !readOnly) {
+        const explanation = mathText("p", "gp-field-note", note);
+        group.append(explanation); inputNotes.set(group, {node: explanation, name: names[0], text: note});
+      }
       for (const name of names) {
         const field = fieldSchema.get(name);
         if (!field || name === "l_override") continue;
@@ -1921,6 +1939,7 @@ function render({ model, el, readOnly = false }) {
   function fieldUnits() {
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
     const insulated = readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked;
+    const onlyH = readOnly ? current()?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
     const selected = readOnly ? current()?.values.glid_x || current()?.values.glid_y
       : inputs.get("glid_x")?.input.checked || inputs.get("glid_y")?.input.checked;
     basis.textContent = readOnly
@@ -1928,6 +1947,7 @@ function render({ model, el, readOnly = false }) {
       : strip
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
         : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
+    if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
       if (name === "l_override") {
         entry.row.hidden = !strip;
@@ -1935,11 +1955,10 @@ function render({ model, el, readOnly = false }) {
         continue;
       }
       if (slidingNames.has(name)) {
-        entry.group.hidden = !sliding().enabled;
         const numeric = !["glid_x", "glid_y"].includes(name);
         const length = name === "glid_L";
-        const disabled = !sliding().enabled || (length ? !strip : insulated);
-        entry.row.hidden = length ? !strip : numeric && insulated;
+        const disabled = (!sliding().enabled && !onlyH) || (length ? !strip : insulated);
+        entry.row.hidden = (!sliding().enabled && !onlyH) || (length ? !strip : numeric && insulated);
         entry.unit.textContent = name === "V_Ed_EQU" ? (strip ? "kN/m" : "kN") : fieldSchema.get(name).unit;
         if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated;
           if (disabled) entry.input.setCustomValidity(""); }
@@ -1948,17 +1967,24 @@ function render({ model, el, readOnly = false }) {
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.startsWith("f_d_");
+      const ignored = onlyH && bearingOnlyNames.has(name);
       if (readOnly) {
-        entry.row.hidden = !insulated && (insulationField || name.endsWith("_bruk"));
+        entry.row.hidden = ignored || !insulated && (insulationField || name.endsWith("_bruk"));
         continue;
       }
-      entry.input.disabled = (insulationField && !insulated)
+      entry.input.disabled = ignored || (insulationField && !insulated)
         || (name === "l" && strip && !inputs.get("l_override")?.input.checked);
       if (name === "l" && strip && entry.input.disabled) entry.input.value = "1";
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
         && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
-      entry.row.hidden = !insulated && name.startsWith("f_d_");
+      entry.row.hidden = ignored || !insulated && name.startsWith("f_d_");
+    }
+    for (const group of new Set([...inputs.values()].map(entry => entry.group))) {
+      group.hidden = ![...inputs.values()].some(entry => entry.group === group && !entry.row.hidden);
+      const note = inputNotes.get(group);
+      if (note) note.node.replaceChildren(mathText("span", "", onlyH && note.name === "isolering"
+        ? "Isolerade sulor bidrar med 0 kN till glidningskontrollen. Ingen isoleringskontroll utförs." : note.text));
     }
     showSketch();
   }
@@ -1975,7 +2001,7 @@ function render({ model, el, readOnly = false }) {
       values: Object.fromEntries([...inputs].map(([name, { input }]) => [name, input.type === "checkbox" ? input.checked : input.value])),
     });
     const values = readValues();
-    if (sliding().enabled) slidingDirty.add(active);
+    if (sliding().enabled || values.endast_h_stabilitet) slidingDirty.add(active);
     showResult();
     renderMarkers();
     showSliding();
@@ -2094,6 +2120,27 @@ function render({ model, el, readOnly = false }) {
     const r = tag.summary;
     if (!r) {
       results.append(node("p", "", readOnly ? "Sulan var inte beräknad vid exporten." : "Kontrollera indata. Resultatet uppdateras automatiskt."));
+      return;
+    }
+    if (r.endast_h_stabilitet) {
+      results.append(node("strong", "gp-horizontal", "Endast H-stabilitet"),
+        node("p", "gp-result-note", "Jordens bärighet och isolering kontrolleras inte för denna sula."));
+      const slidingResult = tag.sliding;
+      if (tag.values.isolering) {
+        results.append(node("p", "gp-result-note", "Isolerad sula: glidningsbidrag 0 kN."));
+      } else if (!(tag.values.glid_x || tag.values.glid_y)) {
+        results.append(node("p", "gp-result-note", "Välj bidragsriktning under Glidning."));
+      } else {
+        if (slidingDirty.has(tag.id)) results.append(node("p", "", "Uppdaterar glidmotstånd…"));
+        else if (slidingResult?.error) results.append(node("p", "gp-error-text", slidingResult.error));
+        const list = node("dl", "gp-result-list");
+        for (const axis of ["x", "y"]) if (tag.values["glid_" + axis]) {
+          const capacity = slidingDirty.has(tag.id) ? null : slidingResult?.[axis];
+          list.append(mathText("dt", "", "Glidningsbidrag H_" + axis + ",Rd,i"),
+            node("dd", "", capacity == null ? "—" : compactNumber(capacity, 3) + " kN"));
+        }
+        results.append(list);
+      }
       return;
     }
     const headline = node("div", "gp-result-main " + (r.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail"));

@@ -30,7 +30,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-v2"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-h-only-v3"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -47,6 +47,7 @@ _FIELDS = [field for field in allmanna_barighetsekvationen.panel_schema["fields"
 _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"]
                       if field["name"] not in _SOIL_NAMES and field["name"] not in _REMOVED_FIELDS]
 _EXTRA_FIELDS = [
+    {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
     {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
@@ -74,7 +75,7 @@ def _values(values, *, draft=False):
         raise ValueError("Indata måste innehålla jordberäkningens 24 fält och endast kända tilläggsfält.")
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    boolean_names = {"isolering", "glid_x", "glid_y", "l_override"}
+    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"}
     for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
@@ -86,7 +87,7 @@ def _values(values, *, draft=False):
                 raise ValueError("Isolerprodukt måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or optional or name in SLIDING_NAMES) and value is None and name != "lang":
+        if (draft or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES) and value is None and name != "lang":
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -223,6 +224,13 @@ def _render_source(data, filename, page=1, *, fallback_page=False):
 
 def _calculate(values):
     values = _values(values)
+    if values["endast_h_stabilitet"]:
+        # No bearing engine or insulation check applies to this footing. Its
+        # sliding contribution is calculated separately from explicit EQU data.
+        return {"endast_h_stabilitet": True, "kontroller": []}, {
+            "endast_h_stabilitet": True, "utnyttjandegrad": None,
+            "b": values["b"], "kontroller": [],
+        }
     # Keep the shared calculation APIs compatible; Grundplan always supplies
     # zero lever arms so its user-entered moments act directly at the footing.
     engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
@@ -660,7 +668,7 @@ class Grundplan(anywidget.AnyWidget):
             self._details[tag["id"]] = details
 
     def berakna(self, tagg):
-        """Beräkna en tagg och returnera samma details-format som i an_calcs."""
+        """Beräkna en tagg; endast H-stabilitet ger inga bärighetskontroller."""
         tag = self._tag(tagg)
         self._refresh_tag(tag)
         self._publish()
@@ -813,7 +821,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 6,
+            "version": 7,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -958,8 +966,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–6.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–7.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")

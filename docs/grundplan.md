@@ -366,6 +366,16 @@ Under **Glidning** i respektive sulas indatadialog anges:
   Längdfältet visas för väggsulor även innan en bidragsriktning har valts och
   även med isolering. Det kan lämnas tomt tills sulan ska bidra med glidmotstånd.
 
+Markera **Endast H-stabilitet** under **Geometri** om sulan endast ska ingå
+i glidningskontrollen. Jordens bärighetskontroll och isoleringskontrollen
+utförs då inte, och deras indata döljs i dialogen och inaktiveras i tabellen.
+Tidigare värden behålls och används igen när valet avmarkeras. Glidningsindata
+visas även innan den globala kontrollen har aktiverats; bidragsriktningarna
+väljs fortfarande manuellt. Isolerade sulor bidrar fortsatt med 0 kN.
+Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
+utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade
+sulor och visas i PDF- och HTML-exporterna.
+
 Motståndet för en vald riktning beräknas som
 `H_Rd,i = V_Ed,EQU × L × μ_d` för väggsulor och
 `H_Rd,i = V_Ed,EQU × μ_d` för pelarsulor. **Sulor med isolering bidrar alltid
