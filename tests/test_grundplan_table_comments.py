@@ -145,7 +145,7 @@ class TestTableAndComments(unittest.TestCase):
         self.assertEqual(self.plan.visningshojder, {"board_height": None, "table_height": 400})
         self.assertEqual(self.plan.visningsstorlekar["board_width"], 1300, "Legacy height updates preserve width")
 
-    def test_insulation_widget_is_saved_exported_and_counts_h_only_as_uninsulated(self):
+    def test_insulation_widget_is_saved_exported_and_excludes_h_only_footings(self):
         from io import BytesIO
         from pypdf import PdfReader
         self.plan.lagg_till(.1, .2, littera="VS10", indata={"isolering": True})
@@ -156,9 +156,10 @@ class TestTableAndComments(unittest.TestCase):
         self.plan.isoleringswidget = settings
         pdf = PdfReader(BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("Föreskrivna utan isolering", pdf)
-        self.assertIn("Med isolering\n1", pdf)
-        self.assertIn("Utan isolering\n2", pdf)
-        self.assertIn("VS1, VS2", pdf)
+        widget = pdf.rsplit("Isolering\n", 1)[1]
+        self.assertRegex(widget, r"Med isolering\s+1\s+Utan isolering\s+1\s")
+        self.assertIn("VS2", widget)
+        self.assertNotIn("VS1", widget)
         snapshot = json.loads(re.search(r'<script id="grundplan-data" type="application/json">(.*?)</script>', self.plan._html_bytes().decode(), re.S).group(1))
         self.assertEqual(snapshot["state"]["insulation_widget"], settings)
         self.plan.isoleringswidget = {"enabled": False}

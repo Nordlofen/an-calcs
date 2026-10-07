@@ -127,7 +127,7 @@ const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "H�
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
 
-function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) {
+function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode = false } = {}) {
   globalThis.document = Object.assign(new Element("document"), {
     createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag), activeElement: null, downloads: [] });
   globalThis.window = { confirm: () => true };
@@ -157,7 +157,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
   },
     on: (name, fn) => handlers.set(name, fn), off: name => handlers.delete(name) };
   const host = new Element("host");
-  t.after(widget.render({ model, el: host, readOnly }));
+  t.after(widget.render({ model, el: host, readOnly, pdfMode }));
   const walk = element => [element, ...element.children.flatMap(walk)];
   const find = predicate => {
     const element = walk(host).find(predicate);
@@ -182,6 +182,17 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+test("PDF mode uses the shared readonly overlays at drawing coordinates and 100% zoom", t => {
+  const ui = setup(t, {readOnly: true, pdfMode: true});
+  assert.ok(ui.byClass("an-grundplan").className.includes("gp-pdf"));
+  const sheet = ui.byClass("gp-sheet");
+  assert.equal(sheet.style.width, "800px"); assert.equal(sheet.style.height, "600px");
+  assert.equal(sheet.style.left, "0px"); assert.equal(sheet.style.top, "0px");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m");
+  assert.deepEqual(ui.position(), [.3, .4]);
+  assert.equal(ui.sent.length, 0);
+});
 const inputSection = (ui, label) => ui.find(e => e.tag === "summary" && e.textContent === label && e.closest(".gp-form")).parent;
 
 function measurePoint(ui, x, y) {

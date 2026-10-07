@@ -194,7 +194,7 @@ function definitionSketch(strip) {
   return svg;
 }
 
-function render({ model, el, readOnly = false }) {
+function render({ model, el, readOnly = false, pdfMode = false }) {
   const node = (tag, className, text) => {
     const element = document.createElement(tag);
     if (className) element.className = className;
@@ -230,6 +230,7 @@ function render({ model, el, readOnly = false }) {
   };
   const root = node("div", "an-grundplan");
   root.classList.toggle("gp-readonly", readOnly);
+  root.classList.toggle("gp-pdf", pdfMode);
   // Keep JupyterLab's cell shortcuts from consuming keys intended for the widget.
   root.setAttribute("data-lm-suppress-shortcuts", "true");
   const view = Math.random().toString(36).slice(2);
@@ -1821,6 +1822,12 @@ function render({ model, el, readOnly = false }) {
   function fit() {
     const bg = background();
     if (!bg.width) return;
+    if (pdfMode) {
+      setZoom(1);
+      panX = panY = 0;
+      placeSheet();
+      return;
+    }
     setZoom(Math.min((viewport.clientWidth - 48) / bg.width,
       (viewport.clientHeight - 48) / bg.height));
     panX = (viewport.clientWidth - bg.width * zoom) / 2;

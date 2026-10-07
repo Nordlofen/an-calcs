@@ -145,7 +145,7 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(tag["summary"]["effective_area"]["brott"]["by"], 2.4)
         text = PdfReader(io.BytesIO(base64.b64decode(data["pdf"]["data"]))).pages[0].extract_text()
         self.assertIn("0,8 × 2,4 m", text)
-        self.assertIn("L\nsu\n 6,2 m", text)
+        self.assertRegex(text, r"L\s*su\s+6,2 m")
 
     def test_drawing_headings_and_dates_are_embedded_in_html_and_its_pdf(self):
         self.plan.lagg_till_rubrik("Grundsulor – Hus 1", underrubrik="Revision A", x=.2, y=.1, storlek=40, bredd=1200)

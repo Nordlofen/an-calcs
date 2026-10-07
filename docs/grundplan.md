@@ -864,8 +864,25 @@ ofullständiga sulor visar sin status i stället för ett beräkningsresultat.
 Indatadialoger och fullständiga beräkningsrapporter ingår inte. Fortsätt spara
 JSON-projektet separat för att kunna redigera sulorna senare.
 
-PDF-export kräver `reportlab` och `pypdf`, som ingår i `an-calcs[notebook]`.
+Etiketter, widgetar, symboler och placerade texter använder samma HTML/CSS,
+typsnitt, radbrytningar och proportioner som interfacet. Även de mjuka skuggorna
+består av vektorer. Typsnitten bäddas in och texten är sökbar. Originalritningen
+läggs aldrig in som en skärmbild när källan är en PDF. Draghandtag,
+markeringsramar och redigeringskontroller ingår inte.
+
+PDF-export kräver `reportlab`, `pypdf` och `playwright`, som ingår i
+`an-calcs[notebook]`, samt en lokal Chromium, Google Chrome eller Microsoft Edge.
+Webbläsaren körs isolerat utan nätverksåtkomst eller användarprofil. Om Chrome
+eller Edge redan finns installerad behövs ingen separat webbläsarinstallation.
+Annars kör du i samma Pythonmiljö som din notebook:
+
+```sh
+python -m playwright install chromium
+```
+
 Uppdatera med installationskommandot ovan om du har en äldre installation.
+Resultat-HTML innehåller den färdiga vektor-PDF:en; dess PDF-knapp kräver ingen
+webbläsarrenderare, Python eller nätverksanslutning hos mottagaren.
 
 ## Mäta avstånd på ritningen
 

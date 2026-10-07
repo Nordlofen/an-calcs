@@ -284,7 +284,12 @@ plan
 
 **Exportera PDF** laddar ned vyns ritningssida med fasta etiketter.
 Etiketternas positioner, storlek och aktuella status följer med. PDF-originalets
-sidformat och vektorinnehåll bevaras. Exporten kan även göras från Python:
+sidformat och vektorinnehåll bevaras. Etiketter och widgetar använder interfacets
+HTML/CSS och typsnitt, inklusive radbrytningar och skuggor, och exporteras som
+vektorer med sökbar text. PDF-exporten använder Playwright och en lokal Chromium,
+Chrome eller Edge. Om ingen webbläsare finns, kör `python -m playwright install chromium`
+i notebookens Pythonmiljö efter installation av `an-calcs[notebook]`.
+Exporten kan även göras från Python:
 
 ```python
 plan.exportera_pdf("grundplan_med_etiketter.pdf")

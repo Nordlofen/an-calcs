@@ -1171,7 +1171,7 @@ class Grundplan(anywidget.AnyWidget):
             from .grundplan_pdf import render_pdf
         except ImportError as exc:
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
-        return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
+        return render_pdf(self._source, self.taggar, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget,
                           text_objects=self._text_objects)

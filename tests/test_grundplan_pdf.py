@@ -113,7 +113,7 @@ class TestGrundplanPdf(unittest.TestCase):
         before = plan._document()
         page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
         widget_text = page.extract_text().rsplit("Isolering\n", 1)[1]
-        self.assertIn("Med isolering\n1\nUtan isolering\n2\n", widget_text)
+        self.assertRegex(widget_text, r"Med isolering\s+1\s+Utan isolering\s+2\s")
         self.assertIn("VS.2, VS.10", widget_text)
         self.assertNotIn("H-GR.1", widget_text)
         self.assertIn("H-GR.1", page.extract_text(), "The H-only footing still has its own label")
@@ -124,9 +124,40 @@ class TestGrundplanPdf(unittest.TestCase):
                 plan.ta_bort(tag["id"])
         page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
         widget_text = page.extract_text().rsplit("Isolering\n", 1)[1]
-        self.assertIn("Med isolering\n0\nUtan isolering\n0\n", widget_text)
+        self.assertRegex(widget_text, r"Med isolering\s+0\s+Utan isolering\s+0\s")
         self.assertIn("Inga sulor", widget_text)
         self.assertNotIn("H-GR.1", widget_text)
+
+    def test_shared_layout_keeps_combined_groups_inline_and_embeds_fonts_with_vector_shadows(self):
+        plan = self.plan(self.drawing())
+        self.tag(plan, x=.6, y=.15, littera="VS.1", indata={"t": .3, "b": .8, "kommentar": "Kontrollera anslutningen.\nSamordnas med VS.2."})
+        self.tag(plan, x=.6, y=.4, littera="VS.2", indata={"t": .3, "b": .8})
+        plan.farggruppering = {"enabled": True, "category": "t", "secondary": "b",
+                              "legend": {"x": .05, "y": .05, "size": 300}}
+        plan.kommentarwidget = {"enabled": True, "x": .05, "y": .55, "size": 410}
+        page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        text = page.extract_text()
+        self.assertIn("Tjocklek t + Bredd bₓ", text)
+        self.assertRegex(text, r"t 0,3 m · b\s*x\s+0,8 m")
+        self.assertIn("Kontrollera anslutningen.", text)
+        self.assertIn("Samordnas med VS.2.", text)
+        self.assertFalse(page.images, "Even shadows, symbols and text are vector content")
+        fonts = page["/Resources"]["/Font"]
+        self.assertTrue(fonts)
+        for font in fonts.values():
+            font = font.get_object()
+            # The drawing has an unused base Helvetica. Check every font
+            # actually added by the browser, including math and index fonts.
+            if font.get("/Subtype") == "/Type0":
+                descendant = font["/DescendantFonts"][0].get_object()
+                descriptor = descendant["/FontDescriptor"].get_object()
+                self.assertTrue(any(key in descriptor for key in ("/FontFile", "/FontFile2", "/FontFile3")))
+                self.assertIn("/ToUnicode", font)
+            elif font.get("/Subtype") == "/Type3":
+                # System variable fonts can be embedded as vector glyph
+                # programs rather than as a copied TTF font file.
+                self.assertTrue(font["/CharProcs"])
+                self.assertIn("/ToUnicode", font)
 
     def test_sliding_overlays_show_only_view_totals_and_hide_insulated_contributions(self):
         plan = self.plan(self.drawing())
@@ -186,9 +217,9 @@ class TestGrundplanPdf(unittest.TestCase):
         plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 100.123}
         before = plan._document()
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        self.assertEqual(text.count("1 240,7 kN"), 2, "Label and global legend use one decimal")
+        self.assertEqual(text.replace("\u00a0", " ").count("1 240,7 kN"), 2, "Label and global legend use one decimal")
         self.assertIn("100,12 kN", text, "The demand keeps its existing precision")
-        self.assertNotIn("1 240,704", text)
+        self.assertNotIn("1 240,704", text.replace("\u00a0", " "))
         self.assertEqual(plan._document(), before)
         tag = next(tag for tag in plan.taggar if tag["id"] == ident)
         self.assertAlmostEqual(tag["sliding"]["x"], 1240.704)
@@ -235,31 +266,34 @@ class TestGrundplanPdf(unittest.TestCase):
         ident = self.tag(plan, indata={"b": .8, "l": 2.4, "glid_L": 6.2, "glid_x": True})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("0,8 × 2,4 m", text)
-        self.assertIn("L\nsu\n 6,2 m", text)
+        self.assertRegex(text, r"L\s*su\s+6,2 m")
         plan.uppdatera(ident, indata={"l": 1})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        self.assertRegex(text, r"b\s*x\s*0,8 m")
+        self.assertIn("bₓ 0,8 m", text)
         self.assertNotIn("×", text)
 
     def test_legend_scales_all_pdf_content_without_changing_axes_or_calculations(self):
         Image.new("RGB", (1600, 1000), "white").save(self.image)
         plan = self.plan()
         plan.glidning = {"enabled": True, "check_x": True, "check_y": True,
-                        "H_x_Ed": 100, "H_y_Ed": 150}
+                        "H_x_Ed": 100, "H_y_Ed": 150,
+                        "placements": {"1": {"symbol": {"x": .8, "y": .7, "size": 160},
+                                              "legend": {"x": .1, "y": .1, "size": 410}}}}
         images, bounds = [], []
         results = plan.glidningsresultat
         for size in (205, 820):
-            plan.glidning = {"placements": {"1": {"legend": {"x": .1, "y": .1, "size": size}}}}
+            plan.glidning = {"placements": {"1": {"symbol": {"x": .8, "y": .7, "size": 160},
+                                                   "legend": {"x": .1, "y": .1, "size": size}}}}
             image = self.render(plan._pdf_bytes(), scale=1)
             images.append(image)
-            crop = image.crop((110, 65, 800, 355))
+            crop = image.crop((110, 65, 800, 650))
             bounds.append(ImageChops.difference(crop, Image.new("RGB", crop.size, "white")).getbbox())
             self.assertEqual(plan.glidningsresultat, results)
         small, big = bounds
         self.assertAlmostEqual((big[2] - big[0]) / (small[2] - small[0]), 4, delta=.05)
         self.assertAlmostEqual((big[3] - big[1]) / (small[3] - small[1]), 4, delta=.1)
-        self.assertIsNone(ImageChops.difference(images[0].crop((0, 355, 1200, 750)),
-                                              images[1].crop((0, 355, 1200, 750))).getbbox())
+        self.assertIsNone(ImageChops.difference(images[0].crop((900, 500, 1200, 750)),
+                                              images[1].crop((900, 500, 1200, 750))).getbbox())
 
     def test_selected_page_retains_vector_text_and_page_format_without_changing_project(self):
         source = self.drawing()
@@ -304,7 +338,9 @@ class TestGrundplanPdf(unittest.TestCase):
                 before = self.render(cropped)
                 after = self.render(output)
                 self.assertEqual(before.size, after.size)
-                bbox = ImageChops.difference(before, after).getbbox()
+                # Shadows now follow the interface too; measure the opaque
+                # card rather than its translucent shadow around the border.
+                bbox = ImageChops.difference(before, after).convert("L").point(lambda value: 255 if value > 50 else 0).getbbox()
                 self.assertAlmostEqual(bbox[0], after.width * .3 - 10, delta=2)
                 self.assertAlmostEqual(bbox[1], after.height * .4 - 10, delta=2)
                 # The green dot is at the same drawing coordinate in all rotations.
@@ -355,7 +391,7 @@ class TestGrundplanPdf(unittest.TestCase):
         pad = self.tag(plan, littera="Pelarsula", typ="pelarsula", indata={"b": 1.8, "l": 2.4, "F_vy": 100})
         plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        for expected in ("U 22,7 %", "U 6,4 %", "Kontrollera indata", "U 160 % · b\nx\n 1 m",
+        for expected in ("U 22,7 %", "U 6,4 %", "Kontrollera indata", "U 160 % · bₓ 1 m",
                          "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
             self.assertIn(expected, text)
         self.assertIn("Styrande: Isolering · bruk", text)
@@ -363,28 +399,21 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertEqual(text.count("U "), 4, "All valid objects are current; failed objects never show a utilization")
 
     def test_laster_filtreras_med_ratt_axel_enhet_och_negativa_sma_varden(self):
-        from an_calcs.notebook.grundplan_pdf import _fonts, _load_rows
-        _fonts()
         plan = self.plan()
         ident = self.tag(plan, indata={"b": 2, "F_vy": 100, "F_hb": 0, "F_hl": None,
                                       "M_insp_b": -.25, "M_insp_l": 1e-8,
                                       "isolering": True, "F_vy_bruk": 50})
-        values = copy.deepcopy(plan._tag(ident)["values"])
-        rows = _load_rows(values)
-        text = " ".join(caption + " " + line for caption, line in rows)
-        for expected in ("Brott", "Bruk", "V 100 kN/m", "Mₓ -0,25 kNm/m", "Mᵧ 1,00e-08 kNm/m", "V 50 kN/m"):
+        text = "".join(PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text().split())
+        for expected in ("Brott", "Bruk", "V100kN/m", "Mₓ−0,25kNm/m", "Mᵧ1,00e-8kNm/m", "V50kN/m"):
             self.assertIn(expected, text)
         self.assertNotIn("H", text)
-        values.update(lang=0, lasttyp=0, isolering=False)
-        rows = _load_rows(values)
-        text = " ".join(caption + " " + line for caption, line in rows)
+        plan.uppdatera(ident, indata={"lang": 0, "lasttyp": 0, "isolering": False})
+        text = "".join(PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text().split())
         self.assertNotIn("/m", text)
         self.assertNotIn("Bruk", text)
-        self.assertNotIn("50", text)
-        pdf = plan._pdf_bytes()
-        output = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
-        self.assertIn("-0,25 kNm/m", output)
-        self.assertIn("1,00e-08 kNm/m", output)
+        self.assertNotIn("V50", text)
+        self.assertIn("Mₓ−0,25kNm", text)
+        self.assertIn("Mᵧ1,00e-8kNm", text)
 
     def test_bildens_fulla_upplosning_och_exif_rotation_bevaras(self):
         picture = self.root / "large.png"

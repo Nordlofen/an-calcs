@@ -118,9 +118,10 @@ class TestWallLoads(unittest.TestCase):
         self.assertEqual(restored.taggar, self.plan.taggar)
         snapshot = json.loads(restored._html_bytes().decode().split('<script id="grundplan-data" type="application/json">')[1].split('</script>')[0])
         self.assertEqual(snapshot["state"]["tags"][0]["load_resultants"], {"brott": 120, "bruk": 60})
-        from an_calcs.notebook.grundplan_pdf import _fonts, _load_rows
-        _fonts()
-        self.assertIn("V 200 kN/m -> 120 kN", str(_load_rows(restored._tag(ident)["values"])))
+        from pypdf import PdfReader
+        import io
+        pdf_text = PdfReader(io.BytesIO(restored._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("V 200 kN/m → 120 kN", pdf_text)
         restored.tabellvy = {"sort": {"key": "V_res_bruk", "direction": "descending"}}
         self.assertEqual(restored._document()["table_view"]["sort"]["key"], "V_res_bruk")
 
