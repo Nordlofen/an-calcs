@@ -167,12 +167,12 @@ class TestGrundplanHtml(unittest.TestCase):
         tags, results = self.plan.taggar, self.plan.resultat
         with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Must not recalculate")):
             self.plan._on_message(None, {"action": "heading", "title": "Hus B – grundplan",
-                                        "subtitle": "Uppdrag 123 · Revision A"}, [])
+                                        "subtitle": "Uppdrag 123\nRevision A\nKontrollerad grundplan"}, [])
             snapshot = self.snapshot()
         self.assertEqual(self.plan.taggar, tags)
         self.assertEqual(self.plan.resultat, results)
         self.assertEqual(snapshot["state"]["title"], "Hus B – grundplan")
-        self.assertEqual(snapshot["state"]["subtitle"], "Uppdrag 123 · Revision A")
+        self.assertEqual(snapshot["state"]["subtitle"], "Uppdrag 123\nRevision A\nKontrollerad grundplan")
         for name in ("title", "subtitle"):
             self.assertEqual(self.plan.state[name], snapshot["state"][name])
         path = self.plan.spara(self.root / "projekt.json")

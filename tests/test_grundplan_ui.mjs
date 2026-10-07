@@ -1651,22 +1651,24 @@ test("heading edits persist before export and pending typing survives older mode
   const original = structuredClone(ui.tag);
   assert.equal(title.value, "Test");
   assert.equal(subtitle.value, "Projektets underrubrik");
+  assert.equal(subtitle.tag, "textarea");
+  assert.equal(subtitle.rows, 1);
   title.value = "Hus B"; title.dispatch("input");
   const first = ui.sent.at(-1);
-  subtitle.value = "Revision A – ÅÄÖ"; subtitle.dispatch("input");
+  subtitle.value = "Revision A – ÅÄÖ\nHus B"; subtitle.dispatch("input");
   const latest = ui.sent.at(-1);
   assert.equal(latest.action, "heading");
   assert.equal(latest.title, "Hus B");
-  assert.equal(latest.subtitle, "Revision A – ÅÄÖ");
+  assert.equal(latest.subtitle, "Revision A – ÅÄÖ\nHus B");
   Object.assign(ui.data.state, {title: first.title, subtitle: first.subtitle});
   ui.changed(); ui.ack(first);
-  assert.equal(subtitle.value, "Revision A – ÅÄÖ", "Earlier response must not discard the newest text");
+  assert.equal(subtitle.value, "Revision A – ÅÄÖ\nHus B", "Earlier response must not discard the newest text");
   ui.byText("Exportera HTML").click();
   assert.equal(ui.sent.at(-1).action, "export_html", "Heading update is sent before the export request");
   Object.assign(ui.data.state, {title: latest.title, subtitle: latest.subtitle});
   ui.changed(); ui.ack(latest);
   assert.equal(title.value, "Hus B");
-  assert.equal(subtitle.value, "Revision A – ÅÄÖ");
+  assert.equal(subtitle.value, "Revision A – ÅÄÖ\nHus B");
   assert.deepEqual(ui.tag, original);
 });
 

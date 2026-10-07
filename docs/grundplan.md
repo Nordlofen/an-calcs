@@ -51,6 +51,8 @@ Alternativt kan en startritning anges:
 `Grundplan("grundplan.pdf", key="Hus A", sida=2, titel="Hus A")`.
 Om nyckeln redan är sparad återställs dess projekt i stället för startritningen.
 Klicka direkt i rubriken eller underrubriken överst för att ändra texten.
+**Shift + Enter** lägger till en ny rad i underrubriken; fältet växer med texten.
+**Enter** avslutar redigeringen.
 Båda sparas i JSON-projektet och visas med samma innehåll i HTML-exporten.
 Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra
 texterna via `plan.titel` och `plan.underrubrik`. En tom underrubrik döljs

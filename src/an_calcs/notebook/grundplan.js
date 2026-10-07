@@ -157,7 +157,12 @@ function render({ model, el, readOnly = false }) {
   const heading = node("header", "gp-heading");
   const headingText = node("div", "gp-heading-text");
   const title = node(readOnly ? "h3" : "input", "gp-title");
-  const subtitle = node(readOnly ? "p" : "input", "gp-subtitle");
+  const subtitle = node(readOnly ? "p" : "textarea", "gp-subtitle");
+  function resizeSubtitle() {
+    if (readOnly) return;
+    subtitle.style.height = "auto";
+    subtitle.style.height = Math.max(21, (subtitle.scrollHeight || 0) + 2) + "px";
+  }
   function showHeading() {
     const values = headingDraft || state();
     for (const [element, value] of [[title, values.title ?? "Grundplan"],
@@ -166,15 +171,19 @@ function render({ model, el, readOnly = false }) {
       else if (element.value !== value) element.value = value;
     }
     subtitle.hidden = readOnly && !subtitle.textContent;
+    resizeSubtitle();
   }
   if (!readOnly) {
     for (const [input, label] of [[title, "Rubrik"], [subtitle, "Underrubrik"]]) {
-      input.type = "text";
+      if (input === title) input.type = "text";
+      else input.rows = 1;
       input.maxLength = 200;
       input.placeholder = label;
       input.setAttribute("aria-label", label);
-      input.title = "Klicka för att redigera " + label.toLowerCase();
+      input.title = "Klicka för att redigera " + label.toLowerCase()
+        + (input === subtitle ? ". Shift + Enter lägger till en ny rad." : "");
       input.addEventListener("input", () => {
+        resizeSubtitle();
         const draft = { title: title.value, subtitle: subtitle.value };
         headingDraft = draft;
         command("heading", draft, [], () => {
@@ -186,6 +195,11 @@ function render({ model, el, readOnly = false }) {
         });
       });
     }
+    subtitle.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.stopPropagation();
+      if (!event.shiftKey) { event.preventDefault(); subtitle.blur(); }
+    });
   }
   headingText.append(title, subtitle);
   const total = node("span", "gp-count");
@@ -2491,6 +2505,7 @@ function render({ model, el, readOnly = false }) {
     onDone?.(reply, buffers);
   }
   const resizeObserver = new ResizeObserver(() => {
+    resizeSubtitle();
     renderMeasurement();
     if (!dialog.hidden) placeDialog(dialog.offsetLeft, dialog.offsetTop);
     if (!bulkDialog.hidden) {
@@ -2499,6 +2514,7 @@ function render({ model, el, readOnly = false }) {
     }
   });
   resizeObserver.observe(board);
+  if (!readOnly) resizeObserver.observe(headingText);
   model.on("change:state", update);
   model.on("change:background", update);
   model.on("msg:custom", receive);
