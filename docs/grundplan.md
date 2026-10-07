@@ -363,7 +363,10 @@ inte att bärförmågan är färdigberäknad eller större än noll. Isolerade s
 hör alltid till första gruppen, oavsett sparade riktningsval. Både vägg- och
 pelarsulor ingår; **Endast H-stabilitet** grupperas som utan isolering med
 sina valda riktningar. X_g och Y_g kontrolleras som separata lastfall.
-Varje grupp har ett eget färgval och antal sulor; även tomma grupper visas.
+Legenden visar endast grupper med minst en sula och uppdateras när indata
+eller sulor ändras. Tomma grupper döljs även i HTML och PDF. Alla grupper
+behåller sina färgval i inställningarna, så att en grupp som åter får sulor
+visas med samma färg.
 Färgvalen sparas och exporteras på samma sätt som övriga färgkategorier.
 Äldre färgval för med isolering och utan isolering behålls för första
 respektive andra gruppen. Etiketternas befintliga glidmotståndsblock behålls:

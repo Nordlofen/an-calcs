@@ -1280,7 +1280,7 @@ function render({ model, el, readOnly = false }) {
       settings.category === "isolering" ? "Isolering och glidmotstånd"
         : COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
     let previousKind = null;
-    for (const group of data.groups) {
+    for (const group of data.groups.filter(group => group.count > 0)) {
       if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
         colourLegendBody.append(node("strong", "gp-colour-legend-section",
           group.kind === "wall" ? "Väggsulor [kN/m]" : "Pelarsulor [kN]"));

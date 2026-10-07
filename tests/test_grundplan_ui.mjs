@@ -2565,7 +2565,7 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
     .map(row => row.children.slice(1).map(text));
   const captions = ["Med isolering · inget bidrag", "Utan isolering · inget bidrag", "Utan isolering · bidrag i Xg",
     "Utan isolering · bidrag i Yg", "Utan isolering · bidrag i Xg och Yg"];
-  const counts = values => captions.map((caption, i) => [caption, String(values[i])]);
+  const counts = values => captions.flatMap((caption, i) => values[i] > 0 ? [[caption, String(values[i])]] : []);
   assert.deepEqual(rows(), counts([1, 1, 1, 2, 1]));
   assert.equal(ui.byClass("gp-colour-legend-title").textContent, "Isolering och glidmotstånd");
   assert.equal(ui.elements().filter(e => e.tag === "sub" && e.closest(".gp-colour-legend")).length, 4);
@@ -2584,6 +2584,9 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
   ui.tag.values.glid_y = false; ui.changed();
   assert.deepEqual(rows(), counts([0, 1, 2, 2, 1]));
   assert.equal(marker("tag1").style["--gp-tag-bg"], marker("x").style["--gp-tag-bg"]);
+  ui.tag.values.isolering = true; ui.changed();
+  assert.deepEqual(rows(), counts([1, 1, 1, 2, 1]), "A group returns when a footing uses it again");
+  assert.equal(marker("tag1").style["--gp-tag-bg"], "#cce7ff");
   if (readOnly) assert.equal(ui.sent.length, 0);
   else {
     const picker = ui.find(e => e.type === "color" && e.getAttribute("aria-label") === "Färg för Utan isolering · bidrag i X_g och Y_g");
@@ -2592,6 +2595,23 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
     assert.equal(marker("xy").style["--gp-tag-bg"], "#c8e0d8");
     assert.equal(marker("x").style["--gp-tag-bg"], "#ffdfba");
   }
+});
+
+for (const readOnly of [false, true]) test(`load legends show occupied intervals while retaining all colour choices (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  Object.assign(ui.tag.values, {lang: 0, F_vy: 150});
+  ui.model.get("state").tags = ui.data.state.tags;
+  colourFixture(ui, {category: "V", colors: {"V:brott:pad:2.000000000000e2:4.000000000000e2": "#c8e0d8"}});
+  const rows = () => ui.elements().filter(e => e.className === "gp-colour-legend-row")
+    .map(row => row.children[1].textContent);
+  assert.deepEqual(rows(), ["100 ≤ V < 200"]);
+  if (!readOnly) assert.equal(ui.elements().filter(e => e.type === "color").length, 4);
+  ui.tag.values.F_vy = 250; ui.changed();
+  assert.deepEqual(rows(), ["200 ≤ V < 400"]);
+  assert.equal(ui.marker().style["--gp-tag-bg"], "#c8e0d8", "A previously empty interval keeps its saved colour");
+  ui.data.state.tags = []; ui.model.get("state").tags = []; ui.changed();
+  assert.deepEqual(rows(), []);
+  assert.equal(ui.elements().filter(e => e.className === "gp-colour-legend-section").length, 0);
 });
 
 test("colour legend moves, scales with corner and zoom, cancels drags and supports keyboard", t => {

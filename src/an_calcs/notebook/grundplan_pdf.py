@@ -384,6 +384,8 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
     rows = []
     previous_kind = None
     for group in groups:
+        if group["count"] <= 0:
+            continue
         if settings["category"] == "V" and group["kind"] != previous_kind and group["kind"] in ("pad", "wall"):
             rows.append(("heading", "Väggsulor [kN/m]" if group["kind"] == "wall" else "Pelarsulor [kN]"))
         previous_kind = group["kind"]

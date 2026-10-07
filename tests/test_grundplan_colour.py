@@ -97,7 +97,7 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(group_data(restored.taggar, restored.farggruppering), data)
         self.assertEqual((self.plan.taggar, self.plan.resultat), before)
 
-    def test_insulation_legend_keeps_empty_groups_and_isolated_direction_choices_never_contribute(self):
+    def test_insulation_keeps_empty_colour_choices_but_exports_only_populated_legend_groups(self):
         for glid_x in (False, True):
             for glid_y in (False, True):
                 self.add(isolering=True, glid_x=glid_x, glid_y=glid_y)
@@ -107,6 +107,26 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(len({group["color"] for group in data["groups"]}), 5)
         empty = group_data([], settings)
         self.assertEqual([group["count"] for group in empty["groups"]], [0] * 5)
+        self.plan.farggruppering = {"enabled": True, "category": "isolering"}
+        text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("Med isolering · inget bidrag", text)
+        self.assertNotIn("Utan isolering", text, "All four empty groups are omitted")
+
+    def test_load_legend_exports_only_populated_intervals_and_keeps_saved_colours(self):
+        ident = self.add(lang=0, F_vy=150)
+        self.plan.farggruppering = {"enabled": True, "category": "V"}
+        groups = group_data(self.plan.taggar, self.plan.farggruppering)["groups"]
+        self.plan.farggruppering = {"colors": {groups[2]["key"]: "#c8e0d8"}}
+        text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("100 ≤ V < 200", text)
+        for empty in ("V < 100", "200 ≤ V < 400", "V ≥ 400"):
+            self.assertNotIn(empty, text)
+        self.plan.uppdatera(ident, indata={"F_vy": 250})
+        text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("200 ≤ V < 400", text)
+        self.assertNotIn("100 ≤ V < 200", text)
+        data = group_data(self.plan.taggar, self.plan.farggruppering)
+        self.assertEqual(data["assignments"][ident]["color"], "#c8e0d8")
 
     def test_load_phase_is_input_action_without_self_weight_and_h_only_uses_equ(self):
         pad = self.add(lang=0, F_vy=150, F_vy_bruk=80, V_Ed_EQU=250)
