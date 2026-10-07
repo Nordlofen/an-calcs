@@ -410,7 +410,8 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
     canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
     canvas.setFillColor(HexColor("#19343d"))
     _draw_text(canvas, 14, -25, "Färggruppering", _BOLD, 15)
-    caption = CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V" else " [m]")
+    caption = CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V"
+                                                else "" if settings["category"] == "isolering" else " [m]")
     _draw_text(canvas, 14, -44, caption, _REGULAR, 12)
     y = -66
     for kind, data in rows:

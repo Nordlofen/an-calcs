@@ -1,7 +1,7 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
 const COLOUR_DEFAULTS = {enabled: false, category: "t", phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
-const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V"};
+const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
   "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
@@ -24,7 +24,12 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     const group = {key, color, background: colourBackground(color), count: 0, ...data};
     groups.push(group); return group;
   };
-  if (category === "V") {
+  if (category === "isolering") {
+    for (const insulated of [true, false]) {
+      const key = "isolering:" + Number(insulated);
+      byKey.set(insulated, make(key, {label: insulated ? "Med isolering" : "Utan isolering", kind: "insulation", unit: ""}));
+    }
+  } else if (category === "V") {
     for (const kind of ["pad", "wall"]) {
       if (!tags.some(tag => (tag.values.lang === 1) === (kind === "wall"))) continue;
       const bounds = settings.bounds[kind];
@@ -44,6 +49,10 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   }
   for (const tag of tags) {
     const values = tag.values;
+    if (category === "isolering") {
+      const group = byKey.get(!values.endast_h_stabilitet && values.isolering === true);
+      group.count++; assignments.set(tag.id, group); continue;
+    }
     const na = values.endast_h_stabilitet && (category !== "V" || phase !== "EQU");
     const value = values[category === "V" ? {brott: "F_vy", bruk: "F_vy_bruk", EQU: "V_Ed_EQU"}[phase] : category];
     let group;
@@ -1249,7 +1258,8 @@ function render({ model, el, readOnly = false }) {
     }
     colourHint.textContent = settings.category === "V"
       ? "Pelarsulor och väggsulor har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
-      : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
+      : settings.category === "isolering" ? "Två grupper: med isolering och utan isolering. Klicka på en färgruta för att välja färg."
+        : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
     for (const group of data.groups.filter(group => settings.category !== "V" || group.kind === kind || group.kind === "special")) {
       const row = node("label", "gp-colour-chip");
@@ -1259,7 +1269,8 @@ function render({ model, el, readOnly = false }) {
       row.append(input, node("span", "", colourGroupCaption(group))); colourSwatches.append(row);
     }
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
-      COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
+      COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase]
+        : settings.category === "isolering" ? "" : " [m]")));
     let previousKind = null;
     for (const group of data.groups) {
       if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
@@ -1609,8 +1620,8 @@ function render({ model, el, readOnly = false }) {
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
       "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Värden kan anges även utan isolering; kontrollen används när isolering aktiveras."],
-    ["Jord och grundvatten", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha"]],
-    ["Koefficienter", ["eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
+    ["Jord - Allm. Bärighets.", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha",
+      "eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
       "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Trycket över effektiv area kontrolleras i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
     ["Glidning", ["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],

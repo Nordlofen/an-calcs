@@ -59,6 +59,32 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(groups[0]["unit"], "kN")
         self.assertEqual(len(data["groups"]), 7)
 
+    def test_insulation_groups_both_footing_types_and_h_only_and_survives_export_and_reload(self):
+        insulated = self.add(isolering=True, F_vy_bruk=80, f_d_brott=400, f_d_bruk=200)
+        uninsulated = self.add(lang=0)
+        only_h = self.add(endast_h_stabilitet=True, isolering=True)
+        before = copy.deepcopy(self.plan.taggar)
+        self.plan.farggruppering = {"enabled": True, "category": "isolering",
+                                  "colors": {"isolering:1": "#f0d8c8", "isolering:0": "#cce7ff"}}
+        data = group_data(self.plan.taggar, self.plan.farggruppering)
+        self.assertEqual([(group["label"], group["count"], group["unit"]) for group in data["groups"]],
+                         [("Med isolering", 1, ""), ("Utan isolering", 2, "")])
+        self.assertEqual(data["assignments"][insulated]["key"], "isolering:1")
+        for ident in (uninsulated, only_h):
+            self.assertEqual(data["assignments"][ident]["key"], "isolering:0")
+        pdf_text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        for label in ("Med isolering", "Utan isolering"):
+            self.assertIn(label, pdf_text)
+        self.assertNotIn("Isolering [m]", pdf_text)
+        self.assertIn('"category": "isolering"', self.plan._html_bytes().decode())
+        self.plan.farggruppering = {"enabled": False}
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "isolering.json"))
+        self.addCleanup(restored.close)
+        restored.farggruppering = {"enabled": True}
+        self.assertEqual(restored.farggruppering["category"], "isolering")
+        self.assertEqual(restored.farggruppering["colors"]["isolering:1"], "#f0d8c8")
+        self.assertEqual(self.plan.taggar, before)
+
     def test_load_phase_is_input_action_without_self_weight_and_h_only_uses_equ(self):
         pad = self.add(lang=0, F_vy=150, F_vy_bruk=80, V_Ed_EQU=250)
         only_h = self.add(endast_h_stabilitet=True, V_Ed_EQU=300)
@@ -151,12 +177,12 @@ class TestGrundplanColour(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node krävs för jämförelse med HTML-grupperingen.")
     def test_javascript_and_python_assign_identical_groups_and_colours(self):
-        for values in ({"b": .6, "t": .25, "F_vy": 100.5, "F_vy_bruk": None, "V_Ed_EQU": 210},
+        for values in ({"b": .6, "t": .25, "F_vy": 100.5, "F_vy_bruk": None, "V_Ed_EQU": 210, "isolering": True},
                        {"lang": 0, "b": 1.8, "l": 2.1, "t": .3, "F_vy": 399.9999},
                        {"endast_h_stabilitet": True, "V_Ed_EQU": 300}, {"t": None}):
             self.add(**values)
         cases = [validate_settings({"category": category, "phase": phase})
-                 for category in ("t", "b", "l", "V") for phase in ("brott", "bruk", "EQU")]
+                 for category in ("t", "b", "l", "V", "isolering") for phase in ("brott", "bruk", "EQU")]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';
 const {colourGroups} = await import('data:text/javascript;base64,' + readFileSync(process.argv[1]).toString('base64'));

@@ -336,14 +336,23 @@ Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
 ny beräkning har körts. Att bara byta littera påverkar inte beräkningen.
 Varje tagg har oberoende indata.
 
+Jorddata, grundvatten och samtliga koefficienter samlas under
+**Jord - Allm. Bärighets.** i dialogen, flerredigeringen och tabellen.
+Samma indelning används i resultat-HTML.
+
 ## Färggruppering
 
 **Färggruppering** öppnar en kompakt inställningsrad under verktygsfältet.
-Välj **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ** eller **Vertikallast V**.
+Välj **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** eller **Isolering**.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
 kontrollstatus; färggrupperingen ändrar inga laster eller beräkningar.
+
+**Isolering** visar två grupper: **Med isolering** och **Utan isolering**.
+Varje grupp har ett eget färgval och antal sulor i legenden. Både vägg- och
+pelarsulor ingår; sulor med **Endast H-stabilitet** hör till **Utan isolering**.
+Färgvalen sparas och exporteras på samma sätt som övriga färgkategorier.
 
 För **Vertikallast V** väljer du **Brott**, **Bruk** eller **EQU**.
 Grupperingen använder angiven last: F_vy, F_vy_bruk respektive V_Ed_EQU,

@@ -11,7 +11,7 @@ PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
 DEFAULT_SETTINGS = {"enabled": False, "category": "t", "phase": "brott", "edit_type": "pad",
                     "show_legend": True, "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "colors": {}, "legend": {"x": .65, "y": .08, "size": 300}}
-CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V"}
+CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
 
@@ -83,7 +83,11 @@ def group_data(tags, settings):
         groups.append(group)
         return group
     by_key = {}
-    if category == "V":
+    if category == "isolering":
+        for insulated in (True, False):
+            key = "isolering:" + str(int(insulated))
+            by_key[insulated] = make(key, label="Med isolering" if insulated else "Utan isolering", kind="insulation", unit="")
+    elif category == "V":
         for kind in ("pad", "wall"):
             if not any((tag["values"]["lang"] == 1) == (kind == "wall") for tag in tags):
                 continue
@@ -103,6 +107,11 @@ def group_data(tags, settings):
     special = {}
     for tag in tags:
         values = tag["values"]
+        if category == "isolering":
+            group = by_key[not values.get("endast_h_stabilitet") and values.get("isolering") is True]
+            group["count"] += 1
+            assignments[tag["id"]] = group
+            continue
         inapplicable = values.get("endast_h_stabilitet") and (category != "V" or phase != "EQU")
         value = values.get(LOAD_FIELDS[phase] if category == "V" else category)
         if inapplicable or not _finite(value):

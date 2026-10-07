@@ -164,6 +164,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+const inputSection = (ui, label) => ui.find(e => e.tag === "summary" && e.textContent === label && e.closest(".gp-form")).parent;
 
 function measurePoint(ui, x, y) {
   const rect = ui.byClass("gp-picture").getBoundingClientRect();
@@ -657,6 +658,27 @@ test("table contains every input without page information or navigation, with ty
   assert.equal(tableField(ui, "tag1", "V_Ed_EQU").disabled, false, "Gliding can be preconfigured before enabling the global check");
   ui.byText("2 sulor"); ui.byText("U 75%");
   assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
+});
+
+for (const readOnly of [false, true]) test(`soil and coefficients share one input and table category (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly}), original = structuredClone(ui.tag);
+  ui.marker().click();
+  const label = "Jord - Allm. Bärighets.", section = inputSection(ui, label);
+  const fields = ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
+  for (const name of fields) {
+    const caption = ui.find(e => e.className === "gp-field-caption" && e.textContent === name);
+    assert.equal(caption.closest("details"), section);
+    assert.ok(ui.elements().some(e => e.tag === "th" && e.getAttribute("aria-label") === label + ": " + name));
+  }
+  const header = ui.find(e => e.className === "gp-table-group" && e.textContent === label);
+  assert.equal(header.getAttribute("colspan"), "12");
+  assert.equal(ui.elements().some(e => ["Jord och grundvatten", "Koefficienter"].includes(e.textContent)), false);
+  assert.deepEqual(ui.tag, original);
+  if (!readOnly) {
+    const bulk = bulkFixture(ui); bulk.select();
+    assert.equal(bulk.field("phi_k").closest("details"), bulk.field("gamma_m").closest("details"));
+    assert.equal(bulk.field("phi_k").closest("details").children[0].textContent, label);
+  }
 });
 
 test("wall by is editable in table and dialog and can be overridden for selected walls", t => {
@@ -1589,7 +1611,7 @@ test("standalone sliding overlays and contributions remain visible but cannot be
 for (const readOnly of [false, true]) test(`outside click minimizes without losing drafts or section state (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   ui.marker().click();
-  const soil = ui.byText("Jord och grundvatten").parent;
+  const soil = inputSection(ui, "Jord - Allm. Bärighets.");
   soil.open = true;
   if (!readOnly) {
     ui.field("b").value = "2,";
@@ -1614,7 +1636,7 @@ for (const readOnly of [false, true]) test(`outside click minimizes without losi
   assert.equal(ui.byClass("gp-sketch-panel").hidden, true);
   assert.equal(ui.sent.length, before, "Minimization does not change stored inputs or request calculation");
   ui.marker().click();
-  assert.equal(ui.byText("Jord och grundvatten").parent.open, true);
+  assert.equal(inputSection(ui, "Jord - Allm. Bärighets.").open, true);
   assert.equal(ui.byClass("gp-sketch-panel").hidden, false);
   if (!readOnly) assert.equal(ui.field("b").value, "2,", "Unfinished raw input survives minimization");
   click(ui.marker());
@@ -2163,7 +2185,7 @@ test("raw input drafts survive minimize and stale calculation acknowledgments", 
   ui.marker().dispatch("click");
   ui.byText("Geometri").parent.open = false;
   ui.byText("Laster – Brott").parent.open = false;
-  ui.byText("Isolering").parent.open = true;
+  inputSection(ui, "Isolering").open = true;
   ui.field("b").value = "1,20"; ui.field("b").dispatch("input");
   ui.label().value = "VS2"; ui.label().dispatch("input");
   reopen();
@@ -2171,17 +2193,17 @@ test("raw input drafts survive minimize and stale calculation acknowledgments", 
   assert.equal(ui.label().value, "VS2");
   assert.equal(ui.byText("Geometri").parent.open, false);
   assert.equal(ui.byText("Laster – Brott").parent.open, false);
-  assert.equal(ui.byText("Isolering").parent.open, true);
+  assert.equal(inputSection(ui, "Isolering").open, true);
   const other = { ...structuredClone(ui.tag), id: "tag2", label: "VS4" };
   ui.data.state.tags.push(other); ui.changed();
   const open = id => ui.find(element => element.dataset.tagId === id).dispatch("click");
   open(other.id);
   assert.equal(ui.byText("Geometri").parent.open, true, "A new tag starts with its own section settings");
-  assert.equal(ui.byText("Isolering").parent.open, false);
+  assert.equal(inputSection(ui, "Isolering").open, false);
   ui.byText("Laster – Bruk").parent.open = true;
   open(ui.tag.id);
   assert.equal(ui.byText("Geometri").parent.open, false);
-  assert.equal(ui.byText("Isolering").parent.open, true);
+  assert.equal(inputSection(ui, "Isolering").open, true);
   assert.equal(ui.byText("Laster – Bruk").parent.open, false);
   open(other.id);
   assert.equal(ui.byText("Laster – Bruk").parent.open, true, "Switching tags preserves their independent settings");
@@ -2496,6 +2518,31 @@ test("custom colours and legend checkbox persist while status remains unchanged"
   check.checked = true; check.dispatch("change"); accept(ui.sent.at(-1));
   assert.equal(ui.byClass("gp-colour-legend").hidden, false);
   assert.deepEqual(ui.tag, before);
+});
+
+for (const readOnly of [false, true]) test(`insulation colours separate insulated and uninsulated footings including H-only (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  ui.tag.values.isolering = true;
+  const pad = {...structuredClone(ui.tag), id: "pad", label: "PS1", values: {...ui.tag.values, lang: 0, isolering: false}};
+  const onlyH = {...structuredClone(ui.tag), id: "horizontal", label: "H1", values: {...ui.tag.values, endast_h_stabilitet: true}};
+  ui.data.state.tags.push(pad, onlyH); ui.model.get("state").tags = ui.data.state.tags;
+  const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t"});
+  if (!readOnly) {
+    ui.find(e => e.tag === "button" && e.textContent === "Isolering" && e.closest(".gp-colour-controls")).click();
+    assert.deepEqual(ui.sent.at(-1).settings, {category: "isolering"}); accept(ui.sent.at(-1));
+    assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, true);
+  }
+  const rows = () => ui.elements().filter(e => e.className === "gp-colour-legend-row")
+    .map(row => row.children.slice(1).map(child => child.textContent));
+  assert.deepEqual(rows(), [["Med isolering", "1"], ["Utan isolering", "2"]]);
+  assert.equal(ui.byClass("gp-colour-legend-title").textContent, "Isolering");
+  const marker = id => ui.find(e => e.className.split(" ").includes("gp-tag") && e.dataset.tagId === id);
+  assert.notEqual(marker("tag1").style["--gp-tag-bg"], marker("pad").style["--gp-tag-bg"]);
+  assert.equal(marker("pad").style["--gp-tag-bg"], marker("horizontal").style["--gp-tag-bg"]);
+  ui.tag.values.isolering = false; ui.changed();
+  assert.deepEqual(rows(), [["Med isolering", "0"], ["Utan isolering", "3"]]);
+  assert.equal(marker("tag1").style["--gp-tag-bg"], marker("pad").style["--gp-tag-bg"]);
+  if (readOnly) assert.equal(ui.sent.length, 0);
 });
 
 test("colour legend moves, scales with corner and zoom, cancels drags and supports keyboard", t => {
