@@ -1543,10 +1543,8 @@ function render({ model, el, readOnly = false }) {
     insulationWidgetToggle.classList.toggle("gp-selected", settings.enabled);
     insulationWidgetToggle.setAttribute("aria-pressed", String(settings.enabled));
     insulationWidgetToggle.disabled = !background().url || drawingBusy;
-    const tags = state().tags, uninsulated = tags.filter(tag => {
-      const values = drafts.get(tag.id)?.values || tag.values;
-      return values.endast_h_stabilitet || !values.isolering;
-    });
+    const tags = state().tags.filter(tag => !(drafts.get(tag.id)?.values || tag.values).endast_h_stabilitet),
+      uninsulated = tags.filter(tag => !(drafts.get(tag.id)?.values || tag.values).isolering);
     insulationBody.replaceChildren();
     for (const [caption, count] of [["Med isolering", tags.length - uninsulated.length], ["Utan isolering", uninsulated.length]]) {
       const row = node("div", "gp-insulation-count"); row.append(node("span", "", caption), node("strong", "", String(count)));

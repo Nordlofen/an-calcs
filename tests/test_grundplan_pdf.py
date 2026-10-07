@@ -103,6 +103,31 @@ class TestGrundplanPdf(unittest.TestCase):
         canvas.save()
         return source
 
+    def test_insulation_widget_excludes_horizontal_only_footings_and_preserves_vectors(self):
+        plan = self.plan(self.drawing())
+        self.tag(plan, littera="VS.1", indata={"isolering": True})
+        self.tag(plan, littera="VS.10", indata={"isolering": False})
+        self.tag(plan, littera="VS.2", indata={"isolering": False})
+        horizontal = self.tag(plan, littera="H-GR.1", indata={"endast_h_stabilitet": True})
+        plan.isoleringswidget = {"enabled": True, "x": .1, "y": .1}
+        before = plan._document()
+        page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        widget_text = page.extract_text().rsplit("Isolering\n", 1)[1]
+        self.assertIn("Med isolering\n1\nUtan isolering\n2\n", widget_text)
+        self.assertIn("VS.2, VS.10", widget_text)
+        self.assertNotIn("H-GR.1", widget_text)
+        self.assertIn("H-GR.1", page.extract_text(), "The H-only footing still has its own label")
+        self.assertFalse(page.images, "The drawing, labels and widget must remain vectors")
+        self.assertEqual(plan._document(), before)
+        for tag in plan.taggar:
+            if tag["id"] != horizontal:
+                plan.ta_bort(tag["id"])
+        page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        widget_text = page.extract_text().rsplit("Isolering\n", 1)[1]
+        self.assertIn("Med isolering\n0\nUtan isolering\n0\n", widget_text)
+        self.assertIn("Inga sulor", widget_text)
+        self.assertNotIn("H-GR.1", widget_text)
+
     def test_sliding_overlays_show_only_view_totals_and_hide_insulated_contributions(self):
         plan = self.plan(self.drawing())
         self.tag(plan, littera="VS1", sida=1, indata={"glid_x": True, "glid_y": True,

@@ -2895,23 +2895,42 @@ test("two category buttons produce combination colours and allow deselecting eit
   assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, false, "V interval controls also work as the second category");
 });
 
-for (const readOnly of [false, true]) test(`insulation widget counts objects and lists only uninsulated littera (readOnly=${readOnly})`, t => {
+for (const readOnly of [false, true]) test(`insulation widget excludes H-only footings from counts and uninsulated littera (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   Object.assign(ui.tag.values, {isolering: true});
   ui.data.state.tags.push(...[
     {id: "tag2", label: "VS10", values: {isolering: false}},
     {id: "tag3", label: "VS2", values: {isolering: false}},
     {id: "tag4", label: "VS1", values: {isolering: true, endast_h_stabilitet: true}},
+    {id: "tag5", label: "H-GR.1", values: {isolering: false, endast_h_stabilitet: true}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}})));
   ui.data.state.insulation_widget = {enabled: true, x: .65, y: .55, size: 450}; ui.changed();
   assert.equal(ui.byClass("gp-insulation-widget").hidden, false);
   assert.equal(ui.byClass("gp-insulation-widget").style.transform, "scale(1.5)");
   assert.deepEqual(ui.elements().filter(e => e.className === "gp-insulation-count").map(e => e.children.map(child => child.textContent)),
-    [["Med isolering", "1"], ["Utan isolering", "3"]]);
-  assert.equal(ui.byClass("gp-insulation-list").textContent, "VS1, VS2, VS10");
-  ui.data.state.tags.pop(); ui.changed();
+    [["Med isolering", "1"], ["Utan isolering", "2"]]);
   assert.equal(ui.byClass("gp-insulation-list").textContent, "VS2, VS10");
+  ui.data.state.tags = ui.data.state.tags.filter(tag => tag.values.endast_h_stabilitet); ui.changed();
+  assert.deepEqual(ui.elements().filter(e => e.className === "gp-insulation-count").map(e => e.children.map(child => child.textContent)),
+    [["Med isolering", "0"], ["Utan isolering", "0"]]);
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "Inga sulor");
   if (readOnly) assert.equal(ui.byClass("gp-insulation-resize").hidden, true);
+});
+
+test("insulation widget immediately excludes a footing changed to H-only before the kernel replies", t => {
+  const ui = setup(t);
+  ui.data.state.insulation_widget = {enabled: true, x: .65, y: .55, size: 300}; ui.changed();
+  const counts = () => ui.elements().filter(e => e.className === "gp-insulation-count").map(e => e.children[1].textContent);
+  assert.deepEqual(counts(), ["0", "1"]);
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "VS1");
+  ui.marker().click();
+  ui.field("endast_h_stabilitet").checked = true; ui.field("endast_h_stabilitet").dispatch("input");
+  assert.deepEqual(counts(), ["0", "0"]);
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "Inga sulor");
+  assert.equal(ui.tag.values.endast_h_stabilitet, false, "The widget follows the draft before the kernel updates project state");
+  ui.field("endast_h_stabilitet").checked = false; ui.field("endast_h_stabilitet").dispatch("input");
+  assert.deepEqual(counts(), ["0", "1"]);
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "VS1");
 });
 
 test("insulation widget toggle retains placement and drag, resize and cancel leave engineering inputs intact", t => {

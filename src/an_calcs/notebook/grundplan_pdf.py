@@ -488,7 +488,8 @@ def _draw_insulation_widget(canvas, width, height, preview_size, settings, tags)
     if not settings or not settings["enabled"]:
         return
     _fonts()
-    uninsulated = [tag for tag in tags if tag["values"].get("endast_h_stabilitet") or not tag["values"].get("isolering")]
+    tags = [tag for tag in tags if not tag["values"].get("endast_h_stabilitet")]
+    uninsulated = [tag for tag in tags if not tag["values"].get("isolering")]
     labels = sorted((" ".join(tag["label"].split()) for tag in uninsulated),
                     key=lambda text: tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
                                            for part in re.split(r"(\d+)", text)))

@@ -400,7 +400,7 @@ En ifylld kommentar markeras med en liten pratbubbla längst till höger på eti
 
 **Lägg till kommentarer** visar en flyttbar och skalbar ruta med **Littera** och **Kommentar** för endast sulor med ifylld kommentar. Rutan uppdateras direkt när kommentarer eller sulor ändras och har ingen fottext. Placering, storlek och på/av sparas med projektet; den följer med PDF och låst resultat-HTML. Knappen visar eller döljer samma ruta och behåller dess placering och storlek.
 
-**Widget: Isolering** aktiverar en fristående ruta på ritningen med antal sulor **Med isolering** och **Utan isolering** samt littera för alla **Föreskrivna utan isolering**. Endast H-stabilitet räknas som utan isolering. Antal och littera uppdateras när sulor ändras, läggs till eller tas bort.
+**Widget: Isolering** aktiverar en fristående ruta på ritningen med antal sulor **Med isolering** och **Utan isolering** samt littera för alla **Föreskrivna utan isolering**. Sulor med **Endast H-stabilitet** utesluts från både antalen och litteralistan, även i PDF och resultat-HTML. Antal och littera uppdateras när sulor ändras, läggs till eller tas bort.
 
 Dra widgetens rubrik för att flytta rutan. Klicka på den och dra hörnhandtaget för att skala hela rutan. Piltangenter flyttar och plus/minus på hörnhandtaget ändrar storlek. På/av, placering och storlek sparas med projektet och behålls när widgeten stängs av. PDF och resultat-HTML visar den sparade rutan; HTML:s PDF-knapp hämtar samma inbäddade PDF.
 
