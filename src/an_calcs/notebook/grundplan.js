@@ -122,7 +122,7 @@ function render({ model, el, readOnly = false }) {
   const bearingOnlyNames = new Set(["t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
     "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
-  const inputNotes = new Map();
+  const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
@@ -1302,7 +1302,7 @@ function render({ model, el, readOnly = false }) {
       marker.classList.toggle("gp-active", active === tag.id);
       marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
       marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
-      const insulated = values.isolering === true;
+      const insulated = !onlyH && values.isolering === true;
       const insulationText = insulated ? "Med isolering" : "Utan isolering";
       const label = draft?.label.trim() || tag.label;
       const heading = node("span", "gp-tag-heading");
@@ -1440,6 +1440,8 @@ function render({ model, el, readOnly = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
+    if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
+    if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
     if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
     if (["glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
     if (value == null || value === "") return "—";
@@ -1484,6 +1486,7 @@ function render({ model, el, readOnly = false }) {
           field.type === "bool" ? target.values[key] : tableText(target.values[key])]))};
       if (name === "label") draft.label = raw;
       else draft.values[name] = raw;
+      if (draft.values.endast_h_stabilitet) draft.values.isolering = false;
       if (name === "l_override" && !value && target.values.lang === 1) draft.values.l = "1";
       drafts.set(target.id, draft);
       if (calculationInput && value !== target.values[name]) dirty.add(target.id);
@@ -1586,10 +1589,12 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
         const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
-        const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet) && bearingOnlyNames.has(name);
+        const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
+          && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.disabled = busy || blocked || (["glid_L", "l_override"].includes(name) && tag.values.lang === 0)
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength);
-        control.title = ignored ? "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
+        control.title = ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
+          : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
           : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
@@ -1716,6 +1721,7 @@ function render({ model, el, readOnly = false }) {
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
+      if (label === "Isolering" && tags.every(tag => tag.values.endast_h_stabilitet)) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
       group.append(node("summary", "", label));
@@ -1833,15 +1839,11 @@ function render({ model, el, readOnly = false }) {
     rememberSections(inputSections);
     fieldsBox.replaceChildren();
     inputs.clear();
-    inputNotes.clear();
     const draft = drafts.get(tag.id);
     for (const [index, [label, names, note]] of groups.entries()) {
       if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
       const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
-      if (note && !readOnly) {
-        const explanation = mathText("p", "gp-field-note", note);
-        group.append(explanation); inputNotes.set(group, {node: explanation, name: names[0], text: note});
-      }
+      if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
         if (!field || name === "l_override") continue;
@@ -1938,8 +1940,9 @@ function render({ model, el, readOnly = false }) {
   }
   function fieldUnits() {
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
-    const insulated = readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked;
     const onlyH = readOnly ? current()?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
+    if (onlyH && !readOnly && inputs.has("isolering")) inputs.get("isolering").input.checked = false;
+    const insulated = !onlyH && (readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked);
     const selected = readOnly ? current()?.values.glid_x || current()?.values.glid_y
       : inputs.get("glid_x")?.input.checked || inputs.get("glid_y")?.input.checked;
     basis.textContent = readOnly
@@ -1967,7 +1970,7 @@ function render({ model, el, readOnly = false }) {
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.startsWith("f_d_");
-      const ignored = onlyH && bearingOnlyNames.has(name);
+      const ignored = onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name));
       if (readOnly) {
         entry.row.hidden = ignored || !insulated && (insulationField || name.endsWith("_bruk"));
         continue;
@@ -1982,9 +1985,6 @@ function render({ model, el, readOnly = false }) {
     }
     for (const group of new Set([...inputs.values()].map(entry => entry.group))) {
       group.hidden = ![...inputs.values()].some(entry => entry.group === group && !entry.row.hidden);
-      const note = inputNotes.get(group);
-      if (note) note.node.replaceChildren(mathText("span", "", onlyH && note.name === "isolering"
-        ? "Isolerade sulor bidrar med 0 kN till glidningskontrollen. Ingen isoleringskontroll utförs." : note.text));
     }
     showSketch();
   }
@@ -2126,9 +2126,7 @@ function render({ model, el, readOnly = false }) {
       results.append(node("strong", "gp-horizontal", "Endast H-stabilitet"),
         node("p", "gp-result-note", "Jordens bärighet och isolering kontrolleras inte för denna sula."));
       const slidingResult = tag.sliding;
-      if (tag.values.isolering) {
-        results.append(node("p", "gp-result-note", "Isolerad sula: glidningsbidrag 0 kN."));
-      } else if (!(tag.values.glid_x || tag.values.glid_y)) {
+      if (!(tag.values.glid_x || tag.values.glid_y)) {
         results.append(node("p", "gp-result-note", "Välj bidragsriktning under Glidning."));
       } else {
         if (slidingDirty.has(tag.id)) results.append(node("p", "", "Uppdaterar glidmotstånd…"));

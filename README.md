@@ -204,7 +204,8 @@ i varje sulas dialog väljer du motståndsriktning och anger vertikallast i EQU
 hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
 
 **Endast H-stabilitet** under **Geometri** undantar en sula från jordens
-bärighetskontroll och isoleringskontrollen. Sulan bidrar fortfarande i sina
+bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolering**.
+Kategorin **Isolering** döljs. Sulan bidrar fortfarande i sina
 valda glidningsriktningar. Valet kan även ändras för markerade rader i tabellen;
 övriga indatavärden behålls när läget växlas.
 

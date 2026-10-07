@@ -369,9 +369,11 @@ Under **Glidning** i respektive sulas indatadialog anges:
 Markera **Endast H-stabilitet** under **Geometri** om sulan endast ska ingå
 i glidningskontrollen. Jordens bärighetskontroll och isoleringskontrollen
 utförs då inte, och deras indata döljs i dialogen och inaktiveras i tabellen.
-Tidigare värden behålls och används igen när valet avmarkeras. Glidningsindata
+Sulan sätts automatiskt till **Utan isolering** och kategorin **Isolering**
+döljs. Sparade material- och bärförmågevärden behålls; isolering kan aktiveras
+igen efter att **Endast H-stabilitet** avmarkerats. Glidningsindata
 visas även innan den globala kontrollen har aktiverats; bidragsriktningarna
-väljs fortfarande manuellt. Isolerade sulor bidrar fortsatt med 0 kN.
+väljs fortfarande manuellt. Vanliga sulor med isolering bidrar med 0 kN.
 Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
 utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade
 sulor och visas i PDF- och HTML-exporterna.

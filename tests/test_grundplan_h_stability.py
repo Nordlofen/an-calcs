@@ -45,20 +45,25 @@ class TestHStability(unittest.TestCase):
             self.assertEqual(self.plan.glidningsresultat["y"]["count"], 0)
             self.plan.uppdatera(ident, indata={"isolering": True})
             self.assertEqual(self.plan._tag(ident)["status"], "calculated")
-            self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 0)
+            self.assertIs(self.plan._tag(ident)["values"]["isolering"], False)
+            self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 144)
             json.dumps(self.plan.state, allow_nan=False)
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": False})
         self.assertEqual(self.plan._tag(ident)["status"], "error")
         self.assertIsNone(self.plan._tag(ident)["summary"])
 
-    def test_toggle_restores_existing_bearing_checks_without_changing_sliding_settings(self):
+    def test_toggle_disables_insulation_and_keeps_values_for_explicit_reactivation(self):
         ident = self.add(endast_h_stabilitet=False, isolering=True, f_d_brott=200, f_d_bruk=100, F_vy_bruk=60)
         original = self.plan.taggar[0]
         details = self.plan.resultat[ident]
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": True})
         self.assertEqual(self.plan._tag(ident)["summary"]["kontroller"], [])
-        self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 0)
+        self.assertIs(self.plan._tag(ident)["values"]["isolering"], False)
+        self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 144)
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": False})
+        self.assertIs(self.plan._tag(ident)["values"]["isolering"], False)
+        self.assertEqual(len(self.plan._tag(ident)["summary"]["kontroller"]), 1)
+        self.plan.uppdatera(ident, indata={"isolering": True})
         self.assertEqual(self.plan.taggar[0], original)
         self.assertEqual(self.plan.resultat[ident], details)
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": True, "isolering": False})
@@ -78,8 +83,8 @@ class TestHStability(unittest.TestCase):
         self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 0)
 
     def test_copy_bulk_save_and_legacy_projects_preserve_modes(self):
-        wall = self.add()
-        pad = self.add(lang=0, V_Ed_EQU=200)
+        wall = self.add(isolering=True)
+        pad = self.add(lang=0, V_Ed_EQU=200, isolering=True)
         copied = self.plan.kopiera(wall, .6, .6)
         self.assertTrue(self.plan._tag(copied)["values"]["endast_h_stabilitet"])
         self.plan.uppdatera_flera([wall, pad], indata={"endast_h_stabilitet": False})
@@ -90,6 +95,12 @@ class TestHStability(unittest.TestCase):
         self.addCleanup(restored.close)
         self.assertEqual(restored.taggar, self.plan.taggar)
         self.assertEqual(restored.resultat, self.plan.resultat)
+        previous = self.plan._document()
+        for tag in previous["tags"]:
+            tag["values"]["isolering"] = True
+        restored._load_document(json.dumps(previous).encode())
+        self.assertEqual(restored.taggar, self.plan.taggar)
+        self.assertTrue(all(tag["values"]["isolering"] is False for tag in restored.taggar))
         legacy = self.plan._document()
         legacy["version"] = 6
         for tag in legacy["tags"]:
@@ -98,6 +109,17 @@ class TestHStability(unittest.TestCase):
         for tag in restored.taggar:
             self.assertFalse(tag["values"]["endast_h_stabilitet"])
             self.assertEqual(len(tag["summary"]["kontroller"]), 1)
+
+    def test_bulk_insulation_changes_apply_only_to_ordinary_footings(self):
+        ordinary = self.add(endast_h_stabilitet=False, f_d_brott=200, f_d_bruk=100, F_vy_bruk=60)
+        horizontal = self.add(isolering=True)
+        self.plan.uppdatera_flera([ordinary, horizontal], indata={"isolering": True})
+        self.assertIs(self.plan._tag(ordinary)["values"]["isolering"], True)
+        self.assertIs(self.plan._tag(horizontal)["values"]["isolering"], False)
+        self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 144)
+        self.plan.uppdatera_flera([ordinary, horizontal], indata={"endast_h_stabilitet": True})
+        self.assertTrue(all(tag["values"]["isolering"] is False for tag in self.plan.taggar))
+        self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 288)
 
     def test_mode_requires_boolean_and_invalid_updates_are_atomic(self):
         ident = self.add()

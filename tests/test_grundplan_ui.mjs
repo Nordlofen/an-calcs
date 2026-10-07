@@ -2302,12 +2302,15 @@ const onlyHSummary = {endast_h_stabilitet: true, utnyttjandegrad: null, b: 1, ko
 
 test("H-only checkbox hides bearing inputs, keeps stored values and restores them when unchecked", t => {
   const ui = setup(t);
-  Object.assign(ui.tag.values, {glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
+  Object.assign(ui.tag.values, {isolering: true, glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
   ui.tag.sliding = {x: 144, y: 0, status: "ready"}; ui.changed();
   ui.marker().click();
   const toggle = ui.field("endast_h_stabilitet");
   toggle.checked = true; toggle.dispatch("input");
   assert.equal(ui.sent.at(-1).values.endast_h_stabilitet, true);
+  assert.equal(ui.sent.at(-1).values.isolering, false);
+  assert.equal(ui.field("isolering").checked, false);
+  assert.equal(ui.field("isolering").parent.parent.hidden, true);
   assert.equal(ui.sent.at(-1).values.F_vy, 1, "Unused bearing values are preserved");
   assert.equal(ui.field("F_vy").parent.parent.hidden, true);
   assert.equal(ui.field("phi_k").disabled, true);
@@ -2322,16 +2325,22 @@ test("H-only checkbox hides bearing inputs, keeps stored values and restores the
   assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);
   assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
   assert.equal(tableField(ui, "tag1", "F_vy").disabled, true);
+  assert.equal(tableField(ui, "tag1", "isolering").disabled, true);
+  assert.equal(tableField(ui, "tag1", "isolering").checked, false);
+  assert.ok(ui.marker().getAttribute("aria-label").includes("Utan isolering"));
   assert.equal(ui.byClass("gp-sketch-toggle").hidden, true);
   toggle.checked = false; toggle.dispatch("input");
   assert.equal(ui.field("F_vy").parent.parent.hidden, false);
   assert.equal(ui.field("F_vy").value, "1");
   assert.equal(ui.field("phi_k").disabled, false);
+  assert.equal(ui.field("isolering").parent.parent.hidden, false);
+  assert.equal(ui.field("isolering").checked, false);
   assert.equal(ui.byClass("gp-sketch-toggle").hidden, false);
 });
 
 test("H-only table checkbox changes selected walls and pads together", t => {
   const ui = setup(t), pad = {...structuredClone(ui.tag), id: "pad", label: "PS1"};
+  ui.tag.values.isolering = pad.values.isolering = true;
   pad.values.lang = 0; ui.data.state.tags.push(pad); ui.changed();
   selectTableRow(ui, "VS1"); selectTableRow(ui, "PS1");
   const toggle = tableField(ui, "tag1", "endast_h_stabilitet");
@@ -2340,8 +2349,9 @@ test("H-only table checkbox changes selected walls and pads together", t => {
   assert.equal(ui.sent.at(-1).action, "bulk_update");
   assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "pad"]);
   assert.deepEqual(ui.sent.at(-1).values, {endast_h_stabilitet: true});
+  assert.ok(ui.elements().filter(e => e.name === "table_isolering").every(e => !e.checked && e.disabled));
   for (const tag of ui.data.state.tags) {
-    tag.values.endast_h_stabilitet = true; tag.summary = structuredClone(onlyHSummary);
+    tag.values.endast_h_stabilitet = true; tag.values.isolering = false; tag.summary = structuredClone(onlyHSummary);
   }
   ui.changed(); ui.ack(ui.sent.at(-1));
   for (const id of ["tag1", "pad"]) {
@@ -2349,6 +2359,8 @@ test("H-only table checkbox changes selected walls and pads together", t => {
     assert.equal(tableField(ui, id, "b").disabled, false);
   }
   assert.equal(ui.elements().filter(e => e.textContent === "Endast H").length, 3);
+  ui.byText("Ändra markerade").click();
+  assert.equal(ui.elements().some(e => e.name === "bulk_isolering"), false);
 });
 
 test("read-only H-only labels and results have no bearing utilization or inactive loads", t => {
@@ -2359,6 +2371,8 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
   assert.equal(resultTableValue(ui, "tag1", "endast_h_stabilitet").textContent, "Ja");
   assert.equal(resultTableValue(ui, "tag1", "F_vy").textContent, "—");
   ui.marker().click();
+  const insulationRow = ui.elements().find(e => e.className.includes("gp-field") && e.children.some(child => child.textContent === "isolering"));
+  assert.ok(insulationRow?.parent.hidden);
   assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
   assert.ok(ui.elements().some(e => e.tag === "dd" && e.textContent === "144 kN"));
   assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);

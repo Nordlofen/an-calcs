@@ -56,8 +56,9 @@ class TestGrundplanPdf(unittest.TestCase):
         plan.uppdatera(ident, indata={"isolering": True, "f_d_brott": None, "f_d_bruk": None})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("Endast H-stabilitet", text)
-        self.assertIn("Med isolering", text)
-        self.assertNotIn("Glidmotstånd – globalt", text)
+        self.assertIn("Utan isolering", text)
+        self.assertIn("Glidmotstånd – globalt", text)
+        self.assertIn("144 kN", text)
         self.assertNotIn("Styrande", text)
 
     def drawing(self):

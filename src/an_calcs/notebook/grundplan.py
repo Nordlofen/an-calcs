@@ -30,7 +30,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-h-only-v3"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-h-only-uninsulated-v4"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -79,6 +79,10 @@ def _values(values, *, draft=False):
     for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
+    if values["endast_h_stabilitet"]:
+        # The mode represents an uninsulated sliding support. Enforce this for
+        # creation, updates, copies and older saved projects alike.
+        values["isolering"] = False
     for name, value in values.items():
         if name in boolean_names:
             continue
