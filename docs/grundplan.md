@@ -350,23 +350,29 @@ Jorddata, grundvatten, grundläggningsdjup **d** och samtliga koefficienter saml
 **Jord - Allm. Bärighets.** i dialogen, flerredigeringen och tabellen.
 Samma indelning används i resultat-HTML.
 
-## Arbetsytans och tabellens höjd
+## Arbetsytans och tabellens storlek
 
-Arbetsytans och tabellens höjder kan justeras oberoende med de smala draghandtagen
-under respektive yta. Dra uppåt eller nedåt; ritningens zoom, etikettplaceringar,
-markeringar och indata behålls. Tabellen får egen vertikal rullning när alla rader
-inte ryms. Dubbelklick återställer standardhöjden. När handtaget har fokus kan
-piltangenterna ändra höjden (20 px, eller 100 px med Shift); Home/End väljer
-minsta/största höjd. Escape avbryter pågående dragning.
+Arbetsytans och tabellens bredd och höjd kan justeras oberoende med handtagen
+i respektive nedre högra hörn. Dra diagonalt eller i en riktning; ritningens zoom,
+etikettplaceringar, markeringar och indata behålls. Bredden ryms inom notebookens
+eller webbläsarens tillgängliga utrymme. Tabellen får egen rullning när alla rader
+eller kolumner inte ryms. Dubbelklick återställer både standardbredd och standardhöjd.
+När handtaget har fokus ändrar vänster/höger bredden och upp/ned höjden
+(20 px, eller 100 px med Shift). Home/End väljer minsta/största storlek;
+Enter återställer standardstorleken. Escape avbryter pågående dragning.
 
-Valda höjder sparas med projektet och följer med till resultat-HTML. Där kan
-visningshöjderna också ändras lokalt utan att låsa upp indatavärden. PDF-exporten
-påverkas inte av arbetsytans eller tabellens visningshöjd.
+Valda storlekar sparas med projektet och följer med till resultat-HTML. Där kan
+storlekarna också ändras lokalt utan att låsa upp indatavärden. PDF-exporten
+påverkas inte av arbetsytans eller tabellens visningsstorlek. Äldre projekt med
+enbart höjdinställningar använder automatiskt full tillgänglig bredd.
 
 ```python
-plan.visningshojder = {"board_height": 850, "table_height": 350}  # px
-plan.visningshojder = {"board_height": None}  # Standardhöjd för arbetsytan.
+plan.visningsstorlekar = {"board_width": 1100, "board_height": 850,
+                         "table_width": 900, "table_height": 350}  # px
+plan.visningsstorlekar = {"board_width": None, "board_height": None}  # Standardstorlek.
 ```
+
+`plan.visningshojder` fungerar fortfarande för att läsa och ändra enbart höjderna.
 
 ## Kommentarer och isoleringswidget
 

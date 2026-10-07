@@ -65,8 +65,8 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 _TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
 _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascending"}}
-_LAYOUT_DEFAULTS = {"board_height": None, "table_height": None}
-_LAYOUT_LIMITS = {"board_height": (280, 2400), "table_height": (160, 1800)}
+_LAYOUT_DEFAULTS = {"board_height": None, "table_height": None, "board_width": None, "table_width": None}
+_LAYOUT_LIMITS = {"board_height": (280, 2400), "table_height": (160, 1800), "board_width": (320, 4000), "table_width": (320, 4000)}
 _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 # These fields have different meanings/units for strips and pads.
@@ -134,7 +134,7 @@ def _table_view(value):
 
 def _layout(value):
     if not isinstance(value, dict) or set(value) - set(_LAYOUT_DEFAULTS):
-        raise ValueError("Ogiltiga höjdinställningar.")
+        raise ValueError("Ogiltiga storleksinställningar.")
     result = {**_LAYOUT_DEFAULTS, **value}
     for name, (low, high) in _LAYOUT_LIMITS.items():
         if result[name] is not None and not low <= _number(result[name], name) <= high:
@@ -552,7 +552,7 @@ class Grundplan(anywidget.AnyWidget):
             "sliding_result": self.glidningsresultat,
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
-            "layout": self.visningshojder,
+            "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
@@ -916,16 +916,27 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     @property
-    def visningshojder(self):
-        """Arbetsytans och tabellens höjd i px; None använder standardhöjden."""
+    def visningsstorlekar(self):
+        """Arbetsytans och tabellens bredd/höjd i px; None använder standardstorleken."""
         return copy.deepcopy(self._layout)
+
+    @visningsstorlekar.setter
+    def visningsstorlekar(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Visningsstorlekar anges som en dict.")
+        self._layout = _layout({**self._layout, **changes})
+        self._publish()
+
+    @property
+    def visningshojder(self):
+        """Arbetsytans och tabellens höjd i px; behålls för äldre notebookkod."""
+        return {name: self._layout[name] for name in ("board_height", "table_height")}
 
     @visningshojder.setter
     def visningshojder(self, changes):
-        if not isinstance(changes, dict):
-            raise ValueError("Visningshöjder anges som en dict.")
-        self._layout = _layout({**self._layout, **changes})
-        self._publish()
+        if not isinstance(changes, dict) or set(changes) - {"board_height", "table_height"}:
+            raise ValueError("Visningshöjder anges som en dict med board_height/table_height.")
+        self.visningsstorlekar = changes
 
     @property
     def isoleringswidget(self):
@@ -1006,7 +1017,7 @@ class Grundplan(anywidget.AnyWidget):
             "sliding": copy.deepcopy(self._gliding),
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
-            "layout": self.visningshojder,
+            "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
             "drawing": {
                 "name": self._filename,
@@ -1102,7 +1113,7 @@ class Grundplan(anywidget.AnyWidget):
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
-                      "layout": self.visningshojder,
+                      "layout": self.visningsstorlekar,
                       "insulation_widget": self.isoleringswidget},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
@@ -1279,7 +1290,7 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "table_view":
                 self.tabellvy = content["settings"]
             elif action == "layout":
-                self.visningshojder = content["settings"]
+                self.visningsstorlekar = content["settings"]
             elif action == "insulation_widget":
                 self.isoleringswidget = content["settings"]
             elif action == "insulation_placement":

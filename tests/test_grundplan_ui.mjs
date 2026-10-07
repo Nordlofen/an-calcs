@@ -104,7 +104,13 @@ class Element {
     }
     if (this.tag === "img") return { left: parseFloat(this.parent.style.left) || 0, top: parseFloat(this.parent.style.top) || 0,
       width: parseFloat(this.parent.style.width), height: parseFloat(this.parent.style.height) };
-    return { left: 0, top: 0, width: this.clientWidth, height: parseFloat(this.style.height) || this.clientHeight };
+    if (["gp-workspace", "gp-table-section"].some(name => this.className.split(" ").includes(name))) {
+      const workspace = this.className.includes("gp-workspace");
+      const content = this.children.find(child => child.className === (workspace ? "gp-board" : "gp-table-scroll"));
+      return {left: 0, top: 0, width: Math.min(parseFloat(this.style.width) || this.clientWidth, this.closest(".an-grundplan").clientWidth),
+        height: content.getBoundingClientRect().height + (this.panelChromeHeight ?? (workspace ? 200 : 120))};
+    }
+    return { left: 0, top: 0, width: parseFloat(this.style.width) || this.clientWidth, height: parseFloat(this.style.height) || this.clientHeight };
   }
 }
 
@@ -3060,100 +3066,128 @@ test("support length sorting uses the local displayed length and leaves pads wit
 });
 
 
-const heightHandle = (ui, name) => ui.find(e => e.getAttribute("aria-controls")?.startsWith("gp-" + name + "-"));
-function resizePanel(ui, name, delta, finish = true) {
-  const handle = heightHandle(ui, name);
-  handle.dispatch("pointerdown", {clientY: 500});
-  handle.dispatch("pointermove", {clientY: 500 + delta});
-  if (finish) handle.dispatch("pointerup", {clientY: 500 + delta});
+const panelHandle = (ui, kind) => ui.find(e => e.getAttribute("aria-controls")?.startsWith("gp-" + kind + "-panel-"));
+function resizePanel(ui, kind, dx, dy, finish = true) {
+  const handle = panelHandle(ui, kind);
+  handle.dispatch("pointerdown", {clientX: 500, clientY: 500});
+  handle.dispatch("pointermove", {clientX: 500 + dx, clientY: 500 + dy});
+  if (finish) handle.dispatch("pointerup", {clientX: 500 + dx, clientY: 500 + dy});
   return handle;
 }
 
-test("height drags resize panels independently without engineering updates, pan or closing input", t => {
+test("corner drags resize panels independently without engineering updates, pan or closing input", t => {
   const ui = setup(t);
   ui.marker().click(); ui.field("b").value = "0,"; ui.field("b").dispatch("input");
   const original = structuredClone(ui.tag), sheet = ui.byClass("gp-sheet"), position = {...sheet.style};
   const sentBefore = ui.sent.length;
   const table = ui.byClass("gp-table-scroll"); table.scrollLeft = 200; table.scrollTop = 150;
-  const handle = resizePanel(ui, "board_height", 140, false);
+  const handle = resizePanel(ui, "board", -180, 140, false);
+  assert.equal(handle.parent, ui.byClass("gp-workspace"));
+  assert.equal(panelHandle(ui, "table").parent, ui.byClass("gp-table-section"));
   assert.equal(ui.byClass("gp-board").style.height, "788px");
-  assert.equal(table.style.height, "");
+  assert.equal(ui.byClass("gp-workspace").style.width, "668px");
+  assert.equal(table.style.height, ""); assert.equal(ui.byClass("gp-table-section").style.width, "");
   assert.equal(ui.sent.length, sentBefore, "Only the finished gesture is saved");
-  assert.equal(ui.byClass("gp-dialog").hidden, false);
-  assert.equal(ui.field("b").value, "0,");
-  handle.dispatch("pointerup", {clientY: 640});
+  assert.equal(ui.byClass("gp-dialog").hidden, false); assert.equal(ui.field("b").value, "0,");
+  handle.dispatch("pointerup", {clientX: 320, clientY: 640});
   assert.equal(handle.hasPointerCapture(1), false);
   const request = ui.sent.at(-1);
-  assert.equal(request.action, "layout"); assert.deepEqual(request.settings, {board_height: 788});
-  ui.data.state.layout = {board_height: 788, table_height: null}; ui.changed(); ui.ack(request);
-  resizePanel(ui, "table_height", -220);
-  assert.equal(ui.byClass("gp-board").style.height, "788px");
+  assert.equal(request.action, "layout"); assert.deepEqual(request.settings, {board_width: 668, board_height: 788});
+  ui.data.state.layout = {board_width: 668, board_height: 788}; ui.changed(); ui.ack(request);
+  resizePanel(ui, "table", 0, -220);
+  assert.equal(ui.byClass("gp-board").style.height, "788px"); assert.equal(ui.byClass("gp-workspace").style.width, "668px");
   assert.equal(table.style.height, "428px"); assert.equal(table.style.maxHeight, "428px");
   assert.deepEqual(ui.sent.at(-1).settings, {table_height: 428});
   assert.equal(table.scrollLeft, 200); assert.equal(table.scrollTop, 150);
   assert.deepEqual(ui.tag, original); assert.deepEqual({...sheet.style}, position);
 });
 
-test("cancelled height drags restore saved dimensions and cannot be completed by another pointer", t => {
-  const ui = setup(t); ui.data.state.layout = {board_height: 700, table_height: 350}; ui.changed();
+test("cancelled corner drags restore both dimensions and cannot be completed by another pointer", t => {
+  const ui = setup(t); ui.data.state.layout = {board_height: 700, table_height: 350, board_width: 700, table_width: 620}; ui.changed();
   for (const action of ["pointercancel", "lostpointercapture", "Escape"]) {
-    const handle = resizePanel(ui, "board_height", 100, false);
+    const handle = resizePanel(ui, "board", -100, 100, false);
+    handle.dispatch("pointermove", {pointerId: 9, clientX: 600, clientY: 1000});
     handle.dispatch("pointerup", {pointerId: 9}); assert.equal(ui.sent.length, 0);
-    assert.equal(ui.byClass("gp-board").style.height, "800px");
-    if (action === "Escape") handle.dispatch("keydown", {key: action});
-    else handle.dispatch(action);
-    assert.equal(ui.byClass("gp-board").style.height, "700px");
-    assert.equal(ui.byClass("gp-table-scroll").style.height, "350px");
+    assert.equal(ui.byClass("gp-board").style.height, "800px"); assert.equal(ui.byClass("gp-workspace").style.width, "600px");
+    if (action === "Escape") handle.dispatch("keydown", {key: action}); else handle.dispatch(action);
+    assert.equal(ui.byClass("gp-board").style.height, "700px"); assert.equal(ui.byClass("gp-workspace").style.width, "700px");
+    assert.equal(ui.byClass("gp-table-scroll").style.height, "350px"); assert.equal(ui.byClass("gp-table-section").style.width, "620px");
     handle.dispatch("pointerup"); assert.equal(ui.sent.length, 0);
   }
-  const handle = heightHandle(ui, "board_height");
-  handle.dispatch("pointerdown", {button: 2}); handle.dispatch("pointermove", {clientY: 1000}); handle.dispatch("pointerup");
+  const handle = panelHandle(ui, "board");
+  handle.dispatch("pointerdown", {button: 2}); handle.dispatch("pointermove", {clientX: 1000, clientY: 1000}); handle.dispatch("pointerup");
   assert.equal(ui.sent.length, 0); assert.equal(ui.byClass("gp-board").style.height, "700px");
+  handle.dispatch("pointerdown", {clientX: 500, clientY: 500}); handle.dispatch("pointermove", {clientX: 501, clientY: 501}); handle.dispatch("pointerup");
+  assert.equal(ui.sent.length, 0, "A click/jitter cannot lock automatic dimensions");
 });
 
-test("height dragging is bounded and rapid independent changes keep the latest preview", t => {
-  const ui = setup(t);
-  resizePanel(ui, "board_height", 10000); const first = ui.sent.at(-1);
-  assert.deepEqual(first.settings, {board_height: 2400});
-  resizePanel(ui, "table_height", -10000); const second = ui.sent.at(-1);
-  assert.deepEqual(second.settings, {table_height: 160});
-  ui.data.state.layout = {board_height: 2400, table_height: null}; ui.changed(); ui.ack(first);
-  assert.equal(ui.byClass("gp-table-scroll").style.height, "160px");
-  ui.data.state.layout.table_height = 160; ui.changed(); ui.ack(second);
-  assert.equal(ui.byClass("gp-board").style.height, "2400px");
-  assert.equal(ui.byClass("gp-table-scroll").style.height, "160px");
-  resizePanel(ui, "board_height", -10000); assert.deepEqual(ui.sent.at(-1).settings, {board_height: 280});
+test("corner resizing respects limits and rapid independent changes retain the latest width and height", t => {
+  const ui = setup(t); ui.data.state.layout = {board_width: 600, table_width: 700}; ui.changed();
+  resizePanel(ui, "board", 10000, 10000); const first = ui.sent.at(-1);
+  assert.deepEqual(first.settings, {board_width: 848, board_height: 2400}, "Width stays within the notebook container");
+  resizePanel(ui, "table", -10000, -10000); const second = ui.sent.at(-1);
+  assert.deepEqual(second.settings, {table_width: 320, table_height: 160});
+  ui.data.state.layout = {board_width: 848, board_height: 2400, table_width: 700, table_height: null}; ui.changed(); ui.ack(first);
+  assert.equal(ui.byClass("gp-table-scroll").style.height, "160px"); assert.equal(ui.byClass("gp-table-section").style.width, "320px");
+  Object.assign(ui.data.state.layout, second.settings); ui.changed(); ui.ack(second);
+  assert.equal(ui.byClass("gp-board").style.height, "2400px"); assert.equal(ui.byClass("gp-workspace").style.width, "848px");
+  assert.equal(ui.byClass("gp-table-scroll").style.height, "160px"); assert.equal(ui.byClass("gp-table-section").style.width, "320px");
+  resizePanel(ui, "board", -10000, -10000); assert.deepEqual(ui.sent.at(-1).settings, {board_width: 320, board_height: 280});
 });
 
-for (const standalone of [false, true]) test(`height handles support keyboard and default reset (standalone=${standalone})`, t => {
+test("corner tracks the pointer when narrowing wraps toolbar text, and returning to start sends no update", t => {
+  const ui = setup(t), workspace = ui.byClass("gp-workspace");
+  const handle = resizePanel(ui, "board", -200, 100, false);
+  workspace.panelChromeHeight = 240;
+  handle.dispatch("pointermove", {clientX: 300, clientY: 600});
+  assert.equal(ui.byClass("gp-board").style.height, "708px", "Wrapped chrome reduces drawing height to preserve the requested outer height");
+  handle.dispatch("pointermove", {clientX: 300, clientY: 600});
+  assert.equal(ui.byClass("gp-board").style.height, "708px", "Identical pointer events do not accumulate dimension changes");
+  workspace.panelChromeHeight = 200;
+  handle.dispatch("pointermove", {clientX: 500, clientY: 500}); handle.dispatch("pointerup");
+  assert.equal(ui.sent.length, 0); assert.equal(workspace.style.width, ""); assert.equal(ui.byClass("gp-board").style.height, "");
+});
+
+for (const standalone of [false, true]) test(`corner handles support width/height keyboard adjustment and independent reset (standalone=${standalone})`, t => {
   const ui = setup(t, {readOnly: standalone, standalone}), original = structuredClone(ui.model.get("state").tags);
-  const handle = heightHandle(ui, "board_height");
-  assert.equal(handle.getAttribute("role"), "separator"); assert.equal(handle.getAttribute("aria-orientation"), "horizontal");
+  const handle = panelHandle(ui, "board");
+  assert.equal(handle.getAttribute("role"), "button");
+  assert.match(handle.children[1].textContent, /Bredd 848 px, höjd 648 px/);
   const accept = () => { if (!standalone) {
     const request = ui.sent.at(-1); ui.data.state.layout = {...ui.data.state.layout, ...request.settings}; ui.changed(); ui.ack(request);
   }};
-  handle.dispatch("keydown", {key: "ArrowDown"}); accept();
-  assert.equal(ui.byClass("gp-board").style.height, "668px");
-  handle.dispatch("keydown", {key: "ArrowUp", shiftKey: true}); accept();
-  assert.equal(ui.byClass("gp-board").style.height, "568px");
-  handle.dispatch("keydown", {key: "Home"}); accept(); assert.equal(ui.byClass("gp-board").style.height, "280px");
-  handle.dispatch("keydown", {key: "End"}); accept(); assert.equal(ui.byClass("gp-board").style.height, "2400px");
-  resizePanel(ui, "table_height", 80); accept(); assert.equal(ui.byClass("gp-table-scroll").style.height, "728px");
-  handle.dispatch("dblclick"); accept(); assert.equal(ui.byClass("gp-board").style.height, "");
-  assert.equal(ui.model.get("state").layout.board_height, null);
-  assert.equal(ui.model.get("state").layout.table_height, 728);
+  handle.dispatch("keydown", {key: "ArrowDown"}); accept(); assert.equal(ui.byClass("gp-board").style.height, "668px");
+  handle.dispatch("keydown", {key: "ArrowUp", shiftKey: true}); accept(); assert.equal(ui.byClass("gp-board").style.height, "568px");
+  handle.dispatch("keydown", {key: "ArrowLeft"}); accept(); assert.equal(ui.byClass("gp-workspace").style.width, "828px");
+  handle.dispatch("keydown", {key: "ArrowLeft", shiftKey: true}); accept(); assert.equal(ui.byClass("gp-workspace").style.width, "728px");
+  handle.dispatch("keydown", {key: "ArrowRight"}); accept(); assert.equal(ui.byClass("gp-workspace").style.width, "748px");
+  handle.dispatch("keydown", {key: "Home"}); accept();
+  assert.equal(ui.byClass("gp-board").style.height, "280px"); assert.equal(ui.byClass("gp-workspace").style.width, "320px");
+  handle.dispatch("keydown", {key: "End"}); accept();
+  assert.equal(ui.byClass("gp-board").style.height, "2400px"); assert.equal(ui.byClass("gp-workspace").style.width, "848px");
+  resizePanel(ui, "table", -150, 80); accept();
+  assert.equal(ui.byClass("gp-table-scroll").style.height, "728px"); assert.equal(ui.byClass("gp-table-section").style.width, "698px");
+  handle.dispatch("dblclick"); accept();
+  assert.equal(ui.byClass("gp-board").style.height, ""); assert.equal(ui.byClass("gp-workspace").style.width, "");
+  assert.equal(ui.model.get("state").layout.board_height, null); assert.equal(ui.model.get("state").layout.board_width, null);
+  assert.equal(ui.model.get("state").layout.table_height, 728); assert.equal(ui.model.get("state").layout.table_width, 698);
+  panelHandle(ui, "table").dispatch("keydown", {key: "Enter"}); accept();
+  assert.equal(ui.model.get("state").layout.table_height, null); assert.equal(ui.model.get("state").layout.table_width, null);
   assert.deepEqual(ui.model.get("state").tags, original);
   if (standalone) {
-    ui.model.send({action: "layout", settings: {table_height: -10}});
-    assert.equal(ui.model.get("state").layout.table_height, 728);
+    const before = structuredClone(ui.model.get("state").layout);
+    ui.model.send({action: "layout", settings: {table_height: -10, table_width: 600}});
+    assert.deepEqual(ui.model.get("state").layout, before);
     ui.model.send({action: "update", id: "tag1", values: {b: 99}});
     assert.deepEqual(ui.model.get("state").tags, original);
   }
 });
 
-test("height validation accepts automatic defaults and rejects invalid or unknown display settings", () => {
-  assert.deepEqual(validateLayout({}), {board_height: null, table_height: null});
-  assert.deepEqual(validateLayout({board_height: 280, table_height: 1800}), {board_height: 280, table_height: 1800});
+test("size validation restores missing widths in old projects and rejects invalid display dimensions", () => {
+  assert.deepEqual(validateLayout({}), {board_height: null, table_height: null, board_width: null, table_width: null});
+  assert.deepEqual(validateLayout({board_height: 280, table_height: 1800}), {board_height: 280, table_height: 1800, board_width: null, table_width: null});
+  assert.deepEqual(validateLayout({board_width: 320, table_width: 4000}), {board_height: null, table_height: null, board_width: 320, table_width: 4000});
   for (const value of [null, [], 5, {unknown: 400}, {toString: 5}, {board_height: true},
-    {board_height: Infinity}, {board_height: "700"}, {board_height: 279}, {table_height: 1801}]) assert.throws(() => validateLayout(value));
+    {board_height: Infinity}, {board_height: "700"}, {board_height: 279}, {table_height: 1801},
+    {board_width: true}, {table_width: NaN}, {board_width: 319}, {table_width: 4001}]) assert.throws(() => validateLayout(value));
 });

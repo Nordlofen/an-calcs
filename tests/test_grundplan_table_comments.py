@@ -96,13 +96,13 @@ class TestTableAndComments(unittest.TestCase):
         detached["sort"]["key"] = "t"
         self.assertEqual(self.plan.tabellvy["sort"]["key"], "b")
 
-    def test_display_heights_roundtrip_in_projects_html_and_legacy_defaults(self):
+    def test_display_sizes_roundtrip_in_projects_html_and_legacy_defaults(self):
         self.plan.lagg_till(.1, .2)
-        self.plan.visningshojder = {"board_height": 900, "table_height": 320}
-        expected = self.plan.visningshojder
+        self.plan.visningsstorlekar = {"board_height": 900, "table_height": 320, "board_width": 1200, "table_width": 850}
+        expected = self.plan.visningsstorlekar
         restored = Grundplan.oppna(self.plan.spara(self.folder / "heights.json"))
         self.addCleanup(restored.close)
-        self.assertEqual(restored.visningshojder, expected)
+        self.assertEqual(restored.visningsstorlekar, expected)
         self.assertEqual(restored.state["layout"], expected)
         snapshot = json.loads(re.search(r'<script id="grundplan-data" type="application/json">(.*?)</script>',
             restored._html_bytes().decode(), re.S).group(1))
@@ -111,32 +111,39 @@ class TestTableAndComments(unittest.TestCase):
         del old["layout"]
         restored._load_document(json.dumps(old).encode())
         self.assertEqual(restored.visningshojder, {"board_height": None, "table_height": None})
+        self.assertEqual(restored.visningsstorlekar, dict.fromkeys(expected))
+        old["layout"] = {"board_height": 720, "table_height": 300}
+        restored._load_document(json.dumps(old).encode())
+        self.assertEqual(restored.visningsstorlekar, {"board_height": 720, "table_height": 300, "board_width": None, "table_width": None})
 
-    def test_display_heights_validate_atomically_without_recalculating_or_mutating_tags(self):
+    def test_display_sizes_validate_atomically_without_recalculating_or_mutating_tags(self):
         self.plan.lagg_till(.1, .2)
         before = self.plan._document()
         for invalid in [None, [], {"other": 500}, {"board_height": True}, {"board_height": "900"},
                         {"board_height": float("inf")}, {"board_height": 279}, {"board_height": 2401},
-                        {"table_height": 159}, {"table_height": 1801}]:
+                        {"table_height": 159}, {"table_height": 1801}, {"board_width": True}, {"board_width": "900"},
+                        {"board_width": float("nan")}, {"board_width": 319}, {"table_width": 4001}]:
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
-                    self.plan.visningshojder = invalid
+                    self.plan.visningsstorlekar = invalid
                 with self.assertRaises(ValueError):
                     self.plan._load_document(json.dumps({**before, "layout": invalid}).encode())
                 self.assertEqual(self.plan._document(), before)
         tags, calculations = self.plan.taggar, self.plan.resultat
         with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Display must not recalculate")):
             with patch.object(self.plan, "send") as send:
-                self.plan._on_message(None, {"action": "layout", "settings": {"board_height": 800}}, [])
+                self.plan._on_message(None, {"action": "layout", "settings": {"board_height": 800, "board_width": 1300}}, [])
                 self.assertTrue(send.call_args.args[0]["ok"])
             self.plan.visningshojder = {"table_height": 400}
         self.assertEqual((self.plan.taggar, self.plan.resultat), (tags, calculations))
         self.assertEqual(self.plan.visningshojder, {"board_height": 800, "table_height": 400})
-        detached = self.plan.visningshojder
-        detached["table_height"] = 1000
-        self.assertEqual(self.plan.visningshojder["table_height"], 400)
+        self.assertEqual(self.plan.visningsstorlekar, {"board_height": 800, "table_height": 400, "board_width": 1300, "table_width": None})
+        detached = self.plan.visningsstorlekar
+        detached["board_width"] = 1000
+        self.assertEqual(self.plan.visningsstorlekar["board_width"], 1300)
         self.plan.visningshojder = {"board_height": None}
         self.assertEqual(self.plan.visningshojder, {"board_height": None, "table_height": 400})
+        self.assertEqual(self.plan.visningsstorlekar["board_width"], 1300, "Legacy height updates preserve width")
 
     def test_insulation_widget_is_saved_exported_and_counts_h_only_as_uninsulated(self):
         from io import BytesIO

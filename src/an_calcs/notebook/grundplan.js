@@ -4,16 +4,16 @@ const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: 
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
-const LAYOUT_DEFAULTS = {board_height: null, table_height: null};
-const LAYOUT_LIMITS = {board_height: [280, 2400], table_height: [160, 1800]};
+const LAYOUT_DEFAULTS = {board_height: null, table_height: null, board_width: null, table_width: null};
+const LAYOUT_LIMITS = {board_height: [280, 2400], table_height: [160, 1800], board_width: [320, 4000], table_width: [320, 4000]};
 export function validateLayout(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)
-      || Object.keys(value).some(key => !Object.hasOwn(LAYOUT_DEFAULTS, key))) throw new Error("Ogiltiga höjdinställningar.");
+      || Object.keys(value).some(key => !Object.hasOwn(LAYOUT_DEFAULTS, key))) throw new Error("Ogiltiga storleksinställningar.");
   const result = {...LAYOUT_DEFAULTS, ...value};
   for (const [name, [low, high]] of Object.entries(LAYOUT_LIMITS)) {
-    const height = result[name];
-    if (height !== null && (typeof height !== "number" || !Number.isFinite(height) || height < low || height > high))
-      throw new Error("Ogiltig höjd för " + name + ".");
+    const size = result[name];
+    if (size !== null && (typeof size !== "number" || !Number.isFinite(size) || size < low || size > high))
+      throw new Error("Ogiltig storlek för " + name + ".");
   }
   return result;
 }
@@ -235,7 +235,7 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
-  let layoutDraft = null, heightDrag = null;
+  let layoutDraft = null, panelDrag = null;
   const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
@@ -1044,17 +1044,21 @@ function render({ model, el, readOnly = false }) {
       ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."
       : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
-  const heightHandles = new Map();
+  const workspace = node("section", "gp-workspace");
+  const panelHandles = new Map();
+  const panelLimits = name => {
+    const [low, high] = LAYOUT_LIMITS[name];
+    return [low, name.endsWith("_width") ? Math.max(low, Math.min(high, root.clientWidth)) : high];
+  };
   function showLayout() {
-    const values = heightDrag?.preview || layout();
-    for (const [name, entry] of heightHandles) {
-      const height = values[name];
+    const values = panelDrag?.preview || layout();
+    for (const [kind, entry] of panelHandles) {
+      const height = values[kind + "_height"], width = values[kind + "_width"];
       entry.target.style.height = height == null ? "" : height + "px";
-      if (name === "table_height") entry.target.style.maxHeight = height == null ? "" : height + "px";
-      const [low, high] = LAYOUT_LIMITS[name];
-      const actual = height ?? entry.target.getBoundingClientRect().height;
-      entry.handle.setAttribute("aria-valuenow", Math.round(Math.max(low, Math.min(high, actual))));
-      entry.handle.setAttribute("aria-valuetext", Math.round(actual) + " pixlar" + (height == null ? ", standardhöjd" : ""));
+      entry.wrapper.style.width = width == null ? "" : width + "px";
+      if (kind === "table") entry.target.style.maxHeight = height == null ? "" : height + "px";
+      entry.description.textContent = "Bredd " + Math.round(entry.wrapper.getBoundingClientRect().width)
+        + " px, höjd " + Math.round(entry.target.getBoundingClientRect().height) + " px. " + entry.handle.title;
     }
   }
   function setLayout(patch) {
@@ -1064,73 +1068,88 @@ function render({ model, el, readOnly = false }) {
       if (!reply.ok) showMessage(reply.error, true);
     });
   }
-  function endHeightDrag(commit = false) {
-    const previous = heightDrag;
+  function endPanelDrag(commit = false) {
+    const previous = panelDrag;
     if (!previous) return;
-    heightDrag = null; root.classList.remove("gp-resizing-panels");
+    panelDrag = null; root.classList.remove("gp-resizing-panels");
     if (previous.handle.hasPointerCapture(previous.pointerId)) previous.handle.releasePointerCapture(previous.pointerId);
-    if (commit && previous.moved) setLayout({[previous.name]: previous.preview[previous.name]});
-    else showLayout();
+    const patch = Object.fromEntries([previous.kind + "_width", previous.kind + "_height"]
+      .filter(name => previous.preview[name] !== previous.saved[name]).map(name => [name, previous.preview[name]]));
+    if (commit && previous.moved && Object.keys(patch).length) setLayout(patch); else showLayout();
   }
-  function heightHandle(name, target, label) {
-    const handle = node("div", "gp-height-resize");
-    handle.tabIndex = 0; handle.setAttribute("role", "separator");
-    handle.setAttribute("aria-label", label); handle.setAttribute("aria-orientation", "horizontal");
-    target.id = "gp-" + name + "-" + view; handle.setAttribute("aria-controls", target.id);
-    const [low, high] = LAYOUT_LIMITS[name];
-    handle.setAttribute("aria-valuemin", low); handle.setAttribute("aria-valuemax", high);
-    handle.title = "Dra uppåt eller nedåt. Piltangenter ändrar höjden. Dubbelklick återställer standardhöjden.";
-    handle.append(node("span", "gp-height-grip"));
-    heightHandles.set(name, {handle, target});
+  function panelHandle(kind, wrapper, target, label) {
+    const handle = node("div", "gp-panel-resize"), description = node("span", "gp-panel-size");
+    handle.tabIndex = 0; handle.setAttribute("role", "button"); handle.setAttribute("aria-label", label);
+    wrapper.id = "gp-" + kind + "-panel-" + view; handle.setAttribute("aria-controls", wrapper.id);
+    description.id = "gp-" + kind + "-size-" + view; handle.setAttribute("aria-describedby", description.id);
+    handle.title = "Dra för att ändra bredd och höjd. Piltangenter finjusterar; Shift ger större steg. Dubbelklick eller Enter återställer standardstorleken.";
+    handle.append(node("span", "gp-panel-grip"), description);
+    panelHandles.set(kind, {handle, wrapper, target, description});
     handle.addEventListener("pointerdown", event => {
-      if (event.button !== 0 || heightDrag) return;
+      if (event.button !== 0 || panelDrag) return;
       event.preventDefault(); event.stopPropagation(); cancelDrag();
       handle.focus({preventScroll: true});
-      heightDrag = {name, handle, pointerId: event.pointerId, startY: event.clientY,
-        startHeight: target.getBoundingClientRect().height, preview: layout(), moved: false};
+      panelDrag = {kind, handle, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+        startWidth: wrapper.getBoundingClientRect().width, startHeight: target.getBoundingClientRect().height,
+        startPanelHeight: wrapper.getBoundingClientRect().height, saved: layout(), preview: layout(), moved: false};
       root.classList.add("gp-resizing-panels"); handle.setPointerCapture(event.pointerId);
     });
     handle.addEventListener("pointermove", event => {
-      if (!heightDrag || heightDrag.pointerId !== event.pointerId || heightDrag.handle !== handle) return;
+      if (!panelDrag || panelDrag.pointerId !== event.pointerId || panelDrag.handle !== handle) return;
       event.preventDefault();
-      const delta = event.clientY - heightDrag.startY;
-      if (!heightDrag.moved && Math.abs(delta) < 3) return;
-      heightDrag.moved = true;
-      heightDrag.preview[name] = Math.round(Math.max(low, Math.min(high, heightDrag.startHeight + delta)));
+      const dx = event.clientX - panelDrag.startX, dy = event.clientY - panelDrag.startY;
+      if (!panelDrag.moved && Math.hypot(dx, dy) < 3) return;
+      panelDrag.moved = true;
+      const widthName = kind + "_width", heightName = kind + "_height";
+      const clamp = (name, value) => {const [low, high] = panelLimits(name); return Math.round(Math.max(low, Math.min(high, value)));};
+      const width = clamp(widthName, panelDrag.startWidth + dx);
+      panelDrag.preview[widthName] = width === Math.round(panelDrag.startWidth) ? panelDrag.saved[widthName] : width;
+      showLayout();
+      // Wrapped toolbar/help text should not push the dragged corner away from the pointer.
+      const chromeHeight = wrapper.getBoundingClientRect().height - target.getBoundingClientRect().height;
+      const height = clamp(heightName, panelDrag.startPanelHeight + dy - chromeHeight);
+      panelDrag.preview[heightName] = height === Math.round(panelDrag.startHeight) ? panelDrag.saved[heightName] : height;
       showLayout();
     });
     handle.addEventListener("pointerup", event => {
-      if (heightDrag?.handle === handle && heightDrag.pointerId === event.pointerId) endHeightDrag(true);
+      if (panelDrag?.handle === handle && panelDrag.pointerId === event.pointerId) endPanelDrag(true);
     });
     for (const eventName of ["pointercancel", "lostpointercapture"]) handle.addEventListener(eventName, event => {
-      if (heightDrag?.handle === handle && heightDrag.pointerId === event.pointerId) endHeightDrag();
+      if (panelDrag?.handle === handle && panelDrag.pointerId === event.pointerId) endPanelDrag();
     });
-    handle.addEventListener("dblclick", () => {endHeightDrag(); setLayout({[name]: null});});
+    const reset = () => {endPanelDrag(); setLayout({[kind + "_height"]: null, [kind + "_width"]: null});};
+    handle.addEventListener("dblclick", reset);
     handle.addEventListener("keydown", event => {
-      if (event.key === "Escape" && heightDrag) {
-        event.preventDefault(); event.stopPropagation(); endHeightDrag(); return;
+      if (event.key === "Escape" && panelDrag) {
+        event.preventDefault(); event.stopPropagation(); endPanelDrag(); return;
       }
-      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(event.key)) return;
       event.preventDefault(); event.stopPropagation();
-      const currentHeight = layout()[name] ?? target.getBoundingClientRect().height;
-      const value = event.key === "Home" ? low : event.key === "End" ? high
-        : currentHeight + (event.key === "ArrowDown" ? 1 : -1) * (event.shiftKey ? 100 : 20);
-      setLayout({[name]: Math.round(Math.max(low, Math.min(high, value)))});
+      if (["Enter", " "].includes(event.key)) {reset(); return;}
+      const patch = {};
+      for (const dimension of ["width", "height"]) {
+        if (!["Home", "End"].includes(event.key) && (dimension === "width") !== ["ArrowLeft", "ArrowRight"].includes(event.key)) continue;
+        const name = kind + "_" + dimension, [low, high] = panelLimits(name);
+        const currentSize = dimension === "width" ? wrapper.getBoundingClientRect().width : target.getBoundingClientRect().height;
+        const value = event.key === "Home" ? low : event.key === "End" ? high
+          : currentSize + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) * (event.shiftKey ? 100 : 20);
+        patch[name] = Math.round(Math.max(low, Math.min(high, value)));
+      }
+      setLayout(patch);
     });
     return handle;
   }
-  const boardHeightHandle = heightHandle("board_height", board, "Justera arbetsytans höjd");
-  tableSection.append(heightHandle("table_height", tableScroll, "Justera tabellens höjd"));
-  root.append(heading);
-  root.append(toolbar);
-  if (!readOnly) root.append(colourControls);
-  root.append(measurementBar);
-  if (!readOnly) root.append(importBar);
-  root.append(selectionBar);
-  if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
-  root.append(board, status, legend);
-  if (!readOnly) root.append(help, fileInput, projectInput, loadsInput);
-  root.append(boardHeightHandle, tableSection);
+  workspace.append(heading, toolbar);
+  if (!readOnly) workspace.append(colourControls);
+  workspace.append(measurementBar);
+  if (!readOnly) workspace.append(importBar);
+  workspace.append(selectionBar);
+  if (!readOnly) workspace.append(savePanel, projectFile, argumentsFallback);
+  workspace.append(board, status, legend);
+  if (!readOnly) workspace.append(help, fileInput, projectInput, loadsInput);
+  workspace.append(panelHandle("board", workspace, board, "Justera arbetsytans bredd och höjd"));
+  tableSection.append(panelHandle("table", tableSection, tableScroll, "Justera tabellens bredd och höjd"));
+  root.append(workspace, tableSection);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -3117,7 +3136,7 @@ function render({ model, el, readOnly = false }) {
   const outsideDown = event => {
     outsidePress = null;
     if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden) || insideDialog(event.target)
-      || event.target?.closest?.(".gp-height-resize")
+      || event.target?.closest?.(".gp-panel-resize")
       || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
     outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY,
       tagId: active, bulk: !bulkDialog.hidden, moved: false};
@@ -3206,7 +3225,7 @@ function render({ model, el, readOnly = false }) {
   update();
   return () => {
     disposed = true;
-    endHeightDrag();
+    endPanelDrag();
     document.removeEventListener("pointerdown", outsideDown, true);
     document.removeEventListener("pointermove", outsideMove, true);
     document.removeEventListener("pointerup", outsideUp, true);

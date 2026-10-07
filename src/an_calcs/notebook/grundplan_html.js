@@ -25,7 +25,7 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
         emit("change:state");
       } else if (message.action === "layout") {
         try {
-          if (!message.settings || typeof message.settings !== "object" || Array.isArray(message.settings)) throw new Error("Ogiltiga höjdinställningar.");
+          if (!message.settings || typeof message.settings !== "object" || Array.isArray(message.settings)) throw new Error("Ogiltiga storleksinställningar.");
           data.state = {...data.state, layout: validateLayout({...data.state.layout, ...message.settings})};
           emit("change:state");
         } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
