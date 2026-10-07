@@ -54,11 +54,16 @@ _EXTRA_FIELDS = [
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
     *SLIDING_FIELDS,
+    {"name": "kommentar", "type": "text", "multiline": True, "label": "Kommentar", "unit": "", "default": ""},
 ]
 _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
             "display_symbol": DISPLAY_SYMBOLS.get(field["name"], field.get("display_symbol"))}
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
+_TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
+_TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascending"}}
+_TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
+_INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 # These fields have different meanings/units for strips and pads.
 _BULK_SAME_TYPE = {"l", "l_override", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"}
@@ -87,9 +92,9 @@ def _values(values, *, draft=False):
     for name, value in values.items():
         if name in boolean_names:
             continue
-        if name == "isolerprodukt":
+        if name in _TEXT_NAMES:
             if not isinstance(value, str):
-                raise ValueError("Isolerprodukt måste vara en text.")
+                raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
         if (draft or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES) and value is None and name != "lang":
@@ -100,6 +105,35 @@ def _values(values, *, draft=False):
     if values["lang"] == 1 and not values["l_override"]:
         values["l"] = 1.0
     return copy.deepcopy(values)
+
+
+def _table_view(value):
+    if not isinstance(value, dict) or set(value) - set(_TABLE_DEFAULTS):
+        raise ValueError("Ogiltiga visningsval för tabellen.")
+    result = {**copy.deepcopy(_TABLE_DEFAULTS), **copy.deepcopy(value)}
+    collapsed, sort = result["collapsed"], result["sort"]
+    if (not isinstance(collapsed, list) or any(not isinstance(key, str) or key not in _TABLE_GROUPS for key in collapsed)
+            or len(set(collapsed)) != len(collapsed)):
+        raise ValueError("Okänd tabellkategori.")
+    if (not isinstance(sort, dict) or set(sort) != {"key", "direction"}
+            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status"})
+            or sort["direction"] not in ("ascending", "descending")):
+        raise ValueError("Ogiltig tabellsortering.")
+    return result
+
+
+def _insulation_widget(value):
+    if not isinstance(value, dict) or set(value) - set(_INSULATION_WIDGET_DEFAULTS):
+        raise ValueError("Ogiltiga inställningar för isoleringswidgeten.")
+    result = {**_INSULATION_WIDGET_DEFAULTS, **value}
+    if type(result["enabled"]) is not bool:
+        raise ValueError("enabled måste vara True eller False.")
+    for axis in ("x", "y"):
+        if not 0 <= _number(result[axis], axis) <= 1:
+            raise ValueError("Widgetens placering ska vara inom ritningen.")
+    if not 150 <= _number(result["size"], "size") <= 900:
+        raise ValueError("Widgetens storlek ska vara 150–900.")
+    return copy.deepcopy(result)
 
 
 def _updated_values(current, updates):
@@ -346,6 +380,8 @@ class Grundplan(anywidget.AnyWidget):
         self._calibration = None
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self._colour = copy.deepcopy(DEFAULT_COLOUR)
+        self._table_view = copy.deepcopy(_TABLE_DEFAULTS)
+        self._insulation_widget = copy.deepcopy(_INSULATION_WIDGET_DEFAULTS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -451,6 +487,8 @@ class Grundplan(anywidget.AnyWidget):
             "sliding": copy.deepcopy(self._gliding),
             "sliding_result": self.glidningsresultat,
             "colour_grouping": self.farggruppering,
+            "table_view": self.tabellvy,
+            "insulation_widget": self.isoleringswidget,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -595,7 +633,7 @@ class Grundplan(anywidget.AnyWidget):
                   "items": new_items, "index": 0, "paused": False} if new_items else None)
         for tag, values in prepared:
             changed = any(values[name] != value for name, value in tag["values"].items()
-                          if name != "isolerprodukt" and name not in SLIDING_NAMES)
+                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
             tag["values"] = values
             if changed:
                 tag.update(status="stale", summary=None, error="")
@@ -654,7 +692,7 @@ class Grundplan(anywidget.AnyWidget):
                     raise ValueError(f"{name} måste ligga mellan 0 och 1.")
                 updated[name] = value
         changed = any(updated["values"][name] != value for name, value in tag["values"].items()
-                      if name != "isolerprodukt" and name not in SLIDING_NAMES)
+                      if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
         if changed:
             updated.update(status="stale", summary=None, error="")
             self._details.pop(tagg, None)
@@ -709,7 +747,7 @@ class Grundplan(anywidget.AnyWidget):
         prepared = [_updated_values(tag["values"], indata) for tag in tags]
         for tag, values in zip(tags, prepared):
             changed = any(values[name] != value for name, value in tag["values"].items()
-                          if name != "isolerprodukt" and name not in SLIDING_NAMES)
+                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
             tag["values"] = values
             if changed:
                 tag.update(status="stale", summary=None, error="")
@@ -787,6 +825,30 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     @property
+    def tabellvy(self):
+        """Sparade fällbara tabellgrupper och sorteringskolumn."""
+        return copy.deepcopy(self._table_view)
+
+    @tabellvy.setter
+    def tabellvy(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Tabellvy anges som en dict.")
+        self._table_view = _table_view({**self._table_view, **changes})
+        self._publish()
+
+    @property
+    def isoleringswidget(self):
+        """Antal isolerade/oisolerade sulor och oisolerade littera på ritningen."""
+        return copy.deepcopy(self._insulation_widget)
+
+    @isoleringswidget.setter
+    def isoleringswidget(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Isoleringswidget anges som en dict.")
+        self._insulation_widget = _insulation_widget({**self._insulation_widget, **changes})
+        self._publish()
+
+    @property
     def resultat(self):
         """Aktuella details per tagg-id, användbara i an_print.CalcBlock."""
         return copy.deepcopy(self._details)
@@ -844,7 +906,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 8,
+            "version": 9,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -852,6 +914,8 @@ class Grundplan(anywidget.AnyWidget):
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
             "colour_grouping": self.farggruppering,
+            "table_view": self.tabellvy,
+            "insulation_widget": self.isoleringswidget,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -909,7 +973,8 @@ class Grundplan(anywidget.AnyWidget):
         except ImportError as exc:
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
         return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
-                          page_number=self.background["page"], colour_grouping=self._colour)
+                          page_number=self.background["page"], colour_grouping=self._colour,
+                          insulation_widget=self._insulation_widget)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -943,7 +1008,8 @@ class Grundplan(anywidget.AnyWidget):
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
-                      "colour_grouping": self.farggruppering},
+                      "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
+                      "insulation_widget": self.isoleringswidget},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -991,8 +1057,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–8.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–9.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -1003,6 +1069,8 @@ class Grundplan(anywidget.AnyWidget):
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
         calibration = _calibration(document.get("calibration"), rendered)
         colour = validate_colour(document.get("colour_grouping", {}))
+        table_view = _table_view(document.get("table_view", {}))
+        insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
@@ -1050,6 +1118,8 @@ class Grundplan(anywidget.AnyWidget):
         self._calibration = calibration
         self._gliding = gliding
         self._colour = colour
+        self._table_view = table_view
+        self._insulation_widget = insulation_widget
         self._tags = valid_tags
         self._load_import = None
         self._details = details_by_id
@@ -1105,6 +1175,13 @@ class Grundplan(anywidget.AnyWidget):
                 self.glidning = content["settings"]
             elif action == "colour_grouping":
                 self.farggruppering = content["settings"]
+            elif action == "table_view":
+                self.tabellvy = content["settings"]
+            elif action == "insulation_widget":
+                self.isoleringswidget = content["settings"]
+            elif action == "insulation_placement":
+                self._view_page(content["page"])
+                self.isoleringswidget = content["position"]
             elif action == "colour_placement":
                 self._view_page(content["page"])
                 self.farggruppering = {"legend": content["position"]}

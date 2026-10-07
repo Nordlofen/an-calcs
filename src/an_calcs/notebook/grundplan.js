@@ -1,8 +1,9 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
-const COLOUR_DEFAULTS = {enabled: false, category: "t", phase: "brott", edit_type: "pad", show_legend: true,
+const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
+const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
 const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
   "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
 const COLOUR_INSULATION_GROUPS = [
@@ -24,6 +25,25 @@ const colourBackground = color => {
   return "#" + channels.map(channel => Math.floor(channel * weight + 255 * (1 - weight) + .5).toString(16).padStart(2, "0")).join("");
 };
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
+  if (settings.secondary) {
+    const categories = Object.keys(COLOUR_CATEGORIES).filter(name => [settings.category, settings.secondary].includes(name));
+    const parts = categories.map(category => colourGroups(tags, {...settings, category, secondary: null}));
+    const order = parts.map(part => new Map(part.groups.map((group, index) => [group.key, index])));
+    const pairs = new Map(), groups = [], assignments = new Map();
+    for (const tag of tags) {
+      const pair = parts.map(part => part.assignments.get(tag.id).key), key = "combo:" + JSON.stringify(pair);
+      if (!pairs.has(key)) pairs.set(key, {pair, ids: []});
+      pairs.get(key).ids.push(tag.id);
+    }
+    for (const [key, {ids}] of [...pairs].sort(([, a], [, b]) =>
+      order[0].get(a.pair[0]) - order[0].get(b.pair[0]) || order[1].get(a.pair[1]) - order[1].get(b.pair[1]))) {
+      const color = settings.colors[key] || colourPalette(groups.length);
+      const group = {key, color, background: colourBackground(color), count: ids.length, kind: "combination", unit: "",
+        categories, parts: parts.map(part => part.assignments.get(ids[0]))};
+      groups.push(group); for (const id of ids) assignments.set(id, group);
+    }
+    return {groups, assignments};
+  }
   const {category, phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const make = (key, data, defaultColor = colourPalette(groups.length)) => {
@@ -201,6 +221,7 @@ function render({ model, el, readOnly = false }) {
   let headingDraft = null;
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
+  let insulationWidgetDraft = null;
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
   const bearingOnlyNames = new Set(["b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
@@ -209,6 +230,7 @@ function render({ model, el, readOnly = false }) {
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
   const colour = () => colourDraft || state().colour_grouping || COLOUR_DEFAULTS;
+  const insulationWidget = () => insulationWidgetDraft || state().insulation_widget || INSULATION_WIDGET_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
@@ -238,7 +260,7 @@ function render({ model, el, readOnly = false }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
-    if (readOnly && !["label_size", "calibration", "export_pdf"].includes(action)) return;
+    if (readOnly && !["label_size", "calibration", "export_pdf", "table_view"].includes(action)) return;
     const request = ++sequence;
     pending.set(request, onDone);
     model.send({ action, ...payload, request, view }, undefined, buffers);
@@ -607,6 +629,17 @@ function render({ model, el, readOnly = false }) {
   const colourToggle = button("Färggruppering", () => setColour({enabled: !colour().enabled}), "gp-colour-toggle");
   colourToggle.title = "Gruppera etiketternas bakgrund efter mått eller vertikallast. Senaste inställningen behålls.";
   if (!readOnly) toolbar.append(colourToggle);
+  const insulationWidgetToggle = button("Widget: Isolering", () => {
+    const patch = {enabled: !insulationWidget().enabled};
+    if (!patch.enabled) {cancelDrag(); overlaySelected = null;}
+    const draft = {...insulationWidget(), ...patch}; insulationWidgetDraft = draft; update();
+    command("insulation_widget", {settings: patch}, [], reply => {
+      if (insulationWidgetDraft === draft) {insulationWidgetDraft = null; update();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  });
+  insulationWidgetToggle.title = "Visa antal sulor med och utan isolering samt littera utan isolering.";
+  if (!readOnly) toolbar.append(insulationWidgetToggle);
   const colourControls = node("section", "gp-colour-controls");
   colourControls.hidden = true;
   colourControls.setAttribute("aria-label", "Inställningar för färggruppering");
@@ -615,7 +648,13 @@ function render({ model, el, readOnly = false }) {
   colourCategories.append(node("span", "gp-colour-caption", "Gruppera efter"));
   const categoryChoices = node("div", "gp-colour-choices");
   for (const [category, caption] of Object.entries(COLOUR_CATEGORIES)) {
-    const choice = button(caption, () => setColour({category}));
+    const choice = button(caption, () => {
+      const current = colour();
+      if (category === current.secondary) setColour({secondary: null});
+      else if (category === current.category) {
+        if (current.secondary) setColour({category: current.secondary, secondary: null});
+      } else if (!current.secondary) setColour({secondary: category});
+    });
     colourCategoryButtons.set(category, choice); categoryChoices.append(choice);
   }
   const colourLegendChoice = node("label", "gp-colour-legend-choice");
@@ -821,7 +860,21 @@ function render({ model, el, readOnly = false }) {
     if (!readOnly) {overlaySelected = "colour"; renderSlidingGeometry();}
   });
   colourLegend.append(colourHeader, colourLegendBody, colourResize);
-  overlays.append(axesOverlay, slidingLegend, colourLegend);
+  const insulationLegend = node("section", "gp-sliding-overlay gp-insulation-widget");
+  insulationLegend.dataset.kind = "insulation"; insulationLegend.setAttribute("aria-label", "Isolering – sammanställning av sulor");
+  const insulationHeader = button("Isolering", () => {
+    if (!readOnly) {overlaySelected = "insulation"; renderSlidingGeometry();}
+  }, "gp-sliding-header gp-sliding-handle");
+  insulationHeader.setAttribute("aria-label", "Isolering." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
+  const insulationBody = node("div", "gp-insulation-widget-body");
+  const insulationResize = button("", () => {}, "gp-overlay-resize gp-insulation-resize");
+  insulationResize.setAttribute("aria-label", "Ändra isoleringswidgetens storlek. Dra hörnet eller använd plus och minus.");
+  insulationResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
+  insulationLegend.addEventListener("click", () => {
+    if (!readOnly) {overlaySelected = "insulation"; renderSlidingGeometry();}
+  });
+  insulationLegend.append(insulationHeader, insulationBody, insulationResize);
+  overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend);
   sheet.append(picture, markers, overlays);
   viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
@@ -963,13 +1016,15 @@ function render({ model, el, readOnly = false }) {
   });
   const tableRows = new Map();
   const tableSortHeads = new Map(), tableCollator = new Intl.Collator("sv", {numeric: true, sensitivity: "base"});
-  let tableSort = {key: null, direction: "ascending"};
+  let tableViewDraft = null;
+  const tableView = () => tableViewDraft || state().table_view || {collapsed: [], sort: {key: null, direction: "ascending"}};
+  let tableSort = tableView().sort;
   tableScroll.addEventListener("focusout", () => requestAnimationFrame(() => {if (!disposed) sortTableRows();}));
   inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
   tableSection.append(tableHeader,
     node("p", "gp-field-note", readOnly
-      ? "Värdena är låsta i denna resultatvy. Markera flera etiketter med Shift + klick eller Shift + vänsterdrag för att framhäva deras rader i tabellen. Kryssrutorna markerar även motsvarande etiketter. Klicka på Littera eller Status / U för att sortera. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."
-      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
+      ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."
+      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
   root.append(heading);
   root.append(toolbar);
@@ -1067,6 +1122,7 @@ function render({ model, el, readOnly = false }) {
           headingDraft = null;
           slidingDraft = null; overlaySelected = null;
           colourDraft = null; colourEditType = null; colourError.textContent = "";
+          tableViewDraft = null; insulationWidgetDraft = null;
           colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
           inputSections.length = resultSections.length = 0;
@@ -1240,6 +1296,11 @@ function render({ model, el, readOnly = false }) {
     });
   }
   function colourGroupCaption(group) {
+    if (group.kind === "combination") return group.parts.map((part, index) => {
+      const category = group.categories[index];
+      const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || "";
+      return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
+    }).join(" · ");
     if (group.label) return group.label;
     if (group.kind === "geometry") return precise(group.value) + " m";
     return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
@@ -1252,24 +1313,32 @@ function render({ model, el, readOnly = false }) {
     colourToggle.disabled = !background().url || drawingBusy;
     colourControls.hidden = !settings.enabled;
     const kind = colourEditType || settings.edit_type;
-    for (const [buttons, selectedValue] of [[colourCategoryButtons, settings.category], [colourPhaseButtons, settings.phase], [colourTypeButtons, kind]]) {
+    const categories = [settings.category, settings.secondary].filter(Boolean), hasV = categories.includes("V");
+    for (const [value, choice] of colourCategoryButtons) {
+      const checked = categories.includes(value);
+      choice.classList.toggle("gp-selected", checked); choice.setAttribute("aria-pressed", String(checked));
+      choice.disabled = categories.length === 2 && !checked;
+      choice.title = choice.disabled ? "Avmarkera en kategori för att välja en annan." : "Välj en eller två kategorier.";
+    }
+    for (const [buttons, selectedValue] of [[colourPhaseButtons, settings.phase], [colourTypeButtons, kind]]) {
       for (const [value, choice] of buttons) {
         choice.classList.toggle("gp-selected", value === selectedValue);
         choice.setAttribute("aria-pressed", String(value === selectedValue));
       }
     }
     colourLegendCheck.checked = settings.show_legend;
-    colourLoadOptions.hidden = colourBoundsRow.hidden = settings.category !== "V";
+    colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
     colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
       colourBounds.value = settings.bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
     }
-    colourHint.textContent = settings.category === "V"
+    colourHint.textContent = settings.secondary ? "Välj högst två kategorier. Samma kombination ger samma färg. Avmarkera en kategori för att byta. " + (hasV ? "Väggsulor och pelarsulor har separata lastintervall. " : "") + "Klicka på en färgruta för att välja färg."
+      : settings.category === "V"
       ? "Pelarsulor och väggsulor har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
       : settings.category === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
-    for (const group of data.groups.filter(group => settings.category !== "V" || group.kind === kind || group.kind === "special")) {
+    for (const group of data.groups.filter(group => !hasV || (group.parts?.find(part => ["pad", "wall"].includes(part.kind))?.kind ?? group.kind) === kind || group.kind === "special" || group.parts?.some(part => part.kind === "special"))) {
       const row = node("label", "gp-colour-chip");
       const input = node("input"); input.type = "color"; input.value = group.color;
       input.setAttribute("aria-label", "Färg för " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : ""));
@@ -1277,7 +1346,8 @@ function render({ model, el, readOnly = false }) {
       row.append(input, mathText("span", "", colourGroupCaption(group))); colourSwatches.append(row);
     }
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
-      settings.category === "isolering" ? "Isolering och glidmotstånd"
+      settings.secondary ? categories.map(category => COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + COLOUR_PHASES[settings.phase] : "")
+        : settings.category === "isolering" ? "Isolering och glidmotstånd"
         : COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
     let previousKind = null;
     for (const group of data.groups.filter(group => group.count > 0)) {
@@ -1292,30 +1362,53 @@ function render({ model, el, readOnly = false }) {
       colourLegendBody.append(row);
     }
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
+    showInsulationWidget();
     renderSlidingGeometry();
+  }
+  function showInsulationWidget() {
+    const settings = insulationWidget();
+    insulationWidgetToggle.classList.toggle("gp-selected", settings.enabled);
+    insulationWidgetToggle.setAttribute("aria-pressed", String(settings.enabled));
+    insulationWidgetToggle.disabled = !background().url || drawingBusy;
+    const tags = state().tags, uninsulated = tags.filter(tag => {
+      const values = drafts.get(tag.id)?.values || tag.values;
+      return values.endast_h_stabilitet || !values.isolering;
+    });
+    insulationBody.replaceChildren();
+    for (const [caption, count] of [["Med isolering", tags.length - uninsulated.length], ["Utan isolering", uninsulated.length]]) {
+      const row = node("div", "gp-insulation-count"); row.append(node("span", "", caption), node("strong", "", String(count)));
+      insulationBody.append(row);
+    }
+    insulationBody.append(node("p", "gp-insulation-list-heading", "Föreskrivna utan isolering"),
+      node("p", "gp-insulation-list", uninsulated.map(tag => drafts.get(tag.id)?.label.trim() || tag.label)
+        .sort(tableCollator.compare).join(", ") || "Inga sulor"));
   }
   function overlayPosition(kind) {
     const key = background().page + ":" + kind;
     if (kind === "colour") return {...COLOUR_DEFAULTS.legend, ...(overlayPositions.get(key) || colour().legend)};
+    if (kind === "insulation") {
+      const {x, y, size} = overlayPositions.get(key) || insulationWidget(); return {x, y, size};
+    }
     const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
     return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
   }
   function overlaySize(kind, value) {
-    const [low, high] = kind === "symbol" ? [50, 600] : kind === "colour" ? [150, 900] : [205, 1230];
+    const [low, high] = kind === "symbol" ? [50, 600] : ["colour", "insulation"].includes(kind) ? [150, 900] : [205, 1230];
     return Math.max(low, Math.min(high, value));
   }
   function saveOverlayPosition(kind, page, position) {
     const key = page + ":" + kind;
     overlayPositions.set(key, position);
     pendingOverlayPositions.set(key, position);
-    command(kind === "colour" ? "colour_placement" : "sliding_placement", {kind, page, position}, [], () => {
+    command(kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement" : "sliding_placement", {kind, page, position}, [], () => {
       if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
       if (overlayPositions.get(key) === position) overlayPositions.delete(key);
       renderSlidingGeometry();
     });
   }
   for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
-      [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true]]) {
+      [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true],
+      [insulationHeader, "insulation", false], [insulationResize, "insulation", true]]) {
     element.addEventListener("keydown", event => {
       if (readOnly) return;
       const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
@@ -1331,9 +1424,10 @@ function render({ model, el, readOnly = false }) {
     });
   }
   function renderSlidingGeometry() {
-    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"]]) {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"]]) {
       const p = overlayPosition(kind);
-      element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend : !sliding().enabled) || !background().url;
+      element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend
+        : kind === "insulation" ? !insulationWidget().enabled : !sliding().enabled) || !background().url;
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
@@ -1341,9 +1435,9 @@ function render({ model, el, readOnly = false }) {
         element.style.width = element.style.height = p.size * zoom + "px";
         axesResize.hidden = readOnly || overlaySelected !== "symbol";
       } else {
-        const scale = zoom * p.size / (kind === "colour" ? 300 : 410);
+        const scale = zoom * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
-        const resize = kind === "colour" ? colourResize : legendResize;
+        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : legendResize;
         resize.hidden = readOnly || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";
@@ -1453,6 +1547,39 @@ function render({ model, el, readOnly = false }) {
     placeDialog(left, top);
     (readOnly ? minimize : labelInput).focus({ preventScroll: true });
   }
+  function openComment(tag) {
+    openDialog(tag);
+    const entry = inputs.get("kommentar");
+    if (!entry || active !== tag.id) return;
+    entry.group.open = true;
+    if (!sectionStates.has(tag.id)) sectionStates.set(tag.id, new Map());
+    sectionStates.get(tag.id).set("input:kommentar", true);
+    entry.group.scrollIntoView?.({block: "nearest"});
+    if (!readOnly) entry.input.focus({preventScroll: true});
+  }
+  function commentBubble(tag, text) {
+    const bubble = node("span", "gp-tag-comment");
+    bubble.title = text; bubble.tabIndex = 0;
+    bubble.setAttribute("role", "button"); bubble.setAttribute("aria-label", "Visa kommentar för " + tag.label);
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24"); icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M5 3.5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 4v-4a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2Z");
+    path.setAttribute("fill", "none"); path.setAttribute("stroke", "currentColor"); path.setAttribute("stroke-width", "1.5");
+    icon.append(path);
+    for (const x of [8, 12, 16]) {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", String(x)); dot.setAttribute("cy", "10.5"); dot.setAttribute("r", "1");
+      dot.setAttribute("fill", "currentColor"); icon.append(dot);
+    }
+    bubble.append(icon);
+    bubble.addEventListener("click", event => {event.stopPropagation(); openComment(tag);});
+    bubble.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (["Enter", " "].includes(event.key)) {event.preventDefault(); openComment(tag);}
+    });
+    return bubble;
+  }
   function placeDialog(x, y) {
     const inline = board.clientWidth < dialog.offsetWidth + 430 + 28;
     if (inline !== sketchInline) {
@@ -1553,12 +1680,14 @@ function render({ model, el, readOnly = false }) {
       const insulation = node("span", "gp-tag-insulation");
       insulation.append(insulationIcon(insulated), node("span", "", insulationText));
       heading.append(node("strong", "", label), insulation);
+      const comment = typeof values.kommentar === "string" ? values.kommentar.trim() : "";
+      if (comment) heading.append(commentBubble(tag, comment));
       const geometry = !onlyH && summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l) ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
       const showSlidingBlock = (sliding().enabled || onlyH) && !insulated && (values.glid_x || values.glid_y);
       const rawLength = values.glid_L;
       const length = rawLength == null || rawLength === "" ? NaN : Number(String(rawLength).replace(",", "."));
-      const lengthText = Number(values.lang) === 1 && Number.isFinite(length) && length > 0 && !showSlidingBlock
+      const lengthText = !insulated && (values.glid_x || values.glid_y) && Number(values.lang) === 1 && Number.isFinite(length) && length > 0 && !showSlidingBlock
         ? " · L " + precise(length) + " m" : "";
       const text = (summary
         ? onlyH ? "Endast H-stabilitet" + (geometry ? " · " + geometry : "")
@@ -1634,6 +1763,7 @@ function render({ model, el, readOnly = false }) {
       "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Trycket över effektiv area kontrolleras i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
     ["Glidning", ["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],
       "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
+    ["Kommentar", ["kommentar"]],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
   const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))]);
@@ -1641,7 +1771,22 @@ function render({ model, el, readOnly = false }) {
   const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
   if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
   const tableNames = tableGroups.flatMap(([, names]) => names);
+  const tableGroupHeads = new Map(), tableFieldHeads = new Map();
   const tableFieldClass = field => ["bool", "choice", "text"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number";
+  function setTableView(patch) {
+    const draft = {...tableView(), ...patch}; tableViewDraft = draft;
+    update();
+    command("table_view", {settings: patch}, [], reply => {
+      if (tableViewDraft === draft) {tableViewDraft = null; update();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  }
+  function chooseTableSort(key) {
+    const sort = {key, direction: tableSort.key === key
+      ? tableSort.direction === "ascending" ? "descending" : "ascending"
+      : key === "status" ? "descending" : "ascending"};
+    setTableView({sort}); sortTableRows(true);
+  }
   function buildTableHeader() {
     const groupRow = node("tr"), fieldRow = node("tr");
     const selectHead = node("th", "gp-table-select");
@@ -1650,20 +1795,23 @@ function render({ model, el, readOnly = false }) {
     for (const [label, className, key] of [["Littera", "gp-table-label", "label"], ["Status / U", "gp-table-status", "status"]]) {
       const th = node("th", className);
       th.setAttribute("rowspan", "2"); th.setAttribute("scope", "col"); groupRow.append(th);
-      const sortButton = button(label + " ↕", () => {
-        tableSort = {key, direction: tableSort.key === key
-          ? tableSort.direction === "ascending" ? "descending" : "ascending"
-          : key === "status" ? "descending" : "ascending"};
-        sortTableRows(true);
-      }, "gp-table-sort");
+      const sortButton = button(label + " ↕", () => chooseTableSort(key), "gp-table-sort");
       sortButton.setAttribute("aria-label", "Sortera efter " + (key === "label" ? "littera" : "status och utnyttjandegrad"));
       th.setAttribute("aria-sort", "none");
       th.append(sortButton); tableSortHeads.set(key, {th, button: sortButton, label});
     }
     for (const [label, names] of tableGroups) {
       if (!names.length) continue;
-      const th = node("th", "gp-table-group", label);
+      const th = node("th", "gp-table-group");
       th.setAttribute("colspan", String(names.length)); th.setAttribute("scope", "colgroup"); groupRow.append(th);
+      const key = names[0], fold = button(label, () => {
+        const collapsed = new Set(tableView().collapsed);
+        if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key);
+        setTableView({collapsed: [...collapsed]});
+      }, "gp-table-fold");
+      fold.setAttribute("aria-label", "Visa eller dölj " + label); th.append(fold);
+      const placeholder = node("th", "gp-table-folded-space"); placeholder.hidden = true; fieldRow.append(placeholder);
+      tableGroupHeads.set(key, {th, fold, placeholder, names, label});
       for (const name of names) {
         const field = fieldSchema.get(name), head = node("th", tableFieldClass(field));
         head.setAttribute("scope", "col");
@@ -1672,11 +1820,16 @@ function render({ model, el, readOnly = false }) {
         const notation = field.display_symbol || (name === "l_override" ? {prefix: "Egen ", base: "b", subscript: "y"}
           : name === "glid_x" || name === "glid_y"
           ? {prefix: "Bidrar ", base: name === "glid_x" ? "X" : "Y", subscript: "g"} : {});
-        if (notation.base || notation.text) head.append(symbolNode(notation, "gp-table-symbol"));
-        else head.append(node("span", "", name === "lang" ? "Typ" : name === "endast_h_stabilitet" ? "Endast H"
+        const sortButton = button("", () => chooseTableSort(name), "gp-table-sort");
+        sortButton.setAttribute("aria-label", "Sortera efter " + field.label);
+        if (notation.base || notation.text) sortButton.append(symbolNode(notation, "gp-table-symbol"));
+        else sortButton.append(node("span", "", name === "lang" ? "Typ" : name === "endast_h_stabilitet" ? "Endast H"
           : name === "isolerprodukt" ? "Produkt" : field.label));
         const unit = (field.unit || "").replace("^3", "³").replace(/^deg$/, "°");
-        if (unit) head.append(node("span", "gp-table-unit", "[" + (["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
+        if (unit) sortButton.append(node("span", "gp-table-unit", "[" + (["kN", "kNm"].includes(unit) ? unit + " / " + unit + "/m" : unit) + "]"));
+        const arrow = node("span", "gp-table-sort-arrow", "↕"); sortButton.append(arrow); head.append(sortButton);
+        head.setAttribute("aria-sort", "none");
+        tableSortHeads.set(name, {th: head, button: sortButton, arrow}); tableFieldHeads.set(name, head);
         fieldRow.append(head);
       }
     }
@@ -1775,7 +1928,7 @@ function render({ model, el, readOnly = false }) {
       for (const id of ids) if (checked) selected.add(id); else selected.delete(id);
       showSelection(); renderMarkers();
     });
-    const controls = new Map(), labelCell = node("td", "gp-table-label");
+    const controls = new Map(), cells = new Map(), placeholders = new Map(), labelCell = node("td", "gp-table-label");
     const label = node(readOnly ? "span" : "input", readOnly ? "gp-table-value" : "");
     if (!readOnly) {label.type = "text"; label.maxLength = 80; label.name = "table_label";}
     labelCell.append(label); controls.set("label", label);
@@ -1783,19 +1936,25 @@ function render({ model, el, readOnly = false }) {
     row.append(labelCell, result);
     for (const name of tableNames) {
       const field = fieldSchema.get(name), cell = node("td", tableFieldClass(field));
+      if (tableGroupHeads.has(name)) {
+        const placeholder = node("td", "gp-table-folded-space"); placeholder.hidden = true;
+        row.append(placeholder); placeholders.set(name, placeholder);
+      }
+      cells.set(name, cell);
       if (readOnly) {
         const value = node("span", "gp-table-value");
         cell.append(value); row.append(cell); controls.set(name, value);
         continue;
       }
-      const control = node(field.type === "choice" ? "select" : "input");
+      const control = node(field.multiline ? "textarea" : field.type === "choice" ? "select" : "input");
+      if (field.multiline) control.rows = 2;
       control.name = "table_" + name;
       if (field.type === "choice") {
         for (const option of field.options || []) {
           const caption = name === "lang" ? Number(option.value) === 1 ? "Väggsula" : "Pelarsula" : option.label ?? String(option.value);
           const item = node("option", "", caption); item.value = option.value; control.append(item);
         }
-      } else control.type = field.type === "bool" ? "checkbox" : "text";
+      } else if (!field.multiline) control.type = field.type === "bool" ? "checkbox" : "text";
       if (!["bool", "text", "choice"].includes(field.type)) control.inputMode = "decimal";
       if (field.type === "text") cell.classList.add("gp-table-text");
       cell.append(control); row.append(cell); controls.set(name, control);
@@ -1806,14 +1965,14 @@ function render({ model, el, readOnly = false }) {
       const field = fieldSchema.get(name);
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
       control.addEventListener("keydown", event => {
-        if (event.key !== "Enter") return;
+        if (event.key !== "Enter" || field?.multiline) return;
         event.preventDefault();
         const rows = [...tableBody.children], index = rows.findIndex(row => row.dataset.tagId === control.dataset.tagId);
         tableRows.get(rows[index + (event.shiftKey ? -1 : 1)]?.dataset.tagId)?.controls.get(name)?.focus({preventScroll: false});
       });
     }
     tableBody.append(row);
-    return {row, controls, result, select};
+    return {row, controls, cells, placeholders, result, select};
   }
   function syncTableSelection() {
     const tags = state().tags, busy = bulkBusy || importBusy || deleteBusy;
@@ -1876,6 +2035,20 @@ function render({ model, el, readOnly = false }) {
         else control.value = tableText(value);
       }
     }
+    tableSort = tableView().sort;
+    const collapsed = new Set(tableView().collapsed);
+    for (const [key, {th, fold, placeholder, names, label}] of tableGroupHeads) {
+      const hidden = collapsed.has(key);
+      th.setAttribute("colspan", String(hidden ? 1 : names.length));
+      th.classList.toggle("gp-table-group-folded", hidden);
+      fold.textContent = (hidden ? "▸ " : "▾ ") + label;
+      fold.setAttribute("aria-expanded", String(!hidden)); placeholder.hidden = !hidden;
+      for (const name of names) tableFieldHeads.get(name).hidden = hidden;
+      for (const entry of tableRows.values()) {
+        entry.placeholders.get(key).hidden = !hidden;
+        for (const name of names) entry.cells.get(name).hidden = hidden;
+      }
+    }
     sortTableRows();
     syncTableSelection();
   }
@@ -1883,7 +2056,9 @@ function render({ model, el, readOnly = false }) {
     for (const [key, head] of tableSortHeads) {
       const direction = tableSort.key === key ? tableSort.direction : "none";
       head.th.setAttribute("aria-sort", direction);
-      head.button.textContent = head.label + (direction === "ascending" ? " ↑" : direction === "descending" ? " ↓" : " ↕");
+      const arrow = direction === "ascending" ? "↑" : direction === "descending" ? "↓" : "↕";
+      if (head.arrow) head.arrow.textContent = arrow;
+      else head.button.textContent = head.label + " " + arrow;
     }
     if (!tableSort.key) return;
     // Wait until editing ends before moving rows, so typing keeps its focus and caret.
@@ -1897,8 +2072,23 @@ function render({ model, el, readOnly = false }) {
     const direction = tableSort.direction === "ascending" ? 1 : -1;
     const tags = [...state().tags].sort((a, b) => {
       if (tableSort.key === "label") return direction * tableCollator.compare(label(a), label(b));
-      const [rankA, valueA] = statusKey(a), [rankB, valueB] = statusKey(b);
-      return direction * (rankA - rankB || valueA - valueB) || tableCollator.compare(label(a), label(b));
+      if (tableSort.key === "status") {
+        const [rankA, valueA] = statusKey(a), [rankB, valueB] = statusKey(b);
+        return direction * (rankA - rankB || valueA - valueB) || tableCollator.compare(label(a), label(b));
+      }
+      const name = tableSort.key, field = fieldSchema.get(name);
+      const value = tag => {
+        const raw = drafts.get(tag.id)?.values[name] ?? tag.values[name];
+        if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
+        return ["text", "choice"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
+          : field?.type === "bool" ? Number(raw) : Number(String(raw).replace(",", "."));
+      };
+      const va = value(a), vb = value(b);
+      const missingA = va == null || typeof va === "number" && !Number.isFinite(va);
+      const missingB = vb == null || typeof vb === "number" && !Number.isFinite(vb);
+      if (missingA !== missingB) return missingA ? 1 : -1;
+      const difference = missingA ? 0 : typeof va === "number" ? va - vb : tableCollator.compare(va, vb);
+      return direction * difference || tableCollator.compare(label(a), label(b));
     });
     const rows = tags.map(tag => tableRows.get(tag.id)?.row).filter(Boolean);
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
@@ -1983,7 +2173,8 @@ function render({ model, el, readOnly = false }) {
         choose.setAttribute("aria-label", "Ändra " + field.label);
         choose.title = "Ändra " + field.label + " för alla markerade sulor";
         const controlRow = node("div", "gp-field");
-        const input = node(field.type === "bool" ? "select" : "input");
+        const input = node(field.multiline ? "textarea" : field.type === "bool" ? "select" : "input");
+        if (field.multiline) input.rows = 3;
         input.name = "bulk_" + name;
         input.setAttribute("aria-label", "Gemensamt värde: " + field.label);
         const same = tags.every(tag => tag.values[name] === tags[0].values[name]);
@@ -1995,7 +2186,7 @@ function render({ model, el, readOnly = false }) {
           input.value = same ? String(value) : "";
           controlRow.classList.add("gp-choice-field");
         } else {
-          input.type = "text";
+          if (!field.multiline) input.type = "text";
           if (field.type !== "text") input.inputMode = "decimal";
           input.value = same ? value ?? "" : "";
           input.placeholder = same ? "Ej angivet" : "Olika värden";
@@ -2140,7 +2331,8 @@ function render({ model, el, readOnly = false }) {
           inputs.set(name, { input: output, unit, row, group });
           continue;
         }
-        const input = node(field.type === "choice" ? "select" : "input");
+        const input = node(field.multiline ? "textarea" : field.type === "choice" ? "select" : "input");
+        if (field.multiline) input.rows = 4;
         input.name = name;
         input.setAttribute("aria-label", accessibleLabel);
         if (field.type === "choice") {
@@ -2153,8 +2345,8 @@ function render({ model, el, readOnly = false }) {
           input.type = "checkbox";
           row.classList.add("gp-check-field");
         } else if (field.type === "text") {
-          input.type = "text";
-          input.placeholder = "Kommentar, t.ex. EPS S200";
+          if (!field.multiline) input.type = "text";
+          input.placeholder = name === "kommentar" ? "Skriv en kommentar…" : "T.ex. EPS S200";
           input.title = "Sparas som kommentar och påverkar inte beräkningen.";
           row.classList.add("gp-text-field");
         } else {
@@ -2560,6 +2752,7 @@ function render({ model, el, readOnly = false }) {
       viewport.setPointerCapture(event.pointerId);
       return;
     }
+    if (event.target.closest(".gp-tag-comment")) return;
     if (bulkBusy) return;
     if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) {
       if (calibrationBusy || importBusy) return;
@@ -2572,7 +2765,7 @@ function render({ model, el, readOnly = false }) {
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
-      const resize = event.target === axesResize || event.target === legendResize || event.target === colourResize;
+      const resize = event.target === axesResize || event.target === legendResize || event.target === colourResize || event.target === insulationResize;
       if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
       event.preventDefault();
       setMode("pan");

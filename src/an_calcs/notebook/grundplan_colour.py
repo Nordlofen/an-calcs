@@ -1,6 +1,7 @@
 """Visual grouping only; input values and engineering results are never changed."""
 
 import copy
+import json
 import math
 import re
 from bisect import bisect_right
@@ -8,7 +9,7 @@ from bisect import bisect_right
 
 PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
            "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"]
-DEFAULT_SETTINGS = {"enabled": False, "category": "t", "phase": "brott", "edit_type": "pad",
+DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "phase": "brott", "edit_type": "pad",
                     "show_legend": True, "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "colors": {}, "legend": {"x": .65, "y": .08, "size": 300}}
 CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
@@ -37,6 +38,10 @@ def validate_settings(settings):
     for name, choices in (("category", CATEGORIES), ("phase", PHASES), ("edit_type", ("pad", "wall"))):
         if not isinstance(result[name], str) or result[name] not in choices:
             raise ValueError("Okänt val för färggruppering: " + name + ".")
+    secondary = result["secondary"]
+    if secondary is not None and (not isinstance(secondary, str) or secondary not in CATEGORIES
+                                  or secondary == result["category"]):
+        raise ValueError("Välj högst två olika kategorier för färggruppering.")
     bounds = result["bounds"]
     if not isinstance(bounds, dict) or set(bounds) != {"pad", "wall"}:
         raise ValueError("Ange separata intervallgränser för pelarsulor och väggsulor.")
@@ -82,6 +87,26 @@ def background_color(color):
 
 def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
+    if settings.get("secondary"):
+        # Canonical order keeps custom colours when the same pair is selected in reverse.
+        categories = [name for name in CATEGORIES if name in (settings["category"], settings["secondary"])]
+        parts = [group_data(tags, {**settings, "category": name, "secondary": None}) for name in categories]
+        order = [{group["key"]: i for i, group in enumerate(part["groups"])} for part in parts]
+        pairs = {}
+        for tag in tags:
+            pair = tuple(part["assignments"][tag["id"]]["key"] for part in parts)
+            pairs.setdefault(pair, []).append(tag["id"])
+        groups, assignments = [], {}
+        for pair in sorted(pairs, key=lambda pair: tuple(order[i][key] for i, key in enumerate(pair))):
+            key = "combo:" + json.dumps(pair, separators=(",", ":"))
+            color = settings["colors"].get(key, palette_color(len(groups)))
+            group = {"key": key, "color": color, "background": background_color(color),
+                     "count": len(pairs[pair]), "kind": "combination", "unit": "", "categories": categories,
+                     "parts": [parts[i]["assignments"][pairs[pair][0]] for i in range(2)]}
+            groups.append(group)
+            for ident in pairs[pair]:
+                assignments[ident] = group
+        return {"groups": groups, "assignments": assignments}
     category, phase = settings["category"], settings["phase"]
     groups, assignments = [], {}
     def make(key, default_color=None, **data):

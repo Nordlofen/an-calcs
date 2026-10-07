@@ -137,7 +137,7 @@ class TestGrundplanHtml(unittest.TestCase):
                           self.plan.taggar, self.plan.resultat), original)
 
     def test_overridden_wall_by_is_embedded_in_results_and_downloadable_pdf(self):
-        ident = self.tag(indata={"b": .8, "l": 2.4, "glid_L": 6.2})
+        ident = self.tag(indata={"b": .8, "l": 2.4, "glid_L": 6.2, "glid_x": True})
         data = self.snapshot()
         tag = next(tag for tag in data["state"]["tags"] if tag["id"] == ident)
         self.assertEqual(tag["values"]["l"], 2.4)

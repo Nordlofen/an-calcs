@@ -202,14 +202,16 @@ isolering och glidning direkt i cellerna, utan en dialog. Decimaler kan anges
 med komma eller punkt. Littera och kolumnrubriker hålls synliga när tabellen
 rullas. Smala kolumner visar beteckning och enhet; håll pekaren över rubriken
 för en fullständig förklaring. Enter går till samma kolumn på nästa rad; Shift + Enter går till
-föregående rad i den visade ordningen.
+föregående rad i den visade ordningen. Kommentarens textfält tillåter flera rader.
 
-Klicka på **Littera** för naturlig sortering, exempelvis S.2 före S.10.
+Klicka på valfri kolumnrubrik för sortering. Tal sorteras numeriskt, text alfabetiskt och saknade/ej tillämpliga indatavärden sist i båda riktningarna. Vid lika värden sorteras raderna efter **Littera**, naturligt, exempelvis S.2 före S.10.
 **Status / U** visar fel i indata först, därefter pågående uppdateringar och
 sedan beräknade sulor med högst utnyttjandegrad först. Ett nytt klick på samma
 rubrik vänder ordningen; pilen visar riktningen. Sorteringen ändrar endast
 tabellens visning. Markeringar och indata hör fortfarande till samma sulor.
 Rader flyttas först när fokus lämnar tabellraderna efter cellredigering.
+
+Klicka på en huvudkategori, exempelvis **Geometri** eller **Laster – Brott**, för att fälla ihop dess kolumner. Den smala gruppfliken finns kvar för att visa dem igen. Littera och Status / U är alltid synliga. Fällning och sortering sparas med projektet och används vid HTML-export.
 
 Markeringar i ritningen och tabellen följs åt. Välj rader med kryssrutorna,
 eller markera etiketter med Shift + klick/drag på ritningen. Kryssrutan i
@@ -250,8 +252,7 @@ eller ofullständigt värde visas på den berörda sulan och ersätter dess gaml
 resultat; övriga sulor beräknas ändå. Rätta cellen så uppdateras resultatet
 igen. Ändringar följer med när projektet sparas eller exporteras.
 
-Tabellen finns i notebookvyn. Resultat-HTML behåller sin läsvy med
-expanderbara etiketter. Från Python beräknas sulor också automatiskt vid
+Tabellen finns både i notebookvyn och som låst läsvy i resultat-HTML. Från Python beräknas sulor också automatiskt vid
 `lagg_till()`, `uppdatera()` och som standard vid `uppdatera_flera()`.
 
 ## Lokala axlar och skisser
@@ -340,10 +341,28 @@ Jorddata, grundvatten och samtliga koefficienter samlas under
 **Jord - Allm. Bärighets.** i dialogen, flerredigeringen och tabellen.
 Samma indelning används i resultat-HTML.
 
+## Kommentarer och isoleringswidget
+
+**Kommentar** är en egen huvudkategori sist i dialogen och längst till höger i tabellen. Fältet tillåter flera rader och kan redigeras gemensamt för markerade sulor, även vid blandade sultyper. Texten sparas med sulan och påverkar inga beräkningsresultat.
+
+En ifylld kommentar markeras med en liten pratbubbla längst till höger på etikettens första rad. Håll pekaren över bubblan för att läsa texten; klicka för att öppna och visa kommentarsavsnittet. Tom text eller enbart blanksteg ger ingen symbol. Resultat-HTML visar kommentaren som låst text, medan PDF visar symbolen på etiketten.
+
+**Widget: Isolering** aktiverar en fristående ruta på ritningen med antal sulor **Med isolering** och **Utan isolering** samt littera för alla **Föreskrivna utan isolering**. Endast H-stabilitet räknas som utan isolering. Antal och littera uppdateras när sulor ändras, läggs till eller tas bort.
+
+Dra widgetens rubrik för att flytta rutan. Klicka på den och dra hörnhandtaget för att skala hela rutan. Piltangenter flyttar och plus/minus på hörnhandtaget ändrar storlek. På/av, placering och storlek sparas med projektet och behålls när widgeten stängs av. PDF och resultat-HTML visar den sparade rutan; HTML:s PDF-knapp hämtar samma inbäddade PDF.
+
+```python
+plan.farggruppering = {"enabled": True, "category": "t", "secondary": "b"}
+plan.isoleringswidget = {"enabled": True, "x": .65, "y": .55, "size": 300}
+plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
+                 "sort": {"key": "b", "direction": "ascending"}}
+```
+
 ## Färggruppering
 
 **Färggruppering** öppnar en kompakt inställningsrad under verktygsfältet.
-Välj **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** eller **Isolering**.
+Välj en eller två av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**.
+Med två kategorier får varje unik kombination en färg, exempelvis t = 0,3 m tillsammans med bₓ = 0,6 m. Bara upptagna kombinationer visas i legend och färgval. Avmarkera en vald kategori för att byta till en annan; en kategori är alltid vald. Lastintervallets inställningar fungerar även när V är den andra kategorin. Egna färger behålls också om samma kategorier väljs i omvänd ordning.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
@@ -397,7 +416,7 @@ sulor per grupp. Vid lastgruppering visas separata enheter för de två typerna.
 Sulor med **Endast H-stabilitet** visas som **Ej tillämpligt** för mått och
 Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
 
-När **Färggruppering** stängs av döljs färger och legend. Kategori, lastfall,
+När **Färggruppering** stängs av döljs färger och legend. Båda kategorierna, lastfall,
 intervall, färger, legendens visningsval, placering och storlek behålls och
 återkommer när knappen aktiveras igen. Inställningarna sparas i projektet.
 PDF och låst resultat-HTML visar den sparade färggrupperingen och legenden;
@@ -476,7 +495,7 @@ och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger. Glidningsblocket döljs på isolerade
 och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avser
 fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
 den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
-När glidningsblocket är dolt visas en angiven positiv vägglängd i stället på
+L visas endast för oisolerade sulor med en vald bidragsriktning. När den globala glidningskontrollen är avstängd visas en sådan positiv vägglängd på
 etikettens resultatrad, exempelvis `Kontrollera indata · L 6,2 m` eller
 `U 78 % · bₓ 0,6 m · L 6,2 m`. Detta gäller också PDF och resultat-HTML.
 
@@ -662,7 +681,7 @@ aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 8. Äldre projekt i formatversion 1–7 kan
+Projekt sparas i formatversion 9. Äldre projekt i formatversion 1–8 kan
 öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
 Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
@@ -771,8 +790,7 @@ indata och statusvärden visas som låst text. Shift + klick på etiketter eller
 Shift + vänsterdrag framhäver motsvarande tabellrader. Ett nytt Shift + klick
 växlar markeringen; ett nytt urvalsdrag växlar etiketter inom rutan.
 Tabellens kryssrutor, inklusive Shift + klick för radintervall, markerar även
-motsvarande etiketter. Klicka på **Littera** eller **Status / U** för att
-sortera. **Avmarkera** eller Escape rensar urvalet. Markering används endast
+motsvarande etiketter. Klicka på valfri kolumnrubrik för att sortera och på huvudkategorier för att fälla ihop eller visa kolumner. **Avmarkera** eller Escape rensar urvalet. Markering används endast
 för att framhäva sulor och påverkar inga beräkningsvärden.
 
 Beräkningsvärden och etikettpositioner är låsta i resultatvyn. Exporten

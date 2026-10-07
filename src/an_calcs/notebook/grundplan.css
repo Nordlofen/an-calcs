@@ -92,6 +92,9 @@
 .an-grundplan .gp-tag strong { font-size: 13px; }
 .an-grundplan .gp-tag:hover { background: var(--gp-tag-bg); }
 .an-grundplan .gp-tag-heading { display: flex; align-items: center; gap: 6px; }
+.an-grundplan .gp-tag-comment { display: inline-flex; width: 18px; height: 18px; margin-left: auto; padding-left: 3px; box-sizing: content-box; color: #19343d; cursor: pointer; flex: none; }
+.an-grundplan .gp-tag-comment:focus-visible { outline: 2px solid var(--gp-accent); outline-offset: 2px; border-radius: 3px; }
+.an-grundplan .gp-tag-comment svg { width: 100%; height: 100%; }
 .an-grundplan .gp-tag-insulation { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 400; color: var(--gp-muted); }
 .an-grundplan .gp-tag-insulation svg { display: block; flex-shrink: 0; width: 22px; height: 13px; color: #244951; }
 .an-grundplan .gp-governing { font-size: 10px; }
@@ -146,6 +149,10 @@
 .an-grundplan .gp-colour-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .an-grundplan .gp-colour-chip input[type="color"] { width: 28px; height: 24px; padding: 1px; border: 1px solid #b9cdd1; border-radius: 4px; cursor: pointer; background: white; }
 .an-grundplan .gp-colour-legend { width: 300px; padding: 12px 14px; background: white; border: 1px solid #9fbbbf; border-radius: 8px; box-shadow: 0 3px 12px #18333b24; }
+.an-grundplan .gp-insulation-widget { width: 300px; padding: 12px 14px; background: white; border: 1px solid #9fbbbf; border-radius: 8px; box-shadow: 0 3px 12px #18333b24; }
+.an-grundplan .gp-insulation-count { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12px; }
+.an-grundplan .gp-insulation-list-heading { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gp-line); font-size: 11px; font-weight: 600; }
+.an-grundplan .gp-insulation-list { margin-top: 5px; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .an-grundplan .gp-colour-legend-title { margin-top: 5px; font-size: 12px; }
 .an-grundplan .gp-colour-legend-section { display: block; font-size: 11px; margin-top: 10px; color: var(--gp-muted); }
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }
@@ -222,6 +229,7 @@
 .an-grundplan .gp-check-field input { width: 16px; height: 16px; margin: 0; accent-color: var(--gp-accent); }
 .an-grundplan .gp-text-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .an-grundplan .gp-text-field input { text-align: left; }
+.an-grundplan .gp-text-field textarea, .an-grundplan .gp-input-table textarea { width: 100%; resize: vertical; padding: 7px; border: 1px solid #b8c9cd; border-radius: 4px; background: white; font-size: 11px; line-height: 1.4; text-align: left; }
 .an-grundplan .gp-field input:disabled { background: #f2f5f4; color: #829091; }
 .an-grundplan .gp-field-note { font-size: 11px; color: var(--gp-muted); padding: 2px 0 8px; }
 .an-grundplan .gp-checks { padding-bottom: 10px; border-bottom: 1px solid var(--gp-line); }
@@ -260,6 +268,11 @@
 .an-grundplan .gp-input-table .gp-table-sort { width: 100%; padding: 4px 0; border: 0; background: transparent; color: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .an-grundplan .gp-input-table .gp-table-sort:hover { color: var(--gp-accent); background: transparent; }
 .an-grundplan .gp-input-table .gp-table-group { background: #deeee8; font-weight: 700; padding: 8px; border-bottom-color: #b7d1c8; }
+.an-grundplan .gp-input-table .gp-table-fold { width: 100%; border: 0; padding: 0; background: transparent; color: inherit; font-weight: 700; }
+.an-grundplan .gp-input-table .gp-table-group-folded, .an-grundplan .gp-input-table .gp-table-folded-space { min-width: 80px; width: 80px; max-width: 100px; }
+.an-grundplan .gp-input-table .gp-table-group-folded .gp-table-fold { white-space: normal; }
+.an-grundplan .gp-table-sort-arrow { display: block; font-size: 9px; color: var(--gp-muted); line-height: 1; margin-top: 3px; }
+.an-grundplan .gp-input-table textarea { width: 210px; min-height: 46px; }
 .an-grundplan .gp-table-symbol { display: block; font-size: 15px; }
 .an-grundplan .gp-table-unit { display: block; margin-top: 3px; color: var(--gp-muted); font-size: 10px; white-space: nowrap; }
 .an-grundplan .gp-input-table td { background: #fff; }

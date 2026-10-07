@@ -23,6 +23,17 @@ export function createResultModel(snapshot, validateCalibration) {
                  Number.isFinite(message.value) && message.value >= 60 && message.value <= 180) {
         data.state = { ...data.state, label_size: message.value };
         emit("change:state");
+      } else if (message.action === "table_view") {
+        try {
+          const value = {...(data.state.table_view || {collapsed: [], sort: {key: null, direction: "ascending"}}), ...message.settings};
+          const groups = ["lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"];
+          const fields = ["label", "status", ...snapshot.schema.fields.map(field => field.name)];
+          if (Object.keys(value).some(key => !["collapsed", "sort"].includes(key)) || !Array.isArray(value.collapsed)
+              || value.collapsed.some(key => !groups.includes(key)) || new Set(value.collapsed).size !== value.collapsed.length
+              || !value.sort || Object.keys(value.sort).length !== 2 || !["ascending", "descending"].includes(value.sort.direction)
+              || value.sort.key !== null && !fields.includes(value.sort.key)) throw new Error("Ogiltig tabellvy.");
+          data.state = {...data.state, table_view: value}; emit("change:state");
+        } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
       } else if (message.action === "calibration") {
         try {
           data.state = {...data.state, calibration: validateCalibration(message.calibration, data.background)};

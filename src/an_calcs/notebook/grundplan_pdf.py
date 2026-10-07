@@ -149,7 +149,8 @@ def _label(tag, sliding_enabled=False):
     length = values.get("glid_L")
     sliding_block = (sliding_enabled or only_h) and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))
     if (values["lang"] == 1 and isinstance(length, (int, float)) and not isinstance(length, bool)
-            and math.isfinite(length) and length > 0 and not sliding_block):
+            and math.isfinite(length) and length > 0 and not sliding_block
+            and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))):
         text, font, size = lines[1]
         lines[1] = (text + " · L " + _number(length, 6) + " m", font, size)
     return lines, status
@@ -188,6 +189,9 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_
         insulation_text = "Med isolering" if insulated else "Utan isolering"
         heading_width = _text_width(*lines[0])
         header_width = heading_width + 6 + 22 + 5 + pdfmetrics.stringWidth(insulation_text, _REGULAR, 9)
+        has_comment = bool(tag["values"].get("kommentar", "").strip())
+        if has_comment:
+            header_width += 24
         loads = _load_rows(tag["values"])
         load_width = max((38 + _text_width(text, _REGULAR, 10) for _, text in loads), default=0)
         box_width = max(header_width, load_width, *(_text_width(*line) for line in lines[1:])) + 32
@@ -242,6 +246,19 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_
                 canvas.setFont(_REGULAR, 9)
                 canvas.drawString(icon_left + 22 + 5, caption_baseline, insulation_text)
                 canvas.setFillColor(HexColor("#18333b"))
+                if has_comment:
+                    x, y = box_width - 27, -11
+                    canvas.setStrokeColor(HexColor("#19343d"))
+                    canvas.setLineWidth(.9)
+                    path = canvas.beginPath()
+                    path.moveTo(x + 2, y)
+                    path.lineTo(x + 15, y); path.lineTo(x + 15, y - 10)
+                    path.lineTo(x + 6, y - 10); path.lineTo(x + 2, y - 13)
+                    path.lineTo(x + 2, y - 10); path.lineTo(x, y - 10)
+                    path.lineTo(x, y); path.close()
+                    canvas.drawPath(path, stroke=1, fill=0)
+                    for dx in (4, 7.5, 11):
+                        canvas.circle(x + dx, y - 5, .6, stroke=0, fill=1)
             top_of_line -= size * 1.3 + 2
         if loads:
             canvas.setDash()
@@ -377,6 +394,18 @@ def _page_geometry(page):
     return width, height, Transformation(matrices[rotation])
 
 
+def _colour_caption(group):
+    if group.get("label"):
+        return group["label"]
+    if group["kind"] == "geometry":
+        return _number(group["value"], 6) + " m"
+    if group["low"] is None:
+        return "V < " + _number(group["high"], 6)
+    if group["high"] is None:
+        return "V ≥ " + _number(group["low"], 6)
+    return _number(group["low"], 6) + " ≤ V < " + _number(group["high"], 6)
+
+
 def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
     if not settings or not settings["enabled"] or not settings["show_legend"]:
         return
@@ -389,18 +418,15 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
         if settings["category"] == "V" and group["kind"] != previous_kind and group["kind"] in ("pad", "wall"):
             rows.append(("heading", "Väggsulor [kN/m]" if group["kind"] == "wall" else "Pelarsulor [kN]"))
         previous_kind = group["kind"]
-        if group.get("label"):
-            caption = group["label"]
-        elif group["kind"] == "geometry":
-            caption = _number(group["value"], 6) + " m"
-        elif group["low"] is None:
-            caption = "V < " + _number(group["high"], 6)
-        elif group["high"] is None:
-            caption = "V ≥ " + _number(group["low"], 6)
+        if group["kind"] == "combination":
+            caption = [({"t": "t ", "b": "bₓ ", "l": "bᵧ "}.get(category, "") + _colour_caption(part)
+                        + (" " + part["unit"] if part["kind"] in ("pad", "wall") else ""))
+                       for category, part in zip(group["categories"], group["parts"])]
         else:
-            caption = _number(group["low"], 6) + " ≤ V < " + _number(group["high"], 6)
+            caption = [_colour_caption(group)]
         rows.append(("group", (caption, group)))
-    box_width, box_height = 300, 76 + len(rows) * 28
+    combined = bool(settings.get("secondary"))
+    box_width, box_height = 300, 76 + (15 if combined else 0) + sum(28 if kind == "heading" else 28 + 14 * (len(data[0]) - 1) for kind, data in rows)
     legend = settings["legend"]
     scale = min(min(width / preview_size[0], height / preview_size[1]) * legend["size"] / 300,
                 width / box_width, height / box_height)
@@ -417,8 +443,15 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
     _draw_text(canvas, 14, -25, "Färggruppering", _BOLD, 15)
     caption = ("Isolering och glidmotstånd" if settings["category"] == "isolering" else
                CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V" else " [m]"))
+    if combined:
+        caption = CATEGORIES[settings["category"]]
     _draw_text(canvas, 14, -44, caption, _REGULAR, 12)
-    y = -66
+    if combined:
+        subtitle = "+ " + CATEGORIES[settings["secondary"]]
+        if "V" in (settings["category"], settings["secondary"]):
+            subtitle += " · " + PHASES[settings["phase"]]
+        _draw_text(canvas, 14, -59, subtitle, _REGULAR, 12)
+    y = -66 - (15 if combined else 0)
     for kind, data in rows:
         if kind == "heading":
             canvas.setFillColor(HexColor("#58717a"))
@@ -430,18 +463,58 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
             canvas.roundRect(14, y - 14, 26, 21, 3, stroke=1, fill=1)
             canvas.setFillColor(HexColor("#19343d"))
             # Keep long decimal interval labels inside the legend.
-            size = min(12, 12 * 214 / max(214, _text_width(caption, _REGULAR, 12)))
-            _draw_text(canvas, 48, y - 7, caption, _REGULAR, size)
+            for i, line in enumerate(caption):
+                size = min(12, 12 * 214 / max(214, _text_width(line, _REGULAR, 12)))
+                _draw_text(canvas, 48, y - 7 - 14 * i, line, _REGULAR, size)
             canvas.setFillColor(HexColor("#58717a"))
             canvas.setFont(_REGULAR, 11)
             canvas.drawRightString(286, y - 7, str(group["count"]))
-        y -= 28
+        y -= 28 + (14 * (len(caption) - 1) if kind != "heading" else 0)
     canvas.setFillColor(HexColor("#58717a"))
     _draw_text(canvas, 14, -box_height + 12, "Antal sulor visas till höger.", _REGULAR, 10)
     canvas.restoreState()
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None):
+def _draw_insulation_widget(canvas, width, height, preview_size, settings, tags):
+    if not settings or not settings["enabled"]:
+        return
+    _fonts()
+    uninsulated = [tag for tag in tags if tag["values"].get("endast_h_stabilitet") or not tag["values"].get("isolering")]
+    labels = sorted((" ".join(tag["label"].split()) for tag in uninsulated),
+                    key=lambda text: tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                                           for part in re.split(r"(\d+)", text)))
+    text = ", ".join(labels) or "Inga sulor"
+    lines, line = [], ""
+    # Wrap long support IDs as well as lists of ordinary littera.
+    for word in text.split():
+        if line and _text_width(line + " " + word, _REGULAR, 11) > 272:
+            lines.append(line); line = ""
+        for character in (" " if line else "") + word:
+            if _text_width(line + character, _REGULAR, 11) > 272:
+                lines.append(line); line = ""
+            line += character
+    if line:
+        lines.append(line)
+    box_width, box_height = 300, 112 + 16 * len(lines)
+    scale = min(min(width / preview_size[0], height / preview_size[1]) * settings["size"] / 300,
+                width / box_width, height / box_height)
+    left = min(settings["x"] * width, max(0, width - box_width * scale))
+    top = min(settings["y"] * height, max(0, height - box_height * scale))
+    canvas.saveState(); canvas.translate(left, height - top); canvas.scale(scale, scale)
+    canvas.setFillColor(HexColor("#ffffff")); canvas.setStrokeColor(HexColor("#9fbbbf")); canvas.setLineWidth(1)
+    canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
+    canvas.setFillColor(HexColor("#19343d")); _draw_text(canvas, 14, -25, "Isolering", _BOLD, 15)
+    for y, caption, count in ((-49, "Med isolering", len(tags) - len(uninsulated)), (-71, "Utan isolering", len(uninsulated))):
+        _draw_text(canvas, 14, y, caption, _REGULAR, 12)
+        canvas.setFont(_BOLD, 12); canvas.drawRightString(286, y, str(count))
+    canvas.setStrokeColor(HexColor("#d4e0e1")); canvas.line(14, -82, 286, -82)
+    _draw_text(canvas, 14, -101, "Föreskrivna utan isolering", _BOLD, 11)
+    for i, line in enumerate(lines):
+        _draw_text(canvas, 14, -119 - i * 16, line, _REGULAR, 11)
+    canvas.restoreState()
+
+
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None):
     """Return the selected drawing page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -455,7 +528,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         if isinstance(page_number, bool) or not isinstance(page_number, int) or not 1 <= page_number <= len(reader.pages):
             raise ValueError("Ritningssidan finns inte i PDF-filen.")
         page = writer.add_page(reader.pages[page_number - 1])
-        if tags or settings["enabled"] or coloured is not None:
+        if tags or settings["enabled"] or coloured is not None or insulation_widget and insulation_widget["enabled"]:
             with pdfium.PdfDocument(source) as document:
                 width, height, transform = _page_geometry(page)
                 preview_page = document[page_number - 1]
@@ -471,6 +544,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                 _draw_labels(canvas, width, height, preview_size, tags, label_size, settings["enabled"], coloured and coloured["assignments"])
                 _draw_project_overlays(canvas, width, height, preview_size, page_number, settings, results)
                 _draw_colour_legend(canvas, width, height, preview_size, colour_grouping, coloured["groups"] if coloured else [])
+                _draw_insulation_widget(canvas, width, height, preview_size, insulation_widget, tags)
                 canvas.showPage()
                 canvas.save()
                 page.merge_transformed_page(PdfReader(overlay).pages[0], transform, over=True, expand=False)
@@ -492,6 +566,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         _draw_labels(canvas, width, height, preview.size, tags, label_size, settings["enabled"], coloured and coloured["assignments"])
         _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
         _draw_colour_legend(canvas, width, height, preview.size, colour_grouping, coloured["groups"] if coloured else [])
+        _draw_insulation_widget(canvas, width, height, preview.size, insulation_widget, tags)
         canvas.showPage()
         canvas.save()
         writer.add_page(PdfReader(stream).pages[0])

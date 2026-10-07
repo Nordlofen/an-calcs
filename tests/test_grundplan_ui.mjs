@@ -33,6 +33,11 @@ class Element {
   }
   set value(value) { this._value = String(value); }
   get value() { return this._value; }
+  set type(value) {
+    if (this.tag === "textarea") throw new TypeError("HTMLTextAreaElement.type is read-only");
+    this._type = value;
+  }
+  get type() { return this.tag === "textarea" ? "textarea" : this._type; }
   append(...children) {
     for (const child of children) {
       if (child.parent) child.parent.children = child.parent.children.filter(item => item !== child);
@@ -110,7 +115,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("l_override", "endast_h_stabilitet");
+names.push("l_override", "endast_h_stabilitet", "kommentar");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
@@ -124,13 +129,13 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
   const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
-  Object.assign(tag.values, {isolering: false, isolerprodukt: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
+  Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
-    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, type: name === "isolerprodukt" ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar", type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -634,7 +639,7 @@ const selectedIds = ui => ui.elements().filter(e => e.dataset.tagId && e.classNa
 const tableField = (ui, id, name) => ui.find(e => e.name === "table_" + name && e.dataset.tagId === id);
 const tableOrder = ui => ui.byClass("gp-input-table").children[1].children.map(row => row.dataset.tagId);
 const tableSortButton = (ui, key) => ui.find(e => e.getAttribute("aria-label") ===
-  "Sortera efter " + (key === "label" ? "littera" : "status och utnyttjandegrad"));
+  "Sortera efter " + (key === "label" ? "littera" : key === "status" ? "status och utnyttjandegrad" : key));
 const selectTableRow = (ui, label, checked = true, options = {}) => {
   const control = ui.find(e => e.getAttribute("aria-label") === "Markera " + label + " i tabellen");
   control.checked = checked; control.dispatch("click", options); control.dispatch("change"); return control;
@@ -670,7 +675,7 @@ for (const readOnly of [false, true]) test(`soil and coefficients share one inpu
     assert.equal(caption.closest("details"), section);
     assert.ok(ui.elements().some(e => e.tag === "th" && e.getAttribute("aria-label") === label + ": " + name));
   }
-  const header = ui.find(e => e.className === "gp-table-group" && e.textContent === label);
+  const header = ui.find(e => e.className === "gp-table-group" && e.children[0]?.textContent === "▾ " + label);
   assert.equal(header.getAttribute("colspan"), "12");
   assert.equal(ui.elements().some(e => ["Jord och grundvatten", "Koefficienter"].includes(e.textContent)), false);
   assert.deepEqual(ui.tag, original);
@@ -1486,11 +1491,11 @@ for (const readOnly of [false, true]) test(`H_Rd displays at most one decimal wi
   assert.equal(ui.tag.sliding.x, 1240.704);
 });
 
-for (const readOnly of [false, true]) test(`wall length is visible before choosing sliding directions (readOnly=${readOnly})`, t => {
+for (const readOnly of [false, true]) test(`wall length is editable but hidden on labels without sliding directions (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   slidingFixture(ui);
   ui.tag.values.glid_x = ui.tag.values.glid_y = false; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · L 3 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m");
   assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
   ui.marker().click();
   const row = readOnly ? ui.find(e => e.getAttribute("aria-label") === "glid_L") : ui.field("glid_L").parent;
@@ -1501,7 +1506,7 @@ for (const readOnly of [false, true]) test(`wall length is visible before choosi
     assert.equal(ui.field("glid_L").required, false);
     ui.field("glid_L").value = "6,2"; ui.field("glid_L").dispatch("input");
     assert.equal(ui.sent.at(-1).values.glid_L, 6.2);
-    assert.match(ui.byClass("gp-tag-result").textContent, /L 6,2 m$/);
+    assert.ok(!ui.byClass("gp-tag-result").textContent.includes(" · L "));
     assert.match(ui.marker().className, /gp-tag-ok/, "Length alone does not invalidate bearing");
     ui.field("glid_L").value = ""; ui.field("glid_L").dispatch("input");
     assert.equal(ui.field("glid_L").validity.valid, true, "Unused length may be left empty");
@@ -1522,7 +1527,7 @@ for (const readOnly of [false, true]) test(`length stays on inactive/new wall la
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
   ui.tag.values.isolering = true; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata · L 3 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   ui.tag.values.lang = 0; ui.changed();
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   ui.tag.values.lang = 1;
@@ -2447,7 +2452,7 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
   assert.equal(ui.sent.length, 0);
 });
 
-const defaultColour = {enabled: false, category: "t", phase: "brott", edit_type: "pad", show_legend: true,
+const defaultColour = {enabled: false, category: "t", secondary: null, phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
 function colourFixture(ui, changes = {}) {
   ui.data.state.colour_grouping = {...structuredClone(defaultColour), enabled: true, ...changes};
@@ -2491,7 +2496,10 @@ test("group category and phase buttons recolour labels without changing footing 
   for (const [caption, category] of [["Bredd bₓ", "b"], ["Längd bᵧ", "l"], ["Vertikallast V", "V"]]) {
     const choice = ui.byText(caption); choice.click();
     assert.equal(ui.sent.at(-1).action, "colour_grouping");
-    assert.deepEqual(ui.sent.at(-1).settings, {category});
+    assert.deepEqual(ui.sent.at(-1).settings, {secondary: category});
+    const previous = ui.data.state.colour_grouping.category; accept(ui.sent.at(-1));
+    ui.byText({t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ"}[previous]).click();
+    assert.deepEqual(ui.sent.at(-1).settings, {category, secondary: null});
     assert.equal(choice.getAttribute("aria-pressed"), "true"); accept(ui.sent.at(-1));
     assert.ok(ui.marker().style["--gp-tag-bg"].startsWith("#"));
     assert.ok(ui.marker().className.includes("gp-tag-ok"));
@@ -2557,7 +2565,8 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
   const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t"});
   if (!readOnly) {
     ui.find(e => e.tag === "button" && e.textContent === "Isolering" && e.closest(".gp-colour-controls")).click();
-    assert.deepEqual(ui.sent.at(-1).settings, {category: "isolering"}); accept(ui.sent.at(-1));
+    assert.deepEqual(ui.sent.at(-1).settings, {secondary: "isolering"}); accept(ui.sent.at(-1));
+    ui.byText("Tjocklek t").click(); accept(ui.sent.at(-1));
     assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, true);
   }
   const text = element => element.textContent + element.children.map(text).join("");
@@ -2645,4 +2654,190 @@ test("read-only HTML keeps grouping and legend with no editing commands", t => {
   ui.start(header); ui.move(500, 500); ui.finish(500, 500);
   header.dispatch("keydown", {key: "ArrowLeft"});
   assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, 0);
+});
+
+const tableFold = (ui, label) => ui.find(e => e.getAttribute("aria-label") === "Visa eller dölj " + label);
+for (const readOnly of [false, true]) test(`table groups fold independently, restore saved choices and preserve controls (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  const cell = ui.find(e => e.dataset.field === "b" && e.dataset.tagId === "tag1").parent;
+  const geometry = tableFold(ui, "Geometri"), original = structuredClone(ui.model.get("state").tags);
+  geometry.click();
+  assert.equal(geometry.getAttribute("aria-expanded"), "false");
+  assert.equal(geometry.parent.getAttribute("colspan"), "1");
+  assert.equal(cell.hidden, true);
+  assert.equal(tableSortButton(ui, "label").parent.hidden, false);
+  const comment = ui.find(e => e.dataset.field === "kommentar" && e.dataset.tagId === "tag1");
+  assert.equal(comment.parent.hidden, false);
+  tableFold(ui, "Laster – Brott").click();
+  assert.equal(geometry.getAttribute("aria-expanded"), "false");
+  geometry.click();
+  assert.equal(geometry.getAttribute("aria-expanded"), "true");
+  assert.equal(cell.hidden, false);
+  assert.equal(tableFold(ui, "Laster – Brott").getAttribute("aria-expanded"), "false");
+  if (readOnly) assert.deepEqual(ui.model.get("state").table_view.collapsed, ["F_vy"]);
+  else {
+    const request = ui.sent.at(-1);
+    ui.data.state.table_view = {collapsed: ["F_vy", "kommentar"], sort: {key: "b", direction: "descending"}};
+    ui.changed(); ui.ack(request);
+    assert.equal(comment.parent.hidden, true);
+    assert.equal(tableSortButton(ui, "b").parent.getAttribute("aria-sort"), "descending");
+  }
+  assert.deepEqual(ui.model.get("state").tags, original);
+});
+
+test("all columns sort numerically or by text with natural littera ties and missing values last", t => {
+  const ui = setup(t);
+  const ids = ["tag1", "tag2", "tag3", "tag4"];
+  ui.data.state.tags = [
+    {id: "tag1", label: "VS10", values: {b: .6, kommentar: "B", glid_x: true, glid_mu: .4}},
+    {id: "tag2", label: "VS2", values: {b: .6, kommentar: "A", glid_x: false, glid_mu: .5}},
+    {id: "tag3", label: "VS1", values: {b: 1.4, kommentar: "A", glid_x: false, glid_mu: null}},
+    {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
+  ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
+  ui.changed();
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 2);
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1", "tag4"]);
+  tableSortButton(ui, "kommentar").click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1", "tag4"]);
+  tableSortButton(ui, "kommentar").click();
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag3", "tag2", "tag4"]);
+  tableSortButton(ui, "glid_x").click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag4", "tag1"]);
+  tableSortButton(ui, "glid_mu").click();
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag4", "tag3"]);
+  tableSortButton(ui, "glid_mu").click();
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag2", "tag1", "tag3"]);
+  assert.deepEqual(ui.data.state.tags.map(tag => tag.id), ids);
+});
+
+test("standalone HTML sorting and folding are local and cannot edit comments or input values", t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  ui.model.get("state").tags.push({...structuredClone(ui.tag), id: "tag2", label: "VS2", values: {...ui.tag.values, b: .4}});
+  ui.changed();
+  const before = structuredClone(ui.model.get("state").tags);
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1"]);
+  tableFold(ui, "Geometri").click();
+  assert.deepEqual(ui.model.get("state").table_view, {collapsed: ["lang"], sort: {key: "b", direction: "ascending"}});
+  ui.model.send({action: "update", id: "tag1", values: {kommentar: "Ändrat"}});
+  ui.model.send({action: "table_view", settings: {sort: {key: "unknown", direction: "ascending"}}});
+  assert.equal(ui.model.get("state").table_view.sort.key, "b");
+  assert.deepEqual(ui.model.get("state").tags, before);
+});
+
+for (const readOnly of [false, true]) test(`comment bubble is conditional, opens the comment section and never drags (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  assert.equal(ui.elements().some(e => e.className === "gp-tag-comment"), false);
+  ui.tag.values.kommentar = " \n "; ui.changed();
+  assert.equal(ui.elements().some(e => e.className === "gp-tag-comment"), false);
+  ui.tag.values.kommentar = "Kontrollera entré\nJustera last"; ui.changed();
+  const bubble = ui.byClass("gp-tag-comment");
+  assert.equal(bubble.title, ui.tag.values.kommentar);
+  assert.equal(bubble.children[0].children.filter(e => e.tag === "circle").length, 3);
+  ui.start(bubble); ui.move(700, 650); ui.finish(700, 650);
+  assert.equal(ui.sent.length, 0);
+  bubble.click();
+  const section = inputSection(ui, "Kommentar");
+  assert.equal(section.open, true); assert.equal(section.hidden, false);
+  if (readOnly) {
+    assert.ok(ui.elements().some(e => e.className === "gp-value" && e.textContent === ui.tag.values.kommentar));
+    assert.equal(ui.elements().some(e => e.tag === "textarea"), false);
+  } else {
+    assert.equal(document.activeElement, ui.field("kommentar"));
+    assert.equal(ui.field("kommentar").tag, "textarea");
+    ui.field("kommentar").value = "Ny\nkommentar"; ui.field("kommentar").dispatch("input");
+    assert.equal(ui.sent.at(-1).action, "update"); assert.equal(ui.sent.at(-1).values.kommentar, "Ny\nkommentar");
+    assert.match(ui.marker().className, /gp-tag-ok/);
+  }
+});
+
+test("multiline table comments edit all selected mixed types without invalidating bearing", t => {
+  const ui = setup(t), bulk = bulkFixture(ui); bulk.second.values.lang = 0; ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  const control = tableField(ui, "tag1", "kommentar");
+  assert.equal(control.tag, "textarea"); assert.equal(control.disabled, false);
+  control.focus(); control.value = "Gemensam\nkommentar"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+  assert.deepEqual(ui.sent.at(-1).values, {kommentar: "Gemensam\nkommentar"});
+  let prevented = false;
+  control.dispatch("keydown", {key: "Enter", shiftKey: true, preventDefault() {prevented = true;}});
+  assert.equal(prevented, false); assert.equal(document.activeElement, control);
+  assert.equal(ui.elements().filter(e => e.className === "gp-tag-comment").length, 2);
+  assert.ok(ui.elements().filter(e => e.className.split(" ").includes("gp-tag")).every(e => e.className.includes("gp-tag-ok")));
+});
+
+test("two category buttons produce combination colours and allow deselecting either choice", t => {
+  const ui = setup(t), accept = colourFixture(ui);
+  Object.assign(ui.tag.values, {t: .3, b: .6});
+  ui.data.state.tags.push(...[
+    {id: "tag2", label: "VS2", values: {t: .3, b: .6}},
+    {id: "tag3", label: "VS3", values: {t: .3, b: .8}},
+    {id: "tag4", label: "VS4", values: {t: .4, b: .6}},
+  ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}})));
+  ui.changed(); ui.byText("Bredd bₓ").click(); accept(ui.sent.at(-1));
+  assert.equal(ui.byText("Tjocklek t").getAttribute("aria-pressed"), "true");
+  assert.equal(ui.byText("Bredd bₓ").getAttribute("aria-pressed"), "true");
+  assert.equal(ui.byText("Vertikallast V").disabled, true);
+  const markers = ui.elements().filter(e => e.className.split(" ").includes("gp-tag"));
+  assert.equal(markers[0].dataset.colourGroup, markers[1].dataset.colourGroup);
+  assert.equal(new Set(markers.map(e => e.style["--gp-tag-bg"])).size, 3);
+  assert.equal(ui.elements().filter(e => e.className === "gp-colour-legend-row").length, 3);
+  const input = ui.find(e => e.type === "color"); input.value = "#c8e0d8"; input.dispatch("change"); accept(ui.sent.at(-1));
+  const saved = structuredClone(ui.data.state.colour_grouping);
+  ui.byText("Färggruppering").click(); accept(ui.sent.at(-1));
+  ui.byText("Färggruppering").click(); accept(ui.sent.at(-1));
+  assert.deepEqual(ui.data.state.colour_grouping, saved);
+  ui.byText("Tjocklek t").click(); accept(ui.sent.at(-1));
+  assert.equal(ui.data.state.colour_grouping.category, "b"); assert.equal(ui.data.state.colour_grouping.secondary, null);
+  ui.byText("Vertikallast V").click(); accept(ui.sent.at(-1));
+  assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, false, "V interval controls also work as the second category");
+});
+
+for (const readOnly of [false, true]) test(`insulation widget counts objects and lists only uninsulated littera (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  Object.assign(ui.tag.values, {isolering: true});
+  ui.data.state.tags.push(...[
+    {id: "tag2", label: "VS10", values: {isolering: false}},
+    {id: "tag3", label: "VS2", values: {isolering: false}},
+    {id: "tag4", label: "VS1", values: {isolering: true, endast_h_stabilitet: true}},
+  ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}})));
+  ui.data.state.insulation_widget = {enabled: true, x: .65, y: .55, size: 450}; ui.changed();
+  assert.equal(ui.byClass("gp-insulation-widget").hidden, false);
+  assert.equal(ui.byClass("gp-insulation-widget").style.transform, "scale(1.5)");
+  assert.deepEqual(ui.elements().filter(e => e.className === "gp-insulation-count").map(e => e.children.map(child => child.textContent)),
+    [["Med isolering", "1"], ["Utan isolering", "3"]]);
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "VS1, VS2, VS10");
+  ui.data.state.tags.pop(); ui.changed();
+  assert.equal(ui.byClass("gp-insulation-list").textContent, "VS2, VS10");
+  if (readOnly) assert.equal(ui.byClass("gp-insulation-resize").hidden, true);
+});
+
+test("insulation widget toggle retains placement and drag, resize and cancel leave engineering inputs intact", t => {
+  const ui = setup(t);
+  const accept = request => {
+    const settings = ui.data.state.insulation_widget || {enabled: false, x: .65, y: .55, size: 300};
+    ui.data.state.insulation_widget = {...settings, ...(request.settings || request.position)};
+    ui.changed(); ui.ack(request);
+  };
+  const before = structuredClone(ui.tag);
+  ui.byText("Widget: Isolering").click(); accept(ui.sent.at(-1));
+  const widget = ui.byClass("gp-insulation-widget"), header = widget.children[0], resize = ui.byClass("gp-insulation-resize");
+  assert.equal(widget.hidden, false); assert.equal(ui.byText("Widget: Isolering").getAttribute("aria-pressed"), "true");
+  ui.start(header); ui.move(380, 360); ui.finish(380, 360);
+  let request = ui.sent.at(-1);
+  assert.equal(request.action, "insulation_placement"); near(request.position.x, .75); near(request.position.y, .65); accept(request);
+  assert.equal(resize.hidden, false);
+  widget.clientWidth = 300; widget.clientHeight = 160;
+  ui.start(resize); ui.move(450, 380); ui.finish(450, 380);
+  request = ui.sent.at(-1); near(request.position.size, 450); accept(request);
+  assert.equal(widget.style.transform, "scale(1.5)");
+  ui.start(header); ui.move(400, 400); ui.viewport.dispatch("pointercancel");
+  near(parseFloat(widget.style.left), 75); near(parseFloat(widget.style.top), 65);
+  ui.byText("Widget: Isolering").click(); accept(ui.sent.at(-1)); assert.equal(widget.hidden, true);
+  ui.byText("Widget: Isolering").click(); accept(ui.sent.at(-1));
+  assert.equal(widget.hidden, false); assert.equal(widget.style.transform, "scale(1.5)");
+  assert.deepEqual(ui.tag, before);
 });

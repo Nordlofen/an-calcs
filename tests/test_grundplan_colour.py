@@ -137,6 +137,31 @@ class TestGrundplanColour(unittest.TestCase):
             self.assertEqual(data["assignments"][pad]["low"], low)
             self.assertEqual(data["assignments"][only_h].get("label"), None if phase == "EQU" else "Ej tillämpligt")
 
+    def test_combined_categories_group_only_matching_pairs_and_keep_custom_colours_when_reversed(self):
+        first = self.add(t=.3, b=.6)
+        same = self.add(t=.3, b=.6)
+        wider = self.add(t=.3, b=.8)
+        thicker = self.add(t=.4, b=.6)
+        settings = validate_settings({"category": "t", "secondary": "b"})
+        data = group_data(self.plan.taggar, settings)
+        self.assertEqual(len(data["groups"]), 3)
+        self.assertEqual(data["assignments"][first], data["assignments"][same])
+        self.assertEqual(data["assignments"][first]["count"], 2)
+        self.assertEqual(len({data["assignments"][ident]["color"] for ident in (first, wider, thicker)}), 3)
+        key = data["assignments"][first]["key"]
+        settings["colors"][key] = "#c8e0d8"
+        self.assertEqual(group_data(self.plan.taggar, settings),
+                         group_data(self.plan.taggar, {**settings, "category": "b", "secondary": "t"}))
+        self.plan.farggruppering = {**settings, "enabled": True}
+        path = self.plan.spara(self.folder / "combination.json")
+        restored = Grundplan.oppna(path)
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.farggruppering, self.plan.farggruppering)
+        text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        for caption in ("Tjocklek t", "Bredd b", "t 0,3 m", "0,6 m", "0,8 m"):
+            self.assertIn(caption, text)
+        self.assertIn('"secondary": "b"', self.plan._html_bytes().decode())
+
     def test_toggle_and_save_restore_preserve_settings_without_changing_engineering_results(self):
         self.add(b=.7)
         before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
@@ -157,7 +182,7 @@ class TestGrundplanColour(unittest.TestCase):
 
     def test_invalid_settings_and_import_are_atomic_and_old_projects_default_to_off(self):
         document = self.plan._document()
-        invalid = [{"enabled": 1}, {"category": "phi"}, {"phase": "uls"}, {"edit_type": "all"},
+        invalid = [{"enabled": 1}, {"category": "phi"}, {"secondary": "t"}, {"secondary": "bad"}, {"secondary": []}, {"phase": "uls"}, {"edit_type": "all"},
                    {"bounds": {"wall": []}}, {"bounds": {"pad": [200, 100]}},
                    {"bounds": {"pad": [100, 100]}}, {"bounds": {"pad": [float("nan")]}},
                    {"colors": {"t": "red;display:none"}}, {"colors": {"t": "#abcd"}},
@@ -228,6 +253,9 @@ class TestGrundplanColour(unittest.TestCase):
             self.add(**values)
         cases = [validate_settings({"category": category, "phase": phase})
                  for category in ("t", "b", "l", "V", "isolering") for phase in ("brott", "bruk", "EQU")]
+        cases += [validate_settings({"category": a, "secondary": b, "phase": phase})
+                  for a in ("t", "b", "l", "V", "isolering") for b in ("t", "b", "l", "V", "isolering")
+                  if a != b for phase in ("brott", "bruk", "EQU")]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';
 const {colourGroups} = await import('data:text/javascript;base64,' + readFileSync(process.argv[1]).toString('base64'));
