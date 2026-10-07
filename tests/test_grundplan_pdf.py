@@ -107,6 +107,20 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertNotIn("Glidningskontroll", text)
         self.assertNotIn("Glidmotstånd – globalt", text)
 
+    def test_sliding_capacity_rounds_display_to_one_decimal_but_preserves_result_precision(self):
+        plan = self.plan()
+        ident = self.tag(plan, indata={"glid_x": True, "V_Ed_EQU": 215.4, "glid_mu": .9, "glid_L": 6.4})
+        plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 100.123}
+        before = plan._document()
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertEqual(text.count("1 240,7 kN"), 2, "Label and global legend use one decimal")
+        self.assertIn("100,12 kN", text, "The demand keeps its existing precision")
+        self.assertNotIn("1 240,704", text)
+        self.assertEqual(plan._document(), before)
+        tag = next(tag for tag in plan.taggar if tag["id"] == ident)
+        self.assertAlmostEqual(tag["sliding"]["x"], 1240.704)
+        self.assertAlmostEqual(plan.glidningsresultat["x"]["H_Rd"], 1240.704)
+
     def render(self, data, page=0, scale=2):
         with pdfium.PdfDocument(data) as document:
             pdf_page = document[page]

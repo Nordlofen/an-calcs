@@ -1426,6 +1426,7 @@ test("sliding toggle and directional demands preserve settings while hidden", t 
 for (const readOnly of [false, true]) test(`compact sliding labels exclude insulation and pad length (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   slidingFixture(ui);
+  colourFixture(ui, {category: "isolering"});
   assert.equal(ui.byClass("gp-tag-sliding-inputs").children.length, 4, "Strip has V and L");
   assert.equal(ui.byClass("gp-tag-sliding-capacities").children.length, 4, "Both selected capacities");
   ui.byText("120 kN/m"); ui.byText("144 kN");
@@ -1462,6 +1463,27 @@ test("gliding inputs follow footing type and edits hide old resistance without i
   ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("glid_x").disabled, true);
   assert.equal(ui.field("V_Ed_EQU").parent.hidden, true);
+});
+
+for (const readOnly of [false, true]) test(`H_Rd displays at most one decimal without rounding stored capacities (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  slidingFixture(ui);
+  ui.model.get("state").tags = ui.data.state.tags;
+  Object.assign(ui.tag.sliding, {x: 1240.704, y: 149.949});
+  Object.assign(ui.data.state.sliding_result.x, {H_Rd: 1240.704, H_Ed: 100.123});
+  ui.data.state.sliding_result.y.H_Rd = 149.949;
+  ui.changed();
+  const before = structuredClone(ui.model.get("state"));
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "1\u00a0240,7 kN");
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[3].textContent, "149,9 kN");
+  assert.deepEqual(ui.elements().filter(e => e.className === "gp-sliding-value").map(e => e.textContent),
+    ["100,12 kN", "1\u00a0240,7 kN", "180 kN", "149,9 kN"]);
+  assert.deepEqual(ui.model.get("state"), before);
+  ui.tag.values.endast_h_stabilitet = true;
+  ui.tag.summary = structuredClone(onlyHSummary);
+  ui.changed(); ui.marker().click();
+  assert.ok(ui.elements().some(e => e.tag === "dd" && e.textContent === "1\u00a0240,7 kN"));
+  assert.equal(ui.tag.sliding.x, 1240.704);
 });
 
 for (const readOnly of [false, true]) test(`wall length is visible before choosing sliding directions (readOnly=${readOnly})`, t => {
@@ -2520,29 +2542,56 @@ test("custom colours and legend checkbox persist while status remains unchanged"
   assert.deepEqual(ui.tag, before);
 });
 
-for (const readOnly of [false, true]) test(`insulation colours separate insulated and uninsulated footings including H-only (readOnly=${readOnly})`, t => {
+for (const readOnly of [false, true]) test(`five insulation colours follow selected global directions including H-only (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly, standalone: readOnly});
-  ui.tag.values.isolering = true;
-  const pad = {...structuredClone(ui.tag), id: "pad", label: "PS1", values: {...ui.tag.values, lang: 0, isolering: false}};
-  const onlyH = {...structuredClone(ui.tag), id: "horizontal", label: "H1", values: {...ui.tag.values, endast_h_stabilitet: true}};
-  ui.data.state.tags.push(pad, onlyH); ui.model.get("state").tags = ui.data.state.tags;
+  Object.assign(ui.tag.values, {isolering: true, glid_x: true, glid_y: true});
+  const footings = [
+    ["pad", {lang: 0, isolering: false, glid_x: false, glid_y: false}],
+    ["x", {isolering: false, glid_x: true, glid_y: false, glid_mu: null}],
+    ["y", {lang: 0, isolering: false, glid_x: false, glid_y: true, V_Ed_EQU: 0}],
+    ["xy", {isolering: false}],
+    ["horizontal", {endast_h_stabilitet: true, glid_x: false}],
+  ].map(([id, values]) => ({...structuredClone(ui.tag), id, label: id, values: {...ui.tag.values, ...values}}));
+  ui.data.state.tags.push(...footings); ui.model.get("state").tags = ui.data.state.tags;
+  const before = structuredClone(ui.data.state.tags);
   const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t"});
   if (!readOnly) {
     ui.find(e => e.tag === "button" && e.textContent === "Isolering" && e.closest(".gp-colour-controls")).click();
     assert.deepEqual(ui.sent.at(-1).settings, {category: "isolering"}); accept(ui.sent.at(-1));
     assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, true);
   }
+  const text = element => element.textContent + element.children.map(text).join("");
   const rows = () => ui.elements().filter(e => e.className === "gp-colour-legend-row")
-    .map(row => row.children.slice(1).map(child => child.textContent));
-  assert.deepEqual(rows(), [["Med isolering", "1"], ["Utan isolering", "2"]]);
-  assert.equal(ui.byClass("gp-colour-legend-title").textContent, "Isolering");
+    .map(row => row.children.slice(1).map(text));
+  const captions = ["Med isolering · inget bidrag", "Utan isolering · inget bidrag", "Utan isolering · bidrag i Xg",
+    "Utan isolering · bidrag i Yg", "Utan isolering · bidrag i Xg och Yg"];
+  const counts = values => captions.map((caption, i) => [caption, String(values[i])]);
+  assert.deepEqual(rows(), counts([1, 1, 1, 2, 1]));
+  assert.equal(ui.byClass("gp-colour-legend-title").textContent, "Isolering och glidmotstånd");
+  assert.equal(ui.elements().filter(e => e.tag === "sub" && e.closest(".gp-colour-legend")).length, 4);
   const marker = id => ui.find(e => e.className.split(" ").includes("gp-tag") && e.dataset.tagId === id);
-  assert.notEqual(marker("tag1").style["--gp-tag-bg"], marker("pad").style["--gp-tag-bg"]);
-  assert.equal(marker("pad").style["--gp-tag-bg"], marker("horizontal").style["--gp-tag-bg"]);
+  assert.equal(new Set(["tag1", "pad", "x", "y", "xy"].map(id => marker(id).style["--gp-tag-bg"])).size, 5);
+  assert.equal(marker("y").style["--gp-tag-bg"], marker("horizontal").style["--gp-tag-bg"]);
+  for (const [id, suffix] of [["tag1", "1"], ["pad", "0"], ["x", "x"], ["y", "y"], ["xy", "xy"], ["horizontal", "y"]]) {
+    assert.equal(marker(id).dataset.colourGroup, "isolering:" + suffix);
+    assert.ok(marker(id).className.includes(id === "horizontal" ? "gp-tag-horizontal" : "gp-tag-ok"),
+      "Grouping keeps the calculation status");
+  }
+  assert.deepEqual(ui.data.state.tags, before, "Colour grouping leaves inputs and results unchanged");
   ui.tag.values.isolering = false; ui.changed();
-  assert.deepEqual(rows(), [["Med isolering", "0"], ["Utan isolering", "3"]]);
-  assert.equal(marker("tag1").style["--gp-tag-bg"], marker("pad").style["--gp-tag-bg"]);
+  assert.deepEqual(rows(), counts([0, 1, 1, 2, 2]));
+  assert.equal(marker("tag1").style["--gp-tag-bg"], marker("xy").style["--gp-tag-bg"]);
+  ui.tag.values.glid_y = false; ui.changed();
+  assert.deepEqual(rows(), counts([0, 1, 2, 2, 1]));
+  assert.equal(marker("tag1").style["--gp-tag-bg"], marker("x").style["--gp-tag-bg"]);
   if (readOnly) assert.equal(ui.sent.length, 0);
+  else {
+    const picker = ui.find(e => e.type === "color" && e.getAttribute("aria-label") === "Färg för Utan isolering · bidrag i X_g och Y_g");
+    picker.value = "#c8e0d8"; picker.dispatch("change"); accept(ui.sent.at(-1));
+    assert.deepEqual(ui.sent.at(-1).settings, {colors: {"isolering:xy": "#c8e0d8"}});
+    assert.equal(marker("xy").style["--gp-tag-bg"], "#c8e0d8");
+    assert.equal(marker("x").style["--gp-tag-bg"], "#ffdfba");
+  }
 });
 
 test("colour legend moves, scales with corner and zoom, cancels drags and supports keyboard", t => {

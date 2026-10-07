@@ -349,10 +349,28 @@ för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
 kontrollstatus; färggrupperingen ändrar inga laster eller beräkningar.
 
-**Isolering** visar två grupper: **Med isolering** och **Utan isolering**.
-Varje grupp har ett eget färgval och antal sulor i legenden. Både vägg- och
-pelarsulor ingår; sulor med **Endast H-stabilitet** hör till **Utan isolering**.
+**Isolering** visar fem grupper i legenden **Isolering och glidmotstånd**:
+
+- **Med isolering · inget bidrag**
+- **Utan isolering · inget bidrag**
+- **Utan isolering · bidrag i X_g**
+- **Utan isolering · bidrag i Y_g**
+- **Utan isolering · bidrag i X_g och Y_g**
+
+Grupperna följer sulans valda bidragsriktningar under **Glidning**, även när
+den globala glidningskontrollen är avstängd. De anger valda riktningar,
+inte att bärförmågan är färdigberäknad eller större än noll. Isolerade sulor
+hör alltid till första gruppen, oavsett sparade riktningsval. Både vägg- och
+pelarsulor ingår; **Endast H-stabilitet** grupperas som utan isolering med
+sina valda riktningar. X_g och Y_g kontrolleras som separata lastfall.
+Varje grupp har ett eget färgval och antal sulor; även tomma grupper visas.
 Färgvalen sparas och exporteras på samma sätt som övriga färgkategorier.
+Äldre färgval för med isolering och utan isolering behålls för första
+respektive andra gruppen. Etiketternas befintliga glidmotståndsblock behålls:
+utan isolering visas valda H_Rd-bidrag, V_Ed,EQU och väggsulans L när
+glidningskontrollen är aktiv. Isolerade sulor får inget extra glidblock.
+H_Rd visas med högst en decimal i etiketter, glidningslegend och export;
+beräkningar och sparade resultat behåller full precision.
 
 För **Vertikallast V** väljer du **Brott**, **Bruk** eller **EQU**.
 Grupperingen använder angiven last: F_vy, F_vy_bruk respektive V_Ed_EQU,

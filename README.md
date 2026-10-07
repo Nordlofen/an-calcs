@@ -204,7 +204,9 @@ i varje sulas dialog väljer du motståndsriktning och anger vertikallast i EQU
 hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
 
 **Färggruppering** färgar etiketternas bakgrund efter tjocklek, bₓ, bᵧ eller
-vertikallast i Brott/Bruk/EQU. **Isolering** skiljer sulor med och utan isolering.
+vertikallast i Brott/Bruk/EQU. **Isolering** skiljer med isolering (inget bidrag)
+från utan isolering med inget glidbidrag, bidrag i X_g, Y_g eller båda riktningarna.
+Grupperna följer valda bidragsriktningar under **Glidning**.
 Mått grupperas per unikt värde och laster med
 egna intervall, separat för pelarsulor (kN) och väggsulor (kN/m). Klicka på
 en färgruta för att välja färg. **Visa legend** visar en flyttbar och skalbar

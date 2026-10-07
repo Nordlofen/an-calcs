@@ -60,30 +60,53 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(len(data["groups"]), 7)
 
     def test_insulation_groups_both_footing_types_and_h_only_and_survives_export_and_reload(self):
-        insulated = self.add(isolering=True, F_vy_bruk=80, f_d_brott=400, f_d_bruk=200)
+        insulated = self.add(isolering=True, glid_x=True, glid_y=True,
+                             F_vy_bruk=80, f_d_brott=400, f_d_bruk=200)
         uninsulated = self.add(lang=0)
-        only_h = self.add(endast_h_stabilitet=True, isolering=True)
-        before = copy.deepcopy(self.plan.taggar)
+        only_h = self.add(endast_h_stabilitet=True, isolering=True, glid_y=True)
+        x = self.add(glid_x=True, glid_mu=None)
+        y = self.add(lang=0, glid_y=True, V_Ed_EQU=0, glid_mu=.4)
+        xy = self.add(glid_x=True, glid_y=True, V_Ed_EQU=120, glid_mu=.4, glid_L=3)
+        before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
+        colors = {"isolering:1": "#f0d8c8", "isolering:0": "#cce7ff", "isolering:xy": "#d8eedc"}
         self.plan.farggruppering = {"enabled": True, "category": "isolering",
-                                  "colors": {"isolering:1": "#f0d8c8", "isolering:0": "#cce7ff"}}
+                                  "colors": colors, "legend": {"x": .4, "y": .1, "size": 350}}
         data = group_data(self.plan.taggar, self.plan.farggruppering)
         self.assertEqual([(group["label"], group["count"], group["unit"]) for group in data["groups"]],
-                         [("Med isolering", 1, ""), ("Utan isolering", 2, "")])
-        self.assertEqual(data["assignments"][insulated]["key"], "isolering:1")
-        for ident in (uninsulated, only_h):
-            self.assertEqual(data["assignments"][ident]["key"], "isolering:0")
+                         [("Med isolering · inget bidrag", 1, ""), ("Utan isolering · inget bidrag", 1, ""),
+                          ("Utan isolering · bidrag i X_g", 1, ""), ("Utan isolering · bidrag i Y_g", 2, ""),
+                          ("Utan isolering · bidrag i X_g och Y_g", 1, "")])
+        for ident, suffix in ((insulated, "1"), (uninsulated, "0"), (only_h, "y"), (x, "x"), (y, "y"), (xy, "xy")):
+            self.assertEqual(data["assignments"][ident]["key"], "isolering:" + suffix)
+        self.assertEqual([group["color"] for group in data["groups"]],
+                         ["#f0d8c8", "#cce7ff", "#ffdfba", "#e5d8ff", "#d8eedc"])
+        self.assertFalse(self.plan.state["sliding"]["enabled"], "Directions group independently of the global toggle")
         pdf_text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
-        for label in ("Med isolering", "Utan isolering"):
-            self.assertIn(label, pdf_text)
+        for label in ("Isolering och glidmotstånd", *(group["label"].replace("_", "") for group in data["groups"])):
+            self.assertIn(label, pdf_text.replace("\n", ""))
         self.assertNotIn("Isolering [m]", pdf_text)
+        self.assertNotIn("X_g", pdf_text, "Global indices are lowered glyphs in PDF")
+        self.assertNotIn("Y_g", pdf_text)
         self.assertIn('"category": "isolering"', self.plan._html_bytes().decode())
+        expected = self.plan.farggruppering
         self.plan.farggruppering = {"enabled": False}
         restored = Grundplan.oppna(self.plan.spara(self.folder / "isolering.json"))
         self.addCleanup(restored.close)
         restored.farggruppering = {"enabled": True}
-        self.assertEqual(restored.farggruppering["category"], "isolering")
-        self.assertEqual(restored.farggruppering["colors"]["isolering:1"], "#f0d8c8")
-        self.assertEqual(self.plan.taggar, before)
+        self.assertEqual(restored.farggruppering, expected)
+        self.assertEqual(group_data(restored.taggar, restored.farggruppering), data)
+        self.assertEqual((self.plan.taggar, self.plan.resultat), before)
+
+    def test_insulation_legend_keeps_empty_groups_and_isolated_direction_choices_never_contribute(self):
+        for glid_x in (False, True):
+            for glid_y in (False, True):
+                self.add(isolering=True, glid_x=glid_x, glid_y=glid_y)
+        settings = validate_settings({"category": "isolering"})
+        data = group_data(self.plan.taggar, settings)
+        self.assertEqual([group["count"] for group in data["groups"]], [4, 0, 0, 0, 0])
+        self.assertEqual(len({group["color"] for group in data["groups"]}), 5)
+        empty = group_data([], settings)
+        self.assertEqual([group["count"] for group in empty["groups"]], [0] * 5)
 
     def test_load_phase_is_input_action_without_self_weight_and_h_only_uses_equ(self):
         pad = self.add(lang=0, F_vy=150, F_vy_bruk=80, V_Ed_EQU=250)
@@ -179,7 +202,9 @@ class TestGrundplanColour(unittest.TestCase):
     def test_javascript_and_python_assign_identical_groups_and_colours(self):
         for values in ({"b": .6, "t": .25, "F_vy": 100.5, "F_vy_bruk": None, "V_Ed_EQU": 210, "isolering": True},
                        {"lang": 0, "b": 1.8, "l": 2.1, "t": .3, "F_vy": 399.9999},
-                       {"endast_h_stabilitet": True, "V_Ed_EQU": 300}, {"t": None}):
+                       {"endast_h_stabilitet": True, "V_Ed_EQU": 300, "glid_x": True, "glid_y": True},
+                       {"glid_x": True, "glid_mu": None}, {"lang": 0, "glid_y": True, "V_Ed_EQU": 0},
+                       {"isolering": True, "glid_x": True, "glid_y": True}, {"t": None}):
             self.add(**values)
         cases = [validate_settings({"category": category, "phase": phase})
                  for category in ("t", "b", "l", "V", "isolering") for phase in ("brott", "bruk", "EQU")]

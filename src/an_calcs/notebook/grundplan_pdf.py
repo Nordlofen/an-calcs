@@ -53,10 +53,13 @@ def _number(value, digits=2):
 
 
 def _text_parts(text, size):
-    # The bundled font has no Unicode subscript x/y. Draw real lowered glyphs.
-    for part in re.split("([ₓᵧ])", text):
+    # Draw real lowered glyphs for dimensions and global coordinate indices.
+    for part in re.split("([ₓᵧ]|[XY]_g)", text):
         if part in ("ₓ", "ᵧ"):
             yield {"ₓ": "x", "ᵧ": "y"}[part], size * .7, -size * .2
+        elif part in ("X_g", "Y_g"):
+            yield part[0], size, 0
+            yield "g", size * .7, -size * .2
         elif part:
             yield part, size, 0
 
@@ -92,7 +95,7 @@ def _sliding_rows(values):
     left = [("V", "Ed,EQU", value("V_Ed_EQU", "kN/m" if values["lang"] == 1 else "kN"))]
     if values["lang"] == 1:
         left.append(("L", "", value("glid_L", "m")))
-    right = [("H", axis + ",Rd,i", "—" if result[axis] is None else _number(result[axis], 3) + " kN")
+    right = [("H", axis + ",Rd,i", "—" if result[axis] is None else _number(result[axis], 1) + " kN")
              for axis in ("x", "y") if values.get("glid_" + axis)]
     return left, right
 
@@ -332,7 +335,7 @@ def _draw_project_overlays(canvas, width, height, preview_size, page, settings, 
                 canvas.setFillColor(HexColor("#58717a"))
                 _draw_math(canvas, x, y, "H", axis + "," + suffix, 10)
                 canvas.setFillColor(HexColor("#19343d"))
-                _draw_text(canvas, x, y - 18, "—" if r[name] is None else _number(r[name]) + " kN", _BOLD, 10)
+                _draw_text(canvas, x, y - 18, "—" if r[name] is None else _number(r[name], 1 if name == "H_Rd" else 2) + " kN", _BOLD, 10)
             canvas.setFillColor(HexColor(color))
             use = "—" if r["status"] == "incomplete" else "∞" if r["utilization"] is None else _number(r["utilization"] * 100, 1) + " %"
             _draw_text(canvas, 288, y, use, _BOLD, 12)
@@ -410,8 +413,8 @@ def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
     canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
     canvas.setFillColor(HexColor("#19343d"))
     _draw_text(canvas, 14, -25, "Färggruppering", _BOLD, 15)
-    caption = CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V"
-                                                else "" if settings["category"] == "isolering" else " [m]")
+    caption = ("Isolering och glidmotstånd" if settings["category"] == "isolering" else
+               CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V" else " [m]"))
     _draw_text(canvas, 14, -44, caption, _REGULAR, 12)
     y = -66
     for kind, data in rows:

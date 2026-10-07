@@ -5,6 +5,13 @@ const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
   "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
+const COLOUR_INSULATION_GROUPS = [
+  ["1", "Med isolering · inget bidrag", "#cce7ff"],
+  ["0", "Utan isolering · inget bidrag", "#e4e9ed"],
+  ["x", "Utan isolering · bidrag i X_g", "#ffdfba"],
+  ["y", "Utan isolering · bidrag i Y_g", "#e5d8ff"],
+  ["xy", "Utan isolering · bidrag i X_g och Y_g", "#cfeee5"],
+];
 const colourNumberKey = value => {const [m, e] = value.toExponential(12).split("e"); return m + "e" + Number(e);};
 const colourPalette = index => {
   if (index < COLOUR_PALETTE.length) return COLOUR_PALETTE[index];
@@ -19,15 +26,14 @@ const colourBackground = color => {
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const {category, phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
   const finite = value => typeof value === "number" && Number.isFinite(value);
-  const make = (key, data) => {
-    const color = settings.colors[key] || colourPalette(groups.length);
+  const make = (key, data, defaultColor = colourPalette(groups.length)) => {
+    const color = settings.colors[key] || defaultColor;
     const group = {key, color, background: colourBackground(color), count: 0, ...data};
     groups.push(group); return group;
   };
   if (category === "isolering") {
-    for (const insulated of [true, false]) {
-      const key = "isolering:" + Number(insulated);
-      byKey.set(insulated, make(key, {label: insulated ? "Med isolering" : "Utan isolering", kind: "insulation", unit: ""}));
+    for (const [suffix, label, color] of COLOUR_INSULATION_GROUPS) {
+      byKey.set(suffix, make("isolering:" + suffix, {label, kind: "insulation", unit: ""}, color));
     }
   } else if (category === "V") {
     for (const kind of ["pad", "wall"]) {
@@ -50,7 +56,9 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   for (const tag of tags) {
     const values = tag.values;
     if (category === "isolering") {
-      const group = byKey.get(!values.endast_h_stabilitet && values.isolering === true);
+      const insulated = !values.endast_h_stabilitet && values.isolering === true;
+      const direction = (values.glid_x ? "x" : "") + (values.glid_y ? "y" : "");
+      const group = byKey.get(insulated ? "1" : direction || "0");
       group.count++; assignments.set(tag.id, group); continue;
     }
     const na = values.endast_h_stabilitet && (category !== "V" || phase !== "EQU");
@@ -1258,7 +1266,7 @@ function render({ model, el, readOnly = false }) {
     }
     colourHint.textContent = settings.category === "V"
       ? "Pelarsulor och väggsulor har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
-      : settings.category === "isolering" ? "Två grupper: med isolering och utan isolering. Klicka på en färgruta för att välja färg."
+      : settings.category === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
     for (const group of data.groups.filter(group => settings.category !== "V" || group.kind === kind || group.kind === "special")) {
@@ -1266,11 +1274,11 @@ function render({ model, el, readOnly = false }) {
       const input = node("input"); input.type = "color"; input.value = group.color;
       input.setAttribute("aria-label", "Färg för " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : ""));
       input.addEventListener("change", () => setColour({colors: {[group.key]: input.value}}));
-      row.append(input, node("span", "", colourGroupCaption(group))); colourSwatches.append(row);
+      row.append(input, mathText("span", "", colourGroupCaption(group))); colourSwatches.append(row);
     }
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
-      COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase]
-        : settings.category === "isolering" ? "" : " [m]")));
+      settings.category === "isolering" ? "Isolering och glidmotstånd"
+        : COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
     let previousKind = null;
     for (const group of data.groups) {
       if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
@@ -1280,7 +1288,7 @@ function render({ model, el, readOnly = false }) {
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
-      row.append(swatch, node("span", "", colourGroupCaption(group)), node("span", "gp-colour-group-count", String(group.count)));
+      row.append(swatch, mathText("span", "", colourGroupCaption(group)), node("span", "gp-colour-group-count", String(group.count)));
       colourLegendBody.append(row);
     }
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
@@ -1372,7 +1380,7 @@ function render({ model, el, readOnly = false }) {
       for (const [value, suffix] of [[r.H_Ed, "Ed"], [r.H_Rd, "Rd"]]) {
         const cell = node("td");
         cell.append(symbolNode({base: "H", subscript: axis + "," + suffix}),
-          node("span", "gp-sliding-value", waiting || value == null ? "—" : compactNumber(value, 2) + " kN"));
+          node("span", "gp-sliding-value", waiting || value == null ? "—" : compactNumber(value, suffix === "Rd" ? 1 : 2) + " kN"));
         tr.append(cell);
       }
       const use = node("td");
@@ -1606,7 +1614,7 @@ function render({ model, el, readOnly = false }) {
         if (values.lang == 1) add(data, "L", "", value("glid_L", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
-          add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 3) + " kN", true);
+          add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
         }
         grid.append(data, capacities); section.append(grid); marker.append(section);
       }
@@ -2376,7 +2384,7 @@ function render({ model, el, readOnly = false }) {
         for (const axis of ["x", "y"]) if (tag.values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : slidingResult?.[axis];
           list.append(mathText("dt", "", "Glidningsbidrag H_" + axis + ",Rd,i"),
-            node("dd", "", capacity == null ? "—" : compactNumber(capacity, 3) + " kN"));
+            node("dd", "", capacity == null ? "—" : compactNumber(capacity, 1) + " kN"));
         }
         results.append(list);
       }

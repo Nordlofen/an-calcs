@@ -14,6 +14,13 @@ DEFAULT_SETTINGS = {"enabled": False, "category": "t", "phase": "brott", "edit_t
 CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
+INSULATION_GROUPS = [
+    ("1", "Med isolering · inget bidrag", "#cce7ff"),
+    ("0", "Utan isolering · inget bidrag", "#e4e9ed"),
+    ("x", "Utan isolering · bidrag i X_g", "#ffdfba"),
+    ("y", "Utan isolering · bidrag i Y_g", "#e5d8ff"),
+    ("xy", "Utan isolering · bidrag i X_g och Y_g", "#cfeee5"),
+]
 
 
 def _finite(value):
@@ -77,16 +84,16 @@ def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
     category, phase = settings["category"], settings["phase"]
     groups, assignments = [], {}
-    def make(key, **data):
-        color = settings["colors"].get(key, palette_color(len(groups)))
+    def make(key, default_color=None, **data):
+        color = settings["colors"].get(key, default_color or palette_color(len(groups)))
         group = {"key": key, "color": color, "background": background_color(color), "count": 0, **data}
         groups.append(group)
         return group
     by_key = {}
     if category == "isolering":
-        for insulated in (True, False):
-            key = "isolering:" + str(int(insulated))
-            by_key[insulated] = make(key, label="Med isolering" if insulated else "Utan isolering", kind="insulation", unit="")
+        for suffix, label, color in INSULATION_GROUPS:
+            # Keep the original 1/0 keys for saved insulated/no-contribution colours.
+            by_key[suffix] = make("isolering:" + suffix, color, label=label, kind="insulation", unit="")
     elif category == "V":
         for kind in ("pad", "wall"):
             if not any((tag["values"]["lang"] == 1) == (kind == "wall") for tag in tags):
@@ -108,7 +115,9 @@ def group_data(tags, settings):
     for tag in tags:
         values = tag["values"]
         if category == "isolering":
-            group = by_key[not values.get("endast_h_stabilitet") and values.get("isolering") is True]
+            insulated = not values.get("endast_h_stabilitet") and values.get("isolering") is True
+            direction = ("x" if values.get("glid_x") else "") + ("y" if values.get("glid_y") else "")
+            group = by_key["1" if insulated else direction or "0"]
             group["count"] += 1
             assignments[tag["id"]] = group
             continue
