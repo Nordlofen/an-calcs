@@ -761,7 +761,7 @@ test("table littera sorting is natural, reversible and preserves selected object
   const control = tableField(ui, "tag1", "b"), original = structuredClone(ui.data.state.tags);
   assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag3"]);
   const sort = tableSortButton(ui, "label"); sort.click();
-  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1"]);
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3"]);
   assert.equal(sort.parent.getAttribute("aria-sort"), "ascending");
   sort.click();
   assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag3"]);
@@ -771,6 +771,81 @@ test("table littera sorting is natural, reversible and preserves selected object
   assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
   control.value = "0,8"; control.dispatch("input");
   assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"], "Bulk editing still targets object ids after sorting");
+});
+
+function selectedSortFixture(ui) {
+  const labels = ["S.4", "S.10", "S.2", "S.8", "S.1", "S.3"], widths = [1.4, .8, .8, 1.2, .6, 1.8];
+  ui.data.state.tags.splice(0, ui.data.state.tags.length, ...labels.map((label, i) => ({...structuredClone(ui.tag), id: "tag" + (i + 1), label,
+    values: {...ui.tag.values, b: widths[i]}})));
+  ui.changed();
+  tableSortButton(ui, "label").click();
+  assert.deepEqual(tableOrder(ui), ["tag5", "tag3", "tag6", "tag1", "tag4", "tag2"]);
+}
+
+for (const readOnly of [false, true]) test(`selected rows sort at the top with littera ties and preserve the remaining display order (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly}); selectedSortFixture(ui);
+  selectTableRow(ui, "S.10"); selectTableRow(ui, "S.2"); selectTableRow(ui, "S.8");
+  const original = structuredClone(ui.data.state.tags);
+  const cells = ui.elements().filter(e => e.dataset.field && e.dataset.tagId);
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag4", "tag5", "tag6", "tag1"]);
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag3", "tag2", "tag5", "tag6", "tag1"]);
+  assert.deepEqual(selectedIds(ui), ["tag2", "tag3", "tag4"]);
+  assert.deepEqual(ui.data.state.tags, original, "Sorting keeps model order, inputs, results and coordinates");
+  assert.ok(cells.every(cell => ui.elements().includes(cell)), "Sorting reuses the existing cells");
+  ui.data.state.tags[4].values.b = 4; ui.data.state.tags[5].values.b = .1; ui.changed();
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag3", "tag2", "tag5", "tag6", "tag1"], "Unselected data updates do not reorder the remaining rows");
+  ui.data.state.tags.push({...structuredClone(ui.tag), id: "tag7", label: "S.0", values: {...ui.tag.values, b: .2}});
+  ui.changed();
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag3", "tag2", "tag5", "tag6", "tag1", "tag7"], "New objects join the unchanged rows at the end");
+  ui.data.state.tags.splice(ui.data.state.tags.findIndex(tag => tag.id === "tag3"), 1); ui.changed();
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag2", "tag5", "tag6", "tag1", "tag7"], "Deleted objects cannot leave stale table rows");
+});
+
+for (const readOnly of [false, true]) test(`selection changes wait for a header click before regrouping or returning to global sorting (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly}); selectedSortFixture(ui);
+  const order = tableOrder(ui);
+  selectTableRow(ui, "S.10"); selectTableRow(ui, "S.8");
+  ui.changed(); ui.byClass("gp-table-scroll").dispatch("focusout");
+  tableFold(ui, "Laster – Bruk").click();
+  assert.deepEqual(tableOrder(ui), order, "Selection and ordinary redraws cannot move rows before sorting");
+  tableSortButton(ui, "b").click();
+  const sorted = ["tag2", "tag4", "tag5", "tag3", "tag6", "tag1"];
+  assert.deepEqual(tableOrder(ui), sorted);
+  selectTableRow(ui, "S.10", false); selectTableRow(ui, "S.4");
+  ui.changed(); ui.byClass("gp-table-scroll").dispatch("focusout");
+  tableFold(ui, "Laster – Brott").click();
+  assert.deepEqual(tableOrder(ui), sorted, "A changed selection retains the last displayed order until the next sort click");
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag4", "tag2", "tag5", "tag3", "tag6"], "The next click captures the current selection");
+  ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"}); ui.changed();
+  assert.deepEqual(selectedIds(ui), []);
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag4", "tag2", "tag5", "tag3", "tag6"], "Clearing the selection does not move rows");
+  tableSortButton(ui, "label").click();
+  assert.deepEqual(tableOrder(ui), order, "A header click without selection sorts the entire table");
+});
+
+test("drawing selection scopes table sorting and selected edits retain focus until editing ends", t => {
+  const ui = setup(t); selectedSortFixture(ui);
+  for (const id of ["tag1", "tag2"]) ui.find(e => e.dataset.tagId === id && e.className.includes("gp-tag"))
+    .dispatch("click", {shiftKey: true});
+  tableSortButton(ui, "b").click();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag5", "tag3", "tag6", "tag4"]);
+  const label = tableField(ui, "tag2", "label"); label.focus(); label.value = "S.20"; label.dispatch("input");
+  const request = ui.sent.at(-1);
+  ui.data.state.tags[1].label = "S.20"; ui.changed(); ui.ack(request);
+  assert.equal(document.activeElement, label); assert.equal(label.value, "S.20");
+  const width = tableField(ui, "tag2", "b"); width.focus(); width.value = "1,6"; width.dispatch("input");
+  const bulkRequest = ui.sent.at(-1);
+  assert.deepEqual(bulkRequest.ids, ["tag1", "tag2"]);
+  for (const tag of ui.data.state.tags.slice(0, 2)) tag.values.b = 1.6;
+  ui.changed(); ui.ack(bulkRequest, {report: {updated: 2, calculated: 2, errors: []}});
+  assert.equal(document.activeElement, width); assert.equal(tableField(ui, "tag2", "b"), width);
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag5", "tag3", "tag6", "tag4"]);
+  document.activeElement = null; ui.byClass("gp-table-scroll").dispatch("focusout");
+  assert.deepEqual(tableOrder(ui), ["tag1", "tag2", "tag5", "tag3", "tag6", "tag4"]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
 });
 
 test("table status sorting uses numeric utilization and prioritizes errors", t => {
@@ -1396,7 +1471,7 @@ test("standalone sorted checkbox ranges synchronize with labels and never edit o
   selectTableRow(ui, "S.1"); selectTableRow(ui, "S.10", true, {shiftKey: true});
   assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3"]);
   selectTableRow(ui, "S.2", false, {shiftKey: true}); assert.deepEqual(selectedIds(ui), ["tag1"]);
-  tableSortButton(ui, "status").click(); assert.equal(tableOrder(ui)[0], "tag3");
+  tableSortButton(ui, "status").click(); assert.deepEqual(tableOrder(ui), ["tag1", "tag3", "tag2"]);
   assert.deepEqual(selectedIds(ui), ["tag1"]);
   const all = ui.find(e => e.getAttribute("aria-label") === "Markera samtliga tabellrader");
   all.checked = true; all.dispatch("change"); assert.deepEqual(selectedIds(ui), ["tag1", "tag2", "tag3"]);

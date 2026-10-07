@@ -218,6 +218,8 @@ rubrik vänder ordningen; pilen visar riktningen. Sorteringen ändrar endast
 tabellens visning. Markeringar och indata hör fortfarande till samma sulor.
 Rader flyttas först när fokus lämnar tabellraderna efter cellredigering.
 
+Om sulor är markerade när du klickar på en sorteringsrubrik sorteras **bara de markerade raderna** och samlas överst. Övriga rader ligger under och behåller sin inbördes ordning. Själva markeringen flyttar inga rader; nästa rubrikklick använder den då aktuella markeringen. Utan markering sorteras hela tabellen. Detta gäller även i HTML-resultatvyn.
+
 Klicka på en huvudkategori, exempelvis **Geometri** eller **Laster – Brott**, för att fälla ihop dess kolumner. Den smala gruppfliken finns kvar för att visa dem igen. Littera och Status / U är alltid synliga. Fällning och sortering sparas med projektet och används vid HTML-export.
 
 Markeringar i ritningen och tabellen följs åt. Välj rader med kryssrutorna,

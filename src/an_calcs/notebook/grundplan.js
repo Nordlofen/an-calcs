@@ -363,6 +363,7 @@ function render({ model, el, readOnly = false }) {
       deleteBusy = false;
       if (reply.ok) {
         selected.clear(); tableAnchor = null; bulkIds = []; bulkSignature = ""; formId = null;
+        tableSortScope = null;
         tableFeedback.replaceChildren();
         dirty.clear(); drafts.clear(); edits.clear(); slidingDirty.clear();
         positions.clear(); pendingPositions.clear(); sectionStates.clear(); sketchStates.clear(); areaPhases.clear();
@@ -1034,12 +1035,14 @@ function render({ model, el, readOnly = false }) {
   let tableViewDraft = null;
   const tableView = () => tableViewDraft || state().table_view || {collapsed: [], sort: {key: null, direction: "ascending"}};
   let tableSort = tableView().sort;
+  // Capture the sort scope only on a header click; selecting a range must not move its rows.
+  let tableSortScope = null;
   tableScroll.addEventListener("focusout", () => requestAnimationFrame(() => {if (!disposed) sortTableRows();}));
   inputTable.append(tableHead, tableBody); tableScroll.append(inputTable);
   tableSection.append(tableHeader,
     node("p", "gp-field-note", readOnly
-      ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."
-      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Väggsulors laster anges per meter; pelarsulors laster är totala."),
+      ? "Värdena är låsta i denna resultatvy. Markeringar följs åt mellan ritning och tabell. Klicka på en grupp för att fälla ihop eller visa den, och på en kolumnrubrik för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."
+      : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader. Littera och fundamenttyp ändras individuellt. Markering i ritningen och tabellen följs åt. Klicka på grupper för att fälla ihop eller visa dem, och på kolumnrubriker för att sortera. Med markering sorteras bara markerade rader och samlas överst. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
   const heightHandles = new Map();
   function showLayout() {
@@ -1214,7 +1217,7 @@ function render({ model, el, readOnly = false }) {
           headingDraft = null;
           slidingDraft = null; overlaySelected = null;
           colourDraft = null; colourEditType = null; colourError.textContent = "";
-          tableViewDraft = null; insulationWidgetDraft = null;
+          tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null;
           colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
           inputSections.length = resultSections.length = 0;
@@ -1877,6 +1880,7 @@ function render({ model, el, readOnly = false }) {
     });
   }
   function chooseTableSort(key) {
+    tableSortScope = selected.size ? new Set(selected) : null;
     const sort = {key, direction: tableSort.key === key
       ? tableSort.direction === "ascending" ? "descending" : "ascending"
       : key === "status" ? "descending" : "ascending"};
@@ -2170,7 +2174,8 @@ function render({ model, el, readOnly = false }) {
         : typeof utilization === "number" && Number.isFinite(utilization) ? [0, utilization] : [1, 0];
     };
     const direction = tableSort.direction === "ascending" ? 1 : -1;
-    const tags = [...state().tags].sort((a, b) => {
+    const tags = state().tags;
+    const sorted = (tableSortScope ? tags.filter(tag => tableSortScope.has(tag.id)) : [...tags]).sort((a, b) => {
       if (tableSort.key === "label") return direction * tableCollator.compare(label(a), label(b));
       if (tableSort.key === "status") {
         const [rankA, valueA] = statusKey(a), [rankB, valueB] = statusKey(b);
@@ -2191,7 +2196,9 @@ function render({ model, el, readOnly = false }) {
       const difference = missingA ? 0 : typeof va === "number" ? va - vb : tableCollator.compare(va, vb);
       return direction * difference || tableCollator.compare(label(a), label(b));
     });
-    const rows = tags.map(tag => tableRows.get(tag.id)?.row).filter(Boolean);
+    const rows = sorted.map(tag => tableRows.get(tag.id)?.row).filter(Boolean);
+    // Keep the other rows in their current display order, including newly appended objects.
+    if (tableSortScope) rows.push(...[...tableBody.children].filter(row => !tableSortScope.has(row.dataset.tagId)));
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
