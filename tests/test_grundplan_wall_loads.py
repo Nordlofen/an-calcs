@@ -78,13 +78,90 @@ class TestWallLoads(unittest.TestCase):
         self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 24)
         self.assertEqual(self.plan._tag(ident)["summary"]["load_conversion"]["brott"], 80)
 
-    def test_equal_support_and_reference_lengths_keep_uniform_per_metre_utilization(self):
+    def test_unknown_and_long_supports_use_one_metre_resultant_independent_of_by(self):
         legacy = self.plan.lagg_till(.2, .3, indata={"b": 1, "t": .4, "F_vy": 200, "l": 5})
         explicit = self.plan.kopiera(legacy, .5, .6, indata={"L_vagg": 5})
         old, new = (self.plan._tag(ident)["summary"] for ident in (legacy, explicit))
         self.assertEqual(new["utnyttjandegrad"], old["utnyttjandegrad"])
-        self.assertAlmostEqual(new["last"], (200 + 15) * 5)
-        self.assertAlmostEqual(new["barformaga"], old["barformaga"] * 5)
+        self.assertAlmostEqual(new["last"], 200 + 15 * 5)
+        self.assertEqual(new["barformaga"], old["barformaga"])
+        self.assertEqual(new["load_conversion"]["brott"], 200)
+
+    def test_one_and_five_metre_imports_have_same_local_check_but_different_global_equ(self):
+        self.plan._start_load_import(loads(1), "one.json")
+        one = self.plan.placera_lasteffekt(.2, .3)
+        self.plan.uppdatera(one, indata={"b": 1, "t": .4, "glid_x": True, "glid_mu": .4,
+            "M_insp_b": 10, "M_insp_l": -5, "F_hb": 30, "F_hl": -20})
+        before = copy.deepcopy(self.plan._tag(one)["summary"])
+        self.plan._start_load_import(loads(5), "five.json")
+        v, r = (self.plan._tag(one)[key] for key in ("values", "summary"))
+        self.assertIs(v["L_vagg_minst_1"], True)
+        self.assertEqual((v["L_vagg"], v["glid_L"]), (5, 5))
+        for name in ("last", "barformaga", "utnyttjandegrad", "effective_area"):
+            self.assertEqual(r[name], before[name])
+        self.assertEqual(r["load_conversion"]["brott"], 200)
+        self.assertAlmostEqual(r["last"], 215)
+        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 150 * 5 * .4)
+
+    def test_by_spreads_same_local_resultant_for_short_and_long_supports_in_both_phases(self):
+        ident = self.imported()
+        for length, external in ((.6, 120), (5, 200)):
+            self.plan.uppdatera(ident, indata={"L_vagg": length, "b": 1, "t": .4,
+                "isolering": True, "f_d_brott": 200, "f_d_bruk": 100,
+                "glid_x": True, "glid_mu": .4})
+            for by in (1, 2):
+                self.plan.uppdatera(ident, indata={"l": by})
+                r = self.plan._tag(ident)["summary"]
+                self.assertEqual(r["load_conversion"]["brott"], external)
+                self.assertEqual(r["load_conversion"]["bruk"], external / 2)
+                self.assertAlmostEqual(r["last"], external + 15 * by)
+                self.assertAlmostEqual(r["isolering"]["isolering_q_Ed_brott"], external / by + 15)
+                self.assertAlmostEqual(r["isolering"]["isolering_q_Ed_bruk"], external / 2 / by + 10)
+                self.assertEqual(r["effective_area"]["brott"]["area"], by)
+            self.plan.uppdatera(ident, indata={"isolering": False})
+            self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 150 * length * .4)
+
+    def test_import_threshold_and_checkbox_survive_bulk_copy_and_saved_projects(self):
+        ident = self.imported()
+        self.assertIs(self.plan._tag(ident)["values"]["L_vagg_minst_1"], False)
+        other = self.plan.kopiera(ident, .5, .6, indata={"L_vagg": 5})
+        self.assertIs(self.plan._tag(other)["values"]["L_vagg_minst_1"], True)
+        self.plan.uppdatera_flera([ident, other], indata={"L_vagg_minst_1": True})
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "minimum.json"))
+        self.addCleanup(restored.close)
+        for tag in restored.taggar:
+            self.assertIs(tag["values"]["L_vagg_minst_1"], True)
+            self.assertEqual(tag["summary"]["load_conversion"]["brott"], 200)
+        self.assertEqual(restored._tag(other)["values"]["L_vagg"], 5)
+        restored._start_load_import(loads(.4), "short.json")
+        self.assertIs(restored._tag(ident)["values"]["L_vagg_minst_1"], False)
+        self.assertEqual(restored._tag(ident)["summary"]["load_conversion"]["brott"], 80)
+
+    def test_old_version_ten_projects_infer_local_checkbox_and_recalculate_long_walls(self):
+        for length in (.6, 1, 5):
+            self.plan._start_load_import(loads(length), "loads.json")
+            if not self.plan.taggar:
+                ident = self.plan.placera_lasteffekt(.2, .3)
+            document = self.plan._document()
+            document["version"] = 10
+            del document["tags"][0]["values"]["L_vagg_minst_1"]
+            self.plan._load_document(json.dumps(document).encode())
+            tag = self.plan._tag(ident)
+            self.assertEqual(tag["values"]["L_vagg_minst_1"], length >= 1)
+            self.assertEqual(tag["summary"]["load_conversion"]["brott"], 200 * min(length, 1))
+            self.assertEqual(tag["values"]["L_vagg"], length)
+
+    def test_unchecked_missing_or_long_length_cannot_show_valid_local_result(self):
+        ident = self.imported()
+        for length in (None, 0, -1, 5):
+            self.plan.uppdatera(ident, indata={"L_vagg": length, "L_vagg_minst_1": False})
+            self.assertEqual(self.plan._tag(ident)["status"], "error")
+            self.assertIsNone(self.plan._tag(ident)["summary"])
+        self.plan.uppdatera(ident, indata={"L_vagg_minst_1": True})
+        self.assertEqual(self.plan._tag(ident)["summary"]["load_conversion"]["brott"], 200)
+        for invalid in (1, None, "true"):
+            with self.assertRaises(ValueError):
+                self.plan.uppdatera(ident, indata={"L_vagg_minst_1": invalid})
 
     def test_exports_keep_all_lengths_total_actions_and_support_based_resistance(self):
         ident = self.imported()

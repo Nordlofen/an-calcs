@@ -68,6 +68,7 @@ def read_loads(data, *, existing_labels=(), available=1000):
             # Independent inputs, with the same initial value. The project
             # updater preserves a footing length that was subsequently edited.
             values["glid_L"] = values["L_vagg"]
+            values["L_vagg_minst_1"] = values["L_vagg"] >= 1
         results = support.get("results")
         if not isinstance(results, list) or len(results) != 3:
             raise ValueError(f"{label}: ange en lasteffekt för vardera Brott, Bruk och EQU.")

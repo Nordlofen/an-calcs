@@ -37,7 +37,7 @@ class TestLoadParser(unittest.TestCase):
         before = copy.deepcopy(data)
         items = read_loads(encode(data))
         self.assertEqual(items, [
-            {"label": "W1", "kind": "vaggsula", "values": {"F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2}},
+            {"label": "W1", "kind": "vaggsula", "values": {"F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2, "L_vagg_minst_1": True}},
             {"label": "P1", "kind": "pelarsula", "values": {"F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
         self.assertEqual(data, before)
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
@@ -168,7 +168,7 @@ class TestLoadPlacement(unittest.TestCase):
         data["supports"][0]["results"][2]["V"] = 50
         self.plan._start_load_import(encode(data), "equ.json")
         self.assertNotEqual((self.plan._tag(wall)["summary"], self.plan.resultat), before)
-        self.assertEqual(self.plan._tag(wall)["summary"]["load_conversion"]["brott"], 800)
+        self.assertEqual(self.plan._tag(wall)["summary"]["load_conversion"]["brott"], 80)
         self.assertAlmostEqual(self.plan.glidningsresultat["x"]["H_Rd"], 200)
 
     def test_ambiguous_labels_type_conflict_and_invalid_late_support_do_not_partially_update(self):

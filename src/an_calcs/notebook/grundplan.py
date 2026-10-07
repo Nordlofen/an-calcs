@@ -31,7 +31,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:separate-support-length-v5"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:local-support-length-v6"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -50,6 +50,7 @@ _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fiel
 _EXTRA_FIELDS = [
     {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
     {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
+    {"name": "L_vagg_minst_1", "type": "bool", "label": "Minst 1 m", "unit": "", "default": True},
     {"name": "L_vagg", "type": "number", "label": "Längd linjestöd alt. längd ovanliggande vägg", "unit": "m", "default": None,
      "display_symbol": {"base": "L", "subscript": "vägg"}},
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
@@ -67,7 +68,7 @@ _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascendin
 _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"}
 
 
@@ -81,9 +82,14 @@ def _values(values, *, draft=False):
     if (not isinstance(values, dict) or not set(_NAMES) <= set(values)
             or set(values) - (set(_DEFAULTS) | _REMOVED_FIELDS)):
         raise ValueError("Indata måste innehålla jordberäkningens 24 fält och endast kända tilläggsfält.")
+    # Older projects and direct Python inputs infer the local check from the
+    # full support length. The full length remains available to global sliding.
+    if "L_vagg_minst_1" not in values:
+        length = values.get("L_vagg")
+        values = {**values, "L_vagg_minst_1": length is None or _number(length, "L_vägg") >= 1}
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"}
+    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"}
     for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
@@ -144,6 +150,9 @@ def _updated_values(current, updates):
     values = {**current, **updates}
     if values["lang"] == 1 and "l" in updates and "l_override" not in updates:
         values["l_override"] = updates["l"] != 1
+    if "L_vagg" in updates and "L_vagg_minst_1" not in updates:
+        length = updates["L_vagg"]
+        values["L_vagg_minst_1"] = length is None or _number(length, "L_vägg") >= 1
     return _values(values, draft=True)
 
 
@@ -275,14 +284,17 @@ def _calculate(values):
     # Keep the shared calculation APIs compatible; Grundplan always supplies
     # zero lever arms so its user-entered moments act directly at the footing.
     engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
-    support_length = values["L_vagg"] if values["lang"] == 1 else None
+    support_length = (1.0 if values["L_vagg_minst_1"] else values["L_vagg"]) if values["lang"] == 1 else None
+    if values["lang"] == 1 and support_length is None:
+        raise ValueError("Ange en kort linjestödslängd L_vägg eller aktivera Minst 1 m.")
     if support_length is not None:
-        if support_length <= 0:
-            raise ValueError("Längd linjestöd L_vägg måste vara större än noll.")
+        if not 0 < support_length <= 1:
+            raise ValueError("Ange L_vägg större än noll och högst 1 m, eller aktivera Minst 1 m.")
         if values["l"] <= 0:
             raise ValueError("Sulmått b_y måste vara större än noll.")
-        # The shared strip engines take actions per metre of footing. Convert
-        # support line actions to totals, then to that geometric reference.
+        # Only the local support length determines the external resultant.
+        # b_y spreads that same resultant over the footing contact area; the
+        # division merely adapts it to the shared engines' per-metre API.
         factor = support_length / values["l"]
         for group in LOAD_GROUPS:
             for field in group["fields"]:
@@ -350,6 +362,7 @@ def _calculate(values):
         summary.update(last=_number(summary["last"] * by, "Total vertikallast"),
                        barformaga=_number(summary["barformaga"] * by, "Total bärförmåga"),
                        lastenhet="kN", load_conversion={"support_length": support_length, "by": by,
+                       "full_support_length": values["L_vagg"], "at_least_one": values["L_vagg_minst_1"],
                        "brott": _number(values["F_vy"] * support_length, "Yttre last, brott"),
                        "bruk": None if values["F_vy_bruk"] is None else
                        _number(values["F_vy_bruk"] * support_length, "Yttre last, bruk")})
@@ -360,8 +373,10 @@ def _calculate(values):
             for name in ("isolering_EG_k", "isolering_N_brott", "isolering_N_bruk"):
                 summary["isolering"][name] = _number(summary["isolering"][name] * by, name)
         details["metodbeskrivning"]["items"].append({"rubrik": "Linjestöd och sula", "text": (
-            "Laster och moment per meter linjestöd multipliceras med L_vägg till totala lasteffekter. "
-            "För den befintliga väggsulemodellen divideras dessa med b_y. Egentyngden baseras på sulans geometri. "
+            "Laster och moment per meter linjestöd multipliceras med 1 m när Minst 1 m är aktiverad, "
+            "annars med angiven kort L_vägg. b_y anger fördelningslängden under sulan och ändrar inte "
+            "den yttre lastresultanten. För den befintliga väggsulemodellens API divideras resultantlasterna "
+            "med b_y. Egentyngden baseras på sulans geometri. Hela angivna L_vägg används separat för EQU och glidning. "
             "Grundplans sammanfattning och areaskiss visar totala krafter och moment; "
             "den gemensamma beräkningsmotorns rapport använder ekvivalenta värden per meter sula."
         )})
@@ -615,7 +630,7 @@ class Grundplan(anywidget.AnyWidget):
         source = self._tag(tagg)
         values = copy.deepcopy(source["values"])
         if indata is not None:
-            values.update(indata)
+            values = _updated_values(values, indata)
         ident = self.lagg_till(
             x, y, littera=littera,
             typ="vaggsula" if source["values"]["lang"] == 1 else "pelarsula",
@@ -790,7 +805,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
         if types == {0} and "glid_L" in indata:
             raise ValueError("Sulängden L_su gäller endast väggsulor.")
-        if types == {0} and "L_vagg" in indata:
+        if types == {0} and {"L_vagg", "L_vagg_minst_1"} & set(indata):
             raise ValueError("Linjestödslängden L_vägg gäller endast väggsulor.")
         if types == {0} and "l_override" in indata:
             raise ValueError("Egen remslängd gäller endast väggsulor.")
@@ -956,7 +971,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 10,
+            "version": 11,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1108,8 +1123,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–10.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–11.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")

@@ -173,15 +173,18 @@ sulor. Den lilla kryssrutan **Egen längd** låser upp måttet; avmarkerad
 visar den ett grått, låst 1 m-fält. Laster anges fortfarande per meter vägg och
 linjestödslängden **L_vägg** och sulängden **L_su** är separata. Importens
 `length` fyller båda initialt; därefter behålls manuellt ändrad L_su vid uppdatering.
-Angivna linjelaster multipliceras med L_vägg till total kraft och jämförs mot
-sulans valda geometri. Se [lastomräkningen](docs/grundplan.md#linjestödslängd-och-sulgeometri). Det valda måttet används i skissen för effektiv area
+Den lilla kryssrutan **Minst 1 m** ställs in automatiskt vid import: aktiverad
+för L_vägg ≥ 1 m, annars avmarkerad med kort stödslängd som redigerbart värde.
+Lokal bärighets-/isoleringskontroll använder `V × 1 m` respektive `V × kort L_vägg`.
+bᵧ ändrar kontaktarean utan att ändra den yttre lastresultanten. Hela L_vägg
+behålls för total EQU-last och glidning. Se [lastkonventionen](docs/grundplan.md#lastkonvention-och-resultat). Det valda måttet används i skissen för effektiv area
 och sparas med projektet. Tidigare sparade egna mått får kryssrutan aktiverad;
 projekt från tiden före bᵧ-redigeringen behåller sin remslängd på 1 m.
 
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 `V / (bₓ,eff × bᵧ,eff)` för pelarsulor och
-`V_total / (bₓ,eff × bᵧ,eff)` för väggsulor med angiven L_vägg, för respektive
+`V_total / (bₓ,eff × bᵧ,eff)` för väggsulor, för respektive
 lastkombination. Resultatet visar
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden

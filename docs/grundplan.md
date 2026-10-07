@@ -152,14 +152,17 @@ markerar befintliga etiketter för flerredigering och pausar placeringskön.
 | `results[].category: "Brott"`, `V` | Vertikallast under Laster – Brott (`F_vy`) |
 | `results[].category: "Bruk"`, `V` | Vertikallast under Laster – Bruk (`F_vy_bruk`) |
 | `results[].category: "EQU"`, `V` | Färdig kontaktlast under Glidning (`V_Ed_EQU`) |
-| `length.value`, `length.unit: "m"` | L_vägg under Geometri (`L_vagg`) samt startvärde för L_su under Glidning (`glid_L`) |
+| `length.value`, `length.unit: "m"` | Hela L_vägg (`L_vagg`), automatisk inställning av Minst 1 m (`L_vagg_minst_1`) samt startvärde för L_su under Glidning (`glid_L`) |
 
 Varje stöd ska ha exakt en last för Brott, Bruk och EQU. Väggsulor kräver
 `distribution: "uniform"`, laster i `kN/m` och en positiv längd i `m`.
 Pelarsulornas laster anges i `kN`. Värden och tecken behålls; linjelaster
-behålls som inmatade linjelaster i kN/m. Vid beräkningen multipliceras
-laster och moment med L_vägg till totala lasteffekter. För jord- och
-isoleringskontrollen används sulans valda bᵧ (standard 1 m) som beräkningslängd.
+behålls som inmatade linjelaster i kN/m. **Minst 1 m** kryssas automatiskt i
+för importerad L_vägg ≥ 1 m. Jord- och isoleringskontrollen multiplicerar då
+laster och moment med **1 m**. För kortare stöd är rutan avmarkerad och den
+importerade längden visas som redigerbart värde. **bᵧ ändrar kontaktarean,
+inte den yttre lastresultanten.** Hela importerade längden sparas även när
+det numeriska fältet döljs, och används separat för total EQU-last vid glidning.
 Ingen ytterligare längdfaktor läggs på importerade punktlaster. Metadata som `model` och `source`
 används inte som sökvägar eller beräkningsindata.
 
@@ -438,22 +441,27 @@ plan.farggruppering = {"enabled": False}  # Inställningarna behålls.
 ## Linjestödslängd och sulgeometri
 
 **L_vägg** ligger under **Geometri** och betyder "Längd linjestöd alt. längd ovanliggande vägg".
-Fältet gäller väggsulor och kan ändras direkt, i tabellen och för flera markerade sulor.
+Fältet gäller väggsulor. Vid fältet finns **Minst 1 m**, som automatiskt väljs
+för importerad längd ≥ 1 m. Då används 1 m lokalt och det numeriska fältet döljs;
+hela importerade längden behålls för glidning. För kortare stöd är valet av och
+längden redigerbar i dialogen, tabellen och för flera markerade sulor.
 Importformatet ändras inte: befintliga `length.value` fyller fältet.
-**bᵧ** beskriver sulans beräkningslängd och **L_su** dess totala längd. Måtten kan ändras oberoende.
+**bᵧ** beskriver fördelningslängden under sulan och **L_su** dess totala längd.
+Måtten kan ändras oberoende; bᵧ ändrar inte den yttre lastresultanten.
 
-Exempel: V = 200 kN/m och L_vägg = 0,6 m ger 120 kN yttre last.
+Exempel: V = 200 kN/m och L_vägg = 0,6 m ger 120 kN yttre last oavsett bᵧ.
+Med **Minst 1 m** blir den lokala yttre lasten 200 kN även om hela väggen är 5 m.
 Brott- och brukmoment samt brottets horisontallaster omräknas med samma längdfaktor.
 Sulans egentyngd beräknas från bₓ, bᵧ och t, med befintliga faktorer 1,5 i brott och 1,0 i bruk.
 Resultatsammanfattningen visar total last och bärförmåga i kN, och areaskissen visar totala krafter och moment.
 Trycket för isoleringen är total kraft / effektiv area. Den gemensamma väggsulemotorn och dess
 rapport använder ekvivalenta laster per meter sula; dess modell och formfaktorer ändras inte.
 
-Äldre projekt saknar säker information om linjestödslängden. Där lämnas L_vägg tomt och
-kontrollen fortsätter med tidigare laster per meter; för glidning används då L_su som tidigare.
-Dialogen visar denna lastgrund. Ange L_vägg eller importera lasteffekten på nytt för att använda
-den faktiska stödslängden. Ett redan ifyllt L_su i ett äldre projekt bevaras vid första uppdateringen.
-Även manuella sulor utan angiven L_vägg behåller den tidigare kontrollen per meter.
+Äldre projekt med angiven L_vägg får kryssrutan inställd efter längden och räknas om.
+Projekt utan känd linjestödslängd och nya manuella sulor använder **Minst 1 m**
+som standard; för glidning används då L_su som tidigare. Avmarkera och ange
+L_vägg eller importera lasteffekten på nytt för att använda en kort stödslängd.
+Ett redan ifyllt L_su i ett äldre projekt bevaras vid första uppdateringen.
 
 ## Global glidningskontroll
 
@@ -498,6 +506,7 @@ Sulmåtten bₓ/bᵧ och **Egen längd** döljs i dialogen och kan inte redigera
 tabellen i detta läge. Tidigare mått behålls när läget växlas, men redovisas
 inte på etiketten. Linjestödslängden **L_vägg** under **Geometri** är fortfarande redigerbar
 i detta läge och används för att räkna om EQU-linjelasten till total kraft.
+Den lokala kryssrutan **Minst 1 m** döljs eftersom bärighet inte kontrolleras.
 Sulängden **L_su** under **Glidning** hålls separat.
 Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
 utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade
@@ -559,8 +568,11 @@ anropas med en hävarm.
 
 - **Väggsula:** `lang=1`. Grundplan använder bᵧ (`l`) som beräkningsremsans
   referenslängd, med **1 m** som standardvärde. Krafter anges alltid i kN/m
-  och moment i kNm/m. Med angiven L_vägg omräknas lasteffekterna till total
-  kraft/moment och normaliseras med bᵧ i den gemensamma väggsulemotorn.
+  och moment i kNm/m. Under **Geometri** sitter den lilla kryssrutan **Minst 1 m**
+  vid L_vägg. Markerad använder den lokala kontrollen 1 m; avmarkerad används
+  angiven positiv L_vägg ≤ 1 m. Den yttre lastresultanten är `V × lokal L_vägg`.
+  Vald bᵧ är fördelningslängden under sulan och ändrar inte denna resultant.
+  Resultantlasterna normaliseras med bᵧ för den gemensamma väggsulemotorns API.
   Grundplans resultat redovisar då total last, egentyngd och bärförmåga.
   Excentriciteten är `e_y = e_y,plac + M_x / N` med samma lastgrund för
   moment och normalkraft; effektiv längd är `b_y − 2 × abs(e_y)`.
@@ -573,16 +585,16 @@ anropas med en hävarm.
   placeringsexcentricitet. Horisontallaster i brott behålls för deras
   påverkan på jordens bärighet, men ger inget extra moment.
 - Fundamentets egentyngd läggs till enligt den befintliga modellen:
-  `F_v = F_vy + 1.5 * 25 * b * t` per meter för väggsulor, respektive
-  `F_v = F_vy + 1.5 * 25 * b * l * t` totalt för pelarsulor.
+  `F_v = F_vy × lokal L_vägg + 1.5 * 25 * b * b_y * t` totalt för väggsulor,
+  respektive `F_v = F_vy + 1.5 * 25 * b * l * t` totalt för pelarsulor.
 - Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. Väggsulemotorn använder
-  ekvivalenta värden per meter. Med angiven L_vägg multipliceras både last och
+  ekvivalenta värden per meter. För väggsulor multipliceras både last och
   bärförmåga med bᵧ i Grundplans sammanfattning; kvoten är densamma.
   Motorns `F_bd` är `q_bd * b` respektive `q_bd * b * l`.
   Denna jordkontroll är oförändrad när isoleringskontrollen aktiveras.
 - I den befintliga funktionens `details` står vissa lastposter i kN även
-  för enmetersremsan. Planvyn visar total kraft när L_vägg är angiven och
-  annars den tidigare per-meter-konventionen. Jordens poster i `details` ändras inte; med isolering
+  för enmetersremsan. Planvyn visar total kraft för den lokala kontrollen.
+  Jordens poster i `details` ändras inte; med isolering
   tillkommer poster med namn som börjar med `isolering_`.
 
 Jordkontrollen avser bärighet i brottgränstillstånd enligt repositoryts
@@ -629,14 +641,25 @@ U_isolering = q_Ed / f_d
 ```
 
 Varje kombination använder sin egen vertikallast och sina egna moment.
-Uttrycken ovan gäller pelarsulor och väggsulor med bᵧ = 1 m. För en väggsula
-med ändrat bᵧ används `l_ref = b_y`, `EG_k = 25 × b × t` per meter och
-`q_Ed = N × b_y / (b_eff × l_eff)`, där N är normalkraft per meter.
-Därmed är trycket oförändrat för en centriskt belastad väggsula när bᵧ ändras.
+Uttrycken ovan gäller pelarsulor. För väggsulor multipliceras yttre laster
+och moment först med lokal L_vägg: 1 m med **Minst 1 m**, annars angiven kort
+längd. `l_ref = b_y`, total `EG_k = 25 × b × b_y × t` och
+`q_Ed = N_total / (b_eff × l_eff)`. Ett större bᵧ fördelar samma yttre resultant
+över större area; egentyngden ändras med sulans geometri. Till exempel ger
+200 kN/m över 0,6 m alltid 120 kN yttre last, oavsett bᵧ.
+I den gemensamma motorns rapport används ekvivalenta värden per meter.
 Egentyngdsfaktorn 1,5 i brott följer
 den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
 genereras från karakteristiska laster. Effektiva mått, total last och
 bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjandegrad.
+
+Valet **Minst 1 m** sparas med sulan och stöds i tabellen, flerredigering och
+resultat-HTML. Äldre projekt med angiven L_vägg får valet automatiskt utifrån
+längden vid öppning; tidigare långväggars lokala kontroll rättas till 1 m.
+Saknad L_vägg använder Minst 1 m som standard. Glidningen behåller tidigare
+L_su-konvention tills faktisk linjestödslängd finns. Hela L_vägg visas i
+glidningsblocket på etiketten och används alltid där, även om den lokala
+kontrollen använder 1 m.
 
 Isoleringen förutsätts täcka hela den effektiva arean. Kontrollen gäller
 trycket över effektiv area, inte maximalt kanttryck. Den beräknar inte

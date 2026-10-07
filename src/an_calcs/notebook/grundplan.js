@@ -224,7 +224,7 @@ function render({ model, el, readOnly = false }) {
   let insulationWidgetDraft = null;
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
-  const bearingOnlyNames = new Set(["b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
+  const bearingOnlyNames = new Set(["b", "l", "l_override", "L_vagg_minst_1", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
     "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
@@ -1088,8 +1088,8 @@ function render({ model, el, readOnly = false }) {
               const tag = state().tags.find(tag => tag.id === id), draft = drafts.get(id);
               if (tag && draft) {
                 // Keep unfinished geometry text, but never let an old load draft mask imported values.
-                for (const name of ["F_vy", "F_vy_bruk", "V_Ed_EQU", ...(tag.values.lang === 1 ? ["L_vagg", "glid_L"] : [])]) {
-                  draft.values[name] = String(tag.values[name]).replace(".", ",");
+                for (const name of ["F_vy", "F_vy_bruk", "V_Ed_EQU", ...(tag.values.lang === 1 ? ["L_vagg", "L_vagg_minst_1", "glid_L"] : [])]) {
+                  draft.values[name] = typeof tag.values[name] === "boolean" ? tag.values[name] : String(tag.values[name]).replace(".", ",");
                 }
               }
               edits.set(id, (edits.get(id) || 0) + 1);
@@ -1755,7 +1755,7 @@ function render({ model, el, readOnly = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg", "t", "d", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "d", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -1844,7 +1844,8 @@ function render({ model, el, readOnly = false }) {
     if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
     if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
     if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
-    if (["L_vagg", "glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (name === "L_vagg" && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
     if (value == null || value === "") return "—";
     const field = fieldSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
@@ -1996,16 +1997,19 @@ function render({ model, el, readOnly = false }) {
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
         const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
+        const atLeastOne = drafts.get(tag.id)?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1;
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
-        control.disabled = busy || blocked || (["L_vagg", "glid_L", "l_override"].includes(name) && tag.values.lang === 0)
-          || ignored || (name === "l" && tag.values.lang === 1 && !ownLength);
+        control.disabled = busy || blocked || (["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0)
+          || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
+          || (name === "L_vagg" && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
         control.title = ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
           : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
           : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
-          : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra standardmåttet 1 m. Linjestödslängd Lvägg och sulängd Lsu anges separat." : "";
+          : name === "L_vagg" && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Hela sparade Lvägg används för glidning. Avmarkera för att ange ett kortare linjestöd."
+          : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
       }
     }
   }
@@ -2035,7 +2039,8 @@ function render({ model, el, readOnly = false }) {
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tag.values[name];
         if (field?.type === "bool") control.checked = value ?? false;
-        else control.value = tableText(value);
+        else control.value = name === "L_vagg" && tag.values.lang === 1 && !(draft?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
+          && (draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1) ? "1" : tableText(value);
       }
     }
     tableSort = tableView().sort;
@@ -2082,6 +2087,7 @@ function render({ model, el, readOnly = false }) {
       const name = tableSort.key, field = fieldSchema.get(name);
       const value = tag => {
         const raw = drafts.get(tag.id)?.values[name] ?? tag.values[name];
+        if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return 1;
         if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
         return ["text", "choice"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
           : field?.type === "bool" ? Number(raw) : Number(String(raw).replace(",", "."));
@@ -2097,7 +2103,7 @@ function render({ model, el, readOnly = false }) {
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
-    ["l", "l_override", "L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+    ["l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
@@ -2148,11 +2154,20 @@ function render({ model, el, readOnly = false }) {
     const onlyH = tags.every(tag => tag.values.endast_h_stabilitet);
     const syncLength = () => {
       const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
-      if (!strip || !length || !override) return;
-      const enabled = override.choose.checked ? override.input.value === "true" : tags.every(tag => tag.values.l_override);
-      length.input.disabled = length.choose.disabled = !enabled;
-      if (!enabled) length.choose.checked = false;
-      length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
+      if (!strip) return;
+      if (length && override) {
+        const enabled = override.choose.checked ? override.input.value === "true" : tags.every(tag => tag.values.l_override);
+        length.input.disabled = length.choose.disabled = !enabled;
+        if (!enabled) length.choose.checked = false;
+        length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
+      }
+      const support = bulkInputs.get("L_vagg"), minimum = bulkInputs.get("L_vagg_minst_1");
+      if (support && minimum && !onlyH) {
+        const enabled = minimum.choose.checked ? minimum.input.value === "false" : tags.every(tag => !tag.values.L_vagg_minst_1);
+        support.input.disabled = support.choose.disabled = !enabled;
+        if (!enabled) support.choose.checked = false;
+        support.row.title = enabled ? "" : "Avmarkera Minst 1 m för att ange en kort linjestödslängd.";
+      }
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
@@ -2162,7 +2177,7 @@ function render({ model, el, readOnly = false }) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
       const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
-        && !(!mixed && !strip && ["L_vagg", "glid_L", "l_override"].includes(name)));
+        && !(!mixed && !strip && ["L_vagg", "L_vagg_minst_1", "glid_L", "l_override"].includes(name)));
       if (!available.length) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
@@ -2288,8 +2303,8 @@ function render({ model, el, readOnly = false }) {
       if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        if (!field || name === "l_override") continue;
-        const row = node(readOnly || name === "l" ? "div" : "label", "gp-field");
+        if (!field || ["l_override", "L_vagg_minst_1"].includes(name)) continue;
+        const row = node(readOnly || ["l", "L_vagg"].includes(name) ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
         if (name === "l" && fieldSchema.has("l_override")) {
           const override = node(readOnly ? "span" : "label", "gp-length-override");
@@ -2305,6 +2320,21 @@ function render({ model, el, readOnly = false }) {
           }
           caption.append(override);
           inputs.set("l_override", {input: control, row: override, unit: node("span"), group});
+        }
+        if (name === "L_vagg" && fieldSchema.has("L_vagg_minst_1")) {
+          const override = node(readOnly ? "span" : "label", "gp-length-override");
+          const control = node(readOnly ? "span" : "input");
+          if (readOnly) {control.textContent = "Minst 1 m: " + (tag.values.L_vagg_minst_1 ? "Ja" : "Nej"); override.append(control);}
+          else {
+            control.type = "checkbox"; control.name = "L_vagg_minst_1";
+            control.setAttribute("aria-label", "Linjestöd minst 1 m vid lokal kontroll");
+            control.checked = draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1 ?? true;
+            control.title = "Lokal bärighets- och isoleringskontroll använder 1 m. Hela sparade linjestödslängden behålls för glidning.";
+            override.append(control, node("span", "", "Minst 1 m"));
+            control.addEventListener("input", () => edit(true));
+          }
+          caption.append(override);
+          inputs.set("L_vagg_minst_1", {input: control, row: override, unit: node("span"), group});
         }
         const notation = field.display_symbol || {};
         const symbol = symbolNode(notation, "gp-field-symbol");
@@ -2366,6 +2396,10 @@ function render({ model, el, readOnly = false }) {
         else row.append(caption, symbol, input, unit);
         group.append(row);
         inputs.set(name, { input, unit, row, group });
+        if (name === "L_vagg") {
+          const fixed = node("span", "gp-value gp-wall-length-default", "1");
+          fixed.hidden = true; row.append(fixed); unit.style.gridColumn = "4"; inputs.get(name).fixed = fixed;
+        }
         input.addEventListener("input", () => edit(field.type !== "text" && !slidingNames.has(name)));
       }
       fieldsBox.append(group);
@@ -2384,6 +2418,7 @@ function render({ model, el, readOnly = false }) {
   function fieldUnits() {
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
     const onlyH = readOnly ? current()?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
+    const atLeastOne = readOnly ? current()?.values.L_vagg_minst_1 : inputs.get("L_vagg_minst_1")?.input.checked;
     if (onlyH && !readOnly && inputs.has("isolering")) inputs.get("isolering").input.checked = false;
     const insulated = !onlyH && (readOnly ? current()?.values.isolering : inputs.get("isolering")?.input.checked);
     const selected = readOnly ? current()?.values.glid_x || current()?.values.glid_y
@@ -2394,11 +2429,9 @@ function render({ model, el, readOnly = false }) {
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
         : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
     if (strip) {
-      const raw = readOnly ? current()?.values.L_vagg : inputs.get("L_vagg")?.input.value;
-      const hasLength = raw != null && raw !== "";
-      basis.replaceChildren(mathText("span", "", hasLength
-        ? "Väggsula: laster och moment anges per meter linjestöd. Total lasteffekt = angivet värde × L_vägg. Bärighets- och isoleringskontroll använder sulmåttet b_y. Egentyngd tillkommer."
-        : "Väggsula: L_vägg saknas. Tidigare kontroll per meter används tills linjestödslängden anges eller lasteffekten importeras på nytt. Egentyngd tillkommer."));
+      basis.replaceChildren(mathText("span", "", "Väggsula: laster och moment anges per meter linjestöd. Yttre lastresultant = angivet värde × "
+        + (atLeastOne ? "1 m (Minst 1 m)." : "kort L_vägg.")
+        + " Sulmåttet b_y anger fördelningslängden under sulan och ändrar inte den yttre lastresultanten. Egentyngd tillkommer."));
     }
     if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
@@ -2407,11 +2440,24 @@ function render({ model, el, readOnly = false }) {
         if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
         continue;
       }
+      if (name === "L_vagg_minst_1") {
+        entry.row.hidden = !strip || onlyH;
+        if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
+        continue;
+      }
       if (name === "L_vagg") {
         entry.row.hidden = !strip;
         entry.unit.textContent = "m";
-        entry.row.title = "Tomt värde behåller tidigare per-meterkontroll. Importens length fyller i linjestödslängden.";
-        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false; entry.input.placeholder = "Ej angiven";}
+        entry.row.title = "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder hela sparade linjestödslängden.";
+        if (readOnly) entry.input.textContent = atLeastOne && !onlyH ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
+        else {
+          entry.input.hidden = strip && atLeastOne && !onlyH;
+          entry.fixed.hidden = !entry.input.hidden;
+          entry.input.disabled = !strip || (atLeastOne && !onlyH);
+          entry.input.required = strip && !atLeastOne && !onlyH;
+          entry.input.placeholder = onlyH ? "Hela linjestödslängden" : "Kortare än 1 m";
+          if (entry.input.disabled) entry.input.setCustomValidity("");
+        }
         continue;
       }
       if (slidingNames.has(name)) {
@@ -2623,8 +2669,8 @@ function render({ model, el, readOnly = false }) {
     if (r.load_conversion) {
       const c = r.load_conversion;
       results.append(mathText("p", "gp-field-note", "Yttre V i brott: " + precise(tag.values.F_vy) + " kN/m × L_vägg "
-        + precise(c.support_length) + " m = " + precise(c.brott) + " kN. Beräkningslängd b_y = " + precise(c.by)
-        + " m. Resultatet ovan visar total last inklusive sulans egentyngd och total bärförmåga."));
+        + precise(c.support_length) + " m" + (c.at_least_one ? " (Minst 1 m)" : "") + " = " + precise(c.brott) + " kN. Fördelningslängd b_y = " + precise(c.by)
+        + " m och påverkar inte den yttre lastresultanten. Resultatet ovan inkluderar sulans egentyngd."));
     }
     if (r.effective_area) results.append(areaResult(tag));
     if (r.isolering) {

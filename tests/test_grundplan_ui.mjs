@@ -115,7 +115,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("L_vagg", "l_override", "endast_h_stabilitet", "kommentar");
+names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "kommentar");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
@@ -133,13 +133,14 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.L_vagg = null;
+  tag.values.L_vagg_minst_1 = true;
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
-      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -2849,7 +2850,7 @@ test("insulation widget toggle retains placement and drag, resize and cancel lea
 for (const readOnly of [false, true]) test(`support length has independent geometry and notation (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   slidingFixture(ui);
-  ui.tag.values.L_vagg = .6; ui.tag.values.glid_L = 3;
+  ui.tag.values.L_vagg = .6; ui.tag.values.L_vagg_minst_1 = false; ui.tag.values.glid_L = 3;
   ui.changed(); ui.marker().click();
   const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("L_vagg")) : ui.field("L_vagg").parent;
   assert.equal(row.hidden, false);
@@ -2857,7 +2858,7 @@ for (const readOnly of [false, true]) test(`support length has independent geome
   assert.match(elementText(ui.byClass("gp-basis")), /Lvägg/);
   assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu3 mLvägg0,6 m/);
   if (!readOnly) {
-    assert.equal(ui.field("L_vagg").required, false);
+    assert.equal(ui.field("L_vagg").required, true);
     assert.equal(ui.field("glid_L").required, false, "Known support length determines the EQU total");
     ui.field("L_vagg").value = "0,4"; ui.field("L_vagg").dispatch("input");
     assert.equal(ui.sent.at(-1).values.L_vagg, .4);
@@ -2880,10 +2881,105 @@ test("support length is excluded from pads and mixed bulk length edits", t => {
 
 test("support length table edits preserve the separate footing length and invalidate bearing", t => {
   const ui = setup(t);
-  ui.tag.values.L_vagg = .6; ui.tag.values.glid_L = 3; ui.changed();
+  ui.tag.values.L_vagg = .6; ui.tag.values.L_vagg_minst_1 = false; ui.tag.values.glid_L = 3; ui.changed();
   const control = tableField(ui, "tag1", "L_vagg");
   control.value = "0,4"; control.dispatch("input");
   assert.deepEqual(ui.sent.at(-1).values, {L_vagg: .4});
   assert.equal(ui.tag.values.glid_L, 3);
   assert.match(ui.marker().className, /gp-tag-stale/);
+});
+
+for (const readOnly of [false, true]) test(`long support uses compact local checkbox while retaining full sliding length (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui);
+  Object.assign(ui.tag.values, {L_vagg: 5, L_vagg_minst_1: true, glid_L: 7});
+  ui.changed(); ui.marker().click();
+  assert.match(elementText(ui.byClass("gp-basis")), /1 m \(Minst 1 m\)/);
+  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu7 mLvägg5 m/);
+  if (readOnly) {
+    assert.equal(resultTableValue(ui, "tag1", "L_vagg").textContent, "1");
+    assert.equal(resultTableValue(ui, "tag1", "L_vagg_minst_1").textContent, "Ja");
+    assert.equal(ui.sent.length, 0);
+  } else {
+    const minimum = ui.field("L_vagg_minst_1"), length = ui.field("L_vagg");
+    assert.equal(minimum.checked, true);
+    assert.equal(minimum.parent.className, "gp-length-override");
+    assert.equal(length.hidden, true); assert.equal(length.disabled, true);
+    assert.equal(length.value, "5", "Full support length is retained for global EQU");
+    assert.equal(ui.byClass("gp-wall-length-default").textContent, "1");
+    assert.equal(tableField(ui, "tag1", "L_vagg").value, "1");
+    assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
+    minimum.checked = false; minimum.dispatch("input");
+    assert.equal(length.hidden, false); assert.equal(length.disabled, false);
+    assert.equal(length.required, true);
+    assert.equal(ui.sent.at(-1).values.L_vagg, 5);
+    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, false);
+    length.value = "0,6"; length.dispatch("input");
+    assert.equal(ui.sent.at(-1).values.L_vagg, .6);
+    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, false);
+    assert.equal(ui.sent.at(-1).values.glid_L, 7);
+    minimum.checked = true; minimum.dispatch("input");
+    assert.equal(length.hidden, true);
+    assert.equal(ui.sent.at(-1).values.L_vagg, .6, "Local toggle does not overwrite global support data");
+    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, true);
+  }
+});
+
+test("local minimum can be changed for selected table rows and bulk short lengths", t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {L_vagg: 5, L_vagg_minst_1: true});
+  const second = {...structuredClone(ui.tag), id: "tag2", label: "VS2"};
+  second.values.L_vagg = 3;
+  ui.data.state.tags.push(second); ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  const minimum = tableField(ui, "tag1", "L_vagg_minst_1");
+  minimum.checked = false; minimum.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+  assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false});
+  assert.equal(tableField(ui, "tag1", "L_vagg").disabled, false);
+  assert.equal(tableField(ui, "tag2", "L_vagg").disabled, false);
+  ui.tag.values.L_vagg_minst_1 = second.values.L_vagg_minst_1 = false;
+  ui.changed(); ui.ack(ui.sent.at(-1));
+  const length = tableField(ui, "tag1", "L_vagg");
+  length.value = "0,6"; length.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).values, {L_vagg: .6});
+  assert.equal(ui.tag.values.L_vagg, 5); assert.equal(second.values.L_vagg, 3);
+  ui.tag.values.L_vagg_minst_1 = second.values.L_vagg_minst_1 = true;
+  ui.changed(); ui.ack(ui.sent.at(-1));
+  ui.byText("Ändra markerade").click();
+  assert.equal(ui.field("bulk_L_vagg").disabled, true);
+  const bulkMinimum = ui.field("bulk_L_vagg_minst_1");
+  bulkMinimum.value = "false"; bulkMinimum.dispatch("change");
+  assert.equal(ui.field("bulk_L_vagg").disabled, false);
+  ui.field("bulk_L_vagg").value = "0,4"; ui.field("bulk_L_vagg").dispatch("input");
+  ui.byText("Tillämpa").click();
+  assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false, L_vagg: .4});
+});
+
+test("H-only exposes the full support length and hides the local minimum checkbox", t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {endast_h_stabilitet: true, L_vagg: 5, L_vagg_minst_1: true});
+  ui.changed(); ui.marker().click();
+  assert.equal(ui.field("L_vagg_minst_1").parent.hidden, true);
+  assert.equal(ui.field("L_vagg").hidden, false);
+  assert.equal(ui.field("L_vagg").disabled, false);
+  assert.equal(ui.field("L_vagg").value, "5");
+  assert.equal(tableField(ui, "tag1", "L_vagg").value, "5");
+  assert.equal(tableField(ui, "tag1", "L_vagg_minst_1").disabled, true);
+});
+
+test("support length sorting uses the local displayed length and leaves pads without a value", t => {
+  const ui = setup(t);
+  ui.data.state.tags = [
+    {id: "tag1", label: "VS10", values: {L_vagg: 3, L_vagg_minst_1: true}},
+    {id: "tag2", label: "VS2", values: {L_vagg: 5, L_vagg_minst_1: true}},
+    {id: "tag3", label: "VS7", values: {L_vagg: .6, L_vagg_minst_1: false}},
+    {id: "tag4", label: "PS1", values: {lang: 0, L_vagg: null, L_vagg_minst_1: true}},
+  ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
+  ui.changed();
+  assert.equal(tableField(ui, "tag4", "L_vagg").value, "");
+  tableSortButton(ui, "L_vagg").click();
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1", "tag4"]);
+  tableSortButton(ui, "L_vagg").click();
+  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
 });

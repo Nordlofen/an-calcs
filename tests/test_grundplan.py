@@ -89,8 +89,9 @@ class TestGrundplan(unittest.TestCase):
         expected = allmanna_barighetsekvationen([
             0.0 if name == "l_h" else values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
         ])
-        self.assertEqual(details, expected)
-        self.assertEqual(self.plan.taggar[0]["summary"]["lastenhet"], "kN/m")
+        for section in ("indata", "delresultat", "slutresultat", "ekvationer"):
+            self.assertEqual(details[section], expected[section])
+        self.assertEqual(self.plan.taggar[0]["summary"]["lastenhet"], "kN")
         self.assertEqual(self.plan.taggar[1]["status"], "calculated")
         self.plan.berakna(second)
         summary = self.plan.taggar[1]["summary"]
@@ -111,8 +112,12 @@ class TestGrundplan(unittest.TestCase):
         self.plan.uppdatera(ident, indata={"l": 2.5})
         self.plan.berakna(ident)
         second = self.plan.taggar[0]["summary"]
-        for name in ("last", "barformaga", "utnyttjandegrad", "lastenhet", "q_bd", "b_ef"):
+        for name in ("lastenhet", "q_bd", "b_ef"):
             self.assertEqual(first[name], second[name])
+        self.assertAlmostEqual(second["last"], 100 + 1.5 * 25 * .8 * .4 * 2.5)
+        self.assertAlmostEqual(second["barformaga"], first["barformaga"] * 2.5)
+        self.assertLess(second["utnyttjandegrad"], first["utnyttjandegrad"])
+        self.assertEqual(second["load_conversion"]["brott"], 100)
         self.assertEqual(second["effective_area"]["brott"]["by"], 2.5)
 
     def test_wall_by_override_changes_effective_area_without_scaling_line_loads_or_sliding(self):
@@ -124,14 +129,14 @@ class TestGrundplan(unittest.TestCase):
         sliding = self.plan.taggar[0]["sliding"]
         self.plan.uppdatera(ident, indata={"l": 2.5})
         summary = self.plan._tag(ident)["summary"]
-        for phase, normal in (("brott", 115), ("bruk", 70)):
+        for phase, normal, moment in (("brott", 137.5, 11.5), ("bruk", 85, 7)):
             area = summary["effective_area"][phase]
             self.assertAlmostEqual(area["by"], 2.5)
-            self.assertAlmostEqual(area["ey_moment"], .1)
-            self.assertAlmostEqual(area["by_eff"], 2.3)
-            self.assertAlmostEqual(summary["isolering"]["isolering_q_Ed_" + phase], normal * 2.5 / 2.3)
+            self.assertAlmostEqual(area["ey_moment"], moment / normal)
+            self.assertAlmostEqual(area["by_eff"], 2.5 - 2 * moment / normal)
+            self.assertAlmostEqual(summary["isolering"]["isolering_q_Ed_" + phase], normal / area["by_eff"])
             self.assertLess(summary["isolering"]["isolering_q_Ed_" + phase], original["isolering"]["isolering_q_Ed_" + phase])
-        self.assertEqual(summary["last"], original["last"])
+        self.assertEqual(summary["load_conversion"]["brott"], original["load_conversion"]["brott"])
         self.assertEqual(self.plan.taggar[0]["sliding"], sliding)
         copied = self.plan.kopiera(ident, .7, .8)
         self.assertEqual(self.plan._tag(copied)["values"]["l"], 2.5)
@@ -143,14 +148,16 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(self.plan._tag(ident)["status"], "error")
         self.assertIsNone(self.plan._tag(ident)["summary"])
 
-    def test_wall_by_override_centred_insulation_pressure_is_independent_of_reference_length(self):
+    def test_wall_by_override_spreads_fixed_resultant_and_changes_centred_insulation_pressure(self):
         ident = self.insulated()
         first = self.plan._tag(ident)["summary"]
         self.plan.uppdatera(ident, indata={"l": .5})
         second = self.plan._tag(ident)["summary"]
-        for phase in ("brott", "bruk"):
-            self.assertEqual(first["isolering"]["isolering_q_Ed_" + phase], second["isolering"]["isolering_q_Ed_" + phase])
-        self.assertEqual(first["utnyttjandegrad"], second["utnyttjandegrad"])
+        self.assertEqual(second["load_conversion"]["brott"], first["load_conversion"]["brott"])
+        self.assertEqual(second["load_conversion"]["bruk"], first["load_conversion"]["bruk"])
+        self.assertAlmostEqual(second["isolering"]["isolering_q_Ed_brott"], 100 / .5 + 15)
+        self.assertAlmostEqual(second["isolering"]["isolering_q_Ed_bruk"], 70 / .5 + 10)
+        self.assertGreater(second["utnyttjandegrad"], first["utnyttjandegrad"])
 
     def test_old_projects_keep_one_metre_wall_reference_instead_of_unused_pad_length(self):
         wall = self.add()
@@ -236,7 +243,8 @@ class TestGrundplan(unittest.TestCase):
         expected = allmanna_barighetsekvationen([
             0.0 if name == "l_h" else tag["values"][name] for name in allmanna_barighetsekvationen.panel_schema["px"]
         ])
-        self.assertEqual(details, expected)
+        for section in ("indata", "delresultat", "slutresultat", "ekvationer"):
+            self.assertEqual(details[section], expected[section])
         self.assertEqual(tag["values"]["f_d_bruk"], 50)
         self.assertEqual(len(tag["summary"]["kontroller"]), 1)
         self.assertNotIn("isolering", tag["summary"])
@@ -281,7 +289,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 10)
+        self.assertEqual(loaded._document()["version"], 11)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
