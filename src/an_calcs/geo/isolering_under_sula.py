@@ -22,7 +22,7 @@ def _post(name, value, unit, label):
             "value": value, "unit": unit, "etikett": label}
 
 
-def isolering_under_sula(px):
+def isolering_under_sula(px, *, remslangd=None):
     """Kontrollera isolering i brott och bruk (långtid), med q = N / A_eff.
 
     px = [b, l, lang, t, e_b_plac, e_l_plac,
@@ -42,6 +42,10 @@ def isolering_under_sula(px):
     Noll hävarm ger direkt angivna moment utan momentbidrag från horisontallast.
     Kontrollen avser tryck över effektiv area, inte maximalt kanttryck eller
     en beräkning av isoleringens krypdeformation.
+
+    Med ``remslangd`` kan väggsulans beräkningsremsa ändras från 1 m. Laster
+    och moment anges fortfarande per meter vägg. Trycket beräknas då som
+    N_per_meter * remslangd / A_eff; egentyngden redovisas också per meter.
     """
     if px is None or len(px) != len(_NAMES):
         raise ValueError(f"px måste innehålla {len(_NAMES)} värden.")
@@ -55,8 +59,12 @@ def isolering_under_sula(px):
         if values[name] < 0:
             raise ValueError(f"{name} måste vara >= 0.")
     length = 1.0 if values["lang"] == 1 else values["l"]
+    if remslangd is not None:
+        length = _number(remslangd, "Remslängd")
+        if values["lang"] != 1 or length <= 0:
+            raise ValueError("Remslängd måste vara positiv och gäller endast väggsulor.")
     force_unit = "kN/m" if values["lang"] == 1 else "kN"
-    weight = _number(25 * values["b"] * length * values["t"], "Egentyngd")
+    weight = _number(25 * values["b"] * (1.0 if values["lang"] == 1 else length) * values["t"], "Egentyngd")
     intermediate = [_post("isolering_EG_k", weight, force_unit, "sulans karakteristiska egentyngd")]
     results = []
     for phase, suffix, factor in (("brott", "", 1.5), ("bruk", "_bruk", 1.0)):
@@ -79,7 +87,7 @@ def isolering_under_sula(px):
         area = _number(width_eff * length_eff, f"A_eff_{phase}")
         if area <= 0:
             raise ValueError(f"Isolering – {phase}: effektiv area måste vara > 0.")
-        pressure = _number(normal / area, f"q_Ed_{phase}")
+        pressure = _number(normal * (length if values["lang"] == 1 else 1.0) / area, f"q_Ed_{phase}")
         utilization = _number(pressure / values["f_d_" + phase], f"U_{phase}")
         for name, value, unit, label in (
             ("N", normal, force_unit, "total vertikallast inklusive egentyngd"),
@@ -87,7 +95,7 @@ def isolering_under_sula(px):
             ("e_l", e_l, "m", "total excentricitet i längd"),
             ("b_eff", width_eff, "m", "effektiv bredd"),
             ("l_eff", length_eff, "m", "effektiv längd"),
-            ("A_eff", area, "m^2", "effektiv area (1 m-remsa för väggsula)"),
+            ("A_eff", area, "m^2", "effektiv area (beräkningsremsa för väggsula)"),
         ):
             intermediate.append(_post(f"isolering_{name}_{phase}", value, unit, f"{label}, {phase}"))
         for name, value, unit, label in (
@@ -117,11 +125,11 @@ def isolering_under_sula(px):
         "delresultat": {"title": "Delresultat", "items": intermediate},
         "slutresultat": {"title": "Slutresultat", "items": results},
         "ekvationer": {"title": "Ekvationer", "items": [
-            {"latex": r"EG_k = 25 b l_{ref} t", "etikett": "sulans egentyngd"},
+            {"latex": r"EG_k = 25 b t" if remslangd is not None else r"EG_k = 25 b l_{ref} t", "etikett": "sulans egentyngd"},
             {"latex": r"N_{brott}=F_{v,y,brott}+1.5 EG_k,\quad N_{bruk}=F_{v,y,bruk}+EG_k", "etikett": "total vertikallast"},
             {"latex": r"e_b=\left|e_{b,plac}+\frac{M_{insp,l}-F_{h,b}l_h}{N}\right|,\quad e_l=\left|e_{l,plac}+\frac{M_{insp,b}-F_{h,l}l_h}{N}\right|", "etikett": "excentricitet per lastkombination"},
             {"latex": r"A_{eff}=(b-2e_b)(l_{ref}-2e_l)", "etikett": "effektiv area"},
-            {"latex": r"q_{Ed}=\frac{N}{A_{eff}},\quad U=\frac{q_{Ed}}{f_d}", "etikett": "kontroll separat i brott och bruk"},
+            {"latex": r"q_{Ed}=\frac{N l_{ref}}{A_{eff}},\quad U=\frac{q_{Ed}}{f_d}" if remslangd is not None else r"q_{Ed}=\frac{N}{A_{eff}},\quad U=\frac{q_{Ed}}{f_d}", "etikett": "kontroll separat i brott och bruk"},
         ]},
     }
 

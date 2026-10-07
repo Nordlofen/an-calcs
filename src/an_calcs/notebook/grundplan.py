@@ -209,14 +209,15 @@ def _calculate(values):
     # Keep the shared calculation APIs compatible; Grundplan always supplies
     # zero lever arms so its user-entered moments act directly at the footing.
     engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
-    details = allmanna_barighetsekvationen([engine_values[name] for name in _SOIL_NAMES])
+    options = {"remslangd": values["l"]} if values["lang"] == 1 and values["l"] != 1 else {}
+    details = allmanna_barighetsekvationen([engine_values[name] for name in _SOIL_NAMES], **options)
     result = {item["namn"]: item["value"] for item in details["slutresultat"]["items"]}
     for section in ("indata", "delresultat", "slutresultat"):
         for item in details[section]["items"]:
             _number(item["value"], item["namn"])
     if result["F_bd"] <= 0:
         raise ValueError("Beräknad bärförmåga är inte positiv. Kontrollera indata.")
-    # Långsträckt fundament räknas redan på en 1 m-remsa i ursprungsfunktionen.
+    # Strip forces remain per metre; l is its selected geometric reference length.
     utilization = result["F_v"] / result["F_bd"]
     _number(utilization, "Utnyttjandegrad")
     summary = {
@@ -230,7 +231,7 @@ def _calculate(values):
     }
     checks = [{"id": "jord_brott", "label": "Jord · brott", "utnyttjandegrad": utilization}]
     if values["isolering"]:
-        insulation = isolering_under_sula([engine_values[name] for name in isolering_under_sula.panel_schema["px"]])
+        insulation = isolering_under_sula([engine_values[name] for name in isolering_under_sula.panel_schema["px"]], **options)
         insulation_values = {item["namn"]: item["value"] for section in ("delresultat", "slutresultat")
                              for item in insulation[section]["items"]}
         summary["isolering"] = insulation_values
@@ -462,6 +463,8 @@ class Grundplan(anywidget.AnyWidget):
         page = self._view_page(sida)
         values = {**_DEFAULTS, "lang": 1 if typ == "vaggsula" else 0}
         values.update(indata or {})
+        if values["lang"] == 1 and "l" not in (indata or {}):
+            values["l"] = 1.0
         values = _values(values, draft=True)
         prefix = "VS" if values["lang"] == 1 else "PS"
         if littera is None:
@@ -651,8 +654,8 @@ class Grundplan(anywidget.AnyWidget):
         types = {tag["values"]["lang"] for tag in tags}
         if len(types) > 1 and set(indata) & _BULK_SAME_TYPE:
             raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
-        if (types == {1} and "l" in indata) or (types == {0} and "glid_L" in indata):
-            raise ValueError("b_y gäller pelarsulor och glidlängden L gäller väggsulor.")
+        if types == {0} and "glid_L" in indata:
+            raise ValueError("Glidlängden L gäller endast väggsulor.")
         prepared = [_values({**tag["values"], **indata}, draft=True) for tag in tags]
         for tag, values in zip(tags, prepared):
             changed = any(values[name] != value for name, value in tag["values"].items()
@@ -775,7 +778,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 4,
+            "version": 5,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -920,8 +923,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–4.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–5.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -955,6 +958,10 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved["values"], draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
+            # Older wall projects stored an unused pad dimension in l. Their
+            # calculation always used 1 m; do not turn that value into an override.
+            if document["version"] < 5 and tag["values"]["lang"] == 1:
+                tag["values"]["l"] = 1.0
             try:
                 details, summary = _calculate(tag["values"])
                 tag.update(status="calculated", summary=summary)

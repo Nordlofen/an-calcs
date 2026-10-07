@@ -114,6 +114,17 @@ class TestGrundplanPdf(unittest.TestCase):
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertNotIn("6,2 m", text)
 
+    def test_overridden_wall_by_is_shown_in_export_with_separate_gliding_length(self):
+        plan = self.plan()
+        ident = self.tag(plan, indata={"b": .8, "l": 2.4, "glid_L": 6.2})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("0,8 × 2,4 m", text)
+        self.assertIn(" · L 6,2 m", text)
+        plan.uppdatera(ident, indata={"l": 1})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertRegex(text, r"b\s*x\s*0,8 m")
+        self.assertNotIn("×", text)
+
     def test_legend_scales_all_pdf_content_without_changing_axes_or_calculations(self):
         Image.new("RGB", (1600, 1000), "white").save(self.image)
         plan = self.plan()

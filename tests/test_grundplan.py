@@ -103,13 +103,74 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual(self.plan.taggar[0]["summary"]["b"], 1.1)
 
     def test_vaggsula_ar_en_meters_remsa_och_egentyngd_ingår(self):
-        ident = self.add(indata={"F_vy": 100, "b": 0.8, "t": 0.4, "l": 25})
+        ident = self.add(indata={"F_vy": 100, "b": 0.8, "t": 0.4})
         self.plan.berakna(ident)
         first = self.plan.taggar[0]["summary"]
         self.assertAlmostEqual(first["last"], 100 + 1.5 * 25 * 0.8 * 0.4)
-        self.plan.uppdatera(ident, indata={"l": 1})
+        self.assertEqual(self.plan._tag(ident)["values"]["l"], 1)
+        self.plan.uppdatera(ident, indata={"l": 2.5})
         self.plan.berakna(ident)
-        self.assertEqual(first, self.plan.taggar[0]["summary"])
+        second = self.plan.taggar[0]["summary"]
+        for name in ("last", "barformaga", "utnyttjandegrad", "lastenhet", "q_bd", "b_ef"):
+            self.assertEqual(first[name], second[name])
+        self.assertEqual(second["effective_area"]["brott"]["by"], 2.5)
+
+    def test_wall_by_override_changes_effective_area_without_scaling_line_loads_or_sliding(self):
+        ident = self.add(indata={"b": 1, "t": .4, "F_vy": 100, "F_vy_bruk": 60,
+                                "isolering": True, "f_d_brott": 200, "f_d_bruk": 100,
+                                "M_insp_b": 11.5, "M_insp_b_bruk": 7,
+                                "V_Ed_EQU": 80, "glid_mu": .4, "glid_L": 3, "glid_x": True})
+        original = self.plan._tag(ident)["summary"]
+        sliding = self.plan.taggar[0]["sliding"]
+        self.plan.uppdatera(ident, indata={"l": 2.5})
+        summary = self.plan._tag(ident)["summary"]
+        for phase, normal in (("brott", 115), ("bruk", 70)):
+            area = summary["effective_area"][phase]
+            self.assertAlmostEqual(area["by"], 2.5)
+            self.assertAlmostEqual(area["ey_moment"], .1)
+            self.assertAlmostEqual(area["by_eff"], 2.3)
+            self.assertAlmostEqual(summary["isolering"]["isolering_q_Ed_" + phase], normal * 2.5 / 2.3)
+            self.assertLess(summary["isolering"]["isolering_q_Ed_" + phase], original["isolering"]["isolering_q_Ed_" + phase])
+        self.assertEqual(summary["last"], original["last"])
+        self.assertEqual(self.plan.taggar[0]["sliding"], sliding)
+        copied = self.plan.kopiera(ident, .7, .8)
+        self.assertEqual(self.plan._tag(copied)["values"]["l"], 2.5)
+        reopened = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "by.json"))
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.taggar, self.plan.taggar)
+        self.assertEqual(reopened.resultat, self.plan.resultat)
+        self.plan.uppdatera(ident, indata={"l": 0})
+        self.assertEqual(self.plan._tag(ident)["status"], "error")
+        self.assertIsNone(self.plan._tag(ident)["summary"])
+
+    def test_wall_by_override_centred_insulation_pressure_is_independent_of_reference_length(self):
+        ident = self.insulated()
+        first = self.plan._tag(ident)["summary"]
+        self.plan.uppdatera(ident, indata={"l": .5})
+        second = self.plan._tag(ident)["summary"]
+        for phase in ("brott", "bruk"):
+            self.assertEqual(first["isolering"]["isolering_q_Ed_" + phase], second["isolering"]["isolering_q_Ed_" + phase])
+        self.assertEqual(first["utnyttjandegrad"], second["utnyttjandegrad"])
+
+    def test_old_projects_keep_one_metre_wall_reference_instead_of_unused_pad_length(self):
+        wall = self.add()
+        pad = self.add(typ="pelarsula", indata={"l": 3})
+        original = self.plan.taggar, self.plan.resultat
+        for version in (1, 2, 3, 4):
+            document = self.plan._document()
+            document["version"] = version
+            document["tags"][0]["values"]["l"] = 12
+            self.plan._load_document(json.dumps(document).encode())
+            self.assertEqual(self.plan._tag(wall)["values"]["l"], 1)
+            self.assertEqual(self.plan._tag(pad)["values"]["l"], 3)
+            self.assertEqual((self.plan.taggar, self.plan.resultat), original)
+
+    def test_default_by_depends_on_actual_type_including_indata_lang(self):
+        wall = self.add(typ="pelarsula", indata={"lang": 1})
+        pad = self.add(indata={"lang": 0})
+        self.assertEqual(self.plan._tag(wall)["values"]["l"], 1)
+        self.assertEqual(self.plan._tag(pad)["values"]["l"],
+                         allmanna_barighetsekvationen.panel_schema["fields"][1]["default"])
 
     def insulated(self):
         return self.add(indata={
@@ -187,7 +248,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 4)
+        self.assertEqual(loaded._document()["version"], 5)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
@@ -223,7 +284,7 @@ class TestGrundplan(unittest.TestCase):
         for kind, length in (("vaggsula", 1), ("pelarsula", 3)):
             with self.subTest(kind=kind):
                 ident = self.add(typ=kind, indata={
-                    "b": 2, "l": 3, "t": .4, "F_vy": 600, "F_vy_bruk": 300,
+                    "b": 2, "l": length, "t": .4, "F_vy": 600, "F_vy_bruk": 300,
                     "F_hb": 12, "F_hl": -8, "M_insp_l": 69, "M_insp_b": -34.5,
                     "M_insp_l_bruk": -36, "M_insp_b_bruk": 18,
                     "e_b_plac": .1, "e_l_plac": -.02,
@@ -275,7 +336,7 @@ class TestGrundplan(unittest.TestCase):
 
     def test_effektiv_area_moment_byter_riktning_och_kan_motverka_placering(self):
         for kind in ("vaggsula", "pelarsula"):
-            ident = self.add(typ=kind, indata={"b": 2, "l": 3, "t": .4, "F_vy": 600,
+            ident = self.add(typ=kind, indata={"b": 2, "l": 1 if kind == "vaggsula" else 3, "t": .4, "F_vy": 600,
                                                "e_b_plac": .1, "e_l_plac": -.1})
             self.plan.berakna(ident)
             normal = self.plan._tag(ident)["summary"]["last"]

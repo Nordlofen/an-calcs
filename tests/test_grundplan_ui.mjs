@@ -605,7 +605,7 @@ test("table contains every input without page information or navigation, with ty
     for (const name of names) assert.ok(tableField(ui, tag.id, name));
     assert.ok(tableField(ui, tag.id, "label"));
   }
-  assert.equal(tableField(ui, "tag1", "l").disabled, true);
+  assert.equal(tableField(ui, "tag1", "l").disabled, false);
   assert.equal(tableField(ui, "tag2", "l").disabled, false);
   assert.equal(tableField(ui, "tag2", "glid_L").disabled, true);
   assert.equal(tableField(ui, "tag1", "V_Ed_EQU").disabled, false, "Gliding can be preconfigured before enabling the global check");
@@ -613,22 +613,25 @@ test("table contains every input without page information or navigation, with ty
   assert.equal(ui.elements().some(e => e.tag === "button" && /beräkna/i.test(e.textContent)), false);
 });
 
-test("wall table shows a locked one metre reference length while preserving pad dimensions", t => {
+test("wall by is editable in table and dialog and can be overridden for selected walls", t => {
   const ui = setup(t);
-  ui.tag.values.l = 2.4; ui.changed();
   const length = tableField(ui, ui.tag.id, "l");
-  assert.equal(length.value, "1"); assert.equal(length.disabled, true);
-  assert.match(length.title, /1 m lång remsa/);
-  assert.equal(ui.tag.values.l, 2.4, "The unused pad dimension remains available when changing type");
-  ui.tag.values.lang = 0; ui.changed();
+  assert.equal(length.value, "1"); assert.equal(length.disabled, false);
+  assert.match(length.title, /Standard är 1 m/);
+  ui.marker().click();
+  assert.equal(ui.field("l").parent.parent.hidden, false);
+  const second = {...structuredClone(ui.tag), id: "tag2", label: "VS2"};
+  ui.data.state.tags.push(second); ui.changed();
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  length.value = "2,4"; length.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
+  assert.deepEqual(ui.sent.at(-1).values, {l: 2.4});
+  ui.tag.values.l = second.values.l = 2.4; ui.changed(); ui.ack(ui.sent.at(-1));
   assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
-  length.focus();
-  ui.tag.values.lang = 1; ui.changed();
-  assert.equal(length.value, "1", "Switching type must also replace a previously focused length field");
-  assert.equal(length.disabled, true);
-  tableField(ui, ui.tag.id, "lang").focus();
-  ui.tag.values.lang = 0; ui.changed();
-  assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
+  assert.match(ui.byClass("gp-tag-result").textContent, /1 × 2,4 m/);
+  assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
+  ui.byText("Ändra markerade").click();
+  assert.ok(ui.find(e => e.name === "bulk_l"), "Bulk dialog also includes wall by");
 });
 
 test("table littera sorting is natural, reversible and preserves selected objects and input controls", t => {
@@ -1220,7 +1223,7 @@ test("standalone table includes all fields and formats read-only numbers, boolea
     assert.ok(!value.listeners.has("input") && !value.listeners.has("change"));
   }
   assert.equal(resultTableValue(ui, "tag1", "b").textContent, "0,95");
-  assert.equal(resultTableValue(ui, "tag1", "l").textContent, "1");
+  assert.equal(resultTableValue(ui, "tag1", "l").textContent, "2,4");
   assert.equal(resultTableValue(ui, "pad", "l").textContent, "2,4");
   assert.equal(resultTableValue(ui, "tag1", "lang").textContent, "Väggsula");
   assert.equal(resultTableValue(ui, "pad", "lang").textContent, "Pelarsula");

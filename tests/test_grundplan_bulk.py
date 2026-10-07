@@ -77,12 +77,23 @@ class TestGrundplanBulk(unittest.TestCase):
                  ([self.wall1, self.wall2], {"b": float("nan")}),
                  ([self.wall1, self.wall2], {"isolering": 1}),
                  ([self.wall1, self.pad], {"F_vy": 100}),
-                 ([self.wall1, self.pad], {"l": 2}), ([self.wall1], {"l": 2}),
+                 ([self.wall1, self.pad], {"l": 2}),
                  ([self.pad], {"glid_L": 3})]
         for ids, values in cases:
             with self.subTest(ids=ids, values=values), self.assertRaises(ValueError):
                 self.plan.uppdatera_flera(ids, indata=values)
             self.assertEqual((self.plan._document(), self.plan.resultat, self.plan.state), before)
+
+    def test_wall_by_can_be_overridden_together_without_changing_gliding_lengths(self):
+        for ident in (self.wall1, self.wall2):
+            self.plan.uppdatera(ident, indata={"glid_L": 6})
+        report = self.plan.uppdatera_flera([self.wall1, self.wall2], indata={"l": 2.4})
+        self.assertEqual(report, {"updated": 2, "calculated": 2, "errors": []})
+        for ident in (self.wall1, self.wall2):
+            tag = self.plan._tag(ident)
+            self.assertEqual(tag["values"]["l"], 2.4)
+            self.assertEqual(tag["values"]["glid_L"], 6)
+            self.assertEqual(tag["summary"]["effective_area"]["brott"]["by"], 2.4)
 
     def test_calculation_failure_is_per_footing_and_never_retains_old_pass(self):
         self.plan.uppdatera(self.wall1, indata={"f_d_brott": 200, "f_d_bruk": 150, "F_vy_bruk": 70})

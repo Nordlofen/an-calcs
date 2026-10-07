@@ -136,6 +136,17 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual((self.source.read_bytes(), self.plan.background, self.plan._document(),
                           self.plan.taggar, self.plan.resultat), original)
 
+    def test_overridden_wall_by_is_embedded_in_results_and_downloadable_pdf(self):
+        ident = self.tag(indata={"b": .8, "l": 2.4, "glid_L": 6.2})
+        data = self.snapshot()
+        tag = next(tag for tag in data["state"]["tags"] if tag["id"] == ident)
+        self.assertEqual(tag["values"]["l"], 2.4)
+        self.assertEqual(tag["values"]["glid_L"], 6.2)
+        self.assertEqual(tag["summary"]["effective_area"]["brott"]["by"], 2.4)
+        text = PdfReader(io.BytesIO(base64.b64decode(data["pdf"]["data"]))).pages[0].extract_text()
+        self.assertIn("0,8 × 2,4 m", text)
+        self.assertIn(" · L 6,2 m", text)
+
     def test_html_text_och_scriptavslut_behandlas_som_vanlig_text(self):
         text = '</script><img src=x onerror=alert(1)> ÅÄÖ & "\u2028\u2029'
         self.plan.titel = text

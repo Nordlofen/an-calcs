@@ -35,7 +35,7 @@ def _krav_icke_negativ(namn, value):
         raise ValueError(f"{namn} måste vara >= 0.")
 
 
-def allmanna_barighetsekvationen(px):
+def allmanna_barighetsekvationen(px, *, remslangd=None):
     """
     Beräknar dimensionerande bärförmåga för jord i brottgränstillstånd enligt
     användarens Mathcad-modell för allmänna bärighetsekvationen.
@@ -43,6 +43,11 @@ def allmanna_barighetsekvationen(px):
     Funktionen är avsedd för ytliga fundament och bortser helt från
     bruksgränstillstånd. Resultatet returneras som en standardiserad
     ``details``-dictionary med både numeriska värden och presentationsmetadata.
+
+    ``remslangd`` kan anges för lang=1 för att välja beräkningsremsans längd
+    i stället för 1 m. Krafter, moment, egentyngd och bärförmåga avser fortsatt
+    en meter vägg. Remslängden används för effektiv geometri i längdled;
+    långsträckta fundament behåller modellens befintliga specialfaktorer.
 
     Parameterformat:
         px = [
@@ -218,6 +223,11 @@ def allmanna_barighetsekvationen(px):
         raise ValueError("alpha måste vara < 90 grader.")
 
     l_ref = 1.0 if lang == 1 else l
+    if remslangd is not None:
+        if (lang != 1 or isinstance(remslangd, bool) or not isinstance(remslangd, (int, float))
+                or not math.isfinite(remslangd) or remslangd <= 0):
+            raise ValueError("Remslängd måste vara ett positivt ändligt tal för en väggsula.")
+        l_ref = remslangd
 
     phi_k_rad = _grader_till_radianer(phi_k)
     beta_rad = _grader_till_radianer(beta)
@@ -235,7 +245,8 @@ def allmanna_barighetsekvationen(px):
     else:
         c_ud = 0.0
 
-    EG_k = 25.0 * b * l_ref * t
+    # Strip loads remain per metre even when its geometric reference length changes.
+    EG_k = 25.0 * b * (1.0 if lang == 1 else l_ref) * t
     F_v = F_vy + 1.5 * EG_k
     if F_v <= 0:
         raise ValueError("F_v måste vara > 0.")
@@ -501,7 +512,7 @@ def allmanna_barighetsekvationen(px):
                 _ekvation(r"\phi^{\prime}_d = \arctan\left(\tan(\phi_k)\frac{\eta}{\gamma_m}\right)", "dimensionerande friktionsvinkel"),
                 _ekvation(r"c_{ud} = \eta c^{\prime} / \gamma_m", "dimensionerande skjuvhållfasthet från dränerad kohesion"),
                 _ekvation(r"c_{ud} = \eta c_{uk} / \gamma_{m,0}", "dimensionerande skjuvhållfasthet från odränerad skjuvhållfasthet"),
-                _ekvation(r"EG_k = 25 \, b \, l_{ref} \, t", "fundamentets egentyngd"),
+                _ekvation(r"EG_k = 25 \, b \, t" if remslangd is not None else r"EG_k = 25 \, b \, l_{ref} \, t", "fundamentets egentyngd"),
                 _ekvation(r"F_v = F_{v,y} + 1.5 \, EG_k", "dimensionerande vertikallast"),
                 _ekvation(r"F_h = \sqrt{F_{h,b}^2 + F_{h,l}^2}", "resultant horisontallast"),
                 _ekvation(r"e_{b,last} = \frac{M_{insp,l} - F_{h,b} l_h}{F_v}", "lastexcentricitet i breddriktning"),

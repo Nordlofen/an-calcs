@@ -226,8 +226,12 @@ startpunkt.
 Blandade sultyper kan redigeras gemensamt för typoberoende fält, exempelvis
 bₓ och isolering. Last- och längdfält kräver samma sultyp och är avstängda
 vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
-för pelarsulor. För väggsulor visas bᵧ som en låst referenslängd på 1 m;
-för pelarsulor är bᵧ redigerbart. Glidlängden L används endast för
+för pelarsulor. bᵧ är redigerbart även för väggsulor, i dialogen, tabellen
+och vid flerredigering. Standardvärdet är 1 m och lasterna anges fortfarande
+per meter vägg. Det valda måttet sparas och används i skissen för effektiv
+area. När bᵧ avviker från 1 m visar även väggsuletiketten bₓ × bᵧ.
+Äldre projekt återställs med 1 m, eftersom deras sparade längdvärde tidigare
+inte användes för väggsulor. Glidlängden L används endast för
 väggsulor. Glidningsindata kan förberedas innan global glidningskontroll
 aktiveras. Escape avmarkerar ritning och tabell.
 
@@ -249,9 +253,9 @@ index, exempelvis bₓ, Mᵧ och γₘ. Även infotext och resultatrader visar
 nedsänkta index, exempelvis f med index d,brott och q med index Ed.
 Samma beteckningar visas i resultat-HTML.
 
-Gränssnittet använder x tvärs en väggsula och y längs den; y-måttet i
-beräkningen är 1 m. Pelarsulan visas med sina fulla mått bₓ × bᵧ. Axlarna
-är lokala och kopplas inte automatiskt till ritningens riktningar.
+Gränssnittet använder x tvärs en väggsula och y längs den; bᵧ har
+standardvärdet 1 m och kan ändras. Pelarsulan visas med sina fulla mått
+bₓ × bᵧ. Axlarna är lokala och kopplas inte automatiskt till ritningens riktningar.
 **Visa definitionsskiss** öppnar planvy och två snitt med lastpilar.
 På breda ytor ligger skissen bredvid dialogen, annars inne i den.
 
@@ -406,10 +410,13 @@ horisontallast gånger hävarm. Isoleringen har en separat beräkning med samma
 momentkonvention. De fristående beräkningsfunktionerna kan fortfarande
 anropas med en hävarm.
 
-- **Väggsula:** `lang=1`. Funktionen använder en referenslängd på **1 m**.
-  Krafter anges i kN/m och moment i kNm/m. Värdena förs till funktionen som
-  kraft/moment på denna enmetersremsa. Fundamentlängden `l` används inte för
-  att fördela laster. Ange inte hela väggens totallast i ett linjelastfält.
+- **Väggsula:** `lang=1`. Grundplan använder bᵧ (`l`) som beräkningsremsans
+  referenslängd, med **1 m** som standardvärde. Krafter anges alltid i kN/m
+  och moment i kNm/m. Egentyngd och jordens bärförmåga redovisas också per
+  meter. Excentriciteten är `e_y = e_y,plac + M_x / N` med moment och
+  normalkraft per meter; effektiv längd är `b_y − 2 × abs(e_y)`.
+  Jordmodellens specialfaktorer för långsträckt fundament behålls.
+  Glidlängden `L` är separat. Ange inte hela väggens totallast i ett linjelastfält.
 - **Pelarsula:** `lang=0`. Krafter anges i kN, moment i kNm och måtten
   `b` respektive `l` i m.
 - Ange moment direkt vid sulan kring l- respektive b-axeln, både i brott
@@ -417,7 +424,8 @@ anropas med en hävarm.
   placeringsexcentricitet. Horisontallaster i brott behålls för deras
   påverkan på jordens bärighet, men ger inget extra moment.
 - Fundamentets egentyngd läggs till enligt den befintliga modellen:
-  `F_v = F_vy + 1.5 * 25 * b * l_ref * t`.
+  `F_v = F_vy + 1.5 * 25 * b * t` per meter för väggsulor, respektive
+  `F_v = F_vy + 1.5 * 25 * b * l * t` totalt för pelarsulor.
 - Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. För väggsulor avser
   både täljare och nämnare en meter. `F_bd` är exakt den bärförmåga som
   ursprungsfunktionen returnerar: `q_bd * b` respektive `q_bd * b * l`.
@@ -470,8 +478,12 @@ q_Ed = N / (b_eff × l_eff)
 U_isolering = q_Ed / f_d
 ```
 
-Varje kombination använder sin egen vertikallast och sina egna moment. `l_ref` är
-1 m för väggsula och `l` för pelarsula. Egentyngdsfaktorn 1,5 i brott följer
+Varje kombination använder sin egen vertikallast och sina egna moment.
+Uttrycken ovan gäller pelarsulor och väggsulor med bᵧ = 1 m. För en väggsula
+med ändrat bᵧ används `l_ref = b_y`, `EG_k = 25 × b × t` per meter och
+`q_Ed = N × b_y / (b_eff × l_eff)`, där N är normalkraft per meter.
+Därmed är trycket oförändrat för en centriskt belastad väggsula när bᵧ ändras.
+Egentyngdsfaktorn 1,5 i brott följer
 den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
 genereras från karakteristiska laster. Effektiva mått, total last och
 bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjandegrad.

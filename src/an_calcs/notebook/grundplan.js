@@ -24,7 +24,7 @@ function definitionSketch(strip) {
     return element;
   };
   const svg = make("svg", { viewBox: "0 0 440 435", role: "img", "aria-label": strip
-    ? "Väggsula: x tvärs väggen, y längs väggen, en meters beräkningsremsa."
+    ? "Väggsula: x tvärs väggen, y längs väggen, bᵧ är beräkningsremsans längd."
     : "Pelarsula: lokala x- och y-axlar med sulmåtten bₓ och bᵧ." });
   const line = (x1, y1, x2, y2, color = "#58717a", width = 1) =>
     svg.append(make("line", { x1, y1, x2, y2, stroke: color, "stroke-width": width }));
@@ -52,7 +52,7 @@ function definitionSketch(strip) {
   for (const x of [130, 310]) line(x, 190, x, 208);
   dimension(130, 201, 310, 201); text(220, 223, "bₓ", 17);
   for (const y of [58, 184]) line(110, y, 124, y);
-  dimension(114, 58, 114, 184); text(96, 126, strip ? "1 m" : "bᵧ", 16, "end");
+  dimension(114, 58, 114, 184); text(96, 126, "bᵧ", 16, "end");
   text(322, 177, strip ? "vägg" : "pelare", 12, "start", "#58717a");
   line(316, 173, 240, 150);
   for (const [origin, axis, moment] of [[0, "x", "Mᵧ"], [224, "y", "Mₓ"]]) {
@@ -69,7 +69,7 @@ function definitionSketch(strip) {
     arrow(origin + 186, 377, origin + 212, 377); text(origin + 197, 368, axis, 15, "middle", "#14695e");
     for (const x of [origin + 29, origin + 181]) line(x, 390, x, 407);
     dimension(origin + 29, 401, origin + 181, 401);
-    text(cx, 425, axis === "x" ? "bₓ" : strip ? "1 m beräkningsremsa" : "bᵧ", strip && axis === "y" ? 12 : 17);
+    text(cx, 425, axis === "x" ? "bₓ" : "bᵧ", 17);
   }
   return svg;
 }
@@ -1270,7 +1270,7 @@ function render({ model, el, readOnly = false }) {
       const insulation = node("span", "gp-tag-insulation");
       insulation.append(insulationIcon(insulated), node("span", "", insulationText));
       heading.append(node("strong", "", label), insulation);
-      const geometry = summary ? (tag.values.lang === 1 ? "bₓ " + number(summary.b) + " m"
+      const geometry = summary ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
       const showSlidingBlock = sliding().enabled && !insulated && (values.glid_x || values.glid_y);
       const rawLength = values.glid_L;
@@ -1280,7 +1280,7 @@ function render({ model, el, readOnly = false }) {
       const text = (summary
         ? "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
-      const accessibleGeometry = summary && tag.values.lang === 0 ? ", mått i ordningen bₓ × bᵧ" : "";
+      const accessibleGeometry = summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
@@ -1397,7 +1397,6 @@ function render({ model, el, readOnly = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
-    if (name === "l" && tag.values.lang === 1) return "1";
     if (name === "glid_L" && tag.values.lang === 0) return "—";
     if (value == null || value === "") return "—";
     const field = fieldSchema.get(name);
@@ -1540,11 +1539,11 @@ function render({ model, el, readOnly = false }) {
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         const blocked = selected.has(tag.id) && mixed && sameTypeFields.has(name);
-        control.disabled = busy || blocked || (name === "l" && tag.values.lang === 1) || (name === "glid_L" && tag.values.lang === 0);
-        control.title = name === "l" && tag.values.lang === 1 ? "Väggsulor beräknas för en 1 m lång remsa."
-          : blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
+        control.disabled = busy || blocked || (name === "glid_L" && tag.values.lang === 0);
+        control.title = blocked ? "Välj samma sultyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
-          : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor." : "";
+          : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
+          : name === "l" && tag.values.lang === 1 ? "Beräkningsremsans längd. Standard är 1 m. Väggens totala glidlängd anges separat som L." : "";
       }
     }
   }
@@ -1570,8 +1569,6 @@ function render({ model, el, readOnly = false }) {
           control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tag.values[name], tag);
           continue;
         }
-        // Show the calculation's reference length, retaining l for a later switch to a pad footing.
-        if (name === "l" && tag.values.lang === 1) {control.value = "1"; continue;}
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tag.values[name];
         if (field?.type === "bool") control.checked = value ?? false;
@@ -1666,7 +1663,7 @@ function render({ model, el, readOnly = false }) {
       if (note) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        if (!field || name === "lang" || (strip && name === "l") || (!mixed && !strip && name === "glid_L")) continue;
+        if (!field || name === "lang" || (!mixed && !strip && name === "glid_L")) continue;
         const row = node("div", "gp-bulk-field");
         const choose = node("input");
         choose.type = "checkbox";
@@ -1886,14 +1883,14 @@ function render({ model, el, readOnly = false }) {
       entry.unit.textContent = strip && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.startsWith("f_d_");
       if (readOnly) {
-        entry.row.hidden = (strip && name === "l") || (!insulated && (insulationField || name.endsWith("_bruk")));
+        entry.row.hidden = !insulated && (insulationField || name.endsWith("_bruk"));
         continue;
       }
       entry.input.disabled = insulationField && !insulated;
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
         && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
-      entry.row.hidden = (strip && name === "l") || (!insulated && name.startsWith("f_d_"));
+      entry.row.hidden = !insulated && name.startsWith("f_d_");
     }
     showSketch();
   }
@@ -2006,7 +2003,7 @@ function render({ model, el, readOnly = false }) {
         mathText("p", "gp-area-equation", `e_x = ${precise(a.ex_placement)} + (${precise(a.ex_moment)}) = ${precise(a.ex)} m`),
         mathText("p", "gp-area-equation", `e_y = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`),
         node("p", "gp-field-note", "e = placering + moment/V. R är lastresultanten och centrum för den effektiva arean. Effektiva mått = sulmått − 2|e|. Tecken enligt beräkningens pilar; x åt höger, y uppåt."),
-        node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (tag.values.lang === 1 ? "Väggsulan visas som en 1 m-remsa." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
+        node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (tag.values.lang === 1 ? "Väggsulan visas som en " + precise(a.by) + " m-remsa." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
     };
     select.addEventListener("change", () => { areaPhases.set(tag.id, select.value); draw(); });
     group.append(select, content);
@@ -2066,7 +2063,10 @@ function render({ model, el, readOnly = false }) {
         group.append(list);
         results.append(group);
       }
-      results.append(mathText("p", "gp-result-note", "Isolering: q_Ed = V / (b_x,eff × b_y,eff). U = q_Ed / f_d. Bruk avser långtidslast; deformation och sättning beräknas inte."));
+      results.append(mathText("p", "gp-result-note", "Isolering: q_Ed = "
+        + (tag.values.lang === 1 ? "V × b_y" : "V") + " / (b_x,eff × b_y,eff). U = q_Ed / f_d. "
+        + (tag.values.lang === 1 ? "V avser last per meter vägg. " : "")
+        + "Bruk avser långtidslast; deformation och sättning beräknas inte."));
     }
   }
   function update() {

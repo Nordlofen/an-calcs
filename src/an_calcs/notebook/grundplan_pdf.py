@@ -125,7 +125,7 @@ def _label(tag, sliding_enabled=False):
     summary = tag.get("summary") if tag["status"] == "calculated" else None
     if summary:
         status = "ok" if summary["utnyttjandegrad"] <= 1 else "over"
-        geometry = (f'bₓ {_number(summary["b"])} m' if tag["values"]["lang"] == 1
+        geometry = (f'bₓ {_number(summary["b"])} m' if tag["values"]["lang"] == 1 and tag["values"]["l"] == 1
                     else f'{_number(summary["b"])} × {_number(tag["values"]["l"])} m')
         lines.append((f'U {_number(summary["utnyttjandegrad"] * 100, 1)} % · {geometry}', _REGULAR, 11))
         if summary.get("isolering"):

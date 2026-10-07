@@ -163,12 +163,21 @@ Indata innehåller **Laster – Brott**, **Laster – Bruk** och **Isolering**.
 Moment anges direkt vid sulan; inget momentbidrag från horisontallast
 gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande
 jordens bärighet.
+
+bᵧ kan ändras även för väggsulor, i dialogen, tabellen och för flera markerade
+sulor. Standardvärdet är 1 m. Laster anges fortfarande per meter vägg och
+glidlängden L är separat. Det valda måttet används i skissen för effektiv area
+och sparas med projektet; äldre projekt behåller sin tidigare remslängd på 1 m.
+
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
-`V / (bₓ,eff × bᵧ,eff)` för respektive lastkombination. Resultatet visar
+`V / (bₓ,eff × bᵧ,eff)` för pelarsulor och
+`V_per_meter × bᵧ / (bₓ,eff × bᵧ,eff)` för väggsulor, för respektive
+lastkombination. Resultatet visar
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
-visar högsta utnyttjandegrad och bₓ, eller bₓ × bᵧ för pelarsulor.
+visar högsta utnyttjandegrad och bₓ, eller bₓ × bᵧ för pelarsulor och
+väggsulor med ändrat bᵧ.
 För isolerade sulor visas även en tredje rad med styrande kontroll.
 Kontrollen visas också i dialogen och hovringstexten. Utseendet följer med
 i HTML- och PDF-exporten. Se lastantagandena i
