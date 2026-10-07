@@ -190,6 +190,26 @@ class TestGrundplanHtml(unittest.TestCase):
         reopened._load_document(path.read_bytes())
         self.assertEqual(reopened.underrubrik, "")
 
+    def test_lang_underrubrik_bevaras_vid_redigering_sparning_och_html_export(self):
+        text = "\n".join([
+            "Kontroll: Allmänna bärighetsekvationen, max tillåten spänning i isolering och H-stabilitet.",
+            "Horisontallaster från jordtryck och vind kontrolleras separat i global X-led och Y-led.",
+            "Vertikallast från bottenplan ingår inte i lasteffekten för sulorna. Brottlast: SK2.",
+            "Armering och kompletterande förutsättningar redovisas i projektets beräkningsunderlag.",
+        ])
+        self.assertGreater(len(text), 200)
+        created = Grundplan(underrubrik=text)
+        self.addCleanup(created.close)
+        self.assertEqual(created.underrubrik, text)
+        self.plan.underrubrik = text + "\nRevision A"
+        self.plan._on_message(None, {"action": "heading", "title": self.plan.titel, "subtitle": text}, [])
+        self.assertEqual(self.plan.underrubrik, text)
+        path = self.plan.spara(self.root / "lang-underrubrik.json")
+        reopened = Grundplan.oppna(path)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.underrubrik, text)
+        self.assertEqual(HtmlSnapshot(reopened._html_bytes().decode()).snapshot["state"]["subtitle"], text)
+
     def test_export_raknar_inte_om_och_visar_inga_inaktuella_resultat(self):
         stale = self.tag()
         self.plan.berakna(stale)

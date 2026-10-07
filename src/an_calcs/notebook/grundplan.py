@@ -201,9 +201,11 @@ def _storage_settings(key, state_file):
     return key, path, argument
 
 
-def _heading_text(value, name):
-    if not isinstance(value, str) or len(value) > 200:
-        raise ValueError(f"{name} måste vara en text med högst 200 tecken.")
+def _heading_text(value, name, *, max_length=200):
+    if not isinstance(value, str):
+        raise ValueError(f"{name} måste vara en text.")
+    if max_length is not None and len(value) > max_length:
+        raise ValueError(f"{name} måste vara en text med högst {max_length} tecken.")
     return value
 
 
@@ -443,7 +445,7 @@ class Grundplan(anywidget.AnyWidget):
             self._key, self._state_file, self._state_file_argument = _storage_settings(
                 key, state_file if state_file is not None else self._STATE_FILE or self.STATE_FILENAME)
         title = _heading_text(str(titel), "Rubrik")
-        subtitle = _heading_text(str(underrubrik), "Underrubrik")
+        subtitle = _heading_text(str(underrubrik), "Underrubrik", max_length=None)
         super().__init__()
         self._source = b""
         self._filename = ""
@@ -988,7 +990,7 @@ class Grundplan(anywidget.AnyWidget):
 
     def _set_heading(self, title, subtitle):
         title = _heading_text(title, "Rubrik")
-        subtitle = _heading_text(subtitle, "Underrubrik")
+        subtitle = _heading_text(subtitle, "Underrubrik", max_length=None)
         self._title, self._subtitle = title, subtitle
         self._publish()
 
@@ -1187,7 +1189,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Filen är inte ett Grundplan-projekt av version 1–12.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
-        subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
+        subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
         drawing = document["drawing"]
         if isinstance(drawing["page"], bool) or not isinstance(drawing["page"], int) or drawing["page"] < 1:
             raise ValueError("Sida måste vara ett positivt heltal.")

@@ -302,9 +302,8 @@ function render({ model, el, readOnly = false }) {
   }
   if (!readOnly) {
     for (const [input, label] of [[title, "Rubrik"], [subtitle, "Underrubrik"]]) {
-      if (input === title) input.type = "text";
+      if (input === title) { input.type = "text"; input.maxLength = 200; }
       else input.rows = 1;
-      input.maxLength = 200;
       input.placeholder = label;
       input.setAttribute("aria-label", label);
       input.title = "Klicka för att redigera " + label.toLowerCase()

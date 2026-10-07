@@ -52,6 +52,7 @@ Alternativt kan en startritning anges:
 Om nyckeln redan är sparad återställs dess projekt i stället för startritningen.
 Klicka direkt i rubriken eller underrubriken överst för att ändra texten.
 **Shift + Enter** lägger till en ny rad i underrubriken; fältet växer med texten.
+Underrubriken har ingen separat teckengräns; hela texten sparas och följer med HTML-exporten.
 **Enter** avslutar redigeringen.
 Båda sparas i JSON-projektet och visas med samma innehåll i HTML-exporten.
 Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra

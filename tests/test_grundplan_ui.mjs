@@ -1836,6 +1836,8 @@ test("heading edits persist before export and pending typing survives older mode
   assert.equal(subtitle.value, "Projektets underrubrik");
   assert.equal(subtitle.tag, "textarea");
   assert.equal(subtitle.rows, 1);
+  assert.equal(title.maxLength, 200);
+  assert.ok(subtitle.maxLength == null || subtitle.maxLength === -1, "Subtitle must not limit typing to 200 characters");
   title.value = "Hus B"; title.dispatch("input");
   const first = ui.sent.at(-1);
   subtitle.value = "Revision A – ÅÄÖ\nHus B"; subtitle.dispatch("input");
@@ -1853,6 +1855,13 @@ test("heading edits persist before export and pending typing survives older mode
   assert.equal(title.value, "Hus B");
   assert.equal(subtitle.value, "Revision A – ÅÄÖ\nHus B");
   assert.deepEqual(ui.tag, original);
+  const longSubtitle = "Kontroll av bärighet, isolering och H-stabilitet. ".repeat(10) + "\nRevision B";
+  subtitle.value = longSubtitle; subtitle.dispatch("input");
+  const longEdit = ui.sent.at(-1);
+  assert.equal(longEdit.subtitle, longSubtitle);
+  Object.assign(ui.data.state, {title: longEdit.title, subtitle: longEdit.subtitle});
+  ui.changed(); ui.ack(longEdit);
+  assert.equal(subtitle.value, longSubtitle);
 });
 
 test("key saves to the kernel file while JSON export downloads a portable copy", async t => {
