@@ -24,6 +24,7 @@ from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_loads import read_loads, MAX_BYTES as _MAX_LOAD_BYTES
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
                                DEFAULT_SETTINGS, contribution, project_results, validate_settings)
+from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour
 
 
 _ASSETS = Path(__file__).parent
@@ -344,6 +345,7 @@ class Grundplan(anywidget.AnyWidget):
         self._label_size = 100
         self._calibration = None
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
+        self._colour = copy.deepcopy(DEFAULT_COLOUR)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -448,6 +450,7 @@ class Grundplan(anywidget.AnyWidget):
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
             "sliding_result": self.glidningsresultat,
+            "colour_grouping": self.farggruppering,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -768,6 +771,22 @@ class Grundplan(anywidget.AnyWidget):
         return project_results(self._tags, self._gliding)
 
     @property
+    def farggruppering(self):
+        """Visuella gruppfärger och legend. Inställningarna behålls även när vyn stängs av."""
+        return copy.deepcopy(self._colour)
+
+    @farggruppering.setter
+    def farggruppering(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Färggruppering anges som en dict med inställningar.")
+        settings = {**self._colour, **changes}
+        for name in ("bounds", "colors", "legend"):
+            if name in changes and isinstance(changes[name], dict):
+                settings[name] = {**self._colour[name], **changes[name]}
+        self._colour = validate_colour(settings)
+        self._publish()
+
+    @property
     def resultat(self):
         """Aktuella details per tagg-id, användbara i an_print.CalcBlock."""
         return copy.deepcopy(self._details)
@@ -825,13 +844,14 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 7,
+            "version": 8,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
+            "colour_grouping": self.farggruppering,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -889,7 +909,7 @@ class Grundplan(anywidget.AnyWidget):
         except ImportError as exc:
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
         return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
-                          page_number=self.background["page"])
+                          page_number=self.background["page"], colour_grouping=self._colour)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -922,7 +942,8 @@ class Grundplan(anywidget.AnyWidget):
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
-                      "sliding": self.glidning, "sliding_result": self.glidningsresultat},
+                      "sliding": self.glidning, "sliding_result": self.glidningsresultat,
+                      "colour_grouping": self.farggruppering},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -970,8 +991,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–7.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–8.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -981,6 +1002,7 @@ class Grundplan(anywidget.AnyWidget):
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
         calibration = _calibration(document.get("calibration"), rendered)
+        colour = validate_colour(document.get("colour_grouping", {}))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
@@ -1027,6 +1049,7 @@ class Grundplan(anywidget.AnyWidget):
         self._label_size = label_size
         self._calibration = calibration
         self._gliding = gliding
+        self._colour = colour
         self._tags = valid_tags
         self._load_import = None
         self._details = details_by_id
@@ -1080,6 +1103,11 @@ class Grundplan(anywidget.AnyWidget):
                 self._set_heading(content["title"], content["subtitle"])
             elif action == "sliding":
                 self.glidning = content["settings"]
+            elif action == "colour_grouping":
+                self.farggruppering = content["settings"]
+            elif action == "colour_placement":
+                self._view_page(content["page"])
+                self.farggruppering = {"legend": content["position"]}
             elif action == "sliding_placement":
                 page = self._view_page(content["page"])
                 kind = content["kind"]

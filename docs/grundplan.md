@@ -336,6 +336,52 @@ Grön tagg betyder U ≤ 100 %, röd betyder U > 100 % eller beräkningsfel.
 ny beräkning har körts. Att bara byta littera påverkar inte beräkningen.
 Varje tagg har oberoende indata.
 
+## Färggruppering
+
+**Färggruppering** öppnar en kompakt inställningsrad under verktygsfältet.
+Välj **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ** eller **Vertikallast V**.
+Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
+för att välja egna färger. Mörka färger visas med ljusare bakgrund på
+etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
+kontrollstatus; färggrupperingen ändrar inga laster eller beräkningar.
+
+För **Vertikallast V** väljer du **Brott**, **Bruk** eller **EQU**.
+Grupperingen använder angiven last: F_vy, F_vy_bruk respektive V_Ed_EQU,
+utan något tillägg för egentyngd. EQU-lasten ska redan innehålla egentyngd.
+Pelarsulor och väggsulor har separata intervall i **kN** respektive **kN/m**.
+Valet **Intervall för** styr vilka gränser och färger du redigerar;
+båda typerna färggrupperas samtidigt på ritningen.
+
+Ange gränser i stigande ordning, exempelvis `100; 200; 400`.
+Det ger grupperna V < 100, 100 ≤ V < 200, 200 ≤ V < 400 och V ≥ 400.
+Även kommaseparerade heltal, som `100, 200, 400`, fungerar.
+Använd semikolon mellan gränser om du skriver decimaler med komma:
+`100,5; 200,5; 400`. Undre gränsen ingår, övre gränsen ingår inte.
+Tomma, upprepade eller osorterade gränser avvisas och tidigare gränser behålls.
+
+**Visa legend** styr färglegenden på ritningen. Dra rubriken för att flytta
+den, klicka på den och dra hörnhandtaget för att skala rutan inklusive texten.
+Piltangenter flyttar den och plus/minus på hörnhandtaget ändrar storleken.
+Legenden följer ritningens zoom och visar färgernas betydelse samt antal
+sulor per grupp. Vid lastgruppering visas separata enheter för de två typerna.
+Sulor med **Endast H-stabilitet** visas som **Ej tillämpligt** för mått och
+Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
+
+När **Färggruppering** stängs av döljs färger och legend. Kategori, lastfall,
+intervall, färger, legendens visningsval, placering och storlek behålls och
+återkommer när knappen aktiveras igen. Inställningarna sparas i projektet.
+PDF och låst resultat-HTML visar den sparade färggrupperingen och legenden;
+HTML:s PDF-knapp exporterar samma inbäddade PDF med dessa färger.
+
+Python kan också ändra inställningarna utan att ändra sulornas indata:
+
+```python
+plan.farggruppering = {"enabled": True, "category": "V", "phase": "EQU",
+                       "bounds": {"wall": [100, 300, 600]}, "show_legend": True}
+plan.farggruppering = {"legend": {"x": 0.6, "y": 0.15, "size": 360}}
+plan.farggruppering = {"enabled": False}  # Inställningarna behålls.
+```
+
 ## Global glidningskontroll
 
 Knappen **Glidningskontroll** aktiverar funktionen och markeras med färg.
@@ -586,8 +632,9 @@ aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 3. Äldre projekt i formatversion 1 och 2 kan
-öppnas och beräknas också automatiskt. Deras angivna
+Projekt sparas i formatversion 8. Äldre projekt i formatversion 1–7 kan
+öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
+Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
 utan att räknas om till moment. Dessa borttagna fält ignoreras även om de
 skickas som `indata` från Python. Projekt i formatversion 1 får isoleringen

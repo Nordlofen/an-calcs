@@ -203,6 +203,14 @@ i varje sulas dialog väljer du motståndsriktning och anger vertikallast i EQU
 (inklusive egentyngd), dimensionerande friktionskoefficient och, för väggsulor,
 hela väggsulans längd. Isolerade sulor bidrar alltid med noll.
 
+**Färggruppering** färgar etiketternas bakgrund efter tjocklek, bₓ, bᵧ eller
+vertikallast i Brott/Bruk/EQU. Mått grupperas per unikt värde och laster med
+egna intervall, separat för pelarsulor (kN) och väggsulor (kN/m). Klicka på
+en färgruta för att välja färg. **Visa legend** visar en flyttbar och skalbar
+färglegend. Prick och kant behåller kontrollstatusen. Senaste inställningen
+återkommer efter av/på och sparas med projektet, inklusive legendens läge
+och storlek. Färger och legend följer med PDF- och HTML-exporten.
+
 **Endast H-stabilitet** under **Geometri** undantar en sula från jordens
 bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolering**.
 Kategorin **Isolering** döljs. Sulan bidrar fortfarande i sina

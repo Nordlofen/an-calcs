@@ -93,6 +93,10 @@ class Element {
       const scale = Number(this.style.transform?.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
       return {left: 0, top: 0, width: 410 * scale, height: 180 * scale};
     }
+    if (this.className.split(" ").includes("gp-colour-legend")) {
+      const scale = Number(this.style.transform?.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
+      return {left: 0, top: 0, width: 300 * scale, height: 220 * scale};
+    }
     if (this.tag === "img") return { left: parseFloat(this.parent.style.left) || 0, top: parseFloat(this.parent.style.top) || 0,
       width: parseFloat(this.parent.style.width), height: parseFloat(this.parent.style.height) };
     return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
@@ -100,7 +104,7 @@ class Element {
 }
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
-const { default: widget, validateCalibration, measuredDistance } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+const { default: widget, validateCalibration, measuredDistance, colourGroups } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -1623,7 +1627,7 @@ for (const readOnly of [false, true]) test(`nonzero external loads and definitio
     F_vy_bruk: 90, M_insp_b_bruk: 0, M_insp_l_bruk: 0});
   ui.changed();
   ui.byText("V 150 kN/m"); ui.byText("Mₓ −0,25 kNm/m"); ui.byText("Mᵧ 1,00e-8 kNm/m");
-  assert.ok(!ui.elements().some(element => element.textContent === "Bruk"));
+  assert.ok(!ui.elements().some(element => element.textContent === "Bruk" && element.closest(".gp-tag-load-row")));
   ui.marker().click();
   const before = ui.sent.length;
   ui.byText("Visa definitionsskiss").click();
@@ -2397,4 +2401,132 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
   assert.ok(ui.elements().some(e => e.tag === "dd" && e.textContent === "144 kN"));
   assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);
   assert.equal(ui.sent.length, 0);
+});
+
+const defaultColour = {enabled: false, category: "t", phase: "brott", edit_type: "pad", show_legend: true,
+  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
+function colourFixture(ui, changes = {}) {
+  ui.data.state.colour_grouping = {...structuredClone(defaultColour), enabled: true, ...changes};
+  ui.model.get("state").colour_grouping = ui.data.state.colour_grouping;
+  ui.changed();
+  const accept = request => {
+    const settings = ui.data.state.colour_grouping;
+    if (request.action === "colour_grouping") {
+      const patch = request.settings;
+      const next = {...settings, ...patch};
+      for (const name of ["bounds", "colors", "legend"]) if (patch[name]) next[name] = {...settings[name], ...patch[name]};
+      ui.data.state.colour_grouping = next;
+    } else if (request.action === "colour_placement") ui.data.state.colour_grouping.legend = request.position;
+    ui.changed(); ui.ack(request);
+  };
+  return accept;
+}
+
+test("colour grouping toggles without losing categories, colours, bounds or legend size", t => {
+  const ui = setup(t);
+  const accept = colourFixture(ui, {category: "V", phase: "EQU", edit_type: "wall", bounds: {pad: [100, 300], wall: [10, 20]},
+    colors: {na: "#123456"}, legend: {x: .2, y: .4, size: 420}});
+  const original = structuredClone(ui.data.state), toggle = ui.byClass("gp-colour-controls");
+  const feature = ui.elements().find(e => e.tag === "button" && e.textContent === "Färggruppering" && e.closest(".gp-toolbar"));
+  assert.equal(feature.getAttribute("aria-pressed"), "true");
+  feature.click();
+  assert.equal(toggle.hidden, true);
+  assert.equal(ui.byClass("gp-colour-legend").hidden, true);
+  assert.equal(ui.marker().style["--gp-tag-bg"], undefined);
+  assert.deepEqual(ui.sent.at(-1).settings, {enabled: false}); accept(ui.sent.at(-1));
+  feature.click(); accept(ui.sent.at(-1));
+  assert.deepEqual(ui.data.state, original);
+  assert.equal(ui.byClass("gp-colour-legend").style.transform, "scale(1.4)");
+  assert.equal(feature.getAttribute("aria-pressed"), "true");
+});
+
+test("group category and phase buttons recolour labels without changing footing values or status", t => {
+  const ui = setup(t), accept = colourFixture(ui);
+  Object.assign(ui.tag.values, {t: .3, b: .6, l: 1, F_vy: 150, F_vy_bruk: 99.9999, V_Ed_EQU: 400}); ui.changed();
+  const before = structuredClone(ui.tag);
+  for (const [caption, category] of [["Bredd bₓ", "b"], ["Längd bᵧ", "l"], ["Vertikallast V", "V"]]) {
+    const choice = ui.byText(caption); choice.click();
+    assert.equal(ui.sent.at(-1).action, "colour_grouping");
+    assert.deepEqual(ui.sent.at(-1).settings, {category});
+    assert.equal(choice.getAttribute("aria-pressed"), "true"); accept(ui.sent.at(-1));
+    assert.ok(ui.marker().style["--gp-tag-bg"].startsWith("#"));
+    assert.ok(ui.marker().className.includes("gp-tag-ok"));
+  }
+  ui.find(e => e.tag === "button" && e.textContent === "Bruk").click(); accept(ui.sent.at(-1));
+  assert.ok(ui.marker().title.includes("V < 100"));
+  ui.find(e => e.tag === "button" && e.textContent === "EQU").click(); accept(ui.sent.at(-1));
+  assert.ok(ui.marker().title.includes("V ≥ 400"));
+  assert.deepEqual(ui.tag, before);
+  assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, false);
+});
+
+test("custom intervals accept decimal comma with semicolons, validate boundaries and keep separate wall bounds", t => {
+  const ui = setup(t), accept = colourFixture(ui, {category: "V"});
+  const field = ui.find(e => e.getAttribute("aria-label") === "Intervallgränser för färggruppering");
+  field.value = "100,5; 200,5; 399,5"; field.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).settings, {bounds: {pad: [100.5, 200.5, 399.5]}}); accept(ui.sent.at(-1));
+  ui.byText("Väggsulor [kN/m]").click(); accept(ui.sent.at(-1));
+  assert.equal(field.value, "100; 200; 400");
+  field.value = "100, 300, 600"; field.dispatch("change"); accept(ui.sent.at(-1));
+  assert.deepEqual(ui.data.state.colour_grouping.bounds, {pad: [100.5, 200.5, 399.5], wall: [100, 300, 600]});
+  for (const value of ["", "100; 100", "200; 100", "100; NaN", "100;"]) {
+    const before = ui.sent.length; field.value = value; field.dispatch("change");
+    assert.equal(ui.sent.length, before); assert.ok(field.validityMessage);
+  }
+  ui.byText("Pelarsulor [kN]").click(); accept(ui.sent.at(-1));
+  assert.equal(field.value, "100,5; 200,5; 399,5");
+  assert.equal(field.validityMessage, "", "Changing footing type restores its valid saved intervals");
+  assert.equal(ui.byClass("gp-colour-error").textContent, "");
+  field.value = "50; 150"; field.dispatch("change"); accept(ui.sent.at(-1));
+  assert.equal(field.validityMessage, "");
+});
+
+test("custom colours and legend checkbox persist while status remains unchanged", t => {
+  const ui = setup(t), accept = colourFixture(ui);
+  const input = ui.find(e => e.type === "color" && e.closest(".gp-colour-swatches"));
+  const before = structuredClone(ui.tag);
+  input.value = "#0000ff"; input.dispatch("change"); accept(ui.sent.at(-1));
+  const key = ui.marker().dataset.colourGroup;
+  assert.equal(ui.data.state.colour_grouping.colors[key], "#0000ff");
+  assert.equal(ui.marker().style["--gp-tag-bg"], "#b3b3ff");
+  const check = ui.find(e => e.getAttribute("aria-label") === "Visa färglegend");
+  check.checked = false; check.dispatch("change"); accept(ui.sent.at(-1));
+  assert.equal(ui.byClass("gp-colour-legend").hidden, true);
+  assert.equal(ui.marker().style["--gp-tag-bg"], "#b3b3ff");
+  check.checked = true; check.dispatch("change"); accept(ui.sent.at(-1));
+  assert.equal(ui.byClass("gp-colour-legend").hidden, false);
+  assert.deepEqual(ui.tag, before);
+});
+
+test("colour legend moves, scales with corner and zoom, cancels drags and supports keyboard", t => {
+  const ui = setup(t), accept = colourFixture(ui);
+  const legend = ui.byClass("gp-colour-legend"), header = ui.find(e => e.tag === "button" && e.closest(".gp-colour-legend")), handle = ui.byClass("gp-colour-resize");
+  header.click(); assert.equal(handle.hidden, false);
+  ui.start(header); ui.move(380, 360); ui.finish(380, 360);
+  let request = ui.sent.at(-1);
+  assert.equal(request.action, "colour_placement"); near(request.position.x, .75); near(request.position.y, .18);
+  accept(request);
+  ui.start(handle); ui.move(450, 410); ui.finish(450, 410);
+  request = ui.sent.at(-1); near(request.position.size, 450); accept(request);
+  assert.equal(legend.style.transform, "scale(1.5)");
+  ui.byText("+").click(); assert.equal(legend.style.transform, "scale(1.875)");
+  const count = ui.sent.length;
+  ui.start(handle); ui.move(550, 550); ui.viewport.dispatch("pointercancel");
+  assert.equal(ui.sent.length, count); assert.equal(legend.style.transform, "scale(1.875)");
+  handle.dispatch("keydown", {key: "-", shiftKey: true});
+  near(ui.sent.at(-1).position.size, 430); accept(ui.sent.at(-1));
+  header.dispatch("keydown", {key: "ArrowLeft"});
+  near(ui.sent.at(-1).position.x, .75 - 5 / 800);
+});
+
+test("read-only HTML keeps grouping and legend with no editing commands", t => {
+  const ui = setup(t, {readOnly: true, standalone: true}); colourFixture(ui, {category: "b"});
+  assert.ok(ui.marker().style["--gp-tag-bg"].startsWith("#"));
+  assert.equal(ui.byClass("gp-colour-legend").hidden, false);
+  assert.equal(ui.byClass("gp-colour-resize").hidden, true);
+  assert.equal(ui.elements().some(e => e.className.includes("gp-colour-controls")), false);
+  const before = structuredClone(ui.data.state), header = ui.find(e => e.tag === "button" && e.closest(".gp-colour-legend"));
+  ui.start(header); ui.move(500, 500); ui.finish(500, 500);
+  header.dispatch("keydown", {key: "ArrowLeft"});
+  assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, 0);
 });

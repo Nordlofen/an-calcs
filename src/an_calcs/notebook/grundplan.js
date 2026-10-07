@@ -1,4 +1,70 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
+const COLOUR_DEFAULTS = {enabled: false, category: "t", phase: "brott", edit_type: "pad", show_legend: true,
+  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
+const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V"};
+const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
+const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
+  "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
+const colourNumberKey = value => {const [m, e] = value.toExponential(12).split("e"); return m + "e" + Number(e);};
+const colourPalette = index => {
+  if (index < COLOUR_PALETTE.length) return COLOUR_PALETTE[index];
+  const code = Math.imul(index, 2654435761) & 0xffffff;
+  return "#" + [16, 8, 0].map(shift => (195 + ((code >> shift) & 255) % 45).toString(16).padStart(2, "0")).join("");
+};
+const colourBackground = color => {
+  const channels = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
+  const weight = Math.min(...channels) >= 150 ? 1 : .3;
+  return "#" + channels.map(channel => Math.floor(channel * weight + 255 * (1 - weight) + .5).toString(16).padStart(2, "0")).join("");
+};
+export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
+  const {category, phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
+  const finite = value => typeof value === "number" && Number.isFinite(value);
+  const make = (key, data) => {
+    const color = settings.colors[key] || colourPalette(groups.length);
+    const group = {key, color, background: colourBackground(color), count: 0, ...data};
+    groups.push(group); return group;
+  };
+  if (category === "V") {
+    for (const kind of ["pad", "wall"]) {
+      if (!tags.some(tag => (tag.values.lang === 1) === (kind === "wall"))) continue;
+      const bounds = settings.bounds[kind];
+      for (let i = 0; i <= bounds.length; i++) {
+        const low = i ? bounds[i - 1] : null, high = bounds[i] ?? null;
+        const key = `V:${phase}:${kind}:${low == null ? "*" : colourNumberKey(low)}:${high == null ? "*" : colourNumberKey(high)}`;
+        byKey.set(kind + ":" + i, make(key, {kind, low, high, unit: kind === "wall" ? "kN/m" : "kN"}));
+      }
+    }
+  } else {
+    const values = [...new Set(tags.filter(tag => !tag.values.endast_h_stabilitet && finite(tag.values[category]))
+      .map(tag => tag.values[category]))].sort((a, b) => a - b);
+    for (const value of values) {
+      const key = category + ":" + colourNumberKey(value);
+      if (!byKey.has(key)) byKey.set(key, make(key, {value, unit: "m", kind: "geometry"}));
+    }
+  }
+  for (const tag of tags) {
+    const values = tag.values;
+    const na = values.endast_h_stabilitet && (category !== "V" || phase !== "EQU");
+    const value = values[category === "V" ? {brott: "F_vy", bruk: "F_vy_bruk", EQU: "V_Ed_EQU"}[phase] : category];
+    let group;
+    if (na || !finite(value)) {
+      const key = na ? "na" : "missing";
+      if (!special.has(key)) {
+        const color = settings.colors[key] || "#d5dde1";
+        const item = make(key, {label: na ? "Ej tillämpligt" : "Saknar värde", kind: "special", unit: ""});
+        Object.assign(item, {color, background: colourBackground(color)}); special.set(key, item);
+      }
+      group = special.get(key);
+    } else if (category === "V") {
+      const kind = values.lang === 1 ? "wall" : "pad";
+      const index = settings.bounds[kind].filter(bound => value >= bound).length;
+      group = byKey.get(kind + ":" + index);
+    } else group = byKey.get(category + ":" + colourNumberKey(value));
+    group.count++; assignments.set(tag.id, group);
+  }
+  return {groups, assignments};
+}
+
 const drawingDistance = (start, end, background) => Math.hypot(
   (end.x - start.x) * background.width, (end.y - start.y) * background.height);
 export function validateCalibration(value, background) {
@@ -117,6 +183,7 @@ function render({ model, el, readOnly = false }) {
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   let headingDraft = null;
   let slidingDraft = null, overlaySelected = null;
+  let colourDraft = null, colourEditType = null;
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
   const bearingOnlyNames = new Set(["b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
@@ -124,6 +191,7 @@ function render({ model, el, readOnly = false }) {
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
+  const colour = () => colourDraft || state().colour_grouping || COLOUR_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
@@ -519,6 +587,70 @@ function render({ model, el, readOnly = false }) {
     globalInputs.set(axis, {check, input, demand});
   }
   if (!readOnly) toolbar.append(slidingControls);
+  const colourToggle = button("Färggruppering", () => setColour({enabled: !colour().enabled}), "gp-colour-toggle");
+  colourToggle.title = "Gruppera etiketternas bakgrund efter mått eller vertikallast. Senaste inställningen behålls.";
+  if (!readOnly) toolbar.append(colourToggle);
+  const colourControls = node("section", "gp-colour-controls");
+  colourControls.hidden = true;
+  colourControls.setAttribute("aria-label", "Inställningar för färggruppering");
+  const colourCategories = node("div", "gp-colour-row");
+  const colourCategoryButtons = new Map(), colourPhaseButtons = new Map(), colourTypeButtons = new Map();
+  colourCategories.append(node("span", "gp-colour-caption", "Gruppera efter"));
+  const categoryChoices = node("div", "gp-colour-choices");
+  for (const [category, caption] of Object.entries(COLOUR_CATEGORIES)) {
+    const choice = button(caption, () => setColour({category}));
+    colourCategoryButtons.set(category, choice); categoryChoices.append(choice);
+  }
+  const colourLegendChoice = node("label", "gp-colour-legend-choice");
+  const colourLegendCheck = node("input"); colourLegendCheck.type = "checkbox";
+  colourLegendCheck.setAttribute("aria-label", "Visa färglegend");
+  colourLegendCheck.addEventListener("change", () => setColour({show_legend: colourLegendCheck.checked}));
+  colourLegendChoice.append(colourLegendCheck, node("span", "", "Visa legend"));
+  colourCategories.append(categoryChoices, colourLegendChoice);
+  const colourLoadOptions = node("div", "gp-colour-row");
+  colourLoadOptions.append(node("span", "gp-colour-caption", "Lastfall"));
+  const phaseChoices = node("div", "gp-colour-choices");
+  for (const [phase, caption] of Object.entries(COLOUR_PHASES)) {
+    const choice = button(caption, () => setColour({phase}));
+    colourPhaseButtons.set(phase, choice); phaseChoices.append(choice);
+  }
+  const typeChoices = node("div", "gp-colour-choices");
+  for (const [kind, caption] of [["pad", "Pelarsulor [kN]"], ["wall", "Väggsulor [kN/m]"]]) {
+    const choice = button(caption, () => {
+      colourError.textContent = ""; colourBounds.setCustomValidity("");
+      colourEditType = kind; colourBounds.value = colour().bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
+      setColour({edit_type: kind});
+    });
+    choice.title = "Välj vilka sulors intervall och färger du vill ändra. Båda typerna grupperas på ritningen.";
+    colourTypeButtons.set(kind, choice); typeChoices.append(choice);
+  }
+  colourLoadOptions.append(phaseChoices, node("span", "gp-colour-caption", "Intervall för"), typeChoices);
+  const colourBoundsRow = node("div", "gp-colour-row");
+  const colourBoundsLabel = node("label", "gp-colour-bounds");
+  const colourBounds = node("input"); colourBounds.type = "text";
+  colourBounds.maxLength = 600;
+  colourBounds.setAttribute("aria-label", "Intervallgränser för färggruppering");
+  colourBounds.placeholder = "100; 200; 400";
+  colourBounds.title = "Ange gränser i stigande ordning, separerade med semikolon. Kommaseparerade heltal går också bra.";
+  const colourBoundsCaption = node("span");
+  colourBoundsLabel.append(colourBoundsCaption, colourBounds);
+  const colourError = node("span", "gp-colour-error"); colourError.setAttribute("role", "status");
+  const saveColourBounds = () => {
+    const raw = colourBounds.value.trim();
+    const parts = raw.includes(";") ? raw.split(";").map(value => value.trim().replace(",", ".")) : raw.split(",").map(value => value.trim());
+    const bounds = parts.map(Number);
+    const valid = parts.every(value => value !== "") && bounds.length <= 20 && bounds.every(Number.isFinite)
+      && bounds.every((value, i) => !i || value > bounds[i - 1]);
+    colourError.textContent = valid ? "" : "Ange 1–20 gränser i stigande ordning, t.ex. 100; 200; 400.";
+    colourBounds.setCustomValidity(colourError.textContent);
+    if (valid) setColour({bounds: {[colourEditType || colour().edit_type]: bounds}});
+  };
+  colourBounds.addEventListener("change", saveColourBounds);
+  colourBounds.addEventListener("keydown", event => {if (event.key === "Enter") {event.preventDefault(); saveColourBounds();}});
+  colourBoundsRow.append(colourBoundsLabel, colourError);
+  const colourHint = node("p", "gp-colour-hint");
+  const colourSwatches = node("div", "gp-colour-swatches");
+  colourControls.append(colourCategories, colourLoadOptions, colourBoundsRow, colourHint, colourSwatches);
   const cancelCopy = button("Avbryt kopiering", () => {
     setMode("pan");
     showMessage("Kopieringen avbröts.");
@@ -657,7 +789,22 @@ function render({ model, el, readOnly = false }) {
     if (!readOnly) { overlaySelected = "legend"; renderSlidingGeometry(); }
   });
   slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
-  overlays.append(axesOverlay, slidingLegend);
+  const colourLegend = node("section", "gp-sliding-overlay gp-colour-legend");
+  colourLegend.dataset.kind = "colour";
+  colourLegend.setAttribute("aria-label", "Legend för färggruppering");
+  const colourHeader = button("Färggruppering", () => {
+    if (!readOnly) {overlaySelected = "colour"; renderSlidingGeometry();}
+  }, "gp-sliding-header gp-sliding-handle");
+  colourHeader.setAttribute("aria-label", "Färggruppering." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
+  const colourLegendBody = node("div", "gp-colour-legend-body");
+  const colourResize = button("", () => {}, "gp-overlay-resize gp-colour-resize");
+  colourResize.setAttribute("aria-label", "Ändra färglegendens storlek. Dra hörnet eller använd plus och minus.");
+  colourResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
+  colourLegend.addEventListener("click", () => {
+    if (!readOnly) {overlaySelected = "colour"; renderSlidingGeometry();}
+  });
+  colourLegend.append(colourHeader, colourLegendBody, colourResize);
+  overlays.append(axesOverlay, slidingLegend, colourLegend);
   sheet.append(picture, markers, overlays);
   viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
@@ -808,7 +955,9 @@ function render({ model, el, readOnly = false }) {
       : "Redigera direkt i cellerna; resultat uppdateras automatiskt. En ändring på en markerad rad gäller samma kolumn för alla markerade rader; på en omarkerad rad ändras bara den sulan. Littera och fundamenttyp ändras alltid individuellt. Markering i ritningen och tabellen följs åt. Rulla åt sidan för fler indata. Väggsulors laster anges per meter; pelarsulors laster är totala."),
     tableFeedback, tableScroll);
   root.append(heading);
-  root.append(toolbar, measurementBar);
+  root.append(toolbar);
+  if (!readOnly) root.append(colourControls);
+  root.append(measurementBar);
   if (!readOnly) root.append(importBar);
   root.append(selectionBar);
   if (!readOnly) root.append(savePanel, projectFile, argumentsFallback);
@@ -900,6 +1049,8 @@ function render({ model, el, readOnly = false }) {
           areaPhases.clear();
           headingDraft = null;
           slidingDraft = null; overlaySelected = null;
+          colourDraft = null; colourEditType = null; colourError.textContent = "";
+          colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
           inputSections.length = resultSections.length = 0;
           setMode("pan");
@@ -1058,27 +1209,94 @@ function render({ model, el, readOnly = false }) {
       if (slidingDraft === draft) { slidingDraft = null; update(); }
     });
   }
+  function setColour(patch) {
+    if (patch.enabled === false || patch.show_legend === false) {cancelDrag(); overlaySelected = null;}
+    const draft = {...colour(), ...patch};
+    for (const name of ["bounds", "colors", "legend"]) {
+      if (patch[name]) draft[name] = {...colour()[name], ...patch[name]};
+    }
+    colourDraft = draft;
+    update();
+    command("colour_grouping", {settings: patch}, [], reply => {
+      if (colourDraft === draft) {colourDraft = null; update();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  }
+  function colourGroupCaption(group) {
+    if (group.label) return group.label;
+    if (group.kind === "geometry") return precise(group.value) + " m";
+    return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
+      : precise(group.low) + " ≤ V < " + precise(group.high);
+  }
+  function showColour() {
+    const settings = colour(), data = colourGroups(state().tags, settings);
+    colourToggle.classList.toggle("gp-selected", settings.enabled);
+    colourToggle.setAttribute("aria-pressed", String(settings.enabled));
+    colourToggle.disabled = !background().url || drawingBusy;
+    colourControls.hidden = !settings.enabled;
+    const kind = colourEditType || settings.edit_type;
+    for (const [buttons, selectedValue] of [[colourCategoryButtons, settings.category], [colourPhaseButtons, settings.phase], [colourTypeButtons, kind]]) {
+      for (const [value, choice] of buttons) {
+        choice.classList.toggle("gp-selected", value === selectedValue);
+        choice.setAttribute("aria-pressed", String(value === selectedValue));
+      }
+    }
+    colourLegendCheck.checked = settings.show_legend;
+    colourLoadOptions.hidden = colourBoundsRow.hidden = settings.category !== "V";
+    colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
+    if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
+      colourBounds.value = settings.bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
+    }
+    colourHint.textContent = settings.category === "V"
+      ? "Pelarsulor och väggsulor har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
+      : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
+    colourSwatches.replaceChildren();
+    for (const group of data.groups.filter(group => settings.category !== "V" || group.kind === kind || group.kind === "special")) {
+      const row = node("label", "gp-colour-chip");
+      const input = node("input"); input.type = "color"; input.value = group.color;
+      input.setAttribute("aria-label", "Färg för " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : ""));
+      input.addEventListener("change", () => setColour({colors: {[group.key]: input.value}}));
+      row.append(input, node("span", "", colourGroupCaption(group))); colourSwatches.append(row);
+    }
+    colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
+      COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
+    let previousKind = null;
+    for (const group of data.groups) {
+      if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
+        colourLegendBody.append(node("strong", "gp-colour-legend-section",
+          group.kind === "wall" ? "Väggsulor [kN/m]" : "Pelarsulor [kN]"));
+      }
+      previousKind = group.kind;
+      const row = node("div", "gp-colour-legend-row");
+      const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
+      row.append(swatch, node("span", "", colourGroupCaption(group)), node("span", "gp-colour-group-count", String(group.count)));
+      colourLegendBody.append(row);
+    }
+    colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
+    renderSlidingGeometry();
+  }
   function overlayPosition(kind) {
     const key = background().page + ":" + kind;
+    if (kind === "colour") return {...COLOUR_DEFAULTS.legend, ...(overlayPositions.get(key) || colour().legend)};
     const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
     return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
   }
   function overlaySize(kind, value) {
-    const [low, high] = kind === "symbol" ? [50, 600] : [205, 1230];
+    const [low, high] = kind === "symbol" ? [50, 600] : kind === "colour" ? [150, 900] : [205, 1230];
     return Math.max(low, Math.min(high, value));
   }
   function saveOverlayPosition(kind, page, position) {
     const key = page + ":" + kind;
     overlayPositions.set(key, position);
     pendingOverlayPositions.set(key, position);
-    command("sliding_placement", {kind, page, position}, [], () => {
+    command(kind === "colour" ? "colour_placement" : "sliding_placement", {kind, page, position}, [], () => {
       if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
       if (overlayPositions.get(key) === position) overlayPositions.delete(key);
       renderSlidingGeometry();
     });
   }
   for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
-      [slidingHeader, "legend", false], [legendResize, "legend", true]]) {
+      [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true]]) {
     element.addEventListener("keydown", event => {
       if (readOnly) return;
       const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
@@ -1094,9 +1312,9 @@ function render({ model, el, readOnly = false }) {
     });
   }
   function renderSlidingGeometry() {
-    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"]]) {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"]]) {
       const p = overlayPosition(kind);
-      element.hidden = !sliding().enabled || !background().url;
+      element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend : !sliding().enabled) || !background().url;
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
@@ -1104,11 +1322,12 @@ function render({ model, el, readOnly = false }) {
         element.style.width = element.style.height = p.size * zoom + "px";
         axesResize.hidden = readOnly || overlaySelected !== "symbol";
       } else {
-        const scale = zoom * p.size / 410;
+        const scale = zoom * p.size / (kind === "colour" ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
-        legendResize.hidden = readOnly || overlaySelected !== "legend";
+        const resize = kind === "colour" ? colourResize : legendResize;
+        resize.hidden = readOnly || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
-        legendResize.style.transform = "scale(" + 1 / scale + ")";
+        resize.style.transform = "scale(" + 1 / scale + ")";
       }
     }
   }
@@ -1278,6 +1497,7 @@ function render({ model, el, readOnly = false }) {
   }
   function renderMarkers() {
     markers.replaceChildren();
+    const grouped = colour().enabled ? colourGroups(state().tags, colour()).assignments : null;
     for (const tag of state().tags.filter((t) => t.page === background().page)) {
       const summary = dirty.has(tag.id) ? null : tag.summary;
       const tagState = dirty.has(tag.id) ? "stale" : tag.status;
@@ -1295,6 +1515,11 @@ function render({ model, el, readOnly = false }) {
         }
       }, "gp-tag gp-tag-" + color);
       marker.dataset.tagId = tag.id;
+      const group = grouped?.get(tag.id);
+      if (group) {
+        marker.style.setProperty("--gp-tag-bg", group.background);
+        marker.dataset.colourGroup = group.key;
+      }
       marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen" : "Dra för att flytta · klicka för indata och kopiering";
       const position = positions.get(tag.id) || tag;
       marker.style.left = position.x * 100 + "%";
@@ -1324,6 +1549,7 @@ function render({ model, el, readOnly = false }) {
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
+      if (group) marker.title += " · Färggrupp: " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : "");
       marker.append(heading, node("span", "gp-tag-result", text));
       if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
       const loads = node("span", "gp-tag-loads");
@@ -2008,6 +2234,7 @@ function render({ model, el, readOnly = false }) {
     showResult();
     renderMarkers();
     showSliding();
+    showColour();
     const label = labelInput.value.trim();
     const id = active, revision = edits.get(id);
     command("update", { id, values, ...(label ? { label } : {}) }, [], reply => {
@@ -2241,6 +2468,7 @@ function render({ model, el, readOnly = false }) {
     } else sketch.hidden = true;
     renderMarkers();
     showSliding();
+    showColour();
     showTable();
     showMeasurement();
   }
@@ -2325,7 +2553,7 @@ function render({ model, el, readOnly = false }) {
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
-      const resize = event.target === axesResize || event.target === legendResize;
+      const resize = event.target === axesResize || event.target === legendResize || event.target === colourResize;
       if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
       event.preventDefault();
       setMode("pan");

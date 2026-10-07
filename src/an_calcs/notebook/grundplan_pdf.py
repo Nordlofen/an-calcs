@@ -17,6 +17,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from .grundplan_labels import LOAD_GROUPS
 from .grundplan_sliding import contribution, project_results, DEFAULT_SETTINGS, DEFAULT_PLACEMENT
+from .grundplan_colour import group_data, CATEGORIES, PHASES
 
 
 _REGULAR = "Grundplan-Vera"
@@ -175,7 +176,7 @@ def _draw_insulation(canvas, left, top, insulated, background):
     canvas.restoreState()
 
 
-def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_enabled=False):
+def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_enabled=False, colour_assignments=None):
     """Map normalized image positions and CSS label size into page coordinates."""
     _fonts()
     for tag in tags:
@@ -209,6 +210,8 @@ def _draw_labels(canvas, width, height, preview_size, tags, label_size, sliding_
         left = min(max(0, left), width - box_width * scale)
         top = min(max(0, top), height - box_height * scale)
         border, background, dot = _COLORS[status]
+        if colour_assignments and tag["id"] in colour_assignments:
+            background = colour_assignments[tag["id"]]["background"]
         canvas.saveState()
         canvas.translate(left, height - top)
         canvas.scale(scale, scale)
@@ -371,7 +374,68 @@ def _page_geometry(page):
     return width, height, Transformation(matrices[rotation])
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1):
+def _draw_colour_legend(canvas, width, height, preview_size, settings, groups):
+    if not settings or not settings["enabled"] or not settings["show_legend"]:
+        return
+    _fonts()
+    rows = []
+    previous_kind = None
+    for group in groups:
+        if settings["category"] == "V" and group["kind"] != previous_kind and group["kind"] in ("pad", "wall"):
+            rows.append(("heading", "Väggsulor [kN/m]" if group["kind"] == "wall" else "Pelarsulor [kN]"))
+        previous_kind = group["kind"]
+        if group.get("label"):
+            caption = group["label"]
+        elif group["kind"] == "geometry":
+            caption = _number(group["value"], 6) + " m"
+        elif group["low"] is None:
+            caption = "V < " + _number(group["high"], 6)
+        elif group["high"] is None:
+            caption = "V ≥ " + _number(group["low"], 6)
+        else:
+            caption = _number(group["low"], 6) + " ≤ V < " + _number(group["high"], 6)
+        rows.append(("group", (caption, group)))
+    box_width, box_height = 300, 76 + len(rows) * 28
+    legend = settings["legend"]
+    scale = min(min(width / preview_size[0], height / preview_size[1]) * legend["size"] / 300,
+                width / box_width, height / box_height)
+    left = min(legend["x"] * width, max(0, width - box_width * scale))
+    top = min(legend["y"] * height, max(0, height - box_height * scale))
+    canvas.saveState()
+    canvas.translate(left, height - top)
+    canvas.scale(scale, scale)
+    canvas.setFillColor(HexColor("#ffffff"))
+    canvas.setStrokeColor(HexColor("#9fbbbf"))
+    canvas.setLineWidth(1)
+    canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
+    canvas.setFillColor(HexColor("#19343d"))
+    _draw_text(canvas, 14, -25, "Färggruppering", _BOLD, 15)
+    caption = CATEGORIES[settings["category"]] + (" · " + PHASES[settings["phase"]] if settings["category"] == "V" else " [m]")
+    _draw_text(canvas, 14, -44, caption, _REGULAR, 12)
+    y = -66
+    for kind, data in rows:
+        if kind == "heading":
+            canvas.setFillColor(HexColor("#58717a"))
+            _draw_text(canvas, 14, y - 7, data, _BOLD, 11)
+        else:
+            caption, group = data
+            canvas.setFillColor(HexColor(group["background"]))
+            canvas.setStrokeColor(HexColor("#b9cdd1"))
+            canvas.roundRect(14, y - 14, 26, 21, 3, stroke=1, fill=1)
+            canvas.setFillColor(HexColor("#19343d"))
+            # Keep long decimal interval labels inside the legend.
+            size = min(12, 12 * 214 / max(214, _text_width(caption, _REGULAR, 12)))
+            _draw_text(canvas, 48, y - 7, caption, _REGULAR, size)
+            canvas.setFillColor(HexColor("#58717a"))
+            canvas.setFont(_REGULAR, 11)
+            canvas.drawRightString(286, y - 7, str(group["count"]))
+        y -= 28
+    canvas.setFillColor(HexColor("#58717a"))
+    _draw_text(canvas, 14, -box_height + 12, "Antal sulor visas till höger.", _REGULAR, 10)
+    canvas.restoreState()
+
+
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None):
     """Return the selected drawing page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -379,12 +443,13 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1):
     writer = PdfWriter()
     settings = sliding or DEFAULT_SETTINGS
     results = project_results(tags, settings)
+    coloured = group_data(tags, colour_grouping) if colour_grouping and colour_grouping["enabled"] else None
     if source.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(source))
         if isinstance(page_number, bool) or not isinstance(page_number, int) or not 1 <= page_number <= len(reader.pages):
             raise ValueError("Ritningssidan finns inte i PDF-filen.")
         page = writer.add_page(reader.pages[page_number - 1])
-        if tags or settings["enabled"]:
+        if tags or settings["enabled"] or coloured is not None:
             with pdfium.PdfDocument(source) as document:
                 width, height, transform = _page_geometry(page)
                 preview_page = document[page_number - 1]
@@ -397,8 +462,9 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1):
                 preview_size = (math.ceil(pw * preview_scale), math.ceil(ph * preview_scale))
                 overlay = io.BytesIO()
                 canvas = Canvas(overlay, pagesize=(width, height), pageCompression=1)
-                _draw_labels(canvas, width, height, preview_size, tags, label_size, settings["enabled"])
+                _draw_labels(canvas, width, height, preview_size, tags, label_size, settings["enabled"], coloured and coloured["assignments"])
                 _draw_project_overlays(canvas, width, height, preview_size, page_number, settings, results)
+                _draw_colour_legend(canvas, width, height, preview_size, colour_grouping, coloured["groups"] if coloured else [])
                 canvas.showPage()
                 canvas.save()
                 page.merge_transformed_page(PdfReader(overlay).pages[0], transform, over=True, expand=False)
@@ -417,8 +483,9 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1):
         stream = io.BytesIO()
         canvas = Canvas(stream, pagesize=(width, height), pageCompression=1)
         canvas.drawImage(ImageReader(picture), 0, 0, width, height)
-        _draw_labels(canvas, width, height, preview.size, tags, label_size, settings["enabled"])
+        _draw_labels(canvas, width, height, preview.size, tags, label_size, settings["enabled"], coloured and coloured["assignments"])
         _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
+        _draw_colour_legend(canvas, width, height, preview.size, colour_grouping, coloured["groups"] if coloured else [])
         canvas.showPage()
         canvas.save()
         writer.add_page(PdfReader(stream).pages[0])
