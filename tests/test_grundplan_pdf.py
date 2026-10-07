@@ -45,6 +45,7 @@ class TestGrundplanPdf(unittest.TestCase):
                         "F_vy": 999, "F_vy_bruk": 999, "b": 1.7, "l": 2.4, "l_override": True, "phi_k": None})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("Endast H-stabilitet", text)
+
         self.assertIn("Glidmotstånd – globalt", text)
         self.assertIn("120 kN/m", text)
         self.assertIn("144 kN", text)
@@ -66,6 +67,30 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIn("48 kN", text)
         self.assertNotIn("1,7", text)
         self.assertNotIn("2,4", text)
+
+    def test_comment_widget_wraps_literal_multiline_text_inside_raster_and_pdf_drawing(self):
+        source = self.root / "drawing.pdf"
+        canvas = Canvas(str(source), pagesize=(600, 450)); canvas.showPage(); canvas.save()
+        for drawing in (self.image, source):
+            with self.subTest(drawing=drawing.suffix):
+                plan = self.plan(drawing)
+                comment = "ÅÄÖ_x – samordna med stomritning. " * 5 + "\n" + "LångtOrd" * 15
+                self.tag(plan, x=0, y=0, littera="VS.123456789", indata={"kommentar": comment})
+                plan.kommentarwidget = {"enabled": True, "x": 1, "y": 1, "size": 1230}
+                data = plan._pdf_bytes()
+                text = PdfReader(io.BytesIO(data)).pages[0].extract_text().split("Kommentarer")[1]
+                self.assertIn("1 sula med kommentar", text)
+                self.assertIn("ÅÄÖ_x", text, "Comments must not interpret literal subscripts as formula notation")
+                self.assertIn("LångtOrd" * 15, text.replace("\n", ""))
+                with pdfium.PdfDocument(data) as document:
+                    page = document[0]; textpage = page.get_textpage()
+                    try:
+                        for index in range(textpage.count_chars()):
+                            left, bottom, right, top = textpage.get_charbox(index)
+                            self.assertGreaterEqual(left, -.1); self.assertGreaterEqual(bottom, -.1)
+                            self.assertLessEqual(right, page.get_width() + .1); self.assertLessEqual(top, page.get_height() + .1)
+                    finally:
+                        textpage.close(); page.close()
 
     def drawing(self):
         source = self.root / "original.pdf"

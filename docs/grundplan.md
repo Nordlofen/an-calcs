@@ -392,11 +392,13 @@ plan.visningsstorlekar = {"board_width": None, "board_height": None}  # Standard
 
 `plan.visningshojder` fungerar fortfarande för att läsa och ändra enbart höjderna.
 
-## Kommentarer och isoleringswidget
+## Kommentarer och sammanställningswidgetar
 
 **Kommentar** är en egen huvudkategori sist i dialogen och längst till höger i tabellen. Fältet tillåter flera rader och kan redigeras gemensamt för markerade sulor, även vid blandade sultyper. Texten sparas med sulan och påverkar inga beräkningsresultat.
 
 En ifylld kommentar markeras med en liten pratbubbla längst till höger på etikettens första rad. Håll pekaren över bubblan för att läsa texten; klicka för att öppna och visa kommentarsavsnittet. Tom text eller enbart blanksteg ger ingen symbol. Resultat-HTML visar kommentaren som låst text, medan PDF visar symbolen på etiketten.
+
+**Lägg till kommentarer** visar en flyttbar och skalbar ruta med **Littera** och **Kommentar** för endast sulor med ifylld kommentar. Rutan uppdateras direkt när kommentarer eller sulor ändras och har ingen fottext. Placering, storlek och på/av sparas med projektet; den följer med PDF och låst resultat-HTML. Knappen visar eller döljer samma ruta och behåller dess placering och storlek.
 
 **Widget: Isolering** aktiverar en fristående ruta på ritningen med antal sulor **Med isolering** och **Utan isolering** samt littera för alla **Föreskrivna utan isolering**. Endast H-stabilitet räknas som utan isolering. Antal och littera uppdateras när sulor ändras, läggs till eller tas bort.
 
@@ -404,6 +406,7 @@ Dra widgetens rubrik för att flytta rutan. Klicka på den och dra hörnhandtage
 
 ```python
 plan.farggruppering = {"enabled": True, "category": "t", "secondary": "b"}
+plan.kommentarwidget = {"enabled": True, "x": .08, "y": .55, "size": 410}
 plan.isoleringswidget = {"enabled": True, "x": .65, "y": .55, "size": 300}
 plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
                  "sort": {"key": "b", "direction": "ascending"}}
@@ -414,6 +417,7 @@ plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
 **Färggruppering** öppnar en kompakt inställningsrad under verktygsfältet.
 Välj en eller två av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**.
 Med två kategorier får varje unik kombination en färg, exempelvis t = 0,3 m tillsammans med bₓ = 0,6 m. Bara upptagna kombinationer visas i legend och färgval. Avmarkera en vald kategori för att byta till en annan; en kategori är alltid vald. Lastintervallets inställningar fungerar även när V är den andra kategorin. Egna färger behålls också om samma kategorier väljs i omvänd ordning.
+Sulor med **Endast H-stabilitet** utesluts helt när t, bₓ eller bᵧ ingår bland de valda kategorierna, även vid kombinerad gruppering. Dessa sulor får ingen gruppfärg och räknas inte i legenden. Gruppering enbart efter Isolering eller Vertikallast V behåller dem.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
@@ -464,8 +468,8 @@ den, klicka på den och dra hörnhandtaget för att skala rutan inklusive texten
 Piltangenter flyttar den och plus/minus på hörnhandtaget ändrar storleken.
 Legenden följer ritningens zoom och visar färgernas betydelse samt antal
 sulor per grupp. Vid lastgruppering visas separata enheter för de två typerna.
-Sulor med **Endast H-stabilitet** visas som **Ej tillämpligt** för mått och
-Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
+Sulor med **Endast H-stabilitet** utesluts från måttgruppering. Vid
+lastgruppering visas de som **Ej tillämpligt** för Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
 
 När **Färggruppering** stängs av döljs färger och legend. Båda kategorierna, lastfall,
 intervall, färger, legendens visningsval, placering och storlek behålls och

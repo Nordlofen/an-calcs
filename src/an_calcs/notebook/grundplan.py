@@ -74,6 +74,7 @@ _LAYOUT_DEFAULTS = {"board_height": None, "table_height": None, "board_width": N
 _LAYOUT_LIMITS = {"board_height": (280, 2400), "table_height": (160, 1800), "board_width": (320, 4000), "table_width": (320, 4000)}
 _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
+_COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 # These fields have different meanings/units for strips and pads.
 _BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "lasttyp"}
@@ -166,6 +167,20 @@ def _insulation_widget(value):
             raise ValueError("Widgetens placering ska vara inom ritningen.")
     if not 150 <= _number(result["size"], "size") <= 900:
         raise ValueError("Widgetens storlek ska vara 150–900.")
+    return copy.deepcopy(result)
+
+
+def _comment_widget(value):
+    if not isinstance(value, dict) or set(value) - set(_COMMENT_WIDGET_DEFAULTS):
+        raise ValueError("Ogiltiga inställningar för kommentarwidgeten.")
+    result = {**_COMMENT_WIDGET_DEFAULTS, **value}
+    if type(result["enabled"]) is not bool:
+        raise ValueError("enabled måste vara True eller False.")
+    for axis in ("x", "y"):
+        if not 0 <= _number(result[axis], axis) <= 1:
+            raise ValueError("Widgetens placering ska vara inom ritningen.")
+    if not 205 <= _number(result["size"], "size") <= 1230:
+        raise ValueError("Widgetens storlek ska vara 205–1230.")
     return copy.deepcopy(result)
 
 
@@ -462,6 +477,7 @@ class Grundplan(anywidget.AnyWidget):
         self._table_view = copy.deepcopy(_TABLE_DEFAULTS)
         self._layout = copy.deepcopy(_LAYOUT_DEFAULTS)
         self._insulation_widget = copy.deepcopy(_INSULATION_WIDGET_DEFAULTS)
+        self._comment_widget = copy.deepcopy(_COMMENT_WIDGET_DEFAULTS)
         self._text_objects = []
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
@@ -571,6 +587,7 @@ class Grundplan(anywidget.AnyWidget):
             "table_view": self.tabellvy,
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
+            "comment_widget": self.kommentarwidget,
             "text_objects": self.textobjekt,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
@@ -977,6 +994,18 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     @property
+    def kommentarwidget(self):
+        """Flyttbar och skalbar sammanställning av sulor med kommentarer."""
+        return copy.deepcopy(self._comment_widget)
+
+    @kommentarwidget.setter
+    def kommentarwidget(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Kommentarwidget anges som en dict.")
+        self._comment_widget = _comment_widget({**self._comment_widget, **changes})
+        self._publish()
+
+    @property
     def resultat(self):
         """Aktuella details per tagg-id, användbara i an_print.CalcBlock."""
         return copy.deepcopy(self._details)
@@ -1072,7 +1101,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 14,
+            "version": 15,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1083,6 +1112,7 @@ class Grundplan(anywidget.AnyWidget):
             "table_view": self.tabellvy,
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
+            "comment_widget": self.kommentarwidget,
             "text_objects": self.textobjekt,
             "drawing": {
                 "name": self._filename,
@@ -1143,7 +1173,8 @@ class Grundplan(anywidget.AnyWidget):
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
         return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
-                          insulation_widget=self._insulation_widget, text_objects=self._text_objects)
+                          insulation_widget=self._insulation_widget, comment_widget=self._comment_widget,
+                          text_objects=self._text_objects)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1179,7 +1210,8 @@ class Grundplan(anywidget.AnyWidget):
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
-                      "insulation_widget": self.isoleringswidget, "text_objects": self.textobjekt},
+                      "insulation_widget": self.isoleringswidget,
+                      "comment_widget": self.kommentarwidget, "text_objects": self.textobjekt},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1227,8 +1259,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–14.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–15.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1242,6 +1274,7 @@ class Grundplan(anywidget.AnyWidget):
         table_view = _table_view(document.get("table_view", {}))
         layout = _layout(document.get("layout", {}))
         insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
+        comment_widget = _comment_widget(document.get("comment_widget", {}))
         text_objects = validate_text_objects(document.get("text_objects", []))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
@@ -1302,6 +1335,7 @@ class Grundplan(anywidget.AnyWidget):
         self._table_view = table_view
         self._layout = layout
         self._insulation_widget = insulation_widget
+        self._comment_widget = comment_widget
         self._text_objects = text_objects
         self._tags = valid_tags
         self._load_import = None
@@ -1364,6 +1398,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.visningsstorlekar = content["settings"]
             elif action == "insulation_widget":
                 self.isoleringswidget = content["settings"]
+            elif action == "comment_widget":
+                self.kommentarwidget = content["settings"]
             elif action == "text_add":
                 kind = content["kind"]
                 if kind not in ("heading", "date"):
@@ -1381,6 +1417,9 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "insulation_placement":
                 self._view_page(content["page"])
                 self.isoleringswidget = content["position"]
+            elif action == "comment_placement":
+                self._view_page(content["page"])
+                self.kommentarwidget = content["position"]
             elif action == "colour_placement":
                 self._view_page(content["page"])
                 self.farggruppering = {"legend": content["position"]}

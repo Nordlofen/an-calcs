@@ -164,6 +164,11 @@
 .an-grundplan .gp-insulation-count { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12px; }
 .an-grundplan .gp-insulation-list-heading { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gp-line); font-size: 11px; font-weight: 600; }
 .an-grundplan .gp-insulation-list { margin-top: 5px; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.an-grundplan .gp-comment-table { width: 100%; margin-top: 9px; border-collapse: collapse; table-layout: fixed; font-size: 11px; text-align: left; }
+.an-grundplan .gp-comment-table th, .an-grundplan .gp-comment-table td { padding: 7px 4px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.an-grundplan .gp-comment-table th:first-child { width: 80px; }
+.an-grundplan .gp-comment-table thead { color: var(--gp-muted); font-size: 10px; }
+.an-grundplan .gp-comment-table tbody tr { border-top: 1px solid var(--gp-line); }
 .an-grundplan .gp-colour-legend-title { margin-top: 5px; font-size: 12px; }
 .an-grundplan .gp-colour-legend-section { display: block; font-size: 11px; margin-top: 10px; color: var(--gp-muted); }
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }

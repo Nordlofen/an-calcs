@@ -523,6 +523,55 @@ def _draw_insulation_widget(canvas, width, height, preview_size, settings, tags)
     canvas.restoreState()
 
 
+def _draw_comment_widget(canvas, width, height, preview_size, settings, tags):
+    if not settings or not settings["enabled"]:
+        return
+    _fonts()
+    def wrapped(text, font, available):
+        lines = []
+        for paragraph in text.split("\n"):
+            line = ""
+            for character in paragraph:
+                if line and pdfmetrics.stringWidth(line + character, font, 11) > available:
+                    boundary = line.rfind(" ")
+                    if boundary > 0:
+                        lines.append(line[:boundary]); line = line[boundary + 1:]
+                    else:
+                        lines.append(line); line = ""
+                line += character
+            lines.append(line)
+        return lines
+    tags = sorted((tag for tag in tags if tag["values"].get("kommentar", "").strip()),
+                  key=lambda tag: tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                                        for part in re.split(r"(\d+)", tag["label"])))
+    rows = [(wrapped(tag["label"], _BOLD, 76), wrapped(tag["values"]["kommentar"].strip(), _REGULAR, 290))
+            for tag in tags]
+    box_width, box_height = 410, 82 + sum(14 * max(len(label), len(comment)) + 14 for label, comment in rows) if rows else 58
+    scale = min(min(width / preview_size[0], height / preview_size[1]) * settings["size"] / 410,
+                width / box_width, height / box_height)
+    left = min(settings["x"] * width, max(0, width - box_width * scale))
+    top = min(settings["y"] * height, max(0, height - box_height * scale))
+    canvas.saveState(); canvas.translate(left, height - top); canvas.scale(scale, scale)
+    canvas.setFillColor(HexColor("#ffffff")); canvas.setStrokeColor(HexColor("#9fbbbf")); canvas.setLineWidth(1)
+    canvas.roundRect(0, -box_height, box_width, box_height, 8, stroke=1, fill=1)
+    canvas.setFillColor(HexColor("#19343d")); canvas.setFont(_BOLD, 15); canvas.drawString(14, -25, "Kommentarer")
+    canvas.setFillColor(HexColor("#58717a")); canvas.setFont(_REGULAR, 10)
+    caption = (f"{len(rows)} sula med kommentar" if len(rows) == 1 else f"{len(rows)} sulor med kommentarer") if rows else "Inga sulor med kommentarer"
+    canvas.drawString(14, -44, caption)
+    if rows:
+        canvas.setFont(_BOLD, 10); canvas.drawString(18, -65, "Littera"); canvas.drawString(102, -65, "Kommentar")
+        y = 75
+        for labels, comments in rows:
+            canvas.setStrokeColor(HexColor("#d4e0e1")); canvas.line(14, -y, 396, -y)
+            canvas.setFillColor(HexColor("#19343d"))
+            for x, lines, font in ((18, labels, _BOLD), (102, comments, _REGULAR)):
+                canvas.setFont(font, 11)
+                for index, line in enumerate(lines):
+                    canvas.drawString(x, -y - 17 - index * 14, line)
+            y += 14 * max(len(labels), len(comments)) + 14
+    canvas.restoreState()
+
+
 def _draw_text_objects(canvas, width, height, preview_size, objects):
     if not objects:
         return
@@ -568,7 +617,7 @@ def _draw_text_objects(canvas, width, height, preview_size, objects):
         canvas.restoreState()
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, text_objects=None):
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, text_objects=None):
     """Return the selected drawing page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -582,7 +631,8 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         if isinstance(page_number, bool) or not isinstance(page_number, int) or not 1 <= page_number <= len(reader.pages):
             raise ValueError("Ritningssidan finns inte i PDF-filen.")
         page = writer.add_page(reader.pages[page_number - 1])
-        if tags or settings["enabled"] or coloured is not None or insulation_widget and insulation_widget["enabled"] or text_objects:
+        if (tags or settings["enabled"] or coloured is not None or insulation_widget and insulation_widget["enabled"]
+                or comment_widget and comment_widget["enabled"] or text_objects):
             with pdfium.PdfDocument(source) as document:
                 width, height, transform = _page_geometry(page)
                 preview_page = document[page_number - 1]
@@ -599,6 +649,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                 _draw_project_overlays(canvas, width, height, preview_size, page_number, settings, results)
                 _draw_colour_legend(canvas, width, height, preview_size, colour_grouping, coloured["groups"] if coloured else [])
                 _draw_insulation_widget(canvas, width, height, preview_size, insulation_widget, tags)
+                _draw_comment_widget(canvas, width, height, preview_size, comment_widget, tags)
                 _draw_text_objects(canvas, width, height, preview_size, text_objects)
                 canvas.showPage()
                 canvas.save()
@@ -622,6 +673,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
         _draw_colour_legend(canvas, width, height, preview.size, colour_grouping, coloured["groups"] if coloured else [])
         _draw_insulation_widget(canvas, width, height, preview.size, insulation_widget, tags)
+        _draw_comment_widget(canvas, width, height, preview.size, comment_widget, tags)
         _draw_text_objects(canvas, width, height, preview.size, text_objects)
         canvas.showPage()
         canvas.save()

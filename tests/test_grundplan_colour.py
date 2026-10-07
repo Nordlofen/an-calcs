@@ -41,7 +41,8 @@ class TestGrundplanColour(unittest.TestCase):
             settings = validate_settings({"category": category})
             data = group_data(self.plan.taggar, settings)
             self.assertEqual(tuple(data["assignments"][tag]["value"] for tag in (wall, pad)), expected)
-            self.assertEqual(data["assignments"][only_h]["label"], "Ej tillämpligt")
+            self.assertNotIn(only_h, data["assignments"])
+            self.assertNotIn("na", [group["key"] for group in data["groups"]])
         data = group_data(self.plan.taggar, validate_settings({}))
         self.assertEqual(data["assignments"][missing]["label"], "Saknar värde")
 
@@ -58,6 +59,28 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(data["assignments"][wall]["unit"], "kN/m")
         self.assertEqual(groups[0]["unit"], "kN")
         self.assertEqual(len(data["groups"]), 7)
+
+    def test_h_only_exclusion_applies_to_either_combination_category_and_pdf(self):
+        wall = self.add(t=.3, b=.6)
+        only_h = self.add(endast_h_stabilitet=True, t=.3, b=.6, glid_x=True)
+        tags = self.plan.taggar
+        before = copy.deepcopy(tags)
+        for category in ("t", "b", "l"):
+            for secondary in ("t", "b", "l", "V", "isolering"):
+                if category == secondary:
+                    continue
+                for first, second in ((category, secondary), (secondary, category)):
+                    data = group_data(tags, validate_settings({"category": first, "secondary": second}))
+                    self.assertEqual(set(data["assignments"]), {wall})
+                    self.assertEqual(sum(group["count"] for group in data["groups"]), 1)
+        self.assertEqual(tags, before)
+        self.plan.farggruppering = {"enabled": True, "category": "t", "secondary": "b"}
+        text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        self.assertNotIn("Ej tillämpligt", text)
+        self.assertIn("Endast H-stabilitet", text, "Excluded footings remain on the drawing")
+        for category in ("isolering", "V"):
+            data = group_data(tags, validate_settings({"category": category}))
+            self.assertIn(only_h, data["assignments"])
 
     def test_insulation_groups_both_footing_types_and_h_only_and_survives_export_and_reload(self):
         insulated = self.add(isolering=True, glid_x=True, glid_y=True,

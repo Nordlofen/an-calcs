@@ -183,3 +183,57 @@ class TestTableAndComments(unittest.TestCase):
             self.plan._on_message(None, {"action": "insulation_placement", "page": 1, "position": {"x": .2, "y": .3, "size": 400}}, [])
             self.assertTrue(send.call_args.args[0]["ok"])
         self.assertEqual(self.plan.isoleringswidget, {"enabled": True, "x": .2, "y": .3, "size": 400})
+
+    def test_comment_widget_filters_sorts_updates_and_roundtrips_without_calculations(self):
+        from io import BytesIO
+        from pypdf import PdfReader
+        first = self.plan.lagg_till(.1, .2, littera="VS10", indata={"kommentar": "Första raden\nAndra raden"})
+        self.plan.lagg_till(.3, .4, littera="VS2", indata={"kommentar": "Utan isolering enligt föreskrift."})
+        blank = self.plan.lagg_till(.5, .6, littera="PS1", indata={"kommentar": " \n "})
+        before = copy.deepcopy(self.plan.resultat)
+        settings = {"enabled": True, "x": .2, "y": .3, "size": 500}
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Widget must not recalculate")):
+            self.plan.kommentarwidget = settings
+            self.plan.uppdatera(first, indata={"kommentar": "Reviderad\nkommentar"})
+        pdf = PdfReader(BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        widget_text = pdf[pdf.index("Kommentarer"):]
+        self.assertIn("2 sulor med kommentarer", widget_text)
+        self.assertLess(widget_text.index("VS2"), widget_text.index("VS10"))
+        self.assertIn("Reviderad\nkommentar", widget_text)
+        self.assertNotIn("PS1", widget_text)
+        self.assertNotIn("Endast sulor med kommentarer", widget_text)
+        self.assertEqual(self.plan.resultat, before)
+        html = self.plan._html_bytes().decode()
+        snapshot = json.loads(re.search(r'<script id="grundplan-data" type="application/json">(.*?)</script>', html, re.S).group(1))
+        self.assertEqual(snapshot["state"]["comment_widget"], settings)
+        self.assertEqual(snapshot["state"]["tags"][2]["values"]["kommentar"], " \n ")
+        self.plan.kommentarwidget = {"enabled": False}
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "comments.json"))
+        self.addCleanup(restored.close)
+        restored.kommentarwidget = {"enabled": True}
+        self.assertEqual(restored.kommentarwidget, settings)
+        self.assertEqual(restored._tag(blank)["values"]["kommentar"], " \n ")
+        self.plan.kommentarwidget = {"enabled": True}
+        self.plan.uppdatera(first, indata={"kommentar": ""})
+        self.assertIn("1 sula med kommentar", PdfReader(BytesIO(self.plan._pdf_bytes())).pages[0].extract_text())
+        self.assertNotIn("VS10", PdfReader(BytesIO(self.plan._pdf_bytes())).pages[0].extract_text().split("Kommentarer")[1])
+
+    def test_comment_widget_validation_commands_and_legacy_defaults(self):
+        before = self.plan._document()
+        for settings in ({"enabled": 1}, {"size": 0}, {"x": -1}, {"y": 1.2}, {"size": float("nan")}, {"unknown": 1}):
+            with self.assertRaises(ValueError):
+                self.plan.kommentarwidget = settings
+            self.assertEqual(self.plan._document(), before)
+            with self.assertRaises(ValueError):
+                self.plan._load_document(json.dumps({**before, "comment_widget": settings}).encode())
+            self.assertEqual(self.plan._document(), before)
+        legacy = {**before, "version": 14}
+        del legacy["comment_widget"]
+        self.plan._load_document(json.dumps(legacy).encode())
+        self.assertFalse(self.plan.kommentarwidget["enabled"])
+        with patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "comment_widget", "settings": {"enabled": True}}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+            self.plan._on_message(None, {"action": "comment_placement", "page": 1, "position": {"x": .2, "y": .3, "size": 500}}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+        self.assertEqual(self.plan.kommentarwidget, {"enabled": True, "x": .2, "y": .3, "size": 500})

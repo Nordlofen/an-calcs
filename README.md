@@ -218,7 +218,12 @@ egna intervall, separat för pelarsulor (kN) och väggsulor (kN/m). Klicka på
 en färgruta för att välja färg. **Visa legend** visar en flyttbar och skalbar
 färglegend. Prick och kant behåller kontrollstatusen. Senaste inställningen
 återkommer efter av/på och sparas med projektet, inklusive legendens läge
-och storlek. Färger och legend följer med PDF- och HTML-exporten.
+och storlek. Färger och legend följer med PDF- och HTML-exporten. Sulor med
+Endast H-stabilitet ingår inte när t, bₓ eller bᵧ finns bland valda kategorier.
+
+**Lägg till kommentarer** visar en flyttbar och skalbar sammanställning med
+littera och kommentar för endast sulor med ifylld kommentar. Rutan uppdateras
+automatiskt, sparas med projektet och följer med PDF och resultat-HTML.
 
 **Endast H-stabilitet** under **Geometri** undantar en sula från jordens
 bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolering**.

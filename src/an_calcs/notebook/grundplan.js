@@ -5,6 +5,7 @@ const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: 
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
+const COMMENT_WIDGET_DEFAULTS = {enabled: false, x: .08, y: .55, size: 410};
 const LAYOUT_DEFAULTS = {board_height: null, table_height: null, board_width: null, table_width: null};
 const LAYOUT_LIMITS = {board_height: [280, 2400], table_height: [160, 1800], board_width: [320, 4000], table_width: [320, 4000]};
 export function validateLayout(value) {
@@ -39,6 +40,8 @@ const colourBackground = color => {
   return "#" + channels.map(channel => Math.floor(channel * weight + 255 * (1 - weight) + .5).toString(16).padStart(2, "0")).join("");
 };
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
+  if ([settings.category, settings.secondary].some(category => ["t", "b", "l"].includes(category)))
+    tags = tags.filter(tag => !tag.values.endast_h_stabilitet);
   if (settings.secondary) {
     const categories = Object.keys(COLOUR_CATEGORIES).filter(name => [settings.category, settings.secondary].includes(name));
     const parts = categories.map(category => colourGroups(tags, {...settings, category, secondary: null}));
@@ -236,6 +239,7 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
+  let commentWidgetDraft = null;
   let textAddBusy = false;
   const textElements = new Map(), textDrafts = new Map(), textDeleting = new Set();
   let layoutDraft = null, panelDrag = null;
@@ -249,6 +253,7 @@ function render({ model, el, readOnly = false }) {
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
   const colour = () => colourDraft || state().colour_grouping || COLOUR_DEFAULTS;
   const insulationWidget = () => insulationWidgetDraft || state().insulation_widget || INSULATION_WIDGET_DEFAULTS;
+  const commentWidget = () => commentWidgetDraft || state().comment_widget || COMMENT_WIDGET_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const sectionStates = new Map(), inputSections = [], resultSections = [];
@@ -658,6 +663,17 @@ function render({ model, el, readOnly = false }) {
   });
   insulationWidgetToggle.title = "Visa antal sulor med och utan isolering samt littera utan isolering.";
   if (!readOnly) toolbar.append(insulationWidgetToggle);
+  const commentWidgetToggle = button("Lägg till kommentarer", () => {
+    const patch = {enabled: !commentWidget().enabled};
+    if (!patch.enabled) {cancelDrag(); overlaySelected = null;}
+    const draft = {...commentWidget(), ...patch}; commentWidgetDraft = draft; update();
+    command("comment_widget", {settings: patch}, [], reply => {
+      if (commentWidgetDraft === draft) {commentWidgetDraft = null; update();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  });
+  commentWidgetToggle.title = "Visa objektkommentarer i en flyttbar och skalbar ruta. Senaste placering och storlek behålls.";
+  if (!readOnly) toolbar.append(commentWidgetToggle);
   const textAddButtons = [];
   for (const [kind, caption] of [["heading", "Lägg till rubrik"], ["date", "Lägg till datum (åå/mm/dd)"]]) {
     const add = button(caption, () => {
@@ -917,7 +933,21 @@ function render({ model, el, readOnly = false }) {
     if (!readOnly) {overlaySelected = "insulation"; renderSlidingGeometry();}
   });
   insulationLegend.append(insulationHeader, insulationBody, insulationResize);
-  overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend);
+  const commentLegend = node("section", "gp-sliding-overlay gp-sliding-legend gp-comment-widget");
+  commentLegend.dataset.kind = "comments"; commentLegend.setAttribute("aria-label", "Kommentarer – sammanställning av sulor");
+  const commentHeader = button("Kommentarer", () => {
+    if (!readOnly) {overlaySelected = "comments"; renderSlidingGeometry();}
+  }, "gp-sliding-header gp-sliding-handle");
+  commentHeader.setAttribute("aria-label", "Kommentarer." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
+  const commentBody = node("div", "gp-comment-widget-body");
+  const commentResize = button("", () => {}, "gp-overlay-resize gp-comment-resize");
+  commentResize.setAttribute("aria-label", "Ändra kommentarwidgetens storlek. Dra hörnet eller använd plus och minus.");
+  commentResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
+  commentLegend.addEventListener("click", () => {
+    if (!readOnly) {overlaySelected = "comments"; renderSlidingGeometry();}
+  });
+  commentLegend.append(commentHeader, commentBody, commentResize);
+  overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend);
   sheet.append(picture, markers, overlays);
   viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
@@ -1263,7 +1293,7 @@ function render({ model, el, readOnly = false }) {
           headingDraft = null;
           slidingDraft = null; overlaySelected = null;
           colourDraft = null; colourEditType = null; colourError.textContent = "";
-          tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null;
+          tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null;
           textDrafts.clear(); textDeleting.clear(); textAddBusy = false;
           colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
@@ -1505,6 +1535,7 @@ function render({ model, el, readOnly = false }) {
     }
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
     showInsulationWidget();
+    showCommentWidget();
     renderSlidingGeometry();
   }
   function showInsulationWidget() {
@@ -1525,6 +1556,24 @@ function render({ model, el, readOnly = false }) {
       node("p", "gp-insulation-list", uninsulated.map(tag => drafts.get(tag.id)?.label.trim() || tag.label)
         .sort(tableCollator.compare).join(", ") || "Inga sulor"));
   }
+  function showCommentWidget() {
+    const settings = commentWidget();
+    commentWidgetToggle.classList.toggle("gp-selected", settings.enabled);
+    commentWidgetToggle.setAttribute("aria-pressed", String(settings.enabled));
+    commentWidgetToggle.disabled = !background().url || drawingBusy;
+    const rows = state().tags.map(tag => ({label: drafts.get(tag.id)?.label.trim() || tag.label,
+      comment: (drafts.get(tag.id)?.values || tag.values).kommentar?.trim() || ""}))
+      .filter(row => row.comment).sort((a, b) => tableCollator.compare(a.label, b.label));
+    commentBody.replaceChildren(node("p", "gp-sliding-note", rows.length
+      ? rows.length + (rows.length === 1 ? " sula med kommentar" : " sulor med kommentarer") : "Inga sulor med kommentarer"));
+    if (!rows.length) return;
+    const table = node("table", "gp-comment-table"), head = node("thead"), heading = node("tr"), body = node("tbody");
+    heading.append(node("th", "", "Littera"), node("th", "", "Kommentar")); head.append(heading);
+    for (const row of rows) {
+      const tr = node("tr"); tr.append(node("th", "", row.label), node("td", "", row.comment)); body.append(tr);
+    }
+    table.append(head, body); commentBody.append(table);
+  }
   function textObject(kind) {
     return kind?.startsWith("text:") ? state().text_objects?.find(item => item.id === kind.slice(5)) : null;
   }
@@ -1533,8 +1582,8 @@ function render({ model, el, readOnly = false }) {
     const text = textObject(kind);
     if (text) return overlayPositions.get(key) || {x: text.x, y: text.y, size: text.size};
     if (kind === "colour") return {...COLOUR_DEFAULTS.legend, ...(overlayPositions.get(key) || colour().legend)};
-    if (kind === "insulation") {
-      const {x, y, size} = overlayPositions.get(key) || insulationWidget(); return {x, y, size};
+    if (["insulation", "comments"].includes(kind)) {
+      const {x, y, size} = overlayPositions.get(key) || (kind === "comments" ? commentWidget() : insulationWidget()); return {x, y, size};
     }
     const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
     return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
@@ -1548,7 +1597,8 @@ function render({ model, el, readOnly = false }) {
     overlayPositions.set(key, position);
     pendingOverlayPositions.set(key, position);
     const text = textObject(kind);
-    command(text ? "text_update" : kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement" : "sliding_placement",
+    command(text ? "text_update" : kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement"
+      : kind === "comments" ? "comment_placement" : "sliding_placement",
       text ? {id: text.id, changes: position} : {kind, page, position}, [], () => {
       if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
       if (overlayPositions.get(key) === position) overlayPositions.delete(key);
@@ -1572,7 +1622,8 @@ function render({ model, el, readOnly = false }) {
   }
   for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
       [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true],
-      [insulationHeader, "insulation", false], [insulationResize, "insulation", true]]) bindOverlayKeys(element, kind, resize);
+      [insulationHeader, "insulation", false], [insulationResize, "insulation", true],
+      [commentHeader, "comments", false], [commentResize, "comments", true]]) bindOverlayKeys(element, kind, resize);
   function showTextObjects() {
     for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || importBusy || deleteBusy;
     const objects = state().text_objects || [];
@@ -1654,10 +1705,10 @@ function render({ model, el, readOnly = false }) {
     renderSlidingGeometry();
   }
   function renderSlidingGeometry() {
-    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"]]) {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"], [commentLegend, "comments"]]) {
       const p = overlayPosition(kind);
       element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend
-        : kind === "insulation" ? !insulationWidget().enabled : !sliding().enabled) || !background().url;
+        : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : !sliding().enabled) || !background().url;
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
@@ -1667,7 +1718,7 @@ function render({ model, el, readOnly = false }) {
       } else {
         const scale = zoom * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
-        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : legendResize;
+        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : legendResize;
         resize.hidden = readOnly || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";

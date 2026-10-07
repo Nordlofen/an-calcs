@@ -88,6 +88,8 @@ def background_color(color):
 
 def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
+    if {settings["category"], settings.get("secondary")} & {"t", "b", "l"}:
+        tags = [tag for tag in tags if not tag["values"].get("endast_h_stabilitet")]
     if settings.get("secondary"):
         # Canonical order keeps custom colours when the same pair is selected in reverse.
         categories = [name for name in CATEGORIES if name in (settings["category"], settings["secondary"])]

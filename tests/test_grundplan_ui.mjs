@@ -3426,3 +3426,76 @@ test('HTML drawing headings and dates display saved text and geometry without ed
   assert.ok(!ui.elements().some(e => e.textContent === 'Lägg till rubrik'));
   ui.start(text); ui.move(400, 400); ui.finish(400, 400); assert.equal(ui.sent.length, 0);
 });
+
+for (const readOnly of [false, true]) test(`comment widget shows only filled comments in natural order and updates immediately (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  ui.tag.label = 'VS10'; ui.tag.values.kommentar = 'Första raden\nAndra raden';
+  ui.data.state.tags.push(...[
+    {id: 'tag2', label: 'VS2', kommentar: 'Utan isolering enligt föreskrift.'},
+    {id: 'tag3', label: 'PS1', kommentar: ' \n '},
+  ].map(item => ({...structuredClone(ui.tag), id: item.id, label: item.label,
+    values: {...ui.tag.values, kommentar: item.kommentar}})));
+  ui.data.state.comment_widget = {enabled: true, x: .2, y: .3, size: 615}; ui.changed();
+  const widget = ui.byClass('gp-comment-widget'), body = ui.byClass('gp-comment-widget-body');
+  assert.equal(widget.hidden, false); assert.equal(widget.style.transform, 'scale(1.5)');
+  assert.equal(body.children[0].textContent, '2 sulor med kommentarer');
+  let rows = ui.byClass('gp-comment-table').children[1].children;
+  assert.deepEqual(rows.map(row => row.children[0].textContent), ['VS2', 'VS10']);
+  assert.equal(rows[1].children[1].textContent, 'Första raden\nAndra raden');
+  assert.doesNotMatch(elementText(body), /PS1|Endast sulor med kommentarer/);
+  assert.equal(ui.byClass('gp-comment-resize').hidden, true);
+  if (readOnly) {
+    assert.equal(ui.elements().some(e => e.textContent === 'Lägg till kommentarer'), false);
+    const before = ui.sent.length;
+    ui.start(widget.children[0]); ui.move(390, 360); ui.finish(390, 360);
+    assert.equal(ui.sent.length, before);
+    ui.tag.values.kommentar = ''; ui.changed();
+  } else {
+    const field = tableField(ui, 'tag1', 'kommentar');
+    field.value = ''; field.dispatch('input');
+    assert.deepEqual(ui.sent.at(-1).values, {kommentar: ''});
+  }
+  assert.equal(body.children[0].textContent, '1 sula med kommentar');
+  assert.doesNotMatch(elementText(body), /VS10/);
+  ui.data.state.tags = []; ui.changed();
+  assert.equal(body.children[0].textContent, 'Inga sulor med kommentarer');
+});
+
+test('comments toggle preserves placement, proportional resize and cancelling a drag', t => {
+  const ui = setup(t), before = structuredClone(ui.tag);
+  const accept = request => {
+    const settings = ui.data.state.comment_widget || {enabled: false, x: .08, y: .55, size: 410};
+    ui.data.state.comment_widget = {...settings, ...(request.settings || request.position)};
+    ui.changed(); ui.ack(request);
+  };
+  ui.byText('Lägg till kommentarer').click(); accept(ui.sent.at(-1));
+  const widget = ui.byClass('gp-comment-widget'), header = widget.children[0], resize = ui.byClass('gp-comment-resize');
+  assert.equal(widget.hidden, false); assert.equal(ui.byText('Lägg till kommentarer').getAttribute('aria-pressed'), 'true');
+  ui.start(header); ui.move(380, 360); ui.finish(380, 360);
+  let request = ui.sent.at(-1);
+  assert.equal(request.action, 'comment_placement'); near(request.position.x, .18); near(request.position.y, .65); accept(request);
+  assert.equal(resize.hidden, false);
+  ui.start(resize); ui.move(505, 390); ui.finish(505, 390);
+  request = ui.sent.at(-1); near(request.position.size, 615); accept(request);
+  assert.equal(widget.style.transform, 'scale(1.5)');
+  ui.start(header); ui.move(400, 400); ui.viewport.dispatch('pointercancel');
+  near(parseFloat(widget.style.left), 18); near(parseFloat(widget.style.top), 65);
+  ui.byText('Lägg till kommentarer').click(); accept(ui.sent.at(-1)); assert.equal(widget.hidden, true);
+  ui.byText('Lägg till kommentarer').click(); accept(ui.sent.at(-1));
+  assert.equal(widget.hidden, false); assert.equal(widget.style.transform, 'scale(1.5)');
+  assert.deepEqual(ui.tag, before);
+});
+
+for (const readOnly of [false, true]) test(`H-only objects stay uncoloured and uncounted with geometry combinations (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly}); colourFixture(ui);
+  ui.tag.values.endast_h_stabilitet = true;
+  ui.data.state.tags.push({...structuredClone(ui.tag), id: 'tag2', label: 'VS2', values: {...ui.tag.values, endast_h_stabilitet: false}});
+  for (const [category, secondary] of [['t', null], ['b', 'isolering'], ['V', 'l']]) {
+    Object.assign(ui.data.state.colour_grouping, {category, secondary}); ui.changed();
+    const markers = ui.elements().filter(e => e.className.split(' ').includes('gp-tag'));
+    assert.equal(markers[0].dataset.colourGroup, undefined);
+    assert.ok(markers[1].dataset.colourGroup);
+    assert.doesNotMatch(elementText(ui.byClass('gp-colour-legend-body')), /Ej tillämpligt/);
+    assert.equal(ui.elements().filter(e => e.className === 'gp-colour-group-count').reduce((sum, e) => sum + Number(e.textContent), 0), 1);
+  }
+});
