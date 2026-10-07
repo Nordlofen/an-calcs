@@ -374,6 +374,10 @@ döljs. Sparade material- och bärförmågevärden behålls; isolering kan aktiv
 igen efter att **Endast H-stabilitet** avmarkerats. Glidningsindata
 visas även innan den globala kontrollen har aktiverats; bidragsriktningarna
 väljs fortfarande manuellt. Vanliga sulor med isolering bidrar med 0 kN.
+Sulmåtten bₓ/bᵧ och **Egen längd** döljs i dialogen och kan inte redigeras i
+tabellen i detta läge. Tidigare mått behålls när läget växlas, men redovisas
+inte på etiketten. Väggsulans totala längd **L** under **Glidning** används
+fortfarande för att beräkna glidmotståndet.
 Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
 utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade
 sulor och visas i PDF- och HTML-exporterna.

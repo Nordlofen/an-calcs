@@ -130,11 +130,7 @@ def _label(tag, sliding_enabled=False):
     only_h = values.get("endast_h_stabilitet")
     if summary and only_h:
         status = "horizontal"
-        geometry = ""
-        if all(isinstance(values.get(name), (int, float)) and math.isfinite(values[name]) for name in ("b", "l")):
-            geometry = (f'bₓ {_number(values["b"])} m' if values["lang"] == 1 and values["l"] == 1
-                        else f'{_number(values["b"])} × {_number(values["l"])} m')
-        lines.append(("Endast H-stabilitet" + (" · " + geometry if geometry else ""), _REGULAR, 11))
+        lines.append(("Endast H-stabilitet", _REGULAR, 11))
     elif summary:
         status = "ok" if summary["utnyttjandegrad"] <= 1 else "over"
         geometry = (f'bₓ {_number(summary["b"])} m' if tag["values"]["lang"] == 1 and tag["values"]["l"] == 1

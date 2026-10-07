@@ -42,13 +42,13 @@ class TestGrundplanPdf(unittest.TestCase):
         plan = self.plan()
         ident = self.tag(plan, indata={"endast_h_stabilitet": True, "glid_x": True, "glid_y": True,
                         "V_Ed_EQU": 120, "glid_mu": .4, "glid_L": 3,
-                        "F_vy": 999, "F_vy_bruk": 999, "b": None, "phi_k": None})
+                        "F_vy": 999, "F_vy_bruk": 999, "b": 1.7, "l": 2.4, "l_override": True, "phi_k": None})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("Endast H-stabilitet", text)
         self.assertIn("Glidmotstånd – globalt", text)
         self.assertIn("120 kN/m", text)
         self.assertIn("144 kN", text)
-        for absent in ("999", "Brott", "Bruk", "U 0", "Styrande", "None"):
+        for absent in ("999", "Brott", "Bruk", "U 0", "Styrande", "None", "1,7", "2,4"):
             self.assertNotIn(absent, text)
         html = plan._html_bytes().decode()
         self.assertIn('"endast_h_stabilitet": true', html)
@@ -60,6 +60,12 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIn("Glidmotstånd – globalt", text)
         self.assertIn("144 kN", text)
         self.assertNotIn("Styrande", text)
+        plan.uppdatera(ident, indata={"lang": 0})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("Endast H-stabilitet", text)
+        self.assertIn("48 kN", text)
+        self.assertNotIn("1,7", text)
+        self.assertNotIn("2,4", text)
 
     def drawing(self):
         source = self.root / "original.pdf"

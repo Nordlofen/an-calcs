@@ -119,7 +119,7 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
-  const bearingOnlyNames = new Set(["t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
+  const bearingOnlyNames = new Set(["b", "l", "l_override", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
     "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
@@ -1309,7 +1309,7 @@ function render({ model, el, readOnly = false }) {
       const insulation = node("span", "gp-tag-insulation");
       insulation.append(insulationIcon(insulated), node("span", "", insulationText));
       heading.append(node("strong", "", label), insulation);
-      const geometry = summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l) ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
+      const geometry = !onlyH && summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l) ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
         : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
       const showSlidingBlock = (sliding().enabled || onlyH) && !insulated && (values.glid_x || values.glid_y);
       const rawLength = values.glid_L;
@@ -1320,7 +1320,7 @@ function render({ model, el, readOnly = false }) {
         ? onlyH ? "Endast H-stabilitet" + (geometry ? " · " + geometry : "")
           : "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
-      const accessibleGeometry = summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
+      const accessibleGeometry = !onlyH && summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
       const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
@@ -1707,6 +1707,7 @@ function render({ model, el, readOnly = false }) {
     bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
     const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
     const strip = !mixed && types.has(1);
+    const onlyH = tags.every(tag => tag.values.endast_h_stabilitet);
     const syncLength = () => {
       const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
       if (!strip || !length || !override) return;
@@ -1721,14 +1722,16 @@ function render({ model, el, readOnly = false }) {
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
-      if (label === "Isolering" && tags.every(tag => tag.values.endast_h_stabilitet)) continue;
+      const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
+        && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
+        && !(!mixed && !strip && ["glid_L", "l_override"].includes(name)));
+      if (!available.length) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
       group.append(node("summary", "", label));
       if (note) group.append(mathText("p", "gp-field-note", note));
-      for (const name of names) {
+      for (const name of available) {
         const field = fieldSchema.get(name);
-        if (!field || name === "lang" || (!mixed && !strip && ["glid_L", "l_override"].includes(name))) continue;
         const row = node("div", "gp-bulk-field");
         const choose = node("input");
         choose.type = "checkbox";
@@ -1953,8 +1956,8 @@ function render({ model, el, readOnly = false }) {
     if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
       if (name === "l_override") {
-        entry.row.hidden = !strip;
-        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false;}
+        entry.row.hidden = !strip || onlyH;
+        if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
         continue;
       }
       if (slidingNames.has(name)) {
@@ -1977,7 +1980,7 @@ function render({ model, el, readOnly = false }) {
       }
       entry.input.disabled = ignored || (insulationField && !insulated)
         || (name === "l" && strip && !inputs.get("l_override")?.input.checked);
-      if (name === "l" && strip && entry.input.disabled) entry.input.value = "1";
+      if (name === "l" && strip && !inputs.get("l_override")?.input.checked) entry.input.value = "1";
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
         && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");

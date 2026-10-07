@@ -208,6 +208,8 @@ bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolerin
 Kategorin **Isolering** döljs. Sulan bidrar fortfarande i sina
 valda glidningsriktningar. Valet kan även ändras för markerade rader i tabellen;
 övriga indatavärden behålls när läget växlas.
+Sulmåtten bₓ/bᵧ döljs i detta läge; väggsulans totala längd L anges fortfarande
+under **Glidning**.
 
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans
 rubrik för att flytta den och dra dess hörnhandtag för att ändra storlek på
