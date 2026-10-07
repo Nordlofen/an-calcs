@@ -21,6 +21,7 @@ except ImportError as exc:
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
+from .grundplan_text import today_text, validate_text_objects
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
@@ -461,6 +462,7 @@ class Grundplan(anywidget.AnyWidget):
         self._table_view = copy.deepcopy(_TABLE_DEFAULTS)
         self._layout = copy.deepcopy(_LAYOUT_DEFAULTS)
         self._insulation_widget = copy.deepcopy(_INSULATION_WIDGET_DEFAULTS)
+        self._text_objects = []
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -569,6 +571,7 @@ class Grundplan(anywidget.AnyWidget):
             "table_view": self.tabellvy,
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
+            "text_objects": self.textobjekt,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -979,6 +982,43 @@ class Grundplan(anywidget.AnyWidget):
         return copy.deepcopy(self._details)
 
     @property
+    def textobjekt(self):
+        """Placerade rubriker och datum; storlek anges i px vid ritningszoom 100 %."""
+        return copy.deepcopy(self._text_objects)
+
+    def _add_text(self, kind, text, x, y, size, subtitle=""):
+        if not self._source:
+            raise ValueError("Importera en ritning först.")
+        ident = uuid.uuid4().hex
+        self._text_objects = validate_text_objects([*self._text_objects,
+            {"id": ident, "kind": kind, "text": text, "subtitle": subtitle, "x": x, "y": y, "size": size}])
+        self._publish()
+        return ident
+
+    def lagg_till_rubrik(self, text="Rubrik", *, underrubrik="", x=.08, y=.08, storlek=28):
+        """Lägg till rubrik och underrubrik som flyttas och skalas tillsammans."""
+        return self._add_text("heading", text, x, y, storlek, underrubrik)
+
+    def lagg_till_datum(self, text=None, *, x=.08, y=.18, storlek=18):
+        """Lägg till datum; dagens datum i Stockholm används om text utelämnas."""
+        return self._add_text("date", today_text() if text is None else text, x, y, storlek)
+
+    def uppdatera_text(self, ident, **changes):
+        if set(changes) - {"text", "subtitle", "x", "y", "size"}:
+            raise ValueError("Ändra text, subtitle, x, y eller size för textobjektet.")
+        if not any(item["id"] == ident for item in self._text_objects):
+            raise ValueError("Textobjektet finns inte.")
+        self._text_objects = validate_text_objects([
+            {**item, **changes} if item["id"] == ident else item for item in self._text_objects])
+        self._publish()
+
+    def ta_bort_text(self, ident):
+        if not any(item["id"] == ident for item in self._text_objects):
+            raise ValueError("Textobjektet finns inte.")
+        self._text_objects = [item for item in self._text_objects if item["id"] != ident]
+        self._publish()
+
+    @property
     def etikettstorlek(self):
         """Etiketternas grundstorlek i procent (60–180), vid 100 % ritningszoom."""
         return self._label_size
@@ -1031,7 +1071,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 12,
+            "version": 13,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1042,6 +1082,7 @@ class Grundplan(anywidget.AnyWidget):
             "table_view": self.tabellvy,
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
+            "text_objects": self.textobjekt,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -1101,7 +1142,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
         return render_pdf(self._source, self._tags, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
-                          insulation_widget=self._insulation_widget)
+                          insulation_widget=self._insulation_widget, text_objects=self._text_objects)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1137,7 +1178,7 @@ class Grundplan(anywidget.AnyWidget):
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
-                      "insulation_widget": self.isoleringswidget},
+                      "insulation_widget": self.isoleringswidget, "text_objects": self.textobjekt},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1185,8 +1226,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–12.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–13.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1200,6 +1241,7 @@ class Grundplan(anywidget.AnyWidget):
         table_view = _table_view(document.get("table_view", {}))
         layout = _layout(document.get("layout", {}))
         insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
+        text_objects = validate_text_objects(document.get("text_objects", []))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
@@ -1259,6 +1301,7 @@ class Grundplan(anywidget.AnyWidget):
         self._table_view = table_view
         self._layout = layout
         self._insulation_widget = insulation_widget
+        self._text_objects = text_objects
         self._tags = valid_tags
         self._load_import = None
         self._details = details_by_id
@@ -1320,6 +1363,16 @@ class Grundplan(anywidget.AnyWidget):
                 self.visningsstorlekar = content["settings"]
             elif action == "insulation_widget":
                 self.isoleringswidget = content["settings"]
+            elif action == "text_add":
+                kind = content["kind"]
+                if kind not in ("heading", "date"):
+                    raise ValueError("Välj rubrik eller datum.")
+                method = self.lagg_till_rubrik if kind == "heading" else self.lagg_till_datum
+                reply["id"] = method(x=content.get("x", .08), y=content.get("y", .08 if kind == "heading" else .18))
+            elif action == "text_update":
+                self.uppdatera_text(content["id"], **content["changes"])
+            elif action == "text_delete":
+                self.ta_bort_text(content["id"])
             elif action == "insulation_placement":
                 self._view_page(content["page"])
                 self.isoleringswidget = content["position"]

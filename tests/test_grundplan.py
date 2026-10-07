@@ -31,6 +31,73 @@ class TestGrundplan(unittest.TestCase):
     def add(self, **kwargs):
         return self.plan.lagg_till(0.3, 0.4, **kwargs)
 
+    def test_drawing_text_commands_are_independent_of_footings_and_calculations(self):
+        self.add()
+        before = self.plan.taggar, self.plan.resultat
+        with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("No calculation")), patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "text_add", "kind": "heading", "x": .1, "y": .2}, [])
+            ident = send.call_args.args[0]["id"]
+            with patch("an_calcs.notebook.grundplan.today_text", return_value="26/10/08"):
+                self.plan._on_message(None, {"action": "text_add", "kind": "date"}, [])
+            date_id = send.call_args.args[0]["id"]
+            self.assertEqual(self.plan.textobjekt[1]["text"], "26/10/08")
+            self.plan._on_message(None, {"action": "text_update", "id": ident,
+                "changes": {"text": "Grundsulor – Hus 1", "subtitle": "Revision A\nKontroll av bärighet", "x": .3, "y": .4, "size": 42}}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+            self.assertEqual(self.plan.textobjekt[0]["text"], "Grundsulor – Hus 1")
+            self.assertEqual(self.plan.textobjekt[0]["subtitle"], "Revision A\nKontroll av bärighet")
+            self.assertEqual(self.plan.state["text_objects"][0]["size"], 42)
+            copied = self.plan.textobjekt; copied[0]["text"] = "Ändrat"
+            self.assertNotEqual(self.plan.textobjekt, copied)
+            self.plan._on_message(None, {"action": "text_delete", "id": date_id}, [])
+            self.assertTrue(send.call_args.args[0]["ok"])
+            self.assertEqual(len(self.plan.textobjekt), 1)
+        self.assertEqual((self.plan.taggar, self.plan.resultat), before)
+
+    def test_drawing_text_roundtrip_replacement_and_legacy_project(self):
+        ident = self.plan.lagg_till_rubrik("Rubrik med åäö", underrubrik="Underrubrik\n" + "Lång text " * 40, x=.25, y=.35, storlek=40)
+        self.plan.lagg_till_datum("25/12/31", x=.6, y=.7, storlek=24)
+        self.plan.uppdatera_text(ident, text="Revision B", size=48)
+        loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "text.json"))
+        self.addCleanup(loaded.close)
+        self.assertEqual(loaded.textobjekt, self.plan.textobjekt)
+        loaded.importera_ritning(self.path)
+        self.assertEqual(loaded.textobjekt, self.plan.textobjekt)
+        without_subtitle = self.plan._document()
+        for item in without_subtitle["text_objects"]:
+            del item["subtitle"]
+        loaded._load_document(json.dumps(without_subtitle).encode())
+        self.assertEqual([item["subtitle"] for item in loaded.textobjekt], ["", ""])
+        legacy = self.plan._document(); legacy["version"] = 12; del legacy["text_objects"]
+        loaded._load_document(json.dumps(legacy).encode())
+        self.assertEqual(loaded.textobjekt, [])
+
+    def test_default_drawing_date_uses_stockholm_timezone_and_two_digit_year(self):
+        from datetime import datetime
+        from an_calcs.notebook.grundplan_text import today_text
+        with patch("an_calcs.notebook.grundplan_text.datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 8, 0, 1)
+            self.assertEqual(today_text(), "26/10/08")
+            self.assertEqual(clock.now.call_args.args[0].key, "Europe/Stockholm")
+
+    def test_invalid_text_updates_and_project_leave_existing_text_intact(self):
+        ident = self.plan.lagg_till_rubrik()
+        original = self.plan._document()
+        for changes in ({"x": -1}, {"y": float("nan")}, {"size": True}, {"size": 0}, {"text": 12}, {"subtitle": 12}, {"kind": "date"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.plan.uppdatera_text(ident, **changes)
+            self.assertEqual(self.plan._document(), original)
+        invalid = copy.deepcopy(original); invalid["text_objects"].append(copy.deepcopy(invalid["text_objects"][0]))
+        with self.assertRaises(ValueError):
+            self.plan._load_document(json.dumps(invalid).encode())
+        self.assertEqual(self.plan._document(), original)
+        empty = Grundplan(); self.addCleanup(empty.close)
+        with self.assertRaisesRegex(ValueError, "ritning"):
+            empty.lagg_till_datum()
+        date = self.plan.lagg_till_datum()
+        with self.assertRaisesRegex(ValueError, "Underrubrik"):
+            self.plan.uppdatera_text(date, subtitle="Ej en rubrik")
+
     def test_calibration_is_saved_restored_and_does_not_change_calculations(self):
         self.add()
         tags, results = self.plan.taggar, self.plan.resultat
@@ -289,7 +356,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 12)
+        self.assertEqual(loaded._document()["version"], 13)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())

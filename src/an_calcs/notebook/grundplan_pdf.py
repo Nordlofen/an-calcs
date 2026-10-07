@@ -523,7 +523,47 @@ def _draw_insulation_widget(canvas, width, height, preview_size, settings, tags)
     canvas.restoreState()
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None):
+def _draw_text_objects(canvas, width, height, preview_size, objects):
+    if not objects:
+        return
+    _fonts()
+    image_scale = min(width / preview_size[0], height / preview_size[1])
+    def wrapped(text, font, size, spacing=0):
+        if not text:
+            return []
+        lines = []
+        for paragraph in text.split("\n"):
+            line = ""
+            for character in paragraph:
+                candidate = line + character
+                if line and pdfmetrics.stringWidth(candidate, font, size) + spacing * (len(candidate) - 1) > 412:
+                    lines.append(line); line = ""
+                line += character
+            lines.append(line)
+        return lines
+
+    def draw_lines(lines, font, size, top, color, spacing=0):
+        canvas.setFillColor(HexColor(color))
+        for index, line in enumerate(lines):
+            text = canvas.beginText(4, -top - size * 1.12 - size * 1.45 * index)
+            text.setFont(font, size); text.setCharSpace(spacing); text.textOut(line)
+            canvas.drawText(text)
+
+    for item in objects:
+        heading = item["kind"] == "heading"
+        font, spacing = (_BOLD, -.5) if heading else (_REGULAR, 0)
+        lines = wrapped(item["text"], font, 20, spacing)
+        subtitles = wrapped(item.get("subtitle", ""), _REGULAR, 13) if heading else []
+        scale = image_scale * item["size"] / 20
+        canvas.saveState()
+        canvas.translate(item["x"] * width, height - item["y"] * height)
+        canvas.scale(scale, scale)
+        draw_lines(lines, font, 20, 4, "#18333b", spacing)
+        draw_lines(subtitles, _REGULAR, 13, 4 + 29 * len(lines) + 3, "#58717a")
+        canvas.restoreState()
+
+
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, text_objects=None):
     """Return the selected drawing page with static label overlays."""
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -537,7 +577,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         if isinstance(page_number, bool) or not isinstance(page_number, int) or not 1 <= page_number <= len(reader.pages):
             raise ValueError("Ritningssidan finns inte i PDF-filen.")
         page = writer.add_page(reader.pages[page_number - 1])
-        if tags or settings["enabled"] or coloured is not None or insulation_widget and insulation_widget["enabled"]:
+        if tags or settings["enabled"] or coloured is not None or insulation_widget and insulation_widget["enabled"] or text_objects:
             with pdfium.PdfDocument(source) as document:
                 width, height, transform = _page_geometry(page)
                 preview_page = document[page_number - 1]
@@ -554,6 +594,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                 _draw_project_overlays(canvas, width, height, preview_size, page_number, settings, results)
                 _draw_colour_legend(canvas, width, height, preview_size, colour_grouping, coloured["groups"] if coloured else [])
                 _draw_insulation_widget(canvas, width, height, preview_size, insulation_widget, tags)
+                _draw_text_objects(canvas, width, height, preview_size, text_objects)
                 canvas.showPage()
                 canvas.save()
                 page.merge_transformed_page(PdfReader(overlay).pages[0], transform, over=True, expand=False)
@@ -576,6 +617,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         _draw_project_overlays(canvas, width, height, preview.size, 1, settings, results)
         _draw_colour_legend(canvas, width, height, preview.size, colour_grouping, coloured["groups"] if coloured else [])
         _draw_insulation_widget(canvas, width, height, preview.size, insulation_widget, tags)
+        _draw_text_objects(canvas, width, height, preview.size, text_objects)
         canvas.showPage()
         canvas.save()
         writer.add_page(PdfReader(stream).pages[0])

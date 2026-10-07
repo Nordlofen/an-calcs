@@ -59,6 +59,20 @@ Du kan också ange `underrubrik="Revision A"` när planen skapas eller ändra
 texterna via `plan.titel` och `plan.underrubrik`. En tom underrubrik döljs
 i HTML-exporten. Ändringarna påverkar inte sulornas beräkningar.
 
+**Lägg till rubrik** och **Lägg till datum (åå/mm/dd)** skapar separata textobjekt
+på ritningen. Rubrikobjektet har en rubrik och en valfri underrubrik i samma
+typsnitt och textstil som interfacets rubrik och underrubrik. Båda flyttas och
+skalas tillsammans. Datumet börjar med dagens datum i Stockholm, exempelvis `26/10/08`,
+och ändras inte när projektet öppnas igen. Dra texten för att flytta den och dra
+hörnhandtaget för att förstora/förminska. Klicka på texten för att visa **Redigera**
+och **×** (ta bort). Dubbelklick öppnar också textredigeringen; **Shift + Enter**
+lägger till en rad. Rubrik, underrubrik och datum kan redigeras utan separat teckengräns,
+exempelvis till ett revisionsdatum. Via Python kan en rubrik läggas till med
+`plan.lagg_till_rubrik("Hus 1", underrubrik="Revision A")`.
+Text, placering och storlek sparas i projektet och följer med PDF och HTML.
+HTML visar fasta textobjekt. Flera rubriker/datum kan läggas till oberoende av varandra.
+**Enter** avslutar redigeringen. Textobjekten påverkar inte sulornas beräkningar.
+
 Varje `Grundplan` är låst till en ritningssida. En PDF med flera sidor används
 med en separat cell och egen `key` för varje sida. Ange `sida=2` när den andra
 vyn skapas; utan `sida` väljs sida 1. Detta gäller även om ritningen väljs via

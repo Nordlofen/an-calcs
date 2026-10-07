@@ -236,6 +236,8 @@ function render({ model, el, readOnly = false }) {
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
+  let textAddBusy = false;
+  const textElements = new Map(), textDrafts = new Map(), textDeleting = new Set();
   let layoutDraft = null, panelDrag = null;
   const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
@@ -656,6 +658,28 @@ function render({ model, el, readOnly = false }) {
   });
   insulationWidgetToggle.title = "Visa antal sulor med och utan isolering samt littera utan isolering.";
   if (!readOnly) toolbar.append(insulationWidgetToggle);
+  const textAddButtons = [];
+  for (const [kind, caption] of [["heading", "Lägg till rubrik"], ["date", "Lägg till datum (åå/mm/dd)"]]) {
+    const add = button(caption, () => {
+      if (textAddBusy || !background().url) return;
+      cancelDrag(); closeDialog(); closeBulk(); setMode("pan");
+      textAddBusy = true; showTextObjects();
+      // Place each object in the visible part of the drawing, then let it be dragged.
+      const rect = picture.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
+      const x = Math.max(0, Math.min(.9, (Math.max(bounds.left, rect.left) + 35 - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(.9, (Math.max(bounds.top, rect.top) + (kind === "heading" ? 35 : 85) - rect.top) / rect.height));
+      command("text_add", {kind, x, y}, [], reply => {
+        textAddBusy = false;
+        if (reply.ok) overlaySelected = "text:" + reply.id;
+        showTextObjects();
+        if (reply.ok) showMessage((kind === "heading" ? "Rubrik tillagd." : "Datum tillagt.")
+          + " Dra texten för att flytta, dra hörnet för att skala och klicka på Redigera för att ändra texten.");
+      });
+    });
+    add.title = "Lägg till en flyttbar och skalbar text på ritningen.";
+    textAddButtons.push(add);
+    if (!readOnly) toolbar.append(add);
+  }
   const colourControls = node("section", "gp-colour-controls");
   colourControls.hidden = true;
   colourControls.setAttribute("aria-label", "Inställningar för färggruppering");
@@ -1237,6 +1261,7 @@ function render({ model, el, readOnly = false }) {
           slidingDraft = null; overlaySelected = null;
           colourDraft = null; colourEditType = null; colourError.textContent = "";
           tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null;
+          textDrafts.clear(); textDeleting.clear(); textAddBusy = false;
           colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
           inputSections.length = resultSections.length = 0;
@@ -1497,8 +1522,13 @@ function render({ model, el, readOnly = false }) {
       node("p", "gp-insulation-list", uninsulated.map(tag => drafts.get(tag.id)?.label.trim() || tag.label)
         .sort(tableCollator.compare).join(", ") || "Inga sulor"));
   }
+  function textObject(kind) {
+    return kind?.startsWith("text:") ? state().text_objects?.find(item => item.id === kind.slice(5)) : null;
+  }
   function overlayPosition(kind) {
     const key = background().page + ":" + kind;
+    const text = textObject(kind);
+    if (text) return overlayPositions.get(key) || {x: text.x, y: text.y, size: text.size};
     if (kind === "colour") return {...COLOUR_DEFAULTS.legend, ...(overlayPositions.get(key) || colour().legend)};
     if (kind === "insulation") {
       const {x, y, size} = overlayPositions.get(key) || insulationWidget(); return {x, y, size};
@@ -1507,22 +1537,22 @@ function render({ model, el, readOnly = false }) {
     return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
   }
   function overlaySize(kind, value) {
-    const [low, high] = kind === "symbol" ? [50, 600] : ["colour", "insulation"].includes(kind) ? [150, 900] : [205, 1230];
+    const [low, high] = kind.startsWith("text:") ? [10, 144] : kind === "symbol" ? [50, 600] : ["colour", "insulation"].includes(kind) ? [150, 900] : [205, 1230];
     return Math.max(low, Math.min(high, value));
   }
   function saveOverlayPosition(kind, page, position) {
     const key = page + ":" + kind;
     overlayPositions.set(key, position);
     pendingOverlayPositions.set(key, position);
-    command(kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement" : "sliding_placement", {kind, page, position}, [], () => {
+    const text = textObject(kind);
+    command(text ? "text_update" : kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement" : "sliding_placement",
+      text ? {id: text.id, changes: position} : {kind, page, position}, [], () => {
       if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
       if (overlayPositions.get(key) === position) overlayPositions.delete(key);
       renderSlidingGeometry();
     });
   }
-  for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
-      [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true],
-      [insulationHeader, "insulation", false], [insulationResize, "insulation", true]]) {
+  function bindOverlayKeys(element, kind, resize) {
     element.addEventListener("keydown", event => {
       if (readOnly) return;
       const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
@@ -1536,6 +1566,88 @@ function render({ model, el, readOnly = false }) {
       saveOverlayPosition(kind, background().page, p);
       renderSlidingGeometry();
     });
+  }
+  for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
+      [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true],
+      [insulationHeader, "insulation", false], [insulationResize, "insulation", true]]) bindOverlayKeys(element, kind, resize);
+  function showTextObjects() {
+    for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || importBusy || deleteBusy;
+    const objects = state().text_objects || [];
+    for (const [id, entry] of textElements) if (!objects.some(item => item.id === id)) {
+      entry.element.remove(); textElements.delete(id); textDrafts.delete(id);
+      if (overlaySelected === "text:" + id) overlaySelected = null;
+    }
+    for (const item of objects) {
+      let entry = textElements.get(item.id);
+      if (!entry) {
+        const kind = "text:" + item.id;
+        const element = node("div", "gp-sliding-overlay gp-text-annotation");
+        element.dataset.kind = kind; element.dataset.textId = item.id;
+        const text = node(readOnly ? "span" : "button", "gp-annotation-text gp-sliding-handle");
+        const title = node("span", "gp-annotation-title"), subtitle = node("span", "gp-annotation-subtitle");
+        text.append(title, subtitle);
+        if (!readOnly) text.type = "button";
+        const resize = button("", () => {}, "gp-overlay-resize gp-text-resize");
+        resize.setAttribute("aria-label", "Ändra textens storlek. Dra hörnet eller använd plus och minus.");
+        element.append(text);
+        entry = {element, text, title, subtitle, resize, editing: false};
+        if (!readOnly) {
+          const editor = node("textarea", "gp-annotation-editor"); editor.rows = 1;
+          editor.setAttribute("aria-label", item.kind === "date" ? "Datumtext (åå/mm/dd)" : "Rubriktext på ritningen");
+          const subtitleEditor = item.kind === "heading" ? node("textarea", "gp-annotation-editor gp-annotation-subtitle-editor") : null;
+          if (subtitleEditor) {
+            subtitleEditor.rows = 1; subtitleEditor.placeholder = "Underrubrik (valfri)";
+            subtitleEditor.setAttribute("aria-label", "Underrubrik på ritningen");
+          }
+          const tools = node("div", "gp-annotation-tools");
+          const edit = button("Redigera", () => {
+            entry.editing = true; overlaySelected = kind; showTextObjects(); editor.focus({preventScroll:true});
+          });
+          const remove = button("×", () => {
+            if (textDeleting.has(item.id)) return;
+            textDeleting.add(item.id); remove.disabled = true;
+            command("text_delete", {id: item.id}, [], () => {textDeleting.delete(item.id); showTextObjects();});
+          });
+          remove.setAttribute("aria-label", "Ta bort textobjekt"); remove.title = "Ta bort textobjekt";
+          tools.append(edit, remove); element.append(editor);
+          if (subtitleEditor) element.append(subtitleEditor);
+          element.append(tools, resize);
+          Object.assign(entry, {editor, subtitleEditor, tools, remove});
+          text.title = "Dra för att flytta. Dubbelklicka eller välj Redigera för att ändra texten.";
+          text.addEventListener("click", () => {overlaySelected = kind; renderSlidingGeometry();});
+          text.addEventListener("dblclick", () => edit.click());
+          for (const field of [editor, subtitleEditor].filter(Boolean)) {
+            field.addEventListener("input", () => {
+              const draft = {text: editor.value, subtitle: subtitleEditor?.value || ""};
+              textDrafts.set(item.id, draft); showTextObjects();
+              command("text_update", {id: item.id, changes: draft}, [], () => {
+                if (textDrafts.get(item.id) === draft) textDrafts.delete(item.id);
+                showTextObjects();
+              });
+            });
+            field.addEventListener("keydown", event => {
+              if (event.key === "Escape" || event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault(); event.stopPropagation(); entry.editing = false; showTextObjects(); text.focus({preventScroll:true});
+              }
+            });
+          }
+          bindOverlayKeys(text, kind, false); bindOverlayKeys(resize, kind, true);
+        }
+        textElements.set(item.id, entry); overlays.append(element);
+      }
+      const value = textDrafts.get(item.id)?.text ?? item.text;
+      const subtitleValue = textDrafts.get(item.id)?.subtitle ?? item.subtitle ?? "";
+      entry.element.classList.toggle("gp-annotation-heading", item.kind === "heading");
+      entry.title.textContent = value || (readOnly ? "" : item.kind === "heading" ? "Rubrik" : "Datum");
+      entry.title.hidden = !value && readOnly;
+      entry.subtitle.textContent = subtitleValue; entry.subtitle.hidden = !subtitleValue;
+      if (!readOnly) {
+        if (document.activeElement !== entry.editor) entry.editor.value = value;
+        if (entry.subtitleEditor && document.activeElement !== entry.subtitleEditor) entry.subtitleEditor.value = subtitleValue;
+        entry.remove.disabled = textDeleting.has(item.id);
+      }
+    }
+    renderSlidingGeometry();
   }
   function renderSlidingGeometry() {
     for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"]]) {
@@ -1555,6 +1667,30 @@ function render({ model, el, readOnly = false }) {
         resize.hidden = readOnly || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";
+      }
+    }
+    for (const [id, entry] of textElements) {
+      const kind = "text:" + id, p = overlayPosition(kind), selected = !readOnly && overlaySelected === kind;
+      const scale = zoom * p.size / 20;
+      entry.element.hidden = !background().url;
+      entry.element.style.left = p.x * 100 + "%"; entry.element.style.top = p.y * 100 + "%";
+      entry.element.style.transform = "scale(" + scale + ")";
+      entry.element.classList.toggle("gp-overlay-selected", selected);
+      if (!selected) entry.editing = false;
+      entry.text.hidden = entry.editing;
+      entry.resize.hidden = !selected || entry.editing;
+      entry.resize.style.transform = "scale(" + 1 / scale + ")";
+      if (!readOnly) {
+        for (const field of [entry.editor, entry.subtitleEditor].filter(Boolean)) {
+          field.hidden = !entry.editing;
+          if (entry.editing) {
+            field.style.height = "auto";
+            field.style.height = Math.max(field === entry.editor ? 33 : 25, (field.scrollHeight || 0) + 2) + "px";
+          }
+        }
+        entry.tools.hidden = !selected || entry.editing;
+        entry.tools.style.transform = "scale(" + 1 / scale + ")";
+        entry.tools.style.top = -29 / scale + "px";
       }
     }
   }
@@ -2941,6 +3077,7 @@ function render({ model, el, readOnly = false }) {
     showTable();
     showLayout();
     showMeasurement();
+    showTextObjects();
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -3012,6 +3149,7 @@ function render({ model, el, readOnly = false }) {
       return;
     }
     if (event.target.closest(".gp-tag-comment")) return;
+    if (event.target.closest(".gp-annotation-editor") || event.target.closest(".gp-annotation-tools")) return;
     if (bulkBusy) return;
     if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) {
       if (calibrationBusy || importBusy) return;
@@ -3024,7 +3162,7 @@ function render({ model, el, readOnly = false }) {
     const overlay = event.target.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
-      const resize = event.target === axesResize || event.target === legendResize || event.target === colourResize || event.target === insulationResize;
+      const resize = !!event.target.closest(".gp-overlay-resize") || event.target === axesResize;
       if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
       event.preventDefault();
       setMode("pan");

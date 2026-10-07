@@ -3318,3 +3318,87 @@ test('load colour intervals use input units rather than the bearing model', t =>
   const group = colourGroups([ui.tag], settings).assignments.get('tag1');
   assert.equal(group.kind, 'wall'); assert.equal(group.unit, 'kN/m');
 });
+
+test('drawing heading and date buttons create independent objects and prevent duplicate pending requests', t => {
+  const ui = setup(t);
+  const before = structuredClone(ui.tag);
+  const add = ui.byText('Lägg till rubrik');
+  add.click(); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'text_add'); assert.equal(request.kind, 'heading');
+  assert.equal(add.disabled, true);
+  add.click(); assert.equal(ui.sent.at(-1), request);
+  ui.data.state.text_objects = [{id: 'heading1', kind: 'heading', text: 'Rubrik', x: request.x, y: request.y, size: 28}];
+  ui.changed(); ui.ack(request, {id: 'heading1'});
+  assert.equal(ui.byClass('gp-text-resize').hidden, false);
+  ui.byText('Lägg till datum (åå/mm/dd)').click(); const date = ui.sent.at(-1);
+  assert.equal(date.kind, 'date');
+  ui.data.state.text_objects.push({id: 'date1', kind: 'date', text: '26/10/08', x: date.x, y: date.y, size: 18});
+  ui.changed(); ui.ack(date, {id: 'date1'});
+  const elements = ui.elements().filter(e => e.className.includes('gp-text-annotation'));
+  assert.equal(elements.length, 2);
+  assert.equal(elementText(elements[1].children[0]), '26/10/08');
+  assert.equal(elements[1].children.some(e => e.className.includes('gp-annotation-subtitle-editor')), false);
+  assert.deepEqual(ui.tag, before);
+});
+
+test('drawing text drag, proportional resize, cancel and pending edit replies retain the latest values', t => {
+  const ui = setup(t);
+  const original = structuredClone(ui.tag);
+  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Hus 1', subtitle:'Grundsulor', x:.1, y:.2, size:20}]; ui.changed();
+  const element = ui.byClass('gp-text-annotation'), text = ui.byClass('gp-annotation-text'), resize = ui.byClass('gp-text-resize');
+  const accept = request => {
+    Object.assign(ui.data.state.text_objects[0], request.changes); ui.changed(); ui.ack(request);
+  };
+  ui.start(text); ui.move(400, 375); ui.finish(400, 375);
+  const move = ui.sent.at(-1); assert.equal(move.action, 'text_update'); assert.equal(move.id, 'text1');
+  near(move.changes.x, .225); near(move.changes.y, .325);
+  element.clientWidth=200; element.clientHeight=50;
+  ui.start(resize); ui.move(400, 325); ui.finish(400, 325);
+  const scale = ui.sent.at(-1); near(scale.changes.size, 30);
+  accept(move); assert.equal(element.style.transform, 'scale(1.5)', 'An old move cannot undo the pending resize');
+  accept(scale);
+  ui.start(text); ui.move(700, 550); ui.viewport.dispatch('pointercancel');
+  near(parseFloat(element.style.left), 22.5); near(parseFloat(element.style.top), 32.5);
+  text.click(); ui.byText('Redigera').click();
+  const editor = ui.byClass('gp-annotation-editor'); assert.equal(editor.hidden, false);
+  const subtitle = ui.byClass('gp-annotation-subtitle-editor'); assert.equal(subtitle.hidden, false);
+  assert.equal(subtitle.value, 'Grundsulor');
+  editor.value='Revision A'; editor.dispatch('input'); const first = ui.sent.at(-1);
+  editor.value='Grundsulor – Hus 1'; editor.dispatch('input'); const second = ui.sent.at(-1);
+  subtitle.value='Revision B\nKontroll av bärighet'; subtitle.dispatch('input'); const last = ui.sent.at(-1);
+  accept(first); accept(second);
+  assert.equal(editor.value, last.changes.text); assert.equal(subtitle.value, last.changes.subtitle);
+  accept(last); subtitle.dispatch('keydown', {key:'Enter', shiftKey:true}); assert.equal(subtitle.hidden, false);
+  subtitle.dispatch('keydown', {key:'Enter', shiftKey:false});
+  assert.equal(editor.hidden, true); assert.equal(subtitle.hidden, true);
+  assert.equal(ui.byClass('gp-annotation-title').textContent, last.changes.text);
+  assert.equal(ui.byClass('gp-annotation-subtitle').textContent, last.changes.subtitle);
+  const count = ui.sent.length;
+  ui.byClass('an-grundplan').dispatch('keydown', {key:'Escape'}); assert.equal(resize.hidden, true); assert.equal(ui.sent.length, count);
+  assert.deepEqual(ui.tag, original);
+});
+
+test('drawing text deletion removes only that annotation', t => {
+  const ui = setup(t);
+  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Hus 1', x:.1, y:.1, size:28},
+    {id:'date1', kind:'date', text:'26/10/08', x:.1, y:.2, size:18}]; ui.changed();
+  ui.byClass('gp-annotation-text').click();
+  const remove = ui.find(e => e.getAttribute('aria-label') === 'Ta bort textobjekt'); remove.click();
+  const request = ui.sent.at(-1); assert.equal(request.action, 'text_delete'); assert.equal(request.id, 'text1');
+  remove.click(); assert.equal(ui.sent.at(-1), request);
+  ui.data.state.text_objects.shift(); ui.changed(); ui.ack(request);
+  assert.equal(elementText(ui.byClass('gp-annotation-text')), '26/10/08');
+  assert.equal(ui.data.state.tags.length, 1);
+});
+
+test('HTML drawing headings and dates display saved text and geometry without editing controls', t => {
+  const ui = setup(t, {readOnly:true});
+  ui.data.state.text_objects = [{id:'text1', kind:'heading', text:'Rubrik', subtitle:'Revision A\nGrundsulor', x:.2, y:.3, size:40}]; ui.changed();
+  const element = ui.byClass('gp-text-annotation'), text = ui.byClass('gp-annotation-text');
+  assert.equal(ui.byClass('gp-annotation-title').textContent, 'Rubrik'); assert.equal(text.tag, 'span');
+  assert.equal(ui.byClass('gp-annotation-subtitle').textContent, 'Revision A\nGrundsulor');
+  assert.equal(element.style.transform, 'scale(2)'); assert.equal(element.style.left, '20%');
+  assert.ok(!ui.elements().some(e => e.className === 'gp-annotation-editor'));
+  assert.ok(!ui.elements().some(e => e.textContent === 'Lägg till rubrik'));
+  ui.start(text); ui.move(400, 400); ui.finish(400, 400); assert.equal(ui.sent.length, 0);
+});

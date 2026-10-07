@@ -107,6 +107,20 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertNotIn("Glidningskontroll", text)
         self.assertNotIn("Glidmotstånd – globalt", text)
 
+    def test_heading_subtitle_and_date_overlay_pdf_without_any_footings(self):
+        plan = self.plan(self.drawing(), sida=2)
+        plan.lagg_till_rubrik("Hus 1 – X_g", underrubrik="Revision A\nKontroll av bärighet", x=.1, y=.1)
+        plan.lagg_till_datum("26/10/08", x=.7, y=.1)
+        before = plan._document()
+        reader = PdfReader(io.BytesIO(plan._pdf_bytes()))
+        self.assertEqual(len(reader.pages), 1)
+        page = reader.pages[0]
+        for expected in ("ORIGINAL 2", "Hus 1 – X_g", "Revision A", "Kontroll av bärighet", "26/10/08"):
+            self.assertIn(expected, page.extract_text())
+        self.assertFalse(page.images)
+        self.assertEqual(tuple(page.mediabox), (0, 0, 700, 500))
+        self.assertEqual(plan._document(), before)
+
     def test_sliding_capacity_rounds_display_to_one_decimal_but_preserves_result_precision(self):
         plan = self.plan()
         ident = self.tag(plan, indata={"glid_x": True, "V_Ed_EQU": 215.4, "glid_mu": .9, "glid_L": 6.4})

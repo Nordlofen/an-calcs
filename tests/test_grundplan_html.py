@@ -147,6 +147,16 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertIn("0,8 × 2,4 m", text)
         self.assertIn("L\nsu\n 6,2 m", text)
 
+    def test_drawing_headings_and_dates_are_embedded_in_html_and_its_pdf(self):
+        self.plan.lagg_till_rubrik("Grundsulor – Hus 1", underrubrik="Revision A", x=.2, y=.1, storlek=40)
+        self.plan.lagg_till_datum("26/10/08", x=.2, y=.3, storlek=24)
+        snapshot = self.snapshot()
+        self.assertEqual(snapshot["state"]["text_objects"], self.plan.textobjekt)
+        pdf = PdfReader(io.BytesIO(base64.b64decode(snapshot["pdf"]["data"])))
+        text = pdf.pages[0].extract_text()
+        for expected in ("Grundsulor – Hus 1", "Revision A", "26/10/08"):
+            self.assertIn(expected, text)
+
     def test_html_text_och_scriptavslut_behandlas_som_vanlig_text(self):
         text = '</script><img src=x onerror=alert(1)> ÅÄÖ & "\u2028\u2029'
         self.plan.titel = text

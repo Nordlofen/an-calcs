@@ -29,8 +29,8 @@
 }
 .an-grundplan .gp-heading { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 18px 20px 14px; }
 .an-grundplan .gp-heading-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.an-grundplan .gp-heading .gp-title { font-size: 20px; font-weight: 700; letter-spacing: -.5px; color: var(--gp-ink); }
-.an-grundplan .gp-heading .gp-subtitle { color: var(--gp-muted); margin-top: 3px; white-space: pre-wrap; }
+.an-grundplan .gp-heading .gp-title, .an-grundplan .gp-annotation-heading .gp-annotation-title { font-size: 20px; font-weight: 700; letter-spacing: -.5px; color: var(--gp-ink); }
+.an-grundplan .gp-heading .gp-subtitle, .an-grundplan .gp-annotation-subtitle { font-size: 13px; font-weight: 400; line-height: 1.45; color: var(--gp-muted); margin-top: 3px; white-space: pre-wrap; }
 .an-grundplan .gp-heading input, .an-grundplan .gp-heading textarea { display: block; width: 100%; padding: 0; border: 1px solid transparent; background: transparent; }
 .an-grundplan .gp-heading textarea { resize: none; overflow: hidden; }
 .an-grundplan .gp-heading input:hover, .an-grundplan .gp-heading textarea:hover { border-color: var(--gp-line); }
@@ -117,6 +117,14 @@
 .an-grundplan .gp-sliding-overlay { position: absolute; pointer-events: auto; transform-origin: top left; touch-action: none; }
 .an-grundplan .gp-global-axes { color: #19343d; }
 .an-grundplan .gp-sliding-overlay.gp-overlay-selected { outline: 1px dashed #258879; }
+.an-grundplan .gp-text-annotation { color: var(--gp-ink); width: max-content; max-width: 420px; font-size: 20px; line-height: 1.45; }
+.an-grundplan .gp-annotation-title, .an-grundplan .gp-annotation-subtitle { display: block; }
+.an-grundplan .gp-annotation-text, .an-grundplan button.gp-annotation-text { display: block; max-width: 420px; padding: 4px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; cursor: grab; }
+.an-grundplan .gp-annotation-editor { display: block; width: 420px; padding: 4px; border: 1px solid #258879; background: white; color: inherit; font: inherit; line-height: inherit; resize: none; overflow: hidden; }
+.an-grundplan .gp-annotation-heading .gp-annotation-editor { font-weight: 700; letter-spacing: -.5px; }
+.an-grundplan .gp-annotation-heading .gp-annotation-subtitle-editor { font-size: 13px; font-weight: 400; letter-spacing: normal; color: var(--gp-muted); margin-top: 3px; }
+.an-grundplan .gp-annotation-tools { position: absolute; top: -29px; left: 0; display: flex; gap: 4px; transform-origin: top left; font-weight: 400; }
+.an-grundplan .gp-annotation-tools button { padding: 3px 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
 .an-grundplan button.gp-axis-symbol { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; cursor: grab; }
 .an-grundplan .gp-axis-symbol svg { display: block; width: 100%; height: 100%; }
 .an-grundplan button.gp-axis-resize, .an-grundplan button.gp-overlay-resize { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; padding: 0; border: 2px solid white; background: #258879; border-radius: 1px; cursor: nwse-resize; }
