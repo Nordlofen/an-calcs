@@ -17,7 +17,7 @@ FIELDS = [
     {"name": "glid_mu", "type": "number", "label": "Dimensionerande friktionskoefficient", "unit": "", "default": None,
      "display_symbol": {"base": "μ", "subscript": "d"}},
     {"name": "glid_L", "type": "number", "label": "Väggsulans totala längd", "unit": "m", "default": None,
-     "display_symbol": {"base": "L"}},
+     "display_symbol": {"base": "L", "subscript": "su"}},
 ]
 NAMES = {field["name"] for field in FIELDS}
 DEFAULT_SETTINGS = {"enabled": False, "check_x": False, "check_y": False,
@@ -72,15 +72,20 @@ def contribution(values):
         return {**result, "status": "insulated"}
     if not any(selected.values()):
         return result
-    names = ["V_Ed_EQU", "glid_mu"] + (["glid_L"] if values["lang"] == 1 else [])
+    support_length = values.get("L_vagg")
+    # Missing support length means the legacy per-metre footing input. Never
+    # infer a support length from an independently edited footing length.
+    length_name = "L_vagg" if support_length is not None else "glid_L"
+    names = ["V_Ed_EQU", "glid_mu"] + ([length_name] if values["lang"] == 1 else [])
     for name in names:
         value = values.get(name)
-        if not _finite(value) or value < 0 or (name == "glid_L" and value == 0):
-            caption = next(field["label"] for field in FIELDS if field["name"] == name)
+        if not _finite(value) or value < 0 or (name in ("glid_L", "L_vagg") and value == 0):
+            caption = ("Längd linjestöd alt. längd ovanliggande vägg" if name == "L_vagg"
+                       else next(field["label"] for field in FIELDS if field["name"] == name))
             return {**result, "status": "incomplete", "capacity": None,
                     **{axis: None if selected[axis] else 0 for axis in selected},
                     "error": "Kontrollera " + caption.lower() + "."}
-    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values["glid_L"] if values["lang"] == 1 else 1)
+    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values[length_name] if values["lang"] == 1 else 1)
     if not math.isfinite(capacity):
         return {**result, "status": "incomplete", "capacity": None,
                 **{axis: None if selected[axis] else 0 for axis in selected},

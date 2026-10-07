@@ -37,7 +37,7 @@ class TestLoadParser(unittest.TestCase):
         before = copy.deepcopy(data)
         items = read_loads(encode(data))
         self.assertEqual(items, [
-            {"label": "W1", "kind": "vaggsula", "values": {"F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2}},
+            {"label": "W1", "kind": "vaggsula", "values": {"F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2}},
             {"label": "P1", "kind": "pelarsula", "values": {"F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
         self.assertEqual(data, before)
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
@@ -132,7 +132,7 @@ class TestLoadPlacement(unittest.TestCase):
             tag = self.plan._tag(ident)
             for name in ("id", "label", "x", "y", "page"):
                 self.assertEqual(tag[name], before[ident][name])
-            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"glid_L"} if ident == wall else set())
+            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"glid_L", "L_vagg"} if ident == wall else set())
             for name, value in before[ident]["values"].items():
                 if name not in updated_fields:
                     self.assertEqual(tag["values"][name], value)
@@ -158,7 +158,7 @@ class TestLoadPlacement(unittest.TestCase):
             self.assertIsNone(self.plan.lasteffekt_import)
             self.assertEqual((self.plan.taggar, self.plan.resultat), before)
 
-    def test_equ_and_wall_length_update_sliding_without_invalidating_soil_result(self):
+    def test_support_length_update_recalculates_soil_and_sliding(self):
         wall, _ = self.place_both()
         self.plan.uppdatera(wall, indata={"glid_x": True, "glid_mu": .4})
         self.plan.glidning = {"enabled": True, "check_x": True, "H_x_Ed": 100}
@@ -167,7 +167,8 @@ class TestLoadPlacement(unittest.TestCase):
         data = document(); data["supports"][0]["length"]["value"] = 10
         data["supports"][0]["results"][2]["V"] = 50
         self.plan._start_load_import(encode(data), "equ.json")
-        self.assertEqual((self.plan._tag(wall)["summary"], self.plan.resultat), before)
+        self.assertNotEqual((self.plan._tag(wall)["summary"], self.plan.resultat), before)
+        self.assertEqual(self.plan._tag(wall)["summary"]["load_conversion"]["brott"], 800)
         self.assertAlmostEqual(self.plan.glidningsresultat["x"]["H_Rd"], 200)
 
     def test_ambiguous_labels_type_conflict_and_invalid_late_support_do_not_partially_update(self):

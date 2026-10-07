@@ -61,10 +61,13 @@ def read_loads(data, *, existing_labels=(), available=1000):
                 raise ValueError(f"{label}: väggsulor kräver distribution uniform.")
             length = support.get("length")
             if not isinstance(length, dict) or length.get("unit") != "m":
-                raise ValueError(f"{label}: väggsulans length måste anges i m.")
-            values["glid_L"] = _number(length.get("value"), f"{label}: längden")
-            if values["glid_L"] <= 0:
-                raise ValueError(f"{label}: väggsulans längd måste vara större än noll.")
+                raise ValueError(f"{label}: linjestödets length måste anges i m.")
+            values["L_vagg"] = _number(length.get("value"), f"{label}: linjestödslängden")
+            if values["L_vagg"] <= 0:
+                raise ValueError(f"{label}: linjestödslängden måste vara större än noll.")
+            # Independent inputs, with the same initial value. The project
+            # updater preserves a footing length that was subsequently edited.
+            values["glid_L"] = values["L_vagg"]
         results = support.get("results")
         if not isinstance(results, list) or len(results) != 3:
             raise ValueError(f"{label}: ange en lasteffekt för vardera Brott, Bruk och EQU.")

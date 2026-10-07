@@ -145,7 +145,7 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(tag["summary"]["effective_area"]["brott"]["by"], 2.4)
         text = PdfReader(io.BytesIO(base64.b64decode(data["pdf"]["data"]))).pages[0].extract_text()
         self.assertIn("0,8 × 2,4 m", text)
-        self.assertIn(" · L 6,2 m", text)
+        self.assertIn("L\nsu\n 6,2 m", text)
 
     def test_html_text_och_scriptavslut_behandlas_som_vanlig_text(self):
         text = '</script><img src=x onerror=alert(1)> ÅÄÖ & "\u2028\u2029'

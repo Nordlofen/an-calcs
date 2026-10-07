@@ -162,7 +162,7 @@ class TestGrundplanPdf(unittest.TestCase):
         ident = self.tag(plan, indata={"b": .8, "l": 2.4, "glid_L": 6.2, "glid_x": True})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertIn("0,8 × 2,4 m", text)
-        self.assertIn(" · L 6,2 m", text)
+        self.assertIn("L\nsu\n 6,2 m", text)
         plan.uppdatera(ident, indata={"l": 1})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertRegex(text, r"b\s*x\s*0,8 m")

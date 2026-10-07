@@ -54,12 +54,15 @@ def _number(value, digits=2):
 
 def _text_parts(text, size):
     # Draw real lowered glyphs for dimensions and global coordinate indices.
-    for part in re.split("([ₓᵧ]|[XY]_g)", text):
+    for part in re.split("([ₓᵧ]|[XY]_g|L_su)", text):
         if part in ("ₓ", "ᵧ"):
             yield {"ₓ": "x", "ᵧ": "y"}[part], size * .7, -size * .2
         elif part in ("X_g", "Y_g"):
             yield part[0], size, 0
             yield "g", size * .7, -size * .2
+        elif part == "L_su":
+            yield "L", size, 0
+            yield "su", size * .7, -size * .2
         elif part:
             yield part, size, 0
 
@@ -94,7 +97,9 @@ def _sliding_rows(values):
         return "—" if values.get(name) is None else _number(values[name], 3) + " " + unit
     left = [("V", "Ed,EQU", value("V_Ed_EQU", "kN/m" if values["lang"] == 1 else "kN"))]
     if values["lang"] == 1:
-        left.append(("L", "", value("glid_L", "m")))
+        left.append(("L", "su", value("glid_L", "m")))
+        if values.get("L_vagg") is not None:
+            left.append(("L", "vägg", value("L_vagg", "m")))
     right = [("H", axis + ",Rd,i", "—" if result[axis] is None else _number(result[axis], 1) + " kN")
              for axis in ("x", "y") if values.get("glid_" + axis)]
     return left, right
@@ -152,7 +157,7 @@ def _label(tag, sliding_enabled=False):
             and math.isfinite(length) and length > 0 and not sliding_block
             and not values.get("isolering") and (values.get("glid_x") or values.get("glid_y"))):
         text, font, size = lines[1]
-        lines[1] = (text + " · L " + _number(length, 6) + " m", font, size)
+        lines[1] = (text + " · L_su " + _number(length, 6) + " m", font, size)
     return lines, status
 
 

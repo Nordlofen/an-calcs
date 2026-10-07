@@ -171,14 +171,17 @@ jordens bärighet.
 bᵧ kan ändras även för väggsulor, i dialogen, tabellen och för flera markerade
 sulor. Den lilla kryssrutan **Egen längd** låser upp måttet; avmarkerad
 visar den ett grått, låst 1 m-fält. Laster anges fortfarande per meter vägg och
-glidlängden L är separat. Det valda måttet används i skissen för effektiv area
+linjestödslängden **L_vägg** och sulängden **L_su** är separata. Importens
+`length` fyller båda initialt; därefter behålls manuellt ändrad L_su vid uppdatering.
+Angivna linjelaster multipliceras med L_vägg till total kraft och jämförs mot
+sulans valda geometri. Se [lastomräkningen](docs/grundplan.md#linjestödslängd-och-sulgeometri). Det valda måttet används i skissen för effektiv area
 och sparas med projektet. Tidigare sparade egna mått får kryssrutan aktiverad;
 projekt från tiden före bᵧ-redigeringen behåller sin remslängd på 1 m.
 
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 `V / (bₓ,eff × bᵧ,eff)` för pelarsulor och
-`V_per_meter × bᵧ / (bₓ,eff × bᵧ,eff)` för väggsulor, för respektive
+`V_total / (bₓ,eff × bᵧ,eff)` för väggsulor med angiven L_vägg, för respektive
 lastkombination. Resultatet visar
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
@@ -219,7 +222,7 @@ bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolerin
 Kategorin **Isolering** döljs. Sulan bidrar fortfarande i sina
 valda glidningsriktningar. Valet kan även ändras för markerade rader i tabellen;
 övriga indatavärden behålls när läget växlas.
-Sulmåtten bₓ/bᵧ döljs i detta läge; väggsulans totala längd L anges fortfarande
+Sulmåtten bₓ/bᵧ döljs i detta läge; linjestödslängden L_vägg anges under Geometri och sulängden L_su anges fortfarande
 under **Glidning**.
 
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans

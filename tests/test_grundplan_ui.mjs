@@ -115,7 +115,8 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("l_override", "endast_h_stabilitet", "kommentar");
+names.push("L_vagg", "l_override", "endast_h_stabilitet", "kommentar");
+const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
   .map(group => ({...group, fields: group.fields.map(([name, symbol, unit]) => ({name, symbol, unit}))}));
@@ -131,11 +132,14 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf } = {}) 
       summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
+  tag.values.L_vagg = null;
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
-    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar", type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
+    schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
+      display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "endast_h_stabilitet"].includes(name) ? "bool" : name === "lang" ? "choice" : "number",
       unit: "m", options: [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -380,7 +384,7 @@ test("load import uploads JSON bytes without replacing existing footing drafts",
 test("placement advances once per acknowledged click, shows types and creates no dialog", t => {
   const ui = setup(t), imported = importFixture(ui);
   assert.equal(ui.byClass("gp-import-bar").hidden, false);
-  ui.byText("Brott V 80 kN/m · Bruk V 25 kN/m · EQU V 30 kN/m · L 6,2 m");
+  ui.byText("Brott V 80 kN/m · Bruk V 25 kN/m · EQU V 30 kN/m · Lvägg 6,2 m");
   ui.place();
   const first = ui.sent.at(-1);
   assert.equal(first.action, "place_import");
@@ -1498,7 +1502,7 @@ for (const readOnly of [false, true]) test(`wall length is editable but hidden o
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m");
   assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
   ui.marker().click();
-  const row = readOnly ? ui.find(e => e.getAttribute("aria-label") === "glid_L") : ui.field("glid_L").parent;
+  const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("glid_L")) : ui.field("glid_L").parent;
   assert.equal(row.hidden, false);
   assert.equal(row.parent.hidden, false);
   if (!readOnly) {
@@ -1520,9 +1524,9 @@ for (const readOnly of [false, true]) test(`wall length is editable but hidden o
 for (const readOnly of [false, true]) test(`length stays on inactive/new wall labels and is not repeated or applied to pads (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   slidingFixture(ui, false);
-  assert.match(ui.byClass("gp-tag-result").textContent, /L 3 m$/);
+  assert.match(elementText(ui.byClass("gp-tag-result")), /Lsu 3 m$/);
   ui.tag.status = "new"; ui.tag.summary = null; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata · L 3 m");
+  assert.equal(elementText(ui.byClass("gp-tag-result")), "Kontrollera indata · Lsu 3 m");
   ui.data.state.sliding.enabled = true; ui.changed();
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
@@ -2840,4 +2844,46 @@ test("insulation widget toggle retains placement and drag, resize and cancel lea
   ui.byText("Widget: Isolering").click(); accept(ui.sent.at(-1));
   assert.equal(widget.hidden, false); assert.equal(widget.style.transform, "scale(1.5)");
   assert.deepEqual(ui.tag, before);
+});
+
+for (const readOnly of [false, true]) test(`support length has independent geometry and notation (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui);
+  ui.tag.values.L_vagg = .6; ui.tag.values.glid_L = 3;
+  ui.changed(); ui.marker().click();
+  const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("L_vagg")) : ui.field("L_vagg").parent;
+  assert.equal(row.hidden, false);
+  assert.equal(row.parent.children[0].textContent, "Geometri");
+  assert.match(elementText(ui.byClass("gp-basis")), /Lvägg/);
+  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu3 mLvägg0,6 m/);
+  if (!readOnly) {
+    assert.equal(ui.field("L_vagg").required, false);
+    assert.equal(ui.field("glid_L").required, false, "Known support length determines the EQU total");
+    ui.field("L_vagg").value = "0,4"; ui.field("L_vagg").dispatch("input");
+    assert.equal(ui.sent.at(-1).values.L_vagg, .4);
+    assert.equal(ui.sent.at(-1).values.glid_L, 3);
+    assert.equal(ui.field("glid_L").value, "3");
+    ui.tag.values.endast_h_stabilitet = true;
+    ui.changed(); ui.ack(ui.sent.at(-1));
+    assert.equal(ui.field("L_vagg").parent.hidden, false, "Support length is also needed for H-only");
+    assert.equal(ui.field("L_vagg").disabled, false);
+  }
+});
+
+test("support length is excluded from pads and mixed bulk length edits", t => {
+  const ui = setup(t);
+  ui.tag.values.lang = 0; ui.changed(); ui.marker().click();
+  assert.equal(ui.field("L_vagg").parent.hidden, true);
+  assert.equal(ui.field("L_vagg").disabled, true);
+  assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
+});
+
+test("support length table edits preserve the separate footing length and invalidate bearing", t => {
+  const ui = setup(t);
+  ui.tag.values.L_vagg = .6; ui.tag.values.glid_L = 3; ui.changed();
+  const control = tableField(ui, "tag1", "L_vagg");
+  control.value = "0,4"; control.dispatch("input");
+  assert.deepEqual(ui.sent.at(-1).values, {L_vagg: .4});
+  assert.equal(ui.tag.values.glid_L, 3);
+  assert.match(ui.marker().className, /gp-tag-stale/);
 });

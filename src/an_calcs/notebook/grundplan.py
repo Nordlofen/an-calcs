@@ -31,7 +31,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:direct-moments-wall-reference-h-only-uninsulated-v4"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:separate-support-length-v5"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -50,6 +50,8 @@ _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fiel
 _EXTRA_FIELDS = [
     {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
     {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
+    {"name": "L_vagg", "type": "number", "label": "Längd linjestöd alt. längd ovanliggande vägg", "unit": "m", "default": None,
+     "display_symbol": {"base": "L", "subscript": "vägg"}},
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
@@ -65,7 +67,7 @@ _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascendin
 _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"l", "l_override", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk"}
 
 
@@ -97,7 +99,7 @@ def _values(values, *, draft=False):
                 raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES) and value is None and name != "lang":
+        if (draft or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name == "L_vagg") and value is None and name != "lang":
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -273,6 +275,20 @@ def _calculate(values):
     # Keep the shared calculation APIs compatible; Grundplan always supplies
     # zero lever arms so its user-entered moments act directly at the footing.
     engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
+    support_length = values["L_vagg"] if values["lang"] == 1 else None
+    if support_length is not None:
+        if support_length <= 0:
+            raise ValueError("Längd linjestöd L_vägg måste vara större än noll.")
+        if values["l"] <= 0:
+            raise ValueError("Sulmått b_y måste vara större än noll.")
+        # The shared strip engines take actions per metre of footing. Convert
+        # support line actions to totals, then to that geometric reference.
+        factor = support_length / values["l"]
+        for group in LOAD_GROUPS:
+            for field in group["fields"]:
+                name = field["name"]
+                if engine_values[name] is not None:
+                    engine_values[name] = _number(engine_values[name] * factor, name)
     options = {"remslangd": values["l"]} if values["lang"] == 1 and values["l"] != 1 else {}
     details = allmanna_barighetsekvationen([engine_values[name] for name in _SOIL_NAMES], **options)
     result = {item["namn"]: item["value"] for item in details["slutresultat"]["items"]}
@@ -314,8 +330,8 @@ def _calculate(values):
     for phase in (("brott", "bruk") if values["isolering"] else ("brott",)):
         suffix = "_bruk" if phase == "bruk" else ""
         normal = summary["isolering"]["isolering_N_bruk"] if suffix else result["F_v"]
-        moment_x = values["M_insp_b" + suffix]
-        moment_y = values["M_insp_l" + suffix]
+        moment_x = engine_values["M_insp_b" + suffix]
+        moment_y = engine_values["M_insp_l" + suffix]
         dx = moment_y / normal if suffix else intermediate["e_b_last"]
         dy = moment_x / normal if suffix else intermediate["e_l_last"]
         bx = summary["isolering"]["isolering_b_eff_bruk"] if suffix else result["b_ef"]
@@ -329,6 +345,26 @@ def _calculate(values):
             "ex": values["e_b_plac"] + dx, "ey": values["e_l_plac"] + dy,
         }
     summary["effective_area"] = areas
+    if support_length is not None:
+        by = values["l"]
+        summary.update(last=_number(summary["last"] * by, "Total vertikallast"),
+                       barformaga=_number(summary["barformaga"] * by, "Total bärförmåga"),
+                       lastenhet="kN", load_conversion={"support_length": support_length, "by": by,
+                       "brott": _number(values["F_vy"] * support_length, "Yttre last, brott"),
+                       "bruk": None if values["F_vy_bruk"] is None else
+                       _number(values["F_vy_bruk"] * support_length, "Yttre last, bruk")})
+        for area in areas.values():
+            for name in ("V", "Mx", "My"):
+                area[name] = _number(area[name] * by, name)
+        if "isolering" in summary:
+            for name in ("isolering_EG_k", "isolering_N_brott", "isolering_N_bruk"):
+                summary["isolering"][name] = _number(summary["isolering"][name] * by, name)
+        details["metodbeskrivning"]["items"].append({"rubrik": "Linjestöd och sula", "text": (
+            "Laster och moment per meter linjestöd multipliceras med L_vägg till totala lasteffekter. "
+            "För den befintliga väggsulemodellen divideras dessa med b_y. Egentyngden baseras på sulans geometri. "
+            "Grundplans sammanfattning och areaskiss visar totala krafter och moment; "
+            "den gemensamma beräkningsmotorns rapport använder ekvivalenta värden per meter sula."
+        )})
     return details, summary
 
 
@@ -580,11 +616,15 @@ class Grundplan(anywidget.AnyWidget):
         values = copy.deepcopy(source["values"])
         if indata is not None:
             values.update(indata)
-        return self.lagg_till(
+        ident = self.lagg_till(
             x, y, littera=littera,
             typ="vaggsula" if source["values"]["lang"] == 1 else "pelarsula",
             sida=source["page"] if sida is None else sida, indata=values,
         )
+        if "imported_length" in source:
+            self._tag(ident)["imported_length"] = source["imported_length"]
+            self._publish()
+        return ident
 
     @property
     def lasteffekt_import(self):
@@ -627,14 +667,20 @@ class Grundplan(anywidget.AnyWidget):
             kind = "vaggsula" if tag["values"]["lang"] == 1 else "pelarsula"
             if kind != item["kind"]:
                 raise ValueError(f"{item['label']}: sultypen i filen skiljer sig från den befintliga sulan. Kontrollera littera och sultyp.")
-            values = _values({**tag["values"], **item["values"]}, draft=True)
-            prepared.append((tag, values))
+            updates = dict(item["values"])
+            if kind == "vaggsula" and tag["values"]["glid_L"] is not None:
+                if tag["values"]["glid_L"] != tag.get("imported_length"):
+                    updates.pop("glid_L")
+            values = _values({**tag["values"], **updates}, draft=True)
+            prepared.append((tag, values, item["values"].get("L_vagg")))
         queue = ({"token": uuid.uuid4().hex, "filename": Path(filename).name,
                   "items": new_items, "index": 0, "paused": False} if new_items else None)
-        for tag, values in prepared:
+        for tag, values, imported_length in prepared:
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
             tag["values"] = values
+            if imported_length is not None:
+                tag["imported_length"] = imported_length
             if changed:
                 tag.update(status="stale", summary=None, error="")
                 self._details.pop(tag["id"], None)
@@ -643,7 +689,7 @@ class Grundplan(anywidget.AnyWidget):
         self._load_import = queue
         self._publish()
         return {"updated": len(prepared), "new": len(new_items),
-                "updated_ids": [tag["id"] for tag, _ in prepared]}
+                "updated_ids": [tag["id"] for tag, _, _ in prepared]}
 
     def _control_load_import(self, token, operation):
         if self._load_import is None or token != self._load_import["token"]:
@@ -671,6 +717,8 @@ class Grundplan(anywidget.AnyWidget):
         if any(tag["label"] == item["label"] for tag in self._tags):
             raise ValueError(f"Littera {item['label']} finns redan. Byt littera på den befintliga sulan innan du fortsätter.")
         ident = self.lagg_till(x, y, littera=item["label"], typ=item["kind"], sida=sida, indata=item["values"])
+        if item["kind"] == "vaggsula":
+            self._tag(ident)["imported_length"] = item["values"]["L_vagg"]
         queue["index"] += 1
         finished = queue["index"] == len(queue["items"])
         if finished:
@@ -741,7 +789,9 @@ class Grundplan(anywidget.AnyWidget):
         if len(types) > 1 and set(indata) & _BULK_SAME_TYPE:
             raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
         if types == {0} and "glid_L" in indata:
-            raise ValueError("Glidlängden L gäller endast väggsulor.")
+            raise ValueError("Sulängden L_su gäller endast väggsulor.")
+        if types == {0} and "L_vagg" in indata:
+            raise ValueError("Linjestödslängden L_vägg gäller endast väggsulor.")
         if types == {0} and "l_override" in indata:
             raise ValueError("Egen remslängd gäller endast väggsulor.")
         prepared = [_updated_values(tag["values"], indata) for tag in tags]
@@ -906,7 +956,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 9,
+            "version": 10,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -924,6 +974,7 @@ class Grundplan(anywidget.AnyWidget):
             "tags": [
                 {**{key: copy.deepcopy(tag[key]) for key in
                     ("id", "label", "x", "y", "page", "values")},
+                 **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
                  "calculated": tag["status"] == "calculated"}
                 for tag in self._tags
             ],
@@ -1057,8 +1108,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–9.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–10.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik")
@@ -1102,6 +1153,11 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved_values, draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
+            if "imported_length" in saved:
+                length = _number(saved["imported_length"], "Importerad linjestödslängd")
+                if length <= 0:
+                    raise ValueError("Importerad linjestödslängd måste vara större än noll.")
+                tag["imported_length"] = length
             try:
                 details, summary = _calculate(tag["values"])
                 tag.update(status="calculated", summary=summary)
