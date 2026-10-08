@@ -8,20 +8,22 @@ from bisect import bisect_right
 from .grundplan_loads import line_loads
 
 
-PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
-           "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"]
+# ColorBrewer Set3 (12 classes), kept at its original strength in every view.
+PALETTE = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
+           "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"]
+PATTERNS = ("plain", "bands", "dots", "cross", "horizontal", "vertical")
 DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categories": None, "phase": "brott", "edit_type": "pad",
                     "show_legend": True, "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
-                    "colors": {}, "legend": {"x": .65, "y": .08, "size": 300}}
+                    "colors": {}, "styles": {}, "legend": {"x": .65, "y": .08, "size": 300}}
 CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
 INSULATION_GROUPS = [
-    ("1", "Med isolering · inget bidrag", "#cce7ff"),
-    ("0", "Utan isolering · inget bidrag", "#e4e9ed"),
-    ("x", "Utan isolering · bidrag i X_g", "#ffdfba"),
-    ("y", "Utan isolering · bidrag i Y_g", "#e5d8ff"),
-    ("xy", "Utan isolering · bidrag i X_g och Y_g", "#cfeee5"),
+    ("1", "Med isolering · inget bidrag"),
+    ("0", "Utan isolering · inget bidrag"),
+    ("x", "Utan isolering · bidrag i X_g"),
+    ("y", "Utan isolering · bidrag i Y_g"),
+    ("xy", "Utan isolering · bidrag i X_g och Y_g"),
 ]
 
 
@@ -67,6 +69,17 @@ def validate_settings(settings):
                    for key, value in colors.items())):
         raise ValueError("Välj giltiga färger i formatet #RRGGBB.")
     result["colors"] = {key: value.lower() for key, value in colors.items()}
+    styles = result["styles"]
+    if (not isinstance(styles, dict) or len(styles) > 100
+            or any(not isinstance(scope, str) or not 1 <= len(scope) <= 80
+                   or not isinstance(mapping, dict) for scope, mapping in styles.items())):
+        raise ValueError("Ogiltiga sparade gruppmarkeringar.")
+    if (any(len(mapping) > 5000 for mapping in styles.values())
+            or any(not isinstance(key, str) or not 1 <= len(key) <= 200
+                   or type(index) is not int or not 0 <= index < 5000
+                   for mapping in styles.values() for key, index in mapping.items())
+            or any(len(set(mapping.values())) != len(mapping) for mapping in styles.values())):
+        raise ValueError("Ogiltiga sparade gruppmarkeringar.")
     legend = result["legend"]
     if (not isinstance(legend, dict) or set(legend) != {"x", "y", "size"}
             or any(not _finite(legend[axis]) or not 0 <= legend[axis] <= 1 for axis in ("x", "y"))
@@ -82,16 +95,13 @@ def number_key(value):
 
 
 def palette_color(index):
-    if index < len(PALETTE):
-        return PALETTE[index]
-    code = (index * 2654435761) & 0xffffff
-    return "#" + "".join(f"{195 + ((code >> shift) & 255) % 45:02x}" for shift in (16, 8, 0))
+    return PALETTE[index % len(PALETTE)]
 
 
 def background_color(color):
     """Keep dark custom colours legible using the same pastel tint in both views."""
     channels = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
-    weight = 1 if min(channels) >= 150 else .3
+    weight = 1 if color.lower() in PALETTE or min(channels) >= 150 else .3
     return "#" + "".join(f"{int(channel * weight + 255 * (1 - weight) + .5):02x}" for channel in channels)
 
 
@@ -99,6 +109,46 @@ def selected_categories(settings):
     """Canonical order preserves colours regardless of selection order, including old projects."""
     selected = settings.get("categories") or [settings["category"], settings.get("secondary")]
     return [name for name in CATEGORIES if name in selected]
+
+
+def style_scope(settings):
+    categories = selected_categories(settings)
+    return "+".join(categories) + (":" + settings["phase"] if "V" in categories else "")
+
+
+def _decorate(groups, settings):
+    # Empty intervals and neutral groups never reserve a colour. Existing mappings
+    # survive disappeared groups so edits cannot silently recolour other footings.
+    mapping = dict(settings.get("styles", {}).get(style_scope(settings), {}))
+    used = set(mapping.values())
+    next_index = 0
+    for group in groups:
+        if group["kind"] == "special":
+            index = None
+            color = settings["colors"].get(group["key"], "#d5dde1")
+        else:
+            index = mapping.get(group["key"])
+            if index is None and group["count"]:
+                while next_index in used:
+                    next_index += 1
+                index = next_index
+                mapping[group["key"]] = index
+                used.add(index)
+            color = settings["colors"].get(group["key"], palette_color(index) if index is not None else "#d5dde1")
+        batch = (index or 0) // len(PALETTE)
+        group.update(color=color, background=background_color(color), style_index=index,
+                     pattern=PATTERNS[1 + (batch - 1) % (len(PATTERNS) - 1)] if batch else "plain",
+                     pattern_variant=(batch - 1) // (len(PATTERNS) - 1) if batch else 0)
+
+
+def remember_styles(tags, settings):
+    """Return settings with newly occupied groups registered for project persistence."""
+    result = copy.deepcopy(settings)
+    mapping = result["styles"].setdefault(style_scope(settings), {})
+    for group in group_data(tags, settings)["groups"]:
+        if group["count"] and group["style_index"] is not None:
+            mapping[group["key"]] = group["style_index"]
+    return result
 
 
 def group_data(tags, settings):
@@ -116,26 +166,24 @@ def group_data(tags, settings):
         groups, assignments = [], {}
         for pair in sorted(pairs, key=lambda pair: tuple(order[i][key] for i, key in enumerate(pair))):
             key = "combo:" + json.dumps(pair, separators=(",", ":"))
-            color = settings["colors"].get(key, palette_color(len(groups)))
-            group = {"key": key, "color": color, "background": background_color(color),
-                     "count": len(pairs[pair]), "kind": "combination", "unit": "", "categories": categories,
+            group = {"key": key, "count": len(pairs[pair]), "kind": "combination", "unit": "", "categories": categories,
                      "parts": [parts[i]["assignments"][pairs[pair][0]] for i in range(len(categories))]}
             groups.append(group)
             for ident in pairs[pair]:
                 assignments[ident] = group
+        _decorate(groups, settings)
         return {"groups": groups, "assignments": assignments}
     category, phase = categories[0], settings["phase"]
     groups, assignments = [], {}
-    def make(key, default_color=None, **data):
-        color = settings["colors"].get(key, default_color or palette_color(len(groups)))
-        group = {"key": key, "color": color, "background": background_color(color), "count": 0, **data}
+    def make(key, **data):
+        group = {"key": key, "count": 0, **data}
         groups.append(group)
         return group
     by_key = {}
     if category == "isolering":
-        for suffix, label, color in INSULATION_GROUPS:
+        for suffix, label in INSULATION_GROUPS:
             # Keep the original 1/0 keys for saved insulated/no-contribution colours.
-            by_key[suffix] = make("isolering:" + suffix, color, label=label, kind="insulation", unit="")
+            by_key[suffix] = make("isolering:" + suffix, label=label, kind="insulation", unit="")
     elif category == "V":
         for kind in ("pad", "wall"):
             if not any(line_loads(tag["values"]) == (kind == "wall") for tag in tags):
@@ -169,8 +217,6 @@ def group_data(tags, settings):
             key = "na" if inapplicable else "missing"
             if key not in special:
                 group = make(key, label="Ej tillämpligt" if inapplicable else "Saknar värde", kind="special", unit="")
-                group["color"] = settings["colors"].get(key, "#d5dde1")
-                group["background"] = background_color(group["color"])
                 special[key] = group
             group = special[key]
         elif category == "V":
@@ -180,4 +226,5 @@ def group_data(tags, settings):
             group = by_key[category + ":" + number_key(value)]
         group["count"] += 1
         assignments[tag["id"]] = group
+    _decorate(groups, settings)
     return {"groups": groups, "assignments": assignments}

@@ -118,7 +118,7 @@ class Element {
 }
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
-const { default: widget, validateCalibration, measuredDistance, colourGroups, validateLayout,
+const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout,
   leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
@@ -2935,7 +2935,64 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
 });
 
 const defaultColour = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
-  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
+  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
+
+test("whole-label patterns retain visible screen dimensions at small label sizes and zoom", () => {
+  for (const scale of [.02, .1, .2, .5, 1, 1.8]) {
+    const bands = colourPatternGeometry("bands", 230, 75, scale);
+    assert.ok(bands.pitch * scale >= 22);
+    assert.ok(bands.band * scale >= 7);
+    const dots = colourPatternGeometry("dots", 230, 75, scale);
+    assert.ok(dots.radius * scale >= 3);
+    assert.ok(dots.shapes.length > 0, "Even a short label retains a visible dot row");
+  }
+  assert.deepEqual(colourPatternGeometry("plain", 230, 75).shapes, []);
+});
+
+for (const readOnly of [false, true]) test(`Set3 and patterns agree across labels, legend and comment chips (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  ui.data.state.tags = Array.from({length: 25}, (_, i) => ({...structuredClone(ui.tag), id: String(i), label: `VS.${i + 1}`,
+    values: {...ui.tag.values, t: .2 + i * .01, kommentar: `Kommentar ${i + 1}`}}));
+  ui.model.get("state").tags = ui.data.state.tags;
+  ui.data.state.comment_widget = {enabled: true, x: .05, y: .6, size: 410};
+  colourFixture(ui);
+  const markers = () => ui.elements().filter(e => e.className.split(" ").includes("gp-tag"));
+  const swatches = () => ui.elements().filter(e => e.className === "gp-colour-swatch");
+  const badges = () => ui.elements().filter(e => e.className === "gp-comment-label");
+  const set3 = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
+    "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"];
+  assert.deepEqual(markers().slice(0, 12).map(e => e.style["--gp-tag-bg"]), set3);
+  for (const [index, pattern] of [[0, "plain"], [11, "plain"], [12, "bands"], [24, "dots"]]) {
+    const marker = markers()[index], swatch = swatches()[index];
+    const badge = badges().find(e => elementText(e) === `VS.${index + 1}`);
+    assert.equal(marker.dataset.pattern, pattern);
+    assert.equal(swatch.dataset.pattern, pattern);
+    assert.equal(badge.dataset.pattern, pattern);
+    assert.equal(badge.style.background, marker.style["--gp-tag-bg"]);
+    assert.equal(swatch.style.background, marker.style["--gp-tag-bg"]);
+    assert.equal(marker.children.some(e => e.className === "gp-group-pattern"), pattern !== "plain");
+    if (pattern !== "plain") {
+      for (const host of [marker, swatch, badge])
+        assert.ok(host.children.find(e => e.className === "gp-group-pattern").children.length > 0,
+          "All matching pattern layers contain visible vector shapes immediately");
+    }
+  }
+  const pattern = () => markers()[12].children.find(e => e.className === "gp-group-pattern");
+  const previousPitch = Number(pattern().dataset.pitch);
+  if (readOnly) ui.model.send({action: "label_size", value: 20});
+  else {
+    const slider = ui.find(e => e.getAttribute("aria-label") === "Etikettstorlek i procent");
+    slider.value = 20; slider.dispatch("input");
+  }
+  assert.ok(Number(pattern().dataset.pitch) > previousPitch);
+  assert.equal(markers()[12].dataset.pattern, "bands");
+  const before = structuredClone(ui.data.state.tags);
+  ui.data.state.colour_grouping.enabled = ui.model.get("state").colour_grouping.enabled = false; ui.changed();
+  assert.equal(markers().some(e => e.children.some(child => child.className === "gp-group-pattern")), false);
+  assert.equal(badges().length, 0);
+  assert.equal(ui.byClass("gp-colour-legend").hidden, true);
+  assert.deepEqual(ui.data.state.tags, before);
+});
 function colourFixture(ui, changes = {}) {
   ui.data.state.colour_grouping = {...structuredClone(defaultColour), enabled: true, ...changes};
   if (changes.categories) {
@@ -3083,14 +3140,14 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
   assert.equal(marker("tag1").style["--gp-tag-bg"], marker("x").style["--gp-tag-bg"]);
   ui.tag.values.isolering = true; ui.changed();
   assert.deepEqual(rows(), counts([1, 1, 1, 2, 1]), "A group returns when a footing uses it again");
-  assert.equal(marker("tag1").style["--gp-tag-bg"], "#cce7ff");
+  assert.equal(marker("tag1").style["--gp-tag-bg"], "#8dd3c7");
   if (readOnly) assert.equal(ui.sent.length, 0);
   else {
     const picker = ui.find(e => e.type === "color" && e.getAttribute("aria-label") === "Färg för Utan isolering · bidrag i X_g och Y_g");
     picker.value = "#c8e0d8"; picker.dispatch("change"); accept(ui.sent.at(-1));
     assert.deepEqual(ui.sent.at(-1).settings, {colors: {"isolering:xy": "#c8e0d8"}});
     assert.equal(marker("xy").style["--gp-tag-bg"], "#c8e0d8");
-    assert.equal(marker("x").style["--gp-tag-bg"], "#ffdfba");
+    assert.equal(marker("x").style["--gp-tag-bg"], "#bebada");
   }
 });
 
@@ -3895,7 +3952,7 @@ for (const readOnly of [false, true]) test(`comment widget shows only filled com
   Object.assign(ui.data.state.tags[1].values, {t: .25, b: .85});
   colourFixture(ui, {category: 't', secondary: 'b', show_legend: false});
   const badges = () => ui.elements().filter(e => e.className === 'gp-comment-label');
-  assert.deepEqual(badges().map(e => e.textContent), ['VS2', 'VS10']);
+  assert.deepEqual(badges().map(elementText), ['VS2', 'VS10']);
   assert.equal(badges()[1].style.background, ui.marker().style['--gp-tag-bg']);
   assert.notEqual(badges()[0].style.background, badges()[1].style.background);
   assert.equal(ui.byClass('gp-colour-legend').hidden, true);
@@ -3906,7 +3963,7 @@ for (const readOnly of [false, true]) test(`comment widget shows only filled com
   ui.data.state.tags[1].values.endast_h_stabilitet = true; ui.changed();
   rows = ui.byClass('gp-comment-table').children[1].children;
   assert.equal(rows[0].children[0].textContent, 'VS2', 'Geometry grouping leaves H-only comments uncoloured');
-  assert.deepEqual(badges().map(e => e.textContent), ['VS10']);
+  assert.deepEqual(badges().map(elementText), ['VS10']);
   ui.data.state.colour_grouping.enabled = false; ui.changed();
   assert.equal(badges().length, 0);
   rows = ui.byClass('gp-comment-table').children[1].children;
@@ -3961,6 +4018,8 @@ for (const readOnly of [false, true]) test(`H-only objects stay uncoloured and u
     Object.assign(ui.data.state.colour_grouping, {category, secondary}); ui.changed();
     const markers = ui.elements().filter(e => e.className.split(' ').includes('gp-tag'));
     assert.equal(markers[0].dataset.colourGroup, undefined);
+    assert.equal(markers[0].style['--gp-tag-bg'], '#ffffff');
+    assert.equal(markers[0].children.some(e => e.className === 'gp-group-pattern'), false);
     assert.ok(markers[1].dataset.colourGroup);
     assert.doesNotMatch(elementText(ui.byClass('gp-colour-legend-body')), /Ej tillämpligt/);
     assert.equal(ui.elements().filter(e => e.className === 'gp-colour-group-count').reduce((sum, e) => sum + Number(e.textContent), 0), 1);

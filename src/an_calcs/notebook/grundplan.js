@@ -1,7 +1,7 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
-  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
+  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
@@ -21,26 +21,46 @@ export function validateLayout(value) {
   }
   return result;
 }
-const COLOUR_PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
-  "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"];
+// ColorBrewer Set3, original 12-class colours.
+const COLOUR_PALETTE = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
+  "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"];
+const COLOUR_PATTERNS = ["plain", "bands", "dots", "cross", "horizontal", "vertical"];
 const COLOUR_INSULATION_GROUPS = [
-  ["1", "Med isolering · inget bidrag", "#cce7ff"],
-  ["0", "Utan isolering · inget bidrag", "#e4e9ed"],
-  ["x", "Utan isolering · bidrag i X_g", "#ffdfba"],
-  ["y", "Utan isolering · bidrag i Y_g", "#e5d8ff"],
-  ["xy", "Utan isolering · bidrag i X_g och Y_g", "#cfeee5"],
+  ["1", "Med isolering · inget bidrag"],
+  ["0", "Utan isolering · inget bidrag"],
+  ["x", "Utan isolering · bidrag i X_g"],
+  ["y", "Utan isolering · bidrag i Y_g"],
+  ["xy", "Utan isolering · bidrag i X_g och Y_g"],
 ];
 const colourNumberKey = value => {const [m, e] = value.toExponential(12).split("e"); return m + "e" + Number(e);};
-const colourPalette = index => {
-  if (index < COLOUR_PALETTE.length) return COLOUR_PALETTE[index];
-  const code = Math.imul(index, 2654435761) & 0xffffff;
-  return "#" + [16, 8, 0].map(shift => (195 + ((code >> shift) & 255) % 45).toString(16).padStart(2, "0")).join("");
-};
+const colourPalette = index => COLOUR_PALETTE[index % COLOUR_PALETTE.length];
 const colourBackground = color => {
   const channels = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
-  const weight = Math.min(...channels) >= 150 ? 1 : .3;
+  const weight = COLOUR_PALETTE.includes(color.toLowerCase()) || Math.min(...channels) >= 150 ? 1 : .3;
   return "#" + channels.map(channel => Math.floor(channel * weight + 255 * (1 - weight) + .5).toString(16).padStart(2, "0")).join("");
 };
+const colourStyleScope = settings => selectedColourCategories(settings).join("+")
+  + (selectedColourCategories(settings).includes("V") ? ":" + settings.phase : "");
+function decorateColourGroups(groups, settings) {
+  const mapping = {...settings.styles?.[colourStyleScope(settings)]}, used = new Set(Object.values(mapping));
+  let nextIndex = 0;
+  for (const group of groups) {
+    let index = null, color;
+    if (group.kind === "special") color = settings.colors[group.key] || "#d5dde1";
+    else {
+      index = mapping[group.key] ?? null;
+      if (index === null && group.count) {
+        while (used.has(nextIndex)) nextIndex++;
+        index = nextIndex; mapping[group.key] = index; used.add(index);
+      }
+      color = settings.colors[group.key] || (index === null ? "#d5dde1" : colourPalette(index));
+    }
+    const batch = Math.floor((index ?? 0) / COLOUR_PALETTE.length);
+    Object.assign(group, {color, background: colourBackground(color), style_index: index,
+      pattern: batch ? COLOUR_PATTERNS[1 + (batch - 1) % (COLOUR_PATTERNS.length - 1)] : "plain",
+      pattern_variant: batch ? Math.floor((batch - 1) / (COLOUR_PATTERNS.length - 1)) : 0});
+  }
+}
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
   if (categories.some(category => ["t", "b", "l"].includes(category)))
@@ -56,23 +76,22 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     }
     for (const [key, {ids}] of [...pairs].sort(([, a], [, b]) => a.pair.reduce((difference, key, index) =>
       difference || order[index].get(key) - order[index].get(b.pair[index]), 0))) {
-      const color = settings.colors[key] || colourPalette(groups.length);
-      const group = {key, color, background: colourBackground(color), count: ids.length, kind: "combination", unit: "",
+      const group = {key, count: ids.length, kind: "combination", unit: "",
         categories, parts: parts.map(part => part.assignments.get(ids[0]))};
       groups.push(group); for (const id of ids) assignments.set(id, group);
     }
+    decorateColourGroups(groups, settings);
     return {groups, assignments};
   }
   const category = categories[0], {phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
   const finite = value => typeof value === "number" && Number.isFinite(value);
-  const make = (key, data, defaultColor = colourPalette(groups.length)) => {
-    const color = settings.colors[key] || defaultColor;
-    const group = {key, color, background: colourBackground(color), count: 0, ...data};
+  const make = (key, data) => {
+    const group = {key, count: 0, ...data};
     groups.push(group); return group;
   };
   if (category === "isolering") {
-    for (const [suffix, label, color] of COLOUR_INSULATION_GROUPS) {
-      byKey.set(suffix, make("isolering:" + suffix, {label, kind: "insulation", unit: ""}, color));
+    for (const [suffix, label] of COLOUR_INSULATION_GROUPS) {
+      byKey.set(suffix, make("isolering:" + suffix, {label, kind: "insulation", unit: ""}));
     }
   } else if (category === "V") {
     for (const kind of ["pad", "wall"]) {
@@ -106,9 +125,8 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     if (na || !finite(value)) {
       const key = na ? "na" : "missing";
       if (!special.has(key)) {
-        const color = settings.colors[key] || "#d5dde1";
         const item = make(key, {label: na ? "Ej tillämpligt" : "Saknar värde", kind: "special", unit: ""});
-        Object.assign(item, {color, background: colourBackground(color)}); special.set(key, item);
+        special.set(key, item);
       }
       group = special.get(key);
     } else if (category === "V") {
@@ -118,7 +136,34 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     } else group = byKey.get(category + ":" + colourNumberKey(value));
     group.count++; assignments.set(tag.id, group);
   }
+  decorateColourGroups(groups, settings);
   return {groups, assignments};
+}
+
+// Explicit SVG shapes keep patterns vector based in Chromium PDF output. The
+// minimum screen spacing makes the whole-label marks readable when zoomed out.
+export function colourPatternGeometry(pattern, width, height, scale = 1, compact = false, variant = 0) {
+  scale = Math.max(.01, scale);
+  const pitch = compact ? 14 : Math.max(52 / (1 + Math.min(variant, 3) * .15), 22 / scale);
+  const band = compact ? 4 : Math.max(pitch * .32, 7 / scale);
+  const radius = compact ? 2.2 : Math.max(pitch * .14, 3 / scale);
+  const shapes = [];
+  const path = (x1, y1, x2, y2) => shapes.push({tag: "path", d: `M ${x1} ${y1} L ${x2} ${y2}`, "stroke-width": band});
+  if (pattern === "bands" || pattern === "cross") {
+    for (let x = -height; x <= width + pitch; x += pitch) {
+      path(x, 0, x + height, height);
+      if (pattern === "cross") path(x + height, 0, x, height);
+    }
+  } else if (pattern === "dots") {
+    for (let y = Math.min(pitch / 2, height / 2); y < height + radius; y += pitch)
+      for (let x = Math.min(pitch / 2, width / 2); x < width + radius; x += pitch)
+        shapes.push({tag: "circle", cx: x, cy: y, r: radius});
+  } else if (pattern === "horizontal") {
+    for (let y = pitch / 2; y < height + band; y += pitch) path(0, y, width, y);
+  } else if (pattern === "vertical") {
+    for (let x = pitch / 2; x < width + band; x += pitch) path(x, 0, x, height);
+  }
+  return {pitch, band, radius, shapes};
 }
 
 const drawingDistance = (start, end, background) => Math.hypot(
@@ -1047,6 +1092,42 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const leaderSvg = svgNode("svg", {class: "gp-leaders", "aria-label": "Etiketternas hänvisningslinjer"});
   const leaderHandles = svgNode("svg", {class: "gp-leader-handles", "aria-label": "Redigera hänvisningslinje"});
   const leaderResizeObserver = new ResizeObserver(() => renderLeaders());
+  const patternHosts = new Map();
+  const patternObserver = new ResizeObserver(entries => {
+    for (const {target} of entries) drawGroupPattern(target);
+  });
+  function drawGroupPattern(host) {
+    const entry = patternHosts.get(host);
+    if (!entry) return;
+    const {svg, group, compact} = entry, width = host.clientWidth, height = host.clientHeight;
+    const scale = compact ? 1 : (sizeDraft ?? state().label_size ?? 100) / 100 * zoom;
+    const geometry = colourPatternGeometry(group.pattern, width, height, scale, compact, group.pattern_variant);
+    // Darker marks on light colours, lighter marks on the deeper Set3 colours.
+    const channels = [1, 3, 5].map(i => parseInt(group.background.slice(i, i + 2), 16));
+    const light = channels.map(c => {const n = c / 255; return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4;});
+    const bright = light[0] * .2126 + light[1] * .7152 + light[2] * .0722 > .55;
+    const target = bright ? [25, 52, 61] : [255, 255, 255], weight = bright ? .23 : .48;
+    const ink = "#" + channels.map((c, i) => Math.round(c * (1 - weight) + target[i] * weight).toString(16).padStart(2, "0")).join("");
+    svg.setAttribute("viewBox", `0 0 ${width || 1} ${height || 1}`);
+    svg.dataset.pitch = String(geometry.pitch);
+    svg.replaceChildren(...geometry.shapes.map(({tag, ...attributes}) => svgNode(tag,
+      {...attributes, fill: tag === "circle" ? ink : "none", stroke: tag === "path" ? ink : "none"})));
+  }
+  function paintGroupPattern(host, group, compact = false) {
+    host.dataset.pattern = group.pattern;
+    if (group.pattern === "plain") return;
+    const svg = svgNode("svg", {class: "gp-group-pattern", "aria-hidden": "true", focusable: "false", preserveAspectRatio: "none"});
+    host.append(svg);
+    patternHosts.set(host, {svg, group, compact});
+  }
+  function refreshGroupPatterns(observe = false) {
+    if (observe) patternObserver.disconnect();
+    for (const host of patternHosts.keys()) {
+      if (host.closest(".an-grundplan") !== root) {patternHosts.delete(host); continue;}
+      drawGroupPattern(host);
+      if (observe) patternObserver.observe(host);
+    }
+  }
   measurementOverlay.setAttribute("aria-hidden", "true");
   measurementOverlay.hidden = true;
   const measurementSvg = svgNode("svg", {"aria-hidden": "true"});
@@ -1648,6 +1729,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     sizeInput.value = value;
     sizeText.textContent = value + "%";
     root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
+    refreshGroupPatterns();
     renderLeaders();
   }
   function leaderFor(tag) {return leaderDrafts.get(tag.id) || tag.leader;}
@@ -1833,7 +1915,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (patch.categories) {
       draft.category = patch.categories[0]; draft.secondary = patch.categories[1] || null;
     }
-    for (const name of ["bounds", "colors", "legend"]) {
+    for (const name of ["bounds", "colors", "styles", "legend"]) {
       if (patch[name]) draft[name] = {...colour()[name], ...patch[name]};
     }
     colourDraft = draft;
@@ -1892,7 +1974,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const input = node("input"); input.type = "color"; input.value = group.color;
       input.setAttribute("aria-label", "Färg för " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : ""));
       input.addEventListener("change", () => setColour({colors: {[group.key]: input.value}}));
-      row.append(input, mathText("span", "", colourGroupCaption(group))); colourSwatches.append(row);
+      row.append(input);
+      if (group.pattern !== "plain") {
+        const sample = node("span", "gp-colour-swatch gp-colour-pattern-sample"); sample.style.background = group.background;
+        paintGroupPattern(sample, group, true); row.append(sample);
+      }
+      row.append(mathText("span", "", colourGroupCaption(group))); colourSwatches.append(row);
     }
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
       categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
@@ -1907,6 +1994,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
+      paintGroupPattern(swatch, group, true);
       let caption = mathText("span", "", colourGroupCaption(group));
       if (group.kind === "combination" && hasV) {
         const index = group.categories.indexOf("V");
@@ -1922,6 +2010,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showInsulationWidget();
     showCommentWidget(settings.enabled ? data.assignments : null);
     renderSlidingGeometry();
+    refreshGroupPatterns(true);
   }
   function showInsulationWidget() {
     const settings = insulationWidget();
@@ -1955,8 +2044,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const row of rows) {
       const tr = node("tr"), label = node("th"), group = groups?.get(row.id);
       if (group) {
-        const badge = node("span", "gp-comment-label", row.label);
+        const badge = node("span", "gp-comment-label"); badge.append(node("span", "", row.label));
         badge.style.background = group.background;
+        paintGroupPattern(badge, group, true);
         label.append(badge);
       } else label.textContent = row.label;
       tr.append(label, node("td", "", row.comment)); body.append(tr);
@@ -2368,7 +2458,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (group) {
         marker.style.setProperty("--gp-tag-bg", group.background);
         marker.dataset.colourGroup = group.key;
-      }
+      } else if (colour().enabled) marker.style.setProperty("--gp-tag-bg", "#ffffff");
       marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen"
         : selected.has(tag.id) && selected.size > 1 ? "Dra för att flytta alla " + selected.size + " markerade etiketter tillsammans"
         : "Dra för att flytta · klicka för indata och kopiering";
@@ -2463,8 +2553,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         grid.append(data, capacities); section.append(grid); marker.append(section);
       }
       markers.append(marker);
+      if (group) paintGroupPattern(marker, group);
       if (leaderFor(tag)?.enabled) leaderResizeObserver.observe(marker);
     }
+    refreshGroupPatterns(true);
     renderLeaders();
     syncTableSelection();
   }
@@ -4014,6 +4106,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     document.removeEventListener("pointercancel", outsideCancel, true);
     resizeObserver.disconnect();
     leaderResizeObserver.disconnect();
+    patternObserver.disconnect();
+    patternHosts.clear();
     model.off("change:state", update);
     model.off("change:background", update);
     model.off("msg:custom", receive);

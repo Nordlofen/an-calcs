@@ -27,7 +27,7 @@ from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
                                DEFAULT_SETTINGS, contribution, project_results, validate_settings)
-from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour
+from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 
 
 _ASSETS = Path(__file__).parent
@@ -576,6 +576,8 @@ class Grundplan(anywidget.AnyWidget):
 
     def _publish(self):
         # Never accept client state as calculation evidence.
+        if self._colour["enabled"]:
+            self._colour = remember_styles(self._tags, self._colour)
         self.state = {
             "title": self._title,
             "subtitle": self._subtitle,
@@ -970,7 +972,7 @@ class Grundplan(anywidget.AnyWidget):
         settings = {**self._colour, **changes}
         if "categories" not in changes and {"category", "secondary"} & changes.keys():
             settings["categories"] = None
-        for name in ("bounds", "colors", "legend"):
+        for name in ("bounds", "colors", "styles", "legend"):
             if name in changes and isinstance(changes[name], dict):
                 settings[name] = {**self._colour[name], **changes[name]}
         self._colour = validate_colour(settings)
@@ -1131,7 +1133,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 16,
+            "version": 17,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1290,8 +1292,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–16.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 18):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–17.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)

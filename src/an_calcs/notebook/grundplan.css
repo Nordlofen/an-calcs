@@ -107,6 +107,9 @@
 }
 .an-grundplan .gp-tag::before { position: absolute; left: 6px; top: 10px; }
 .an-grundplan .gp-tag strong { font-size: 13px; }
+.an-grundplan .gp-group-pattern { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0; }
+.an-grundplan .gp-tag > :not(.gp-group-pattern), .an-grundplan .gp-comment-label > :not(.gp-group-pattern) { position: relative; z-index: 1; }
+.an-grundplan .gp-tag::before { z-index: 1; }
 .an-grundplan .gp-tag:hover { background: var(--gp-tag-bg); }
 .an-grundplan .gp-tag-heading { display: flex; align-items: center; gap: 6px; }
 .an-grundplan .gp-tag-comment { display: inline-flex; width: 18px; height: 18px; margin-left: auto; padding-left: 3px; box-sizing: content-box; color: #19343d; cursor: pointer; flex: none; }
@@ -185,11 +188,12 @@
 .an-grundplan .gp-comment-table th:first-child { width: 80px; }
 .an-grundplan .gp-comment-table thead { color: var(--gp-muted); font-size: 10px; }
 .an-grundplan .gp-comment-table tbody tr { border-top: 1px solid var(--gp-line); }
-.an-grundplan .gp-comment-label { display: inline-block; padding: 1px 4px; border: 1px solid #9fbbbf; border-radius: 3px; line-height: 1.35; }
+.an-grundplan .gp-comment-label { position: relative; display: inline-block; padding: 1px 4px; border: 1px solid #9fbbbf; border-radius: 3px; line-height: 1.35; }
 .an-grundplan .gp-colour-legend-title { margin-top: 5px; font-size: 12px; }
 .an-grundplan .gp-colour-legend-section { display: block; font-size: 11px; margin-top: 10px; color: var(--gp-muted); }
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }
-.an-grundplan .gp-colour-swatch { height: 21px; border: 1px solid #b9cdd1; border-radius: 4px; }
+.an-grundplan .gp-colour-swatch { position: relative; height: 21px; border: 1px solid #b9cdd1; border-radius: 4px; }
+.an-grundplan .gp-colour-pattern-sample { width: 26px; flex: none; }
 .an-grundplan .gp-colour-group-count { color: var(--gp-muted); font-size: 11px; }
 .an-grundplan .gp-colour-legend-details, .an-grundplan .gp-colour-legend-load { display: block; }
 .an-grundplan .gp-colour-legend-load { color: var(--gp-muted); font-size: 11px; }

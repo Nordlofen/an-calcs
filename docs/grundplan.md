@@ -445,6 +445,7 @@ En ifylld kommentar markeras med en liten pratbubbla längst till höger på eti
 **Lägg till kommentarer** visar en flyttbar och skalbar ruta med **Littera** och **Kommentar** för endast sulor med ifylld kommentar. Rutan uppdateras direkt när kommentarer eller sulor ändras och har ingen fottext. Placering, storlek och på/av sparas med projektet; den följer med PDF och låst resultat-HTML. Knappen visar eller döljer samma ruta och behåller dess placering och storlek.
 
 Vid aktiv **Färggruppering** får litteran i kommentarsrutan en kompakt ram med samma bakgrundsfärg som sulans färggrupp. Färgen följer vald kategori, kombination, lastintervall och egna färgval, även när färglegenden är dold. När färggrupperingen är avstängd eller sulan saknar tillämplig färggrupp visas litteran utan färgram. Utseendet följer med PDF och resultat-HTML.
+Eventuellt gruppmönster visas även i litterans färgram.
 
 **Widget: Isolering** aktiverar en fristående ruta på ritningen med antal sulor **Med isolering** och **Utan isolering** samt littera för alla **Föreskrivna utan isolering**. Sulor med **Endast H-stabilitet** utesluts från både antalen och litteralistan, även i PDF och resultat-HTML. Antal och littera uppdateras när sulor ändras, läggs till eller tas bort.
 
@@ -464,11 +465,26 @@ plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
 Välj valfritt antal av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**, från en till alla fem.
 Varje unik kombination får en färg. Vid exempelvis bₓ + t + V · brott måste både bredd, tjocklek och lastintervall vara samma för att sulorna ska dela färg. Bara upptagna kombinationer visas i legend och färgval. Klicka på en vald kategori för att avmarkera den; minst en kategori är alltid vald. Lastintervallets inställningar visas när V ingår bland valen. Egna färger behålls oavsett i vilken ordning samma kategorier väljs.
 Kombinationer med V visar mått och övriga val på första raden i legenden och lastintervall med kN eller kN/m på andra raden. Kombinerade mått utan V behåller en gemensam rad och bryts vid behov.
-Sulor med **Endast H-stabilitet** utesluts helt när t, bₓ eller bᵧ ingår bland de valda kategorierna, även vid kombinerad gruppering. Dessa sulor får ingen gruppfärg och räknas inte i legenden. Gruppering enbart efter Isolering eller Vertikallast V behåller dem.
+Sulor med **Endast H-stabilitet** utesluts helt när t, bₓ eller bᵧ ingår bland de valda kategorierna, även vid kombinerad gruppering. Dessa sulor får helt vit bakgrund utan gruppmönster och räknas inte i legenden. Statusprick och ram behålls. Gruppering enbart efter Isolering eller Vertikallast V behåller dem.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
 kontrollstatus; färggrupperingen ändrar inga laster eller beräkningar.
+
+Grundpaletten är [ColorBrewer Set3 med tolv färger](https://colorbrewer2.org/#type=qualitative&scheme=Set3&n=12),
+med originalfärgerna bevarade. De första tolv upptagna grupperna får varsin färg.
+Grupper 13–24 återanvänder färgerna med breda diagonala band över hela etiketten;
+25–36 får stora prickar. Därefter används kryssband, horisontella och vertikala band.
+Mönstren ligger bakom texten och får grövre avstånd och markeringar vid utzoomning,
+så att de kan urskiljas i översiktsläget. Legendens färgrutor och kommentarsrutans littera
+visar samma färg och mönstertyp. PDF-exporten behåller dem som vektorer.
+
+Tomma intervall och neutrala grupper (Ej tillämpligt/Saknar värde) tar inga färgplatser.
+Automatiska markeringar sparas separat för varje kategorikombination och lastfall.
+En grupp behåller därför sin markering vid redigering, byte av gruppering och återöppning.
+Även en tillfälligt tom grupp behåller sin tilldelning; nya grupper får nästa lediga plats.
+Tomma grupper som ännu inte tilldelats en färg visas neutralt bland färgvalen.
+Egna sparade färgval behålls och kan fortfarande ändras med färgväljaren.
 
 **Isolering** visar fem grupper i legenden **Isolering och glidmotstånd**:
 
@@ -867,7 +883,7 @@ aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 10. Äldre projekt i formatversion 1–9 kan
+Projekt sparas i formatversion 17. Äldre projekt i formatversion 1–16 kan
 öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
 Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort

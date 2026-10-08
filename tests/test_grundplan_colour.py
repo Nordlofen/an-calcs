@@ -16,7 +16,7 @@ if HAS_NOTEBOOK:
     from pypdf import PdfReader
     import pypdfium2 as pdfium
     from an_calcs.notebook import Grundplan
-    from an_calcs.notebook.grundplan_colour import DEFAULT_SETTINGS, validate_settings, group_data, background_color
+    from an_calcs.notebook.grundplan_colour import DEFAULT_SETTINGS, validate_settings, group_data, background_color, PALETTE, remember_styles
 
 
 @unittest.skipUnless(HAS_NOTEBOOK, "Installera an-calcs[notebook] för färggrupperingstesterna.")
@@ -32,6 +32,80 @@ class TestGrundplanColour(unittest.TestCase):
 
     def add(self, **values):
         return self.plan.lagg_till(.2, .22, indata=values)
+
+    def test_set3_original_colours_then_patterns_cover_many_groups(self):
+        tags = [{"id": str(i), "values": {"t": i + 1}} for i in range(73)]
+        settings = validate_settings({})
+        before = copy.deepcopy((tags, settings))
+        groups = group_data(tags, settings)["groups"]
+        self.assertEqual([g["background"] for g in groups[:12]], PALETTE)
+        self.assertEqual([g["color"] for g in groups[12:24]], PALETTE)
+        for index, pattern in ((0, "plain"), (11, "plain"), (12, "bands"), (24, "dots"),
+                               (36, "cross"), (48, "horizontal"), (60, "vertical"), (72, "bands")):
+            self.assertEqual(groups[index]["pattern"], pattern)
+        self.assertEqual(groups[72]["pattern_variant"], 1)
+        self.assertEqual((tags, settings), before, "Grouping is pure visual data")
+
+    def test_empty_intervals_and_neutral_groups_do_not_consume_palette_slots(self):
+        tags = [{"id": "pad", "values": {"lang": 0, "F_vy": 145}},
+                {"id": "wall", "values": {"lang": 1, "F_vy": 195}},
+                {"id": "h", "values": {"lang": 1, "endast_h_stabilitet": True}}]
+        settings = validate_settings({"category": "V", "bounds": {"pad": list(range(10, 210, 10)),
+                                                                  "wall": list(range(10, 210, 10))}})
+        data = group_data(tags, settings)
+        self.assertEqual([data["assignments"][i]["background"] for i in ("pad", "wall")], PALETTE[:2])
+        self.assertTrue(all(g["style_index"] is None for g in data["groups"] if not g["count"] or g["kind"] == "special"))
+        saved = remember_styles(tags, settings)
+        self.assertEqual(len(saved["styles"]["V:brott"]), 2)
+        self.assertTrue(all(g["pattern"] == "plain" for g in data["groups"]))
+
+    def test_saved_styles_survive_added_smaller_values_deletion_switching_and_reload(self):
+        first = self.add(t=.3)
+        second = self.add(t=.4)
+        self.plan.farggruppering = {"enabled": True}
+        original = group_data(self.plan.taggar, self.plan.farggruppering)["assignments"]
+        key = original[first]["key"]
+        third = self.add(t=.2)
+        changed = group_data(self.plan.taggar, self.plan.farggruppering)["assignments"]
+        self.assertEqual([changed[i]["style_index"] for i in (first, second, third)], [0, 1, 2])
+        self.assertEqual(changed[first]["background"], original[first]["background"])
+        self.plan.farggruppering = {"colors": {key: "#123456"}, "category": "V"}
+        self.plan.farggruppering = {"category": "t"}
+        self.plan.ta_bort(second)
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "styles.json"))
+        self.addCleanup(restored.close)
+        groups = group_data(restored.taggar, restored.farggruppering)["assignments"]
+        self.assertEqual(groups[first]["color"], "#123456")
+        self.assertEqual(groups[third]["style_index"], 2)
+        self.assertEqual(restored.farggruppering["styles"]["t"][original[second]["key"]], 1)
+
+    def test_patterned_export_keeps_widgets_and_labels_as_vectors(self):
+        from reportlab.pdfgen.canvas import Canvas
+        source = self.folder / "vector.pdf"
+        canvas = Canvas(str(source), pagesize=(1800, 1400))
+        canvas.line(0, 0, 1800, 1400)
+        canvas.showPage(); canvas.save()
+        self.plan.importera_ritning(source)
+        for i in range(25):
+            self.plan.lagg_till(.05 + (i % 5) * .16, .03 + (i // 5) * .13,
+                               littera=f"VS.{i + 1}", indata={"t": .2 + i * .01, "kommentar": f"Kommentar {i + 1}"})
+        self.plan.farggruppering = {"enabled": True, "legend": {"x": .82, "y": .03, "size": 210}}
+        self.plan.kommentarwidget = {"enabled": True, "x": .05, "y": .73, "size": 350}
+        page = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0]
+        self.assertEqual(len(page.images), 0, "Patterns, labels, widgets and drawing remain vectors")
+        self.assertIn("VS.25", page.extract_text())
+        self.assertIn("Kommentar 25", page.extract_text())
+        html = self.plan._html_bytes().decode()
+        self.assertIn('gp-group-pattern', html)
+        self.assertIn('"styles": {"t":', html)
+
+    def test_invalid_saved_styles_are_atomic(self):
+        before = self.plan._document()
+        for styles in ([], {"t": []}, {"t": {"a": True}}, {"t": {"a": -1}},
+                       {"t": {"a": 5000}}, {"t": {"a": 0, "b": 0}}, {"t": {"a": []}}):
+            with self.subTest(styles=styles), self.assertRaises(ValueError):
+                self.plan.farggruppering = {"styles": styles}
+            self.assertEqual(self.plan._document(), before)
 
     def test_geometry_uses_actual_width_length_and_thickness_and_excludes_h_only(self):
         wall = self.add(b=.6, t=.25)
@@ -103,7 +177,7 @@ class TestGrundplanColour(unittest.TestCase):
         for ident, suffix in ((insulated, "1"), (uninsulated, "0"), (only_h, "y"), (x, "x"), (y, "y"), (xy, "xy")):
             self.assertEqual(data["assignments"][ident]["key"], "isolering:" + suffix)
         self.assertEqual([group["color"] for group in data["groups"]],
-                         ["#f0d8c8", "#cce7ff", "#ffdfba", "#e5d8ff", "#d8eedc"])
+                         ["#f0d8c8", "#cce7ff", "#bebada", "#fb8072", "#d8eedc"])
         self.assertFalse(self.plan.state["sliding"]["enabled"], "Directions group independently of the global toggle")
         pdf_text = PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
         for label in ("Isolering och glidmotstånd", *(group["label"].replace("_", "") for group in data["groups"])):
@@ -128,7 +202,7 @@ class TestGrundplanColour(unittest.TestCase):
         settings = validate_settings({"category": "isolering"})
         data = group_data(self.plan.taggar, settings)
         self.assertEqual([group["count"] for group in data["groups"]], [4, 0, 0, 0, 0])
-        self.assertEqual(len({group["color"] for group in data["groups"]}), 5)
+        self.assertEqual([group["style_index"] for group in data["groups"]], [0, None, None, None, None])
         empty = group_data([], settings)
         self.assertEqual([group["count"] for group in empty["groups"]], [0] * 5)
         self.plan.farggruppering = {"enabled": True, "category": "isolering"}
@@ -308,6 +382,8 @@ class TestGrundplanColour(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node krävs för jämförelse med HTML-grupperingen.")
     def test_javascript_and_python_assign_identical_groups_and_colours(self):
+        for i in range(25):
+            self.add(t=.4 + i * .01, F_vy=25 * i)
         for values in ({"b": .6, "t": .25, "F_vy": 100.5, "F_vy_bruk": None, "V_Ed_EQU": 210, "isolering": True},
                        {"lang": 0, "b": 1.8, "l": 2.1, "t": .3, "F_vy": 399.9999},
                        {"endast_h_stabilitet": True, "V_Ed_EQU": 300, "glid_x": True, "glid_y": True},
@@ -323,6 +399,7 @@ class TestGrundplanColour(unittest.TestCase):
         cases += [validate_settings({"categories": list(selected), "phase": phase})
                   for count in range(1, 6) for selected in combinations(("t", "b", "l", "V", "isolering"), count)
                   for phase in ("brott", "bruk", "EQU")]
+        cases += [remember_styles(self.plan.taggar[::-1], settings) for settings in cases[:15]]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';
 const {colourGroups} = await import('data:text/javascript;base64,' + readFileSync(process.argv[1]).toString('base64'));
