@@ -228,6 +228,42 @@ export function leaderCurvePoint(a, b, t) {
     r = leaderLerp(leaderAdd(b, b.in), b, t);
   return leaderLerp(leaderLerp(p, q, t), leaderLerp(q, r, t), t);
 }
+export function leaderTip(vertices, width, height, size) {
+  const pixel = point => ({x: point.x * width, y: point.y * height});
+  const anchor = pixel(vertices[0]), radius = 10 * size;
+  const distance = point => Math.hypot(point.x - anchor.x, point.y - anchor.y);
+  const controls = vertices.slice(1).map((b, i) => {
+    const a = vertices[i];
+    return [pixel(a), pixel(leaderAdd(a, a.out)), pixel(leaderAdd(b, b.in)), pixel(b)];
+  });
+  // The convex hull lets us skip entire pieces inside the clearance circle.
+  // Search in curve order so the straight stem meets the first visible piece.
+  const firstOutside = (points, depth = 0) => {
+    if (distance(points[0]) > radius) return points[0];
+    if (points.every(point => distance(point) <= radius)) return null;
+    const [a, b, c, d] = points, ab = leaderLerp(a, b, .5), bc = leaderLerp(b, c, .5), cd = leaderLerp(c, d, .5),
+      left = leaderLerp(ab, bc, .5), right = leaderLerp(bc, cd, .5), middle = leaderLerp(left, right, .5);
+    if (depth === 18) return [middle, d].find(point => distance(point) > radius) || null;
+    return firstOutside([a, ab, left, middle], depth + 1) || firstOutside([middle, right, cd, d], depth + 1);
+  };
+  let exit;
+  for (const points of controls) {exit = firstOutside(points); if (exit) break;}
+  const fallback = controls.flat().find(point => distance(point) > 1e-8);
+  const delta = leaderSub(exit || fallback || {x: anchor.x + 1, y: anchor.y}, anchor);
+  const direction = Math.atan2(delta.y, delta.x);
+  const join = {x: anchor.x + Math.cos(direction) * radius, y: anchor.y + Math.sin(direction) * radius};
+  const points = controls.flat();
+  const left = Math.min(anchor.x - radius, ...points.map(p => p.x)) - radius,
+    top = Math.min(anchor.y - radius, ...points.map(p => p.y)) - radius,
+    right = Math.max(anchor.x + radius, ...points.map(p => p.x)) + radius,
+    bottom = Math.max(anchor.y + radius, ...points.map(p => p.y)) + radius;
+  // An even-odd SVG clip preserves vector output and clears any returning loops
+  // as well as the initial curve. Only the straight stem enters this circle.
+  const clip = `M ${left} ${top} H ${right} V ${bottom} H ${left} Z`
+    + ` M ${anchor.x + radius} ${anchor.y} A ${radius} ${radius} 0 1 0 ${anchor.x - radius} ${anchor.y}`
+    + ` A ${radius} ${radius} 0 1 0 ${anchor.x + radius} ${anchor.y} Z`;
+  return {anchor, join, direction, radius, clip};
+}
 export function splitLeader(leader, endpoint, segment, t) {
   const result = JSON.parse(JSON.stringify(leader)), vertices = leaderVertices(result, endpoint);
   const a = vertices[segment], b = vertices[segment + 1];
@@ -287,6 +323,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let leaderEdit = null, leaderNode = null, leaderPlacement = null;
   const leaderDrafts = new Map();
   const leaderElements = new Map();
+  let leaderClipSequence = 0;
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
@@ -1583,11 +1620,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       painted.add(tag.id);
       let elements = leaderElements.get(tag.id);
       if (!elements) {
-        const group = svgNode("g", {}), path = svgNode("path", {class: "gp-leader-path", fill: "none", stroke: "#26343a",
+        const group = svgNode("g", {}), clipId = "gp-leader-tip-" + view + "-" + ++leaderClipSequence,
+          clip = svgNode("clipPath", {id: clipId, clipPathUnits: "userSpaceOnUse"}),
+          clearance = svgNode("path", {"clip-rule": "evenodd"}),
+          path = svgNode("path", {class: "gp-leader-path", fill: "none", stroke: "#26343a", "clip-path": `url(#${clipId})`,
           "stroke-linecap": "round", "stroke-linejoin": "round"}),
+          stem = svgNode("path", {class: "gp-leader-stem", fill: "none", stroke: "#26343a", "stroke-linecap": "round"}),
           arrow = svgNode("path", {class: "gp-leader-arrow", fill: "none", stroke: "#26343a",
             "stroke-linecap": "round", "stroke-linejoin": "round"});
-        path.dataset.tagId = tag.id; group.append(path, arrow);
+        clip.append(clearance);
+        path.dataset.tagId = tag.id; group.append(clip, path, stem, arrow);
         const hit = readOnly ? null : svgNode("path", {class: "gp-leader-hit", fill: "none", stroke: "transparent",
           role: "button", tabindex: 0});
         if (hit) {
@@ -1597,7 +1639,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           });
           group.append(hit);
         }
-        elements = {group, path, arrow, hit}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
+        elements = {group, path, stem, arrow, hit, clearance}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
       }
       const vertices = leaderVertices(value, leaderEndpoint(value.attachment, box));
       let d = `M ${pixel(vertices[0]).x} ${pixel(vertices[0]).y}`;
@@ -1607,15 +1649,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         d += ` C ${a.x} ${a.y} ${b.x} ${b.y} ${end.x} ${end.y}`;
       }
       elements.path.setAttribute("d", d); elements.path.setAttribute("stroke-width", size);
-      const anchor = pixel(vertices[0]), tangent = pixel(vertices[0].out);
-      const direction = Math.hypot(tangent.x, tangent.y) > 1e-8 ? Math.atan2(tangent.y, tangent.x)
-        : Math.atan2(pixel(vertices[1]).y - anchor.y, pixel(vertices[1]).x - anchor.x);
+      const {anchor, join, direction, clip} = leaderTip(vertices, bg.width, bg.height, size);
+      elements.clearance.setAttribute("d", clip);
+      elements.stem.setAttribute("d", `M ${anchor.x} ${anchor.y} L ${join.x} ${join.y}`);
+      elements.stem.setAttribute("stroke-width", size);
       const arm = angle => ({x: anchor.x + Math.cos(angle) * 7 * size, y: anchor.y + Math.sin(angle) * 7 * size});
       const left = arm(direction - .45), right = arm(direction + .45);
       elements.arrow.setAttribute("d", `M ${left.x} ${left.y} L ${anchor.x} ${anchor.y} L ${right.x} ${right.y}`);
       elements.arrow.setAttribute("stroke-width", size);
       if (readOnly) continue;
-      elements.hit.setAttribute("d", d); elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
+      elements.hit.setAttribute("d", d + ` M ${anchor.x} ${anchor.y} L ${join.x} ${join.y}`);
+      elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
       elements.hit.setAttribute("aria-label", "Redigera hänvisningslinje för " + tag.label);
       if (leaderEdit !== tag.id) continue;
       const handle = (point, index, kind) => {

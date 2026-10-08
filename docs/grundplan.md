@@ -370,6 +370,9 @@ Linjetjocklek och pilhuvud följer etikettstorleken: vid 100 % är de 1 px
 respektive 7 px, vid 150 % 1,5 px respektive 10,5 px. Ritningszoom skalar hela
 presentationen på skärmen och ändrar inte exportens grundstorlek. Spets och
 mellannoder behåller sina relativa ritningspositioner när etiketten skalas.
+Närmast pilspetsen har linjen en kort rak anslutning. Kurvan hålls utanför
+pilhuvudets fria område så att den inte flyter ihop med pilhuvudets sidor,
+även vid snäva böjar. Även detta område följer etikettstorleken.
 PDF och resultat-HTML visar linje och pil som vektorer utan redigeringshandtag.
 Linjen lagras separat från beräkningsindata och ändrar inga beräkningsresultat.
 

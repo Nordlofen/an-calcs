@@ -125,11 +125,14 @@ class TestGrundplanPdf(unittest.TestCase):
         visible = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
         self.assertFalse(visible.images, "Spline, arrow and labels must all remain vectors")
         self.assertIn("VS.SPLINE", visible.extract_text())
-        # The vector overlay adds two cubic Bezier operators to the page.
+        # The overlay retains both Bezier segments and clips a circle around
+        # the arrowhead; the circle itself can also use Bezier operators.
         curves = sum(operator == b"c" for _, operator in visible.get_contents().operations)
+        clips = sum(operator in (b"W", b"W*") for _, operator in visible.get_contents().operations)
         plan.hanvisningslinje(ident, {**leader, "enabled": False})
         hidden = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
-        self.assertEqual(curves - sum(operator == b"c" for _, operator in hidden.get_contents().operations), 2)
+        self.assertGreaterEqual(curves - sum(operator == b"c" for _, operator in hidden.get_contents().operations), 2)
+        self.assertGreater(clips, sum(operator in (b"W", b"W*") for _, operator in hidden.get_contents().operations))
         self.assertEqual(plan.resultat, before)
         html = plan._html_bytes().decode()
         self.assertIn('"leader": {"enabled": false', html)

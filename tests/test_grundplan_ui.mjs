@@ -119,7 +119,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, validateLayout,
-  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, splitLeader } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -225,6 +225,51 @@ test("label attachments remain relative when moving or sizing and can use all fo
     const moved = leaderEndpoint(attachment, {...box, x: .5, y: .4});
     near(moved.x - p.x, .1); near(moved.y - p.y, .2);
   }
+});
+
+test("arrow clearance stays larger than its arms and meets tight and returning curves at every label size", () => {
+  const cases = [
+    [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: .001}},
+      {x: .6, y: .4, in: {x: -.2, y: .01}, out: {x: 0, y: 0}}],
+    [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}},
+      {x: .3, y: .4, in: {x: -.2, y: .2}, out: {x: .1, y: 0}},
+      {x: .6, y: .5, in: {x: -.1, y: 0}, out: {x: 0, y: 0}}],
+    // Entirely coincident or short curves must still yield finite arrow geometry.
+    [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}},
+      {x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}}],
+  ];
+  for (const vertices of cases) for (const [width, height] of [[800, 600], [500, 1800], [2400, 400]]) {
+    for (const size of [.2, 1, 1.8]) {
+      const before = structuredClone(vertices), tip = leaderTip(vertices, width, height, size);
+      near(Math.hypot(tip.join.x - tip.anchor.x, tip.join.y - tip.anchor.y), 10 * size);
+      assert.ok(tip.radius - 7 * size - size / 2 >= 2 * size, "Clearance remains outside arrow arms and round caps");
+      assert.ok(Number.isFinite(tip.direction)); assert.doesNotMatch(tip.clip, /NaN|Infinity/);
+      assert.deepEqual(vertices, before, "Rendering never alters saved nodes or handles");
+    }
+  }
+  const tip = leaderTip(cases[0], 800, 600, 1), a = cases[0][0], b = cases[0][1];
+  let closest = Infinity;
+  for (let i = 0; i <= 10000; i++) {
+    const p = leaderCurvePoint(a, b, i / 10000);
+    closest = Math.min(closest, Math.hypot(p.x * 800 - tip.join.x, p.y * 600 - tip.join.y));
+  }
+  assert.ok(closest < .04, "The straight stem joins the actual curve on the clearance boundary");
+});
+
+for (const readOnly of [false, true]) test(`leader strokes keep vector clearance around the head (readOnly=${readOnly})`, t => {
+  const ui = leaderUi(t, {readOnly, pdfMode: readOnly}), path = ui.byClass("gp-leader-path");
+  const ref = path.getAttribute("clip-path").match(/^url\(#(.+)\)$/)[1];
+  const clip = ui.find(el => el.getAttribute("id") === ref);
+  assert.equal(clip.tag, "clipPath"); assert.equal(clip.children[0].getAttribute("clip-rule"), "evenodd");
+  assert.match(clip.children[0].getAttribute("d"), / A 10 10 /);
+  const stem = ui.byClass("gp-leader-stem"), original = structuredClone(ui.tag.leader);
+  ui.data.state.label_size = 20; ui.changed();
+  assert.match(clip.children[0].getAttribute("d"), / A 2 2 /);
+  assert.equal(stem.getAttribute("stroke-width"), "0.2");
+  if (!readOnly) {
+    ui.edit(); assert.equal(ui.byClass("gp-leader-path"), path, "Entering edit mode retains the native double-click target");
+  }
+  assert.deepEqual(ui.tag.leader, original); assert.equal(ui.sent.length, 0);
 });
 
 test("enabling a new leader places its tip and toggling it retains the entire spline", t => {
