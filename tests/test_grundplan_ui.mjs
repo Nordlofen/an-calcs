@@ -1541,7 +1541,8 @@ for (const readOnly of [false, true]) test(`compact sliding labels exclude insul
   ui.tag.values.isolering = true; ui.changed();
   assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
   ui.tag.values.isolering = false; ui.data.state.sliding.enabled = false; ui.changed();
-  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children.length, 2);
+  assert.equal(ui.byClass("gp-global-axes").hidden, true);
 });
 
 test("gliding inputs follow load basis and edits hide old resistance without invalidating bearing", t => {
@@ -1618,19 +1619,24 @@ for (const readOnly of [false, true]) test(`wall length is editable but hidden o
   }
 });
 
-for (const readOnly of [false, true]) test(`length stays on inactive/new wall labels and is not repeated or applied to pads (readOnly=${readOnly})`, t => {
+for (const readOnly of [false, true]) test(`sliding details stay on inactive/new wall labels, with length only in the summary (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   slidingFixture(ui, false);
-  assert.match(elementText(ui.byClass("gp-tag-result")), /Lsu 3 m$/);
+  assert.equal(elementText(ui.byClass("gp-tag-result")), "U 75 % · bₓ 1 m · t 1 m");
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
+  assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "144 kN");
   ui.tag.status = "new"; ui.tag.summary = null; ui.changed();
-  assert.equal(elementText(ui.byClass("gp-tag-result")), "Kontrollera indata · Lsu 3 m");
+  assert.equal(elementText(ui.byClass("gp-tag-result")), "Kontrollera indata");
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
   ui.data.state.sliding.enabled = true; ui.changed();
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
   assert.equal(ui.byClass("gp-tag-sliding-inputs").children[3].textContent, "3 m");
   ui.tag.values.isolering = true; ui.changed();
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
-  ui.tag.values.lang = 0; ui.changed();
+  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
+  ui.tag.values.isolering = false; ui.tag.values.lang = 0; ui.changed();
   assert.equal(ui.byClass("gp-tag-result").textContent, "Kontrollera indata");
+  assert.equal(ui.byClass("gp-tag-sliding-inputs").children.length, 2, "A pad omits the wall footing length");
   ui.tag.values.lang = 1;
   for (const length of [null, "", "saknas", 0, -1]) {
     ui.tag.values.glid_L = length; ui.changed();

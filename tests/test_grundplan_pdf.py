@@ -186,7 +186,9 @@ class TestGrundplanPdf(unittest.TestCase):
         plan.glidning = {"enabled": False}
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertNotIn("Glidningskontroll", text)
-        self.assertNotIn("Glidmotstånd – globalt", text)
+        self.assertEqual(text.count("Glidmotstånd – globalt"), 2)
+        self.assertIn("144 kN", text)
+        self.assertIn("96 kN", text)
 
     def test_heading_subtitle_and_date_overlay_pdf_without_any_footings(self):
         plan = self.plan(self.drawing(), sida=2)
@@ -249,10 +251,12 @@ class TestGrundplanPdf(unittest.TestCase):
                 self.assertNotIn(" · L 6,2 m", text)
                 self.assertNotIn("Glidmotstånd – globalt", text)
         plan.uppdatera(ident, indata={"glid_x": True, "V_Ed_EQU": 120, "glid_mu": .4})
-        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        self.assertNotIn(" · L 6,2 m", text)
-        self.assertIn("Glidmotstånd – globalt", text)
-        self.assertEqual(text.count("6,2 m"), 1)
+        for enabled in (False, True):
+            plan.glidning = {"enabled": enabled}
+            text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+            self.assertNotIn(" · Lsu", text)
+            self.assertIn("Glidmotstånd – globalt", text)
+            self.assertEqual(text.count("6,2 m"), 1)
         plan.uppdatera(ident, indata={"isolering": True})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         self.assertNotIn(" · L 6,2 m", text)

@@ -445,9 +445,9 @@ behåller sina färgval i inställningarna, så att en grupp som åter får sulo
 visas med samma färg.
 Färgvalen sparas och exporteras på samma sätt som övriga färgkategorier.
 Äldre färgval för med isolering och utan isolering behålls för första
-respektive andra gruppen. Etiketternas befintliga glidmotståndsblock behålls:
-utan isolering visas valda H_Rd-bidrag, V_Ed,EQU och väggsulans L när
-glidningskontrollen är aktiv. Isolerade sulor får inget extra glidblock.
+respektive andra gruppen. Utan isolering visas valda H_Rd-bidrag, V_Ed,EQU
+och väggsulans L_su i etikettens glidmotståndsblock, även när den globala
+glidningskontrollen är avstängd. Isolerade sulor får inget extra glidblock.
 H_Rd visas med högst en decimal i etiketter, glidningslegend och export;
 beräkningar och sparade resultat behåller full precision.
 
@@ -608,13 +608,15 @@ inte som ett komplett resultat. En tom horisontallast tolkas inte som noll.
 Resultaten uppdateras direkt när indata ändras, utan en separat beräkningsknapp.
 
 På etiketten visas **Glidmotstånd – globalt** med V_Ed,EQU, L_su och angiven L_vägg till vänster
-och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger. Glidningsblocket döljs på isolerade sulor
+och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger, i samma format för vanliga sulor och
+**Endast H-stabilitet**. Blocket visas oberoende av den globala knappens läge.
+Glidningsblocket döljs på isolerade sulor
 och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avser
 fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
 den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
-L_su visas endast för oisolerade sulor med en vald bidragsriktning. När den globala glidningskontrollen är avstängd visas en sådan positiv vägglängd på
-etikettens resultatrad, exempelvis `Kontrollera indata · L_su 6,2 m` eller
-`U 78 % · bₓ 0,6 m · L_su 6,2 m`. Detta gäller också PDF och resultat-HTML.
+L_su visas endast i glidmotståndsblocket för oisolerade väggsulor med en vald
+bidragsriktning. Den upprepas inte på den övre måttraden. Detta gäller också
+PDF och resultat-HTML.
 
 Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
 och dra hörnhandtaget för proportionell storleksändring. Piltangenter flyttar

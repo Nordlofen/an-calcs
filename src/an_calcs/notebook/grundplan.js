@@ -1999,15 +1999,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (Number.isFinite(tag.values.t)) dimensions.push("t " + precise(tag.values.t) + " m");
       }
       const geometry = dimensions.join(" · ");
-      const showSlidingBlock = (sliding().enabled || onlyH) && !insulated && (values.glid_x || values.glid_y);
-      const rawLength = values.glid_L;
-      const length = rawLength == null || rawLength === "" ? NaN : Number(String(rawLength).replace(",", "."));
-      const lengthText = !insulated && (values.glid_x || values.glid_y) && Number(values.lang) === 1 && Number.isFinite(length) && length > 0 && !showSlidingBlock
-        ? " · L_su " + precise(length) + " m" : "";
-      const text = (summary
+      const showSlidingBlock = !insulated && (values.glid_x || values.glid_y);
+      const text = summary
         ? onlyH ? "Endast H-stabilitet" + (geometry ? " · " + geometry : "")
           : "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
-        : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
+        : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata");
       const accessibleGeometry = !onlyH && summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
       const governingLabel = !onlyH && summary?.styrande;
       const governing = governingLabel ? ", styrande: " + governingLabel : "";
