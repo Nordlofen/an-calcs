@@ -467,7 +467,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
-  const bearingOnlyNames = new Set(["b", "l", "l_override", "L_vagg_minst_1", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
+  const bearingOnlyNames = new Set(["b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
     "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
@@ -2549,10 +2549,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
         };
         add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
-        if (values.lang == 1) {
+        if (lineLoads(values)) {
           add(data, "L", "su", value("glid_L", "m"));
         }
-        if (lineLoads(values) && values.L_vagg != null && values.L_vagg !== "") add(data, "L", "vägg", value("L_vagg", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
           add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
@@ -2667,7 +2666,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
     if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
     if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
-    if (["L_vagg_minst_1", "glid_L", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (["L_vagg_minst_1", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (name === "glid_L" && !lineLoads(tag.values)) return "—";
     if (name === "lasttyp" && tag.values.lang === 1) return "—";
     if (name === "L_vagg" && !lineLoads(tag.values)) return "—";
     if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
@@ -2837,7 +2837,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = busy || blocked || (["L_vagg_minst_1", "glid_L", "l_override"].includes(name) && Number(values.lang) === 0)
+        control.disabled = busy || blocked || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
+          || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
           || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
@@ -2846,7 +2847,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           : blocked ? "Välj samma beräkningsmodell och lasttyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
-          : name === "L_vagg" && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Hela sparade Lvägg används för glidning. Avmarkera för att ange ett kortare linjestöd."
+          : name === "L_vagg" && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Avmarkera för att ange ett kortare linjestöd. Glidning använder L_su."
           : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
       }
     }
@@ -2946,7 +2947,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
     ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
-  const loadTypeFields = new Set(["L_vagg", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+  const loadTypeFields = new Set(["L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
@@ -3020,7 +3021,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           if (!common) support.choose.checked = false;
           support.row.hidden = !common;
         }
-        for (const [name, entry] of bulkInputs) if (loadTypeFields.has(name) && name !== "L_vagg") {
+        const footingLength = bulkInputs.get("glid_L");
+        if (footingLength) {
+          footingLength.blocked = !common;
+          footingLength.choose.disabled = footingLength.input.disabled = !common;
+          if (!common) footingLength.choose.checked = false;
+          footingLength.row.hidden = !common;
+        }
+        for (const [name, entry] of bulkInputs) if (loadTypeFields.has(name) && !["L_vagg", "glid_L"].includes(name)) {
           const blocked = mixedLoads && !choice?.choose.checked;
           entry.blocked = blocked;
           entry.choose.disabled = entry.input.disabled = blocked;
@@ -3040,7 +3048,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
         && !(strip && name === "lasttyp")
-        && !(!mixed && !strip && ["L_vagg_minst_1", "glid_L", "l_override"].includes(name)));
+        && !(!mixed && !strip && ["L_vagg_minst_1", "l_override"].includes(name)));
       if (!available.length) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
@@ -3198,7 +3206,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
             control.type = "checkbox"; control.name = "L_vagg_minst_1";
             control.setAttribute("aria-label", "Linjestöd minst 1 m vid lokal kontroll");
             control.checked = draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1 ?? true;
-            control.title = "Lokal bärighets- och isoleringskontroll använder 1 m. Hela sparade linjestödslängden behålls för glidning.";
+            control.title = "Lokal bärighets- och isoleringskontroll använder 1 m. Global glidning använder L_su.";
             override.append(control, node("span", "", "Minst 1 m"));
             control.addEventListener("input", () => edit(true));
           }
@@ -3324,15 +3332,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         continue;
       }
       if (name === "L_vagg") {
-        entry.row.hidden = !line;
+        entry.row.hidden = !line || onlyH;
         entry.unit.textContent = "m";
-        entry.row.title = strip ? "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder hela sparade linjestödslängden."
+        entry.row.title = strip ? "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder L_su."
           : "Hela linjestödslängden används för att omräkna linjelasten till total kraft. Sulmåtten ändrar inte resultanten.";
         if (readOnly) entry.input.textContent = strip && atLeastOne && !onlyH ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
         else {
           entry.input.hidden = strip && atLeastOne && !onlyH;
           entry.fixed.hidden = !entry.input.hidden;
-          entry.input.disabled = !line || (strip && atLeastOne && !onlyH);
+          entry.input.disabled = !line || onlyH || (strip && atLeastOne);
           entry.input.required = line && !(strip && atLeastOne) && !onlyH;
           entry.input.placeholder = onlyH || !strip ? "Hela linjestödslängden" : "Kortare än 1 m";
           if (entry.input.disabled) entry.input.setCustomValidity("");
@@ -3342,12 +3350,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (slidingNames.has(name)) {
         const numeric = !["glid_x", "glid_y"].includes(name);
         const length = name === "glid_L";
-        const disabled = (!sliding().enabled && !onlyH) || (length ? !strip : insulated);
-        entry.row.hidden = (!sliding().enabled && !onlyH) || (length ? !strip : numeric && insulated);
+        const disabled = (!sliding().enabled && !onlyH) || (length ? !line : insulated);
+        entry.row.hidden = (!sliding().enabled && !onlyH) || (length ? !line : numeric && insulated);
         entry.unit.textContent = name === "V_Ed_EQU" ? (line ? "kN/m" : "kN") : fieldSchema.get(name).unit;
-        const supportRaw = inputs.get("L_vagg")?.input.value;
-        const hasSupportLength = supportRaw != null && supportRaw !== "";
-        if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated && !(length && hasSupportLength);
+        if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated;
           if (disabled) entry.input.setCustomValidity(""); }
         continue;
       }

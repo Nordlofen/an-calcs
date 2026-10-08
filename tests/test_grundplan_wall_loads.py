@@ -83,11 +83,12 @@ class TestWallLoads(unittest.TestCase):
             tag = self.plan.taggar[0]
             self.assertEqual(tag["status"], "error")
             self.assertEqual(tag["load_resultants"], {"brott": None, "bruk": None})
-            self.assertEqual(tag["sliding"]["status"], "incomplete")
+            self.assertEqual(tag["sliding"]["x"], 150 * 8 * .4)
         self.plan.uppdatera(ident, indata={"L_vagg": 5})
-        before = self.plan.taggar[0]["load_resultants"], self.plan.taggar[0]["sliding"]
+        before = self.plan.taggar[0]["load_resultants"]
         self.plan.uppdatera(ident, indata={"b": 2, "l": 3, "glid_L": 10})
-        self.assertEqual((self.plan.taggar[0]["load_resultants"], self.plan.taggar[0]["sliding"]), before)
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], before)
+        self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 150 * 10 * .4)
         self.plan.uppdatera(ident, indata={"lasttyp": 0})
         self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": 200, "bruk": 100})
         self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 60)
@@ -175,15 +176,16 @@ class TestWallLoads(unittest.TestCase):
         self.assertAlmostEqual(r["barformaga"], r["q_bd"] * 1 * 2.4)
         self.assertEqual(r["load_conversion"]["bruk"], 60)
 
-    def test_footing_length_is_independent_of_bearing_and_equ_support_length(self):
+    def test_sliding_uses_footing_length_independently_of_local_wall_length(self):
         ident = self.imported()
         self.plan.uppdatera(ident, indata={"glid_x": True, "glid_mu": .4})
-        before = copy.deepcopy(self.plan.resultat), self.plan.taggar[0]["sliding"]
+        before = copy.deepcopy(self.plan.resultat)
         self.plan.uppdatera(ident, indata={"glid_L": 3})
-        self.assertEqual((self.plan.resultat, self.plan.taggar[0]["sliding"]), before)
+        self.assertEqual(self.plan.resultat, before)
+        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 180)
         self.plan.uppdatera(ident, indata={"L_vagg": .4})
         self.assertEqual(self.plan._tag(ident)["values"]["glid_L"], 3)
-        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 24)
+        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 180)
         self.assertEqual(self.plan._tag(ident)["summary"]["load_conversion"]["brott"], 80)
 
     def test_unknown_and_long_supports_use_one_metre_resultant_independent_of_by(self):
@@ -227,7 +229,7 @@ class TestWallLoads(unittest.TestCase):
                 self.assertAlmostEqual(r["isolering"]["isolering_q_Ed_bruk"], external / 2 / by + 10)
                 self.assertEqual(r["effective_area"]["brott"]["area"], by)
             self.plan.uppdatera(ident, indata={"isolering": False})
-            self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 150 * length * .4)
+            self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 150 * .6 * .4)
 
     def test_import_threshold_and_checkbox_survive_bulk_copy_and_saved_projects(self):
         ident = self.imported()
@@ -271,7 +273,7 @@ class TestWallLoads(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.plan.uppdatera(ident, indata={"L_vagg_minst_1": invalid})
 
-    def test_exports_keep_all_lengths_total_actions_and_support_based_resistance(self):
+    def test_exports_keep_both_inputs_but_display_only_footing_length_for_sliding(self):
         ident = self.imported()
         self.plan.uppdatera(ident, indata={"glid_L": 3, "glid_x": True, "glid_mu": .4})
         self.plan.glidning = {"enabled": True}
@@ -280,13 +282,13 @@ class TestWallLoads(unittest.TestCase):
         tag = snapshot["state"]["tags"][0]
         self.assertEqual((tag["values"]["L_vagg"], tag["values"]["glid_L"], tag["values"]["l"]), (.6, 3, 1))
         self.assertEqual(tag["summary"]["load_conversion"]["brott"], 120)
-        self.assertAlmostEqual(tag["sliding"]["x"], 36)
+        self.assertAlmostEqual(tag["sliding"]["x"], 180)
         from pypdf import PdfReader
         pdf = self.plan.exportera_pdf(self.folder / "result.pdf")
         text = PdfReader(pdf).pages[0].extract_text()
-        self.assertIn("vägg", text)
+        self.assertNotIn("vägg", text)
         self.assertIn("su", text)
-        self.assertIn("36 kN", text)
+        self.assertIn("180 kN", text)
 
     def test_import_updates_unedited_seed_but_preserves_manual_length_after_reload_and_copy(self):
         ident = self.imported()
@@ -326,14 +328,17 @@ class TestWallLoads(unittest.TestCase):
         self.assertEqual(self.plan._tag(ident)["values"]["glid_L"], 3)
         self.assertEqual(self.plan._tag(ident)["values"]["L_vagg"], .6)
 
-    def test_h_only_uses_support_length_with_no_bearing_geometry_or_footing_length(self):
+    def test_h_only_requires_footing_length_without_using_wall_or_bearing_geometry(self):
         ident = self.imported()
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": True, "glid_x": True,
             "glid_mu": .4, "glid_L": None, "b": None, "l": None, "t": None})
         self.assertTrue(self.plan._tag(ident)["summary"]["endast_h_stabilitet"])
-        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 36)
+        self.assertEqual(self.plan.taggar[0]["sliding"]["status"], "incomplete")
+        self.assertIsNone(self.plan.taggar[0]["sliding"]["x"])
+        self.plan.uppdatera(ident, indata={"glid_L": 3, "L_vagg": None})
+        self.assertAlmostEqual(self.plan.taggar[0]["sliding"]["x"], 180)
 
-    def test_invalid_length_never_retains_previous_bearing_or_sliding_pass(self):
+    def test_invalid_wall_length_affects_bearing_but_not_independent_sliding_length(self):
         ident = self.imported()
         self.plan.uppdatera(ident, indata={"glid_x": True, "glid_mu": .4})
         for length in (0, -1):
@@ -341,8 +346,8 @@ class TestWallLoads(unittest.TestCase):
             tag = self.plan.taggar[0]
             self.assertEqual(tag["status"], "error")
             self.assertIsNone(tag["summary"])
-            self.assertEqual(tag["sliding"]["status"], "incomplete")
-            self.assertIsNone(tag["sliding"]["x"])
+            self.assertEqual(tag["sliding"]["status"], "ready")
+            self.assertAlmostEqual(tag["sliding"]["x"], 36)
         self.plan.uppdatera(ident, indata={"L_vagg": .6})
         self.assertEqual(self.plan.taggar[0]["status"], "calculated")
 
@@ -359,3 +364,17 @@ class TestWallLoads(unittest.TestCase):
         self.assertAlmostEqual(self.plan.taggar[-1]["sliding"]["x"], 60)
         with self.assertRaisesRegex(ValueError, "endast linjelaster"):
             self.plan.uppdatera_flera([pad], indata={"L_vagg": .5})
+
+    def test_line_pad_bulk_footing_length_changes_only_global_sliding_and_survives_save(self):
+        first = self.imported()
+        self.plan.uppdatera(first, indata={"lang": 0, "glid_x": True, "glid_mu": .4})
+        second = self.plan.kopiera(first, .5, .6)
+        before = copy.deepcopy(self.plan.resultat)
+        self.plan.uppdatera_flera([first, second], indata={"glid_L": 3})
+        self.assertEqual(self.plan.resultat, before)
+        for tag in self.plan.taggar:
+            self.assertEqual(tag["load_resultants"]["brott"], 120)
+            self.assertEqual(tag["sliding"]["x"], 180)
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "lengths.json"))
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.taggar, self.plan.taggar)

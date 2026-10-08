@@ -182,7 +182,8 @@ för importerad L_vägg ≥ 1 m. Jord- och isoleringskontrollen multiplicerar d�
 laster och moment med **1 m**. För kortare stöd är rutan avmarkerad och den
 importerade längden visas som redigerbart värde. **bᵧ ändrar kontaktarean,
 inte den yttre lastresultanten.** Hela importerade längden sparas även när
-det numeriska fältet döljs, och används separat för total EQU-last vid glidning.
+det numeriska fältet döljs. Samma importerade längd ger startvärdet för L_su,
+som används separat för total EQU-last vid glidning och kan ändras oberoende.
 Ingen ytterligare längdfaktor läggs på importerade punktlaster. Metadata som `model` och `source`
 används inte som sökvägar eller beräkningsindata.
 Version 2 kan beskriva flera lastkombinationer och `meanEnvelope` i `source`.
@@ -601,8 +602,9 @@ plan.uppdatera(tagg_id, indata={"lang": 0, "lasttyp": 1, "L_vagg": 0.6,
 **L_vägg** ligger under **Geometri** och betyder "Längd linjestöd alt. längd ovanliggande vägg".
 Fältet gäller linjelaster. För väggsulemodellen finns **Minst 1 m**, som automatiskt väljs
 för importerad längd ≥ 1 m. Då används 1 m lokalt och det numeriska fältet döljs;
-hela importerade längden behålls för glidning. För kortare stöd är valet av och
-längden redigerbar i dialogen, tabellen och för flera markerade sulor.
+hela importerade längden sparas som L_vägg och ger startvärdet för L_su.
+För kortare stöd är valet av och längden redigerbar i dialogen, tabellen och
+för flera markerade sulor.
 Importformatet ändras inte: befintliga `length.value` fyller fältet.
 **bᵧ** beskriver fördelningslängden under sulan och **L_su** dess totala längd.
 Måtten kan ändras oberoende; bᵧ ändrar inte den yttre lastresultanten.
@@ -617,7 +619,7 @@ rapport använder ekvivalenta laster per meter sula; dess modell och formfaktore
 
 Äldre projekt med angiven L_vägg får kryssrutan inställd efter längden och räknas om.
 Projekt utan känd linjestödslängd och nya manuella sulor använder **Minst 1 m**
-som standard; för glidning används då L_su som tidigare. Avmarkera och ange
+som standard; för glidning används alltid L_su vid linjelast. Avmarkera och ange
 L_vägg eller importera lasteffekten på nytt för att använda en kort stödslängd.
 Ett redan ifyllt L_su i ett äldre projekt bevaras vid första uppdateringen.
 
@@ -642,15 +644,18 @@ Under **Glidning** i respektive sulas indatadialog anges:
   parallella eller tvärgående sulor väljs manuellt. Funktionen kontrollerar
   inte att konstruktionen kan överföra krafterna till sulan.
 - **V_Ed,EQU:** färdig dimensionerande vertikal kontaktlast i EQU, **inklusive
-  sulans egentyngd**. Ange kN/m för väggsula och kN för pelarsula. Ingen
+  sulans egentyngd**. Ange kN/m vid linjelast och kN vid total last, även när
+  beräkningsmodellen är pelarsula. Linjelasten avser kontaktlast per meter sula. Ingen
   egentyngd eller lastfaktor tillkommer i glidningsberäkningen.
 - **μ_d:** färdig dimensionerande friktionskoefficient mellan sulan och
   underlaget. Ingen ytterligare partialkoefficient tillkommer.
 - **L_su:** väggsulans totala längd i m, separat från bᵧ och L_vägg.
   Det interna Python-fältnamnet `glid_L` behålls för kompatibilitet.
-  Längdfältet visas för väggsulor även innan en bidragsriktning har valts och
-  även med isolering. När L_vägg är angiven används den för lastomräkningen,
-  och L_su kan lämnas tomt utan att glidmotståndet blir ofullständigt.
+  Längdfältet visas vid linjelast, även med pelarsulemodell, innan en bidragsriktning
+  har valts och även med isolering. L_su krävs för aktiva oisolerade linjelastbidrag.
+  L_vägg och valet Minst 1 m påverkar inte glidmotståndet; de hör till den lokala
+  lastomräkningen i brott och bruk. Importen fyller initialt båda längderna med
+  linjestödslängden; en manuellt ändrad L_su bevaras vid senare lastimport.
 
 Markera **Endast H-stabilitet** under **Geometri** om sulan endast ska ingå
 i glidningskontrollen. Jordens bärighetskontroll och isoleringskontrollen
@@ -662,20 +667,19 @@ visas även innan den globala kontrollen har aktiverats; bidragsriktningarna
 väljs fortfarande manuellt. Vanliga sulor med isolering bidrar med 0 kN.
 Sulmåtten bₓ/bᵧ och **Egen längd** döljs i dialogen och kan inte redigeras i
 tabellen i detta läge. Tidigare mått behålls när läget växlas, men redovisas
-inte på etiketten. Linjestödslängden **L_vägg** under **Geometri** är fortfarande redigerbar
-i detta läge och används för att räkna om EQU-linjelasten till total kraft.
-Den lokala kryssrutan **Minst 1 m** döljs eftersom bärighet inte kontrolleras.
-Sulängden **L_su** under **Glidning** hålls separat.
+inte på etiketten. **L_vägg** och den lokala kryssrutan **Minst 1 m** döljs
+eftersom bärighet inte kontrolleras. Sulängden **L_su** under **Glidning**
+är redigerbar vid linjelast och bestämmer det globala bidraget.
 Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
 utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade
 sulor och visas i PDF- och HTML-exporterna.
 
 Motståndet för en vald riktning beräknas som
-`H_Rd,i = V_Ed,EQU × L_vägg × μ_d` för linjelaster, oavsett beräkningsmodell, och
+`H_Rd,i = V_Ed,EQU × L_su × μ_d` för linjelaster, oavsett beräkningsmodell, och
 `H_Rd,i = V_Ed,EQU × μ_d` för total last. **Sulor med isolering bidrar alltid
 med 0 kN**, oavsett tidigare glidningsindata. V och μ ska vara minst noll;
-linjestödslängden ska vara större än noll. EQU ska redan innehålla
-sulans egentyngd; varken bᵧ eller L_su multipliceras in en gång till.
+sulängden L_su ska vara större än noll. EQU ska redan innehålla
+sulans egentyngd; varken bᵧ eller L_vägg multipliceras in.
 
 Motstånden summeras för varje riktning över **vyns sulor**. Den flyttbara
 resultatrutan visar H_Ed, H_Rd, `U = |H_Ed| / H_Rd` och antal sulor med positivt
@@ -684,16 +688,16 @@ hos en vald sula gör kontrollen **Ofullständig**; ett delmotstånd redovisas d
 inte som ett komplett resultat. En tom horisontallast tolkas inte som noll.
 Resultaten uppdateras direkt när indata ändras, utan en separat beräkningsknapp.
 
-På etiketten visas **Glidmotstånd – globalt** med V_Ed,EQU, L_su och angiven L_vägg till vänster
+På etiketten visas **Glidmotstånd – globalt** med V_Ed,EQU och L_su till vänster
 och valda Hₓ,Rd,i/Hᵧ,Rd,i till höger, i samma format för vanliga sulor och
 **Endast H-stabilitet**. Blocket visas oberoende av den globala knappens läge.
 Glidningsblocket döljs på isolerade sulor
 och sulor som inte bidrar i någon riktning. Etikettens färg och översta U avser
 fortfarande jordens/isoleringens kontroll, medan resultatrutans färger avser
 den globala glidningen. Ändring av glidningsindata gör inte jordresultatet inaktuellt.
-L_su visas endast i glidmotståndsblocket för oisolerade väggsulor med en vald
+L_su visas endast i glidmotståndsblocket för oisolerade linjelastsulor med en vald
 bidragsriktning. Den upprepas inte på den övre måttraden. Detta gäller också
-PDF och resultat-HTML.
+PDF och resultat-HTML. L_vägg redovisas inte i glidmotståndsblocket.
 
 Dra koordinatsymbolen för att flytta den. Klicka på den för att visa ramen
 och dra hörnhandtaget för proportionell storleksändring. Piltangenter flyttar
@@ -817,10 +821,9 @@ bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjan
 Valet **Minst 1 m** sparas med sulan och stöds i tabellen, flerredigering och
 resultat-HTML. Äldre projekt med angiven L_vägg får valet automatiskt utifrån
 längden vid öppning; tidigare långväggars lokala kontroll rättas till 1 m.
-Saknad L_vägg använder Minst 1 m som standard. Glidningen behåller tidigare
-L_su-konvention tills faktisk linjestödslängd finns. Hela L_vägg visas i
-glidningsblocket på etiketten och används alltid där, även om den lokala
-kontrollen använder 1 m.
+Saknad L_vägg använder Minst 1 m som standard. Glidningen använder alltid
+L_su vid linjelast, oberoende av L_vägg och den lokala längdfaktorn.
+Glidningsblocket visar L_su; L_vägg hör till den lokala brott-/brukberäkningen.
 
 Isoleringen förutsätts täcka hela den effektiva arean. Kontrollen gäller
 trycket över effektiv area, inte maximalt kanttryck. Den beräknar inte

@@ -80,7 +80,7 @@ _COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 _BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "lasttyp"}
 _BULK_LOAD_FIELDS = {"V_Ed_EQU", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b",
-                     "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "L_vagg"}
+                     "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "L_vagg", "glid_L"}
 
 
 def _number(value, name):
@@ -420,7 +420,7 @@ def _calculate(values):
             "Laster och moment per meter linjestöd multipliceras med 1 m när Minst 1 m är aktiverad, "
             "annars med angiven kort L_vägg. b_y anger fördelningslängden under sulan och ändrar inte "
             "den yttre lastresultanten. För den befintliga väggsulemodellens API divideras resultantlasterna "
-            "med b_y. Egentyngden baseras på sulans geometri. Hela angivna L_vägg används separat för EQU och glidning. "
+            "med b_y. Egentyngden baseras på sulans geometri. Global glidning använder separat V_Ed,EQU och L_su. "
             "Grundplans sammanfattning och areaskiss visar totala krafter och moment; "
             "den gemensamma beräkningsmotorns rapport använder ekvivalenta värden per meter sula."
         )})
@@ -887,8 +887,8 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Välj enbart väggsulor eller enbart pelarsulor för att ändra last- och längdfält.")
         if len(load_types) > 1 and set(indata) & _BULK_LOAD_FIELDS and not (types == {0} and "lasttyp" in indata):
             raise ValueError("Välj samma lasttyp för att ändra last- och linjestödslängdfält gemensamt.")
-        if types == {0} and "glid_L" in indata:
-            raise ValueError("Sulängden L_su gäller endast väggsulor.")
+        if "glid_L" in indata and load_types == {False} and indata.get("lasttyp") != 1:
+            raise ValueError("Sulängden L_su gäller endast linjelaster.")
         if "L_vagg" in indata and load_types == {False} and indata.get("lasttyp") != 1:
             raise ValueError("Linjestödslängden L_vägg gäller endast linjelaster.")
         if types == {0} and "L_vagg_minst_1" in indata:

@@ -62,6 +62,28 @@ class TestSliding(unittest.TestCase):
         copied = self.plan.kopiera(wall, .5, .6)
         self.assertEqual(self.plan._tag(copied)["values"]["glid_L"], 3)
 
+    def test_wall_length_and_local_one_metre_toggle_do_not_change_global_resistance(self):
+        wall = self.add(L_vagg=.6, L_vagg_minst_1=False, glid_L=2.5,
+                        V_Ed_EQU=200, glid_mu=.6)
+        self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 300)
+        for local in ({"L_vagg": .4}, {"L_vagg": 5}, {"L_vagg_minst_1": True},
+                      {"l_override": True, "l": 3}, {"L_vagg": None}):
+            self.plan.uppdatera(wall, indata=local)
+            self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 300)
+            self.assertEqual(self.plan.glidningsresultat["y"]["H_Rd"], 300)
+        self.plan.uppdatera(wall, indata={"glid_L": 4})
+        self.assertEqual(self.plan.glidningsresultat["x"]["H_Rd"], 480)
+
+    def test_wall_length_cannot_replace_missing_footing_length_in_any_line_model(self):
+        ident = self.add(L_vagg=5)
+        for model in (1, 0):
+            for length in (None, 0, -1):
+                self.plan.uppdatera(ident, indata={"lang": model, "lasttyp": 1, "glid_L": length})
+                self.assertEqual(self.plan.taggar[0]["sliding"]["status"], "incomplete")
+                self.assertIsNone(self.plan.glidningsresultat["x"]["H_Rd"])
+        self.plan.uppdatera(ident, indata={"glid_L": 3})
+        self.assertEqual(self.plan.taggar[0]["sliding"]["x"], 144)
+
     def test_missing_invalid_inputs_never_produce_a_pass_or_partial_total(self):
         self.add()
         bad = self.add(glid_y=False)

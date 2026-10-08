@@ -73,24 +73,18 @@ def contribution(values):
         return {**result, "status": "insulated"}
     if not any(selected.values()):
         return result
-    support_length = values.get("L_vagg")
-    # Missing support length means the legacy per-metre footing input. Never
-    # infer a support length from an independently edited footing length.
-    length_name = "L_vagg" if support_length is not None else "glid_L"
-    names = ["V_Ed_EQU", "glid_mu"] + ([length_name] if line_loads(values) else [])
-    if line_loads(values) and values["lang"] == 0 and support_length is None:
-        # A finite pad model with line input needs the actual support length.
-        # The unrelated footing length must not stand in for a missing wall.
-        names[-1] = length_name = "L_vagg"
+    # EQU is a contact load per metre of footing for line inputs. Its global
+    # contribution uses the full footing length, independently of the wall
+    # length used to convert Brott/Bruk actions in the local bearing check.
+    names = ["V_Ed_EQU", "glid_mu"] + (["glid_L"] if line_loads(values) else [])
     for name in names:
         value = values.get(name)
-        if not _finite(value) or value < 0 or (name in ("glid_L", "L_vagg") and value == 0):
-            caption = ("Längd linjestöd alt. längd ovanliggande vägg" if name == "L_vagg"
-                       else next(field["label"] for field in FIELDS if field["name"] == name))
+        if not _finite(value) or value < 0 or (name == "glid_L" and value == 0):
+            caption = next(field["label"] for field in FIELDS if field["name"] == name)
             return {**result, "status": "incomplete", "capacity": None,
                     **{axis: None if selected[axis] else 0 for axis in selected},
                     "error": "Kontrollera " + caption.lower() + "."}
-    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values[length_name] if line_loads(values) else 1)
+    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values["glid_L"] if line_loads(values) else 1)
     if not math.isfinite(capacity):
         return {**result, "status": "incomplete", "capacity": None,
                 **{axis: None if selected[axis] else 0 for axis in selected},

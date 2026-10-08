@@ -1835,10 +1835,12 @@ test("gliding inputs follow load basis and edits hide old resistance without inv
   ui.changed(); ui.ack(edit);
   assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "192 kN");
   ui.field("lang").value = 0; ui.field("lang").dispatch("input");
-  assert.equal(ui.field("glid_L").parent.hidden, true);
-  assert.equal(ui.field("glid_L").disabled, true);
+  assert.equal(ui.field("glid_L").parent.hidden, false, "A wall checked as a pad still has line EQU input");
+  assert.equal(ui.field("glid_L").disabled, false);
   assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN/m");
   ui.field("lasttyp").value = 0; ui.field("lasttyp").dispatch("input");
+  assert.equal(ui.field("glid_L").parent.hidden, true);
+  assert.equal(ui.field("glid_L").disabled, true);
   assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN");
   ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("glid_x").disabled, true);
@@ -3505,18 +3507,19 @@ for (const readOnly of [false, true]) test(`support length has independent geome
   assert.equal(row.hidden, false);
   assert.equal(row.parent.children[0].textContent, "Geometri");
   assert.match(elementText(ui.byClass("gp-basis")), /Lvägg/);
-  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu3 mLvägg0,6 m/);
+  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu3 m/);
+  assert.doesNotMatch(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lvägg/);
   if (!readOnly) {
     assert.equal(ui.field("L_vagg").required, true);
-    assert.equal(ui.field("glid_L").required, false, "Known support length determines the EQU total");
+    assert.equal(ui.field("glid_L").required, true, "Sliding requires its own footing length even with known wall length");
     ui.field("L_vagg").value = "0,4"; ui.field("L_vagg").dispatch("input");
     assert.equal(ui.sent.at(-1).values.L_vagg, .4);
     assert.equal(ui.sent.at(-1).values.glid_L, 3);
     assert.equal(ui.field("glid_L").value, "3");
-    ui.tag.values.endast_h_stabilitet = true;
-    ui.changed(); ui.ack(ui.sent.at(-1));
-    assert.equal(ui.field("L_vagg").parent.hidden, false, "Support length is also needed for H-only");
-    assert.equal(ui.field("L_vagg").disabled, false);
+    ui.field("endast_h_stabilitet").checked = true;
+    ui.field("endast_h_stabilitet").dispatch("input");
+    assert.equal(ui.field("L_vagg").parent.hidden, true, "H-only does not use the local wall length");
+    assert.equal(ui.field("L_vagg").disabled, true);
   }
 });
 
@@ -3544,7 +3547,8 @@ for (const readOnly of [false, true]) test(`long support uses compact local chec
   Object.assign(ui.tag.values, {L_vagg: 5, L_vagg_minst_1: true, glid_L: 7});
   ui.changed(); ui.marker().click();
   assert.match(elementText(ui.byClass("gp-basis")), /1 m \(Minst 1 m\)/);
-  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu7 mLvägg5 m/);
+  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu7 m/);
+  assert.doesNotMatch(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lvägg/);
   if (readOnly) {
     assert.equal(resultTableValue(ui, "tag1", "L_vagg").textContent, "1");
     assert.equal(resultTableValue(ui, "tag1", "L_vagg_minst_1").textContent, "Ja");
@@ -3605,16 +3609,20 @@ test("local minimum can be changed for selected table rows and bulk short length
   assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false, L_vagg: .4});
 });
 
-test("H-only exposes the full support length and hides the local minimum checkbox", t => {
+test("H-only hides local wall length and exposes the independent sliding length", t => {
   const ui = setup(t);
-  Object.assign(ui.tag.values, {endast_h_stabilitet: true, L_vagg: 5, L_vagg_minst_1: true});
+  Object.assign(ui.tag.values, {endast_h_stabilitet: true, L_vagg: 5, L_vagg_minst_1: true, glid_L: 3});
   ui.changed(); ui.marker().click();
   assert.equal(ui.field("L_vagg_minst_1").parent.hidden, true);
-  assert.equal(ui.field("L_vagg").hidden, false);
-  assert.equal(ui.field("L_vagg").disabled, false);
+  assert.equal(ui.field("L_vagg").parent.hidden, true);
+  assert.equal(ui.field("L_vagg").disabled, true);
   assert.equal(ui.field("L_vagg").value, "5");
   assert.equal(tableField(ui, "tag1", "L_vagg").value, "5");
+  assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
   assert.equal(tableField(ui, "tag1", "L_vagg_minst_1").disabled, true);
+  assert.equal(ui.field("glid_L").parent.hidden, false);
+  assert.equal(ui.field("glid_L").disabled, false);
+  assert.equal(ui.field("glid_L").value, "3");
 });
 
 test("support length sorting uses the local displayed length and leaves pads without a value", t => {
@@ -3849,8 +3857,31 @@ test('line pad import updates discard old load and length drafts but retain chos
   assert.equal(ui.sent.at(-1).values.b, 1.23);
 });
 
+for (const readOnly of [false, true]) test(`line pad exposes Lsu for sliding independently of local Lwall (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  slidingFixture(ui);
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: .6, glid_L: 3});
+  ui.changed(); ui.marker().click();
+  const text = elementText(ui.byClass('gp-tag-sliding-inputs'));
+  assert.match(text, /Lsu3 m/);
+  assert.doesNotMatch(text, /Lvägg/);
+  if (readOnly) {
+    assert.equal(resultTableValue(ui, 'tag1', 'glid_L').textContent, '3');
+  } else {
+    assert.equal(ui.field('glid_L').parent.hidden, false);
+    assert.equal(ui.field('glid_L').required, true);
+    assert.equal(tableField(ui, 'tag1', 'glid_L').disabled, false);
+    ui.field('glid_L').value = '4'; ui.field('glid_L').dispatch('input');
+    assert.equal(ui.sent.at(-1).values.glid_L, 4);
+    assert.equal(ui.sent.at(-1).values.L_vagg, .6);
+    assert.equal(ui.byClass('gp-tag-sliding-capacities').children[1].textContent, '—');
+    assert.match(ui.marker().className, /gp-tag-ok/, 'Sliding edits preserve the local bearing result');
+  }
+});
+
 test('mixed load units block joint loads while allowing geometry and an explicit common load basis', t => {
   const ui = setup(t);
+  slidingFixture(ui);
   Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: .6});
   const other = structuredClone(ui.tag); other.id = 'tag2'; other.label = 'PS2'; other.values.lasttyp = 0;
   ui.data.state.tags.push(other); ui.changed();
@@ -3860,12 +3891,15 @@ test('mixed load units block joint loads while allowing geometry and an explicit
   assert.equal(tableField(ui, 'tag1', 'lasttyp').disabled, false);
   ui.byText('Ändra markerade').click();
   assert.equal(ui.field('bulk_F_vy').disabled, true);
+  assert.equal(ui.field('bulk_glid_L').disabled, true);
   ui.field('bulk_lasttyp').value = '1'; ui.field('bulk_lasttyp').dispatch('change');
   assert.equal(ui.field('bulk_F_vy').disabled, false);
   assert.equal(ui.field('bulk_L_vagg').disabled, false);
+  assert.equal(ui.field('bulk_glid_L').disabled, false);
   ui.field('bulk_L_vagg').value = '2,4'; ui.field('bulk_L_vagg').dispatch('input');
+  ui.field('bulk_glid_L').value = '3'; ui.field('bulk_glid_L').dispatch('input');
   ui.byText('Tillämpa').click();
-  assert.deepEqual(ui.sent.at(-1).values, {lasttyp: 1, L_vagg: 2.4});
+  assert.deepEqual(ui.sent.at(-1).values, {lasttyp: 1, L_vagg: 2.4, glid_L: 3});
 });
 
 test('load colour intervals use input units rather than the bearing model', t => {
