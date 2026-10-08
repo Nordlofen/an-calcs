@@ -31,6 +31,21 @@ def encode(doc):
     return json.dumps(doc).encode()
 
 
+def document_v2():
+    data = document()
+    data["schemaVersion"] = 2
+    for support in data["supports"]:
+        for result in support["results"][:2]:
+            result["source"] = {
+                "kind": "maximumOfLoadCombinations",
+                "group": "U" if result["category"] == "Brott" else "Sq",
+                "extremum": "-",
+                **({"aggregation": "meanEnvelope", "loadCombinations": ["X+", "Y-", "Vind Y-"]}
+                   if support["type"] == "line" else {"loadCombination": "X+"}),
+            }
+    return data
+
+
 class TestLoadParser(unittest.TestCase):
     def test_maps_categories_types_and_length_without_multiplying_or_reading_model(self):
         data = document()
@@ -41,6 +56,39 @@ class TestLoadParser(unittest.TestCase):
             {"label": "P1", "kind": "pelarsula", "values": {"lasttyp": 0, "F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
         self.assertEqual(data, before)
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
+
+    def test_version_two_envelope_metadata_preserves_actions_units_signs_and_lengths(self):
+        data = document_v2()
+        short = copy.deepcopy(data["supports"][0])
+        short["supportId"] = "W2"
+        short["length"]["value"] = .6
+        short["results"][0]["V"] = -10.5
+        short["results"][1]["V"] = 0
+        short["results"][0]["source"]["loadCombination"] = "X+"
+        data["supports"].append(short)
+        before = copy.deepcopy(data)
+        legacy = copy.deepcopy(data)
+        legacy["schemaVersion"] = 1
+        for support in legacy["supports"]:
+            for result in support["results"]:
+                result["source"] = {"kind": "loadCombination", "loadCombination": "1"}
+        items = read_loads(encode(data))
+        self.assertEqual(items, read_loads(encode(legacy)))
+        self.assertEqual(items[0]["values"]["F_vy"], 80)
+        self.assertEqual(items[0]["values"]["glid_L"], 6.2)
+        self.assertTrue(items[0]["values"]["L_vagg_minst_1"])
+        self.assertEqual(items[1]["values"], {"lasttyp": 0, "F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60})
+        self.assertEqual(items[2]["values"], {"lasttyp": 1, "F_vy": -10.5, "F_vy_bruk": 0,
+            "V_Ed_EQU": 30, "glid_L": .6, "L_vagg": .6, "L_vagg_minst_1": False})
+        self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
+        self.assertEqual(data, before)
+
+    def test_unsupported_or_non_integer_schema_versions_are_rejected(self):
+        for version in (None, True, False, 0, 3, "2", 2.0):
+            data = document()
+            data["schemaVersion"] = version
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "schemaVersion 1 eller 2"):
+                read_loads(encode(data))
 
     def test_order_zero_negative_signs_and_shuffled_categories_are_preserved(self):
         data = document()
@@ -61,7 +109,6 @@ class TestLoadParser(unittest.TestCase):
             target[field[-1]] = value
             return data
         cases = [
-            invalid(["schemaVersion"], True), invalid(["schemaVersion"], 2),
             invalid(["supports"], []), invalid(["supports", 0, "type"], "area"),
             invalid(["supports", 0, "supportId"], ""), invalid(["supports", 1, "supportId"], " W1 "),
             invalid(["supports", 0, "length", "value"], 0),
@@ -76,8 +123,10 @@ class TestLoadParser(unittest.TestCase):
             invalid(["supports", 1, "results", 0, "V"], "120"),
             invalid(["supports", 1, "results", 0, "V"], float("inf"))]
         for data in cases:
-            with self.subTest(data=data), self.assertRaises(ValueError):
-                read_loads(encode(data))
+            for version in (1, 2):
+                data["schemaVersion"] = version
+                with self.subTest(version=version, data=data), self.assertRaises(ValueError):
+                    read_loads(encode(data))
         for raw in (b"bad json", b"\xff", b"[]", b'{"schemaVersion":1,"schemaVersion":1}', b""):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 read_loads(raw)
@@ -107,6 +156,35 @@ class TestLoadPlacement(unittest.TestCase):
     def place_both(self):
         self.plan.importera_lasteffekt(self.file)
         return self.plan.placera_lasteffekt(.2, .3), self.plan.placera_lasteffekt(.6, .7)
+
+    def test_both_versions_can_place_and_update_the_same_project(self):
+        self.file.write_bytes(encode(document_v2()))
+        wall, pad = self.place_both()
+        self.plan.uppdatera(wall, indata={"lang": 0, "b": .9, "l": 1.3, "glid_L": 8})
+        self.plan.uppdatera(pad, indata={"b": 1.8, "l": 2.1})
+        for factory, extra_load in ((document, 10), (document_v2, 20)):
+            data = factory()
+            data["supports"][0]["length"]["value"] = .6
+            for support in data["supports"]:
+                for result in support["results"]:
+                    result["V"] += extra_load
+            before = self.plan.taggar
+            self.file.write_bytes(encode(data))
+            self.assertIsNone(self.plan.importera_lasteffekt(self.file))
+            for tag, original in zip(self.plan.taggar, before):
+                for name in ("id", "label", "x", "y", "page"):
+                    self.assertEqual(tag[name], original[name])
+                for name in ("lang", "lasttyp", "b", "l"):
+                    self.assertEqual(tag["values"][name], original["values"][name])
+                self.assertEqual(tag["status"], "calculated")
+            wall_tag, pad_tag = self.plan._tag(wall), self.plan._tag(pad)
+            self.assertEqual(wall_tag["values"]["F_vy"], 80 + extra_load)
+            self.assertEqual(wall_tag["values"]["V_Ed_EQU"], 30 + extra_load)
+            self.assertEqual(wall_tag["values"]["L_vagg"], .6)
+            self.assertFalse(wall_tag["values"]["L_vagg_minst_1"])
+            self.assertEqual(wall_tag["values"]["glid_L"], 8)
+            self.assertAlmostEqual(wall_tag["summary"]["load_conversion"]["brott"], (80 + extra_load) * .6)
+            self.assertEqual(pad_tag["values"]["F_vy"], 120 + extra_load)
 
     def test_updates_matches_preserving_inputs_placement_and_ids_and_queues_only_new_supports(self):
         wall, pad = self.place_both()

@@ -136,7 +136,7 @@ till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 ## Importera lasteffekter
 
 Öppna först ritningen. Tryck **Importera/Uppdatera lasteffekt** och välj en JSON-fil
-med `schemaVersion: 1` och listan `supports`. Hela filen kontrolleras innan
+med `schemaVersion: 1` eller `schemaVersion: 2` och listan `supports`. Hela filen kontrolleras innan
 några sulor ändras eller placeringen startar. Filen får vara högst 5 MB.
 Littera (`supportId`) måste vara unika i filen. För befintliga sulor matchas
 support-ID mot littera i den aktuella vyn. Matchningen är skiftlägeskänslig.
@@ -185,6 +185,10 @@ inte den yttre lastresultanten.** Hela importerade längden sparas även när
 det numeriska fältet döljs, och används separat för total EQU-last vid glidning.
 Ingen ytterligare längdfaktor läggs på importerade punktlaster. Metadata som `model` och `source`
 används inte som sökvägar eller beräkningsindata.
+Version 2 kan beskriva flera lastkombinationer och `meanEnvelope` i `source`.
+Importen använder det färdiga `V`-värdet för respektive lastkategori, utan att
+räkna om enveloppen eller ändra tecknet utifrån `source.extremum`.
+De båda filversionerna kan användas för att skapa och uppdatera sulor i samma projekt.
 
 Nya sulor får övriga startvärden från Grundplan och beräknas automatiskt vid placering.
 Kontrollera geometri, jord, isolering och glidningsinställningar efter

@@ -67,7 +67,7 @@ def _number(value, caption):
 
 
 def read_loads(data, *, existing_labels=(), available=1000):
-    """Validate all supports; existing labels are update targets, not new slots."""
+    """Read v1/v2 actions; source metadata never changes exported load values."""
     if not data or len(data) > MAX_BYTES:
         raise ValueError("Lasteffektfilen måste vara mellan 1 byte och 5 MB.")
     try:
@@ -75,8 +75,8 @@ def read_loads(data, *, existing_labels=(), available=1000):
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("Välj en giltig JSON-fil med lasteffekter.") from exc
     if (not isinstance(document, dict) or type(document.get("schemaVersion")) is not int
-            or document["schemaVersion"] != 1):
-        raise ValueError("Lasteffektfilen måste ha schemaVersion 1.")
+            or document["schemaVersion"] not in (1, 2)):
+        raise ValueError("Lasteffektfilen måste ha schemaVersion 1 eller 2.")
     supports = document.get("supports")
     if not isinstance(supports, list) or not supports:
         raise ValueError("Lasteffektfilen måste innehålla en lista supports med minst ett stöd.")
