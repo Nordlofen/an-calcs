@@ -79,6 +79,56 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertEqual(groups[third]["style_index"], 2)
         self.assertEqual(restored.farggruppering["styles"]["t"][original[second]["key"]], 1)
 
+    def test_changed_load_intervals_reclaim_retired_colours_before_patterns(self):
+        tags = [{"id": "w" + str(i), "values": {"lang": 1, "V_Ed_EQU": value}}
+                for i, value in enumerate((150, 250, 350, 450, 550, 650, 750, 850))]
+        tags += [{"id": "p" + str(i), "values": {"lang": 0, "V_Ed_EQU": value}}
+                 for i, value in enumerate((250, 600))]
+        settings = validate_settings({"category": "V", "phase": "EQU",
+            "bounds": {"pad": [200, 400], "wall": [200, 300, 400, 500, 600, 700, 800]}})
+        keys = [group["key"] for group in group_data(tags, settings)["groups"] if group["count"]]
+        settings["styles"] = {"V:EQU": {**{"retired-" + str(i): i for i in range(6)},
+                                         **{key: i + 6 for i, key in enumerate(keys)}}}
+        settings["colors"][keys[-1]] = "#123456"
+        saved = remember_styles(tags, settings)
+        validate_settings(saved)
+        groups = [group for group in group_data(tags, saved)["groups"] if group["count"]]
+        self.assertEqual(len(groups), 10)
+        self.assertTrue(all(group["pattern"] == "plain" for group in groups))
+        self.assertEqual(len({group["style_index"] for group in groups}), 10)
+        self.assertEqual([group["style_index"] for group in groups[:6]], list(range(6, 12)))
+        self.assertEqual(groups[-1]["color"], "#123456")
+        self.assertNotIn("retired-0", saved["styles"]["V:EQU"])
+
+    def test_shrinking_and_returning_groups_use_twelve_plain_styles_before_each_pattern_batch(self):
+        tags = [{"id": str(i), "values": {"t": i + 1}} for i in range(30)]
+        settings = remember_styles(tags, validate_settings({}))
+        for count in (12, 13, 10, 24, 25, 30):
+            active = tags[-count:]
+            settings = remember_styles(active, settings)
+            validate_settings(settings)
+            groups = group_data(active, settings)["groups"]
+            self.assertEqual(len({group["style_index"] for group in groups}), count)
+            self.assertEqual(sum(group["pattern"] == "plain" for group in groups), min(count, 12))
+            self.assertEqual(sum(group["pattern"] == "bands" for group in groups), min(max(count - 12, 0), 12))
+            self.assertEqual(sum(group["pattern"] == "dots" for group in groups), max(count - 24, 0))
+        settings = remember_styles(tags[-12:], settings)
+        for tag in tags[-12:]:
+            self.add(**tag["values"])
+        self.plan.farggruppering = {**settings, "enabled": True}
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "reclaimed-colours.json"))
+        self.addCleanup(restored.close)
+        self.assertEqual(group_data(tags[-12:], restored.farggruppering), group_data(tags[-12:], settings))
+
+    def test_saved_later_pattern_families_cannot_skip_the_first_pattern_batch(self):
+        tags = [{"id": str(i), "values": {"t": i + 1}} for i in range(13)]
+        settings = validate_settings({})
+        keys = [group["key"] for group in group_data(tags, settings)["groups"]]
+        settings["styles"] = {"t": {key: i + 24 for i, key in enumerate(keys)}}
+        groups = group_data(tags, settings)["groups"]
+        self.assertEqual(sum(group["pattern"] == "plain" for group in groups), 12)
+        self.assertEqual(groups[-1]["pattern"], "bands")
+
     def test_patterned_export_keeps_widgets_and_labels_as_vectors(self):
         from reportlab.pdfgen.canvas import Canvas
         source = self.folder / "vector.pdf"
@@ -457,6 +507,14 @@ class TestGrundplanColour(unittest.TestCase):
                   for count in range(1, 6) for selected in combinations(("t", "b", "l", "V", "isolering"), count)
                   for phase in ("brott", "bruk", "EQU")]
         cases += [remember_styles(self.plan.taggar[::-1], settings) for settings in cases[:15]]
+        # Old intervals and group deletions can leave sparse historic indices.
+        for settings in cases[:15]:
+            groups = group_data(self.plan.taggar, settings)["groups"]
+            keys = [group["key"] for group in groups if group["count"] and group["kind"] != "special"]
+            scope = "+".join(settings.get("categories") or [settings["category"]]) + (
+                ":" + settings["phase"] if settings["category"] == "V" else "")
+            cases.append({**settings, "styles": {scope: {**{"retired-" + str(i): i for i in range(12)},
+                                                       **{key: i + 24 for i, key in enumerate(keys)}}}})
         cases += [{**settings, "include_only_h": True} for settings in cases]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';

@@ -42,17 +42,30 @@ const colourBackground = color => {
 const colourStyleScope = settings => selectedColourCategories(settings).join("+")
   + (selectedColourCategories(settings).includes("V") ? ":" + settings.phase : "");
 function decorateColourGroups(groups, settings) {
-  const mapping = {...settings.styles?.[colourStyleScope(settings)]}, used = new Set(Object.values(mapping));
-  let nextIndex = 0;
+  const saved = settings.styles?.[colourStyleScope(settings)] || {};
+  let active = groups.filter(group => group.count && group.kind !== "special");
+  const mapping = {};
+  let start = 0;
+  while (active.length) {
+    const end = start + COLOUR_PALETTE.length;
+    const retained = Object.fromEntries(active.filter(group => saved[group.key] != null && saved[group.key] >= start && saved[group.key] < end)
+      .map(group => [group.key, saved[group.key]]));
+    Object.assign(mapping, retained);
+    const used = new Set(Object.values(retained));
+    const pending = active.filter(group => mapping[group.key] == null);
+    let nextIndex = start;
+    for (const group of pending.slice(0, Math.min(active.length, COLOUR_PALETTE.length) - used.size)) {
+      while (used.has(nextIndex)) nextIndex++;
+      mapping[group.key] = nextIndex; used.add(nextIndex);
+    }
+    active = pending.filter(group => mapping[group.key] == null);
+    start = end;
+  }
   for (const group of groups) {
     let index = null, color;
     if (group.kind === "special") color = settings.colors[group.key] || "#d5dde1";
     else {
       index = mapping[group.key] ?? null;
-      if (index === null && group.count) {
-        while (used.has(nextIndex)) nextIndex++;
-        index = nextIndex; mapping[group.key] = index; used.add(index);
-      }
       color = settings.colors[group.key] || (index === null ? "#d5dde1" : colourPalette(index));
     }
     const batch = Math.floor((index ?? 0) / COLOUR_PALETTE.length);

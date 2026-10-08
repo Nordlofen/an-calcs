@@ -2995,6 +2995,32 @@ for (const readOnly of [false, true]) test(`Set3 and patterns agree across label
   assert.equal(ui.byClass("gp-colour-legend").hidden, true);
   assert.deepEqual(ui.data.state.tags, before);
 });
+for (const readOnly of [false, true]) test(`retired groups cannot trigger patterns before twelve current colours (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  const tags = Array.from({length: 25}, (_, i) => ({...structuredClone(ui.tag), id: String(i), label: `VS.${i + 1}`,
+    values: {...ui.tag.values, t: .2 + i * .01, kommentar: `Kommentar ${i + 1}`}}));
+  const keys = colourGroups(tags, defaultColour).groups.map(group => group.key);
+  const styles = {t: Object.fromEntries([
+    ...Array.from({length: 6}, (_, i) => [`retired-${i}`, i]), ...keys.map((key, i) => [key, i + 6])])};
+  ui.data.state.comment_widget = {enabled: true, x: .05, y: .6, size: 410};
+  colourFixture(ui, {styles});
+  for (const count of [12, 13, 25, 10]) {
+    ui.data.state.tags = count === 10 ? tags.slice(-10) : tags.slice(0, count);
+    ui.model.get('state').tags = ui.data.state.tags; ui.changed();
+    const markers = ui.elements().filter(e => e.className.split(' ').includes('gp-tag'));
+    const swatches = ui.elements().filter(e => e.className === 'gp-colour-swatch');
+    const badges = ui.elements().filter(e => e.className === 'gp-comment-label');
+    assert.equal(markers.length, count);
+    const plain = markers.filter(e => e.dataset.pattern === 'plain');
+    assert.equal(plain.length, Math.min(count, 12));
+    assert.equal(new Set(plain.map(e => e.style['--gp-tag-bg'])).size, plain.length);
+    assert.equal(markers.filter(e => e.dataset.pattern === 'bands').length, Math.min(Math.max(count - 12, 0), 12));
+    assert.equal(markers.filter(e => e.dataset.pattern === 'dots').length, Math.max(count - 24, 0));
+    assert.deepEqual(swatches.map(e => e.dataset.pattern), markers.map(e => e.dataset.pattern));
+    assert.deepEqual(badges.map(e => e.dataset.pattern), markers.map(e => e.dataset.pattern));
+  }
+});
+
 function colourFixture(ui, changes = {}) {
   ui.data.state.colour_grouping = {...structuredClone(defaultColour), enabled: true, ...changes};
   if (changes.categories) {

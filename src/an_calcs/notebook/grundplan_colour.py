@@ -118,23 +118,33 @@ def style_scope(settings):
 
 
 def _decorate(groups, settings):
-    # Empty intervals and neutral groups never reserve a colour. Existing mappings
-    # survive disappeared groups so edits cannot silently recolour other footings.
-    mapping = dict(settings.get("styles", {}).get(style_scope(settings), {}))
-    used = set(mapping.values())
-    next_index = 0
+    # Only occupied groups in the current view consume styles. Keep their plain
+    # colours where possible, then fill all 12 plain slots before using patterns.
+    saved = settings.get("styles", {}).get(style_scope(settings), {})
+    active = [group for group in groups if group["count"] and group["kind"] != "special"]
+    mapping = {}
+    start = 0
+    while active:
+        end = start + len(PALETTE)
+        retained = {group["key"]: saved[group["key"]] for group in active
+                    if group["key"] in saved and start <= saved[group["key"]] < end}
+        mapping.update(retained)
+        used = set(retained.values())
+        pending = [group for group in active if group["key"] not in mapping]
+        next_index = start
+        for group in pending[:min(len(active), len(PALETTE)) - len(retained)]:
+            while next_index in used:
+                next_index += 1
+            mapping[group["key"]] = next_index
+            used.add(next_index)
+        active = [group for group in pending if group["key"] not in mapping]
+        start = end
     for group in groups:
         if group["kind"] == "special":
             index = None
             color = settings["colors"].get(group["key"], "#d5dde1")
         else:
             index = mapping.get(group["key"])
-            if index is None and group["count"]:
-                while next_index in used:
-                    next_index += 1
-                index = next_index
-                mapping[group["key"]] = index
-                used.add(index)
             color = settings["colors"].get(group["key"], palette_color(index) if index is not None else "#d5dde1")
         batch = (index or 0) // len(PALETTE)
         group.update(color=color, background=background_color(color), style_index=index,
@@ -143,12 +153,15 @@ def _decorate(groups, settings):
 
 
 def remember_styles(tags, settings):
-    """Return settings with newly occupied groups registered for project persistence."""
+    """Persist active styles and retain history only while its slots remain free."""
     result = copy.deepcopy(settings)
-    mapping = result["styles"].setdefault(style_scope(settings), {})
-    for group in group_data(tags, settings)["groups"]:
-        if group["count"] and group["style_index"] is not None:
-            mapping[group["key"]] = group["style_index"]
+    scope = style_scope(settings)
+    active = {group["key"]: group["style_index"] for group in group_data(tags, settings)["groups"]
+              if group["count"] and group["style_index"] is not None}
+    used = set(active.values())
+    mapping = {key: index for key, index in result["styles"].get(scope, {}).items()
+               if key not in active and index not in used}
+    result["styles"][scope] = {**mapping, **active}
     return result
 
 

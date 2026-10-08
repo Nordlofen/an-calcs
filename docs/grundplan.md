@@ -492,8 +492,11 @@ visar samma färg och mönstertyp. PDF-exporten behåller dem som vektorer.
 
 Tomma intervall och den neutrala gruppen **Saknar värde** tar inga färgplatser.
 Automatiska markeringar sparas separat för varje kategorikombination och lastfall.
-En grupp behåller därför sin markering vid redigering, byte av gruppering och återöppning.
-Även en tillfälligt tom grupp behåller sin tilldelning; nya grupper får nästa lediga plats.
+Aktuella gruppers färger behålls där det går vid redigering, byte av gruppering och återöppning.
+Grupper som försvunnit eller blivit tomma reserverar inga färgplatser. Nya grupper
+använder lediga grundfärger först. Finns högst tolv upptagna grupper används inga
+mönster, även om sparade tilldelningar tidigare hade skraffering. Vid fler grupper
+används alla tolv grundfärger innan nästa uppsättning får mönster.
 Tomma grupper som ännu inte tilldelats en färg visas neutralt bland färgvalen.
 Egna sparade färgval behålls och kan fortfarande ändras med färgväljaren.
 
@@ -513,9 +516,9 @@ pelarsulor ingår. Sulor med **Endast H-stabilitet** ingår när **Endast H** ä
 markerad och grupperas som utan isolering med sina valda riktningar.
 X_g och Y_g kontrolleras som separata lastfall.
 Legenden visar endast grupper med minst en sula och uppdateras när indata
-eller sulor ändras. Tomma grupper döljs även i HTML och PDF. Alla grupper
-behåller sina färgval i inställningarna, så att en grupp som åter får sulor
-visas med samma färg.
+eller sulor ändras. Tomma grupper döljs även i HTML och PDF. Egna färgval
+behålls i inställningarna, så att en grupp som åter får sulor visas med
+samma manuellt valda färg.
 Färgvalen sparas och exporteras på samma sätt som övriga färgkategorier.
 Äldre färgval för med isolering och utan isolering behålls för första
 respektive andra gruppen. Utan isolering visas valda H_Rd-bidrag, V_Ed,EQU
