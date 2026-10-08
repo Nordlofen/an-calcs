@@ -92,6 +92,26 @@ class TestGrundplanPdf(unittest.TestCase):
                     finally:
                         textpage.close(); page.close()
 
+    def test_three_parameter_legend_and_coloured_comments_stay_vector_in_pdf_and_html(self):
+        plan = self.plan(self.drawing())
+        for label, load in (("VS.1", 150), ("VS.2", 250)):
+            self.tag(plan, x=.65, y=.2 if load == 150 else .4, littera=label,
+                     indata={"b": .8, "t": .25, "F_vy": load, "kommentar": "Samordnas med stomritning."})
+        plan.farggruppering = {"enabled": True, "categories": ["b", "t", "V"], "phase": "brott",
+                              "legend": {"x": .05, "y": .05, "size": 360}}
+        plan.kommentarwidget = {"enabled": True, "x": .05, "y": .55, "size": 410}
+        page = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        text = page.extract_text()
+        self.assertIn("Tjocklek t + Bredd bₓ + V · brott", text)
+        self.assertIn("100 ≤ V < 200 kN/m", text)
+        self.assertIn("200 ≤ V < 400 kN/m", text)
+        self.assertIn("2 sulor med kommentarer", text)
+        self.assertFalse(page.images, "The multiline legend and coloured comment labels are vectors")
+        html = plan._html_bytes().decode()
+        self.assertIn('"categories": ["t", "b", "V"]', html)
+        self.assertIn('"gp-colour-legend-load"', html)
+        self.assertIn('"gp-comment-label"', html)
+
     def drawing(self):
         source = self.root / "original.pdf"
         canvas = Canvas(str(source), pagesize=(500, 700))

@@ -1,9 +1,11 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
-const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, phase: "brott", edit_type: "pad", show_legend: true,
+const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
+const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
+  .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
 const COMMENT_WIDGET_DEFAULTS = {enabled: false, x: .08, y: .55, size: 410};
 const LAYOUT_DEFAULTS = {board_height: null, table_height: null, board_width: null, table_width: null};
@@ -40,11 +42,11 @@ const colourBackground = color => {
   return "#" + channels.map(channel => Math.floor(channel * weight + 255 * (1 - weight) + .5).toString(16).padStart(2, "0")).join("");
 };
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
-  if ([settings.category, settings.secondary].some(category => ["t", "b", "l"].includes(category)))
+  const categories = selectedColourCategories(settings);
+  if (categories.some(category => ["t", "b", "l"].includes(category)))
     tags = tags.filter(tag => !tag.values.endast_h_stabilitet);
-  if (settings.secondary) {
-    const categories = Object.keys(COLOUR_CATEGORIES).filter(name => [settings.category, settings.secondary].includes(name));
-    const parts = categories.map(category => colourGroups(tags, {...settings, category, secondary: null}));
+  if (categories.length > 1) {
+    const parts = categories.map(category => colourGroups(tags, {...settings, categories: [category]}));
     const order = parts.map(part => new Map(part.groups.map((group, index) => [group.key, index])));
     const pairs = new Map(), groups = [], assignments = new Map();
     for (const tag of tags) {
@@ -52,8 +54,8 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       if (!pairs.has(key)) pairs.set(key, {pair, ids: []});
       pairs.get(key).ids.push(tag.id);
     }
-    for (const [key, {ids}] of [...pairs].sort(([, a], [, b]) =>
-      order[0].get(a.pair[0]) - order[0].get(b.pair[0]) || order[1].get(a.pair[1]) - order[1].get(b.pair[1]))) {
+    for (const [key, {ids}] of [...pairs].sort(([, a], [, b]) => a.pair.reduce((difference, key, index) =>
+      difference || order[index].get(key) - order[index].get(b.pair[index]), 0))) {
       const color = settings.colors[key] || colourPalette(groups.length);
       const group = {key, color, background: colourBackground(color), count: ids.length, kind: "combination", unit: "",
         categories, parts: parts.map(part => part.assignments.get(ids[0]))};
@@ -61,7 +63,7 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     }
     return {groups, assignments};
   }
-  const {category, phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
+  const category = categories[0], {phase} = settings, groups = [], assignments = new Map(), byKey = new Map(), special = new Map();
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const make = (key, data, defaultColor = colourPalette(groups.length)) => {
     const color = settings.colors[key] || defaultColor;
@@ -709,11 +711,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const categoryChoices = node("div", "gp-colour-choices");
   for (const [category, caption] of Object.entries(COLOUR_CATEGORIES)) {
     const choice = button(caption, () => {
-      const current = colour();
-      if (category === current.secondary) setColour({secondary: null});
-      else if (category === current.category) {
-        if (current.secondary) setColour({category: current.secondary, secondary: null});
-      } else if (!current.secondary) setColour({secondary: category});
+      const current = selectedColourCategories(colour());
+      const categories = Object.keys(COLOUR_CATEGORIES).filter(name =>
+        name === category ? !current.includes(name) : current.includes(name));
+      if (categories.length) setColour({categories});
     });
     colourCategoryButtons.set(category, choice); categoryChoices.append(choice);
   }
@@ -1458,6 +1459,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function setColour(patch) {
     if (patch.enabled === false || patch.show_legend === false) {cancelDrag(); overlaySelected = null;}
     const draft = {...colour(), ...patch};
+    if (patch.categories) {
+      draft.category = patch.categories[0]; draft.secondary = patch.categories[1] || null;
+    }
     for (const name of ["bounds", "colors", "legend"]) {
       if (patch[name]) draft[name] = {...colour()[name], ...patch[name]};
     }
@@ -1469,15 +1473,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   }
   function colourGroupCaption(group) {
-    if (group.kind === "combination") return group.parts.map((part, index) => {
-      const category = group.categories[index];
-      const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || "";
-      return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
-    }).join(" · ");
+    if (group.kind === "combination") return group.parts.map((part, index) => colourPartCaption(group, index)).join(" · ");
     if (group.label) return group.label;
     if (group.kind === "geometry") return precise(group.value) + " m";
     return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
       : precise(group.low) + " ≤ V < " + precise(group.high);
+  }
+  function colourPartCaption(group, index) {
+    const part = group.parts[index], category = group.categories[index];
+    const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || (category === "V" && part.kind === "special" ? "V " : "");
+    return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
   }
   function showColour() {
     const settings = colour(), data = colourGroups(state().tags, settings);
@@ -1486,12 +1491,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourToggle.disabled = !background().url || drawingBusy;
     colourControls.hidden = !settings.enabled;
     const kind = colourEditType || settings.edit_type;
-    const categories = [settings.category, settings.secondary].filter(Boolean), hasV = categories.includes("V");
+    const categories = selectedColourCategories(settings), hasV = categories.includes("V");
     for (const [value, choice] of colourCategoryButtons) {
       const checked = categories.includes(value);
       choice.classList.toggle("gp-selected", checked); choice.setAttribute("aria-pressed", String(checked));
-      choice.disabled = categories.length === 2 && !checked;
-      choice.title = choice.disabled ? "Avmarkera en kategori för att välja en annan." : "Välj en eller två kategorier.";
+      choice.disabled = false;
+      choice.title = "Välj en eller flera kategorier. Minst en kategori ska vara vald.";
     }
     for (const [buttons, selectedValue] of [[colourPhaseButtons, settings.phase], [colourTypeButtons, kind]]) {
       for (const [value, choice] of buttons) {
@@ -1505,10 +1510,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
       colourBounds.value = settings.bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
     }
-    colourHint.textContent = settings.secondary ? "Välj högst två kategorier. Samma kombination ger samma färg. Avmarkera en kategori för att byta. " + (hasV ? "Linjelaster och totala laster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
-      : settings.category === "V"
+    colourHint.textContent = categories.length > 1 ? categories.length + " valda parametrar. Samma kombination ger samma färg. " + (hasV ? "Linjelaster och totala laster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
+      : categories[0] === "V"
       ? "Linjelaster och totala laster har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
-      : settings.category === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
+      : categories[0] === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
     for (const group of data.groups.filter(group => !hasV || (group.parts?.find(part => ["pad", "wall"].includes(part.kind))?.kind ?? group.kind) === kind || group.kind === "special" || group.parts?.some(part => part.kind === "special"))) {
@@ -1519,19 +1524,27 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       row.append(input, mathText("span", "", colourGroupCaption(group))); colourSwatches.append(row);
     }
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
-      settings.secondary ? categories.map(category => COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + COLOUR_PHASES[settings.phase] : "")
-        : settings.category === "isolering" ? "Isolering och glidmotstånd"
-        : COLOUR_CATEGORIES[settings.category] + (settings.category === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
+      categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
+        : categories[0] === "isolering" ? "Isolering och glidmotstånd"
+        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
     let previousKind = null;
     for (const group of data.groups.filter(group => group.count > 0)) {
-      if (settings.category === "V" && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
+      if (categories.length === 1 && hasV && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
         colourLegendBody.append(node("strong", "gp-colour-legend-section",
           group.kind === "wall" ? "Linjelaster [kN/m]" : "Totala laster [kN]"));
       }
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
-      row.append(swatch, mathText("span", "", colourGroupCaption(group)), node("span", "gp-colour-group-count", String(group.count)));
+      let caption = mathText("span", "", colourGroupCaption(group));
+      if (group.kind === "combination" && hasV) {
+        const index = group.categories.indexOf("V");
+        caption = node("span", "gp-colour-legend-label"); row.dataset.multiline = "true";
+        caption.append(mathText("span", "gp-colour-legend-details", group.parts.flatMap((part, i) =>
+          i === index ? [] : [colourPartCaption(group, i)]).join(" · ")),
+        mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
+      }
+      row.append(swatch, caption, node("span", "gp-colour-group-count", String(group.count)));
       colourLegendBody.append(row);
     }
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));

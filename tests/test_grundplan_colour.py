@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import io
+from itertools import combinations
 import json
 from pathlib import Path
 import shutil
@@ -203,9 +204,48 @@ class TestGrundplanColour(unittest.TestCase):
         copied["bounds"]["wall"].clear()
         self.assertEqual(restored.farggruppering, expected)
 
+    def test_three_to_five_categories_preserve_group_identity_colours_and_saved_choices(self):
+        first = self.add(b=.8, t=.25, F_vy=150, kommentar="Samordnas.")
+        same = self.add(b=.8, t=.25, F_vy=190)
+        higher = self.add(b=.8, t=.25, F_vy=250)
+        thicker = self.add(b=.8, t=.3, F_vy=150)
+        pad = self.add(lang=0, b=.8, l=1, t=.25, F_vy=150)
+        only_h = self.add(endast_h_stabilitet=True, b=.8, t=.25)
+        before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
+        settings = validate_settings({"categories": ["V", "b", "t"]})
+        data = group_data(self.plan.taggar, settings)
+        self.assertEqual(len(data["groups"]), 4)
+        self.assertEqual(data["assignments"][first], data["assignments"][same])
+        self.assertEqual(data["assignments"][first]["count"], 2)
+        self.assertNotIn(only_h, data["assignments"])
+        self.assertNotEqual(data["assignments"][first]["key"], data["assignments"][pad]["key"])
+        self.assertEqual(len({data["assignments"][ident]["key"] for ident in (first, higher, thicker)}), 3)
+        key = data["assignments"][first]["key"]
+        self.plan.farggruppering = {"enabled": True, "categories": ["b", "V", "t"], "colors": {key: "#c8e0d8"}}
+        expected = self.plan.farggruppering
+        self.plan.farggruppering = {"enabled": False}
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "three.json"))
+        self.addCleanup(restored.close)
+        restored.farggruppering = {"enabled": True, "categories": ["V", "t", "b"]}
+        self.assertEqual(restored.farggruppering, expected)
+        self.assertEqual(group_data(restored.taggar, restored.farggruppering)["assignments"][first]["color"], "#c8e0d8")
+        for categories in (["t", "b", "l", "V"], ["t", "b", "l", "V", "isolering"]):
+            self.plan.farggruppering = {"categories": categories}
+            groups = group_data(self.plan.taggar, self.plan.farggruppering)
+            self.assertTrue(all(len(group["parts"]) == len(categories) for group in groups["groups"]))
+            self.assertEqual(sum(group["count"] for group in groups["groups"]), 5)
+        self.plan.farggruppering = {"category": "V", "secondary": None}
+        self.assertIsNone(self.plan.farggruppering["categories"], "Legacy Python calls replace the selected list")
+        self.assertEqual((self.plan.taggar, self.plan.resultat), before)
+        legacy = validate_settings({"category": "b", "secondary": "t"})
+        self.assertEqual(group_data(self.plan.taggar, legacy),
+                         group_data(self.plan.taggar, validate_settings({"categories": ["b", "t"]})))
+
     def test_invalid_settings_and_import_are_atomic_and_old_projects_default_to_off(self):
         document = self.plan._document()
         invalid = [{"enabled": 1}, {"category": "phi"}, {"secondary": "t"}, {"secondary": "bad"}, {"secondary": []}, {"phase": "uls"}, {"edit_type": "all"},
+                   {"categories": []}, {"categories": ["t", "t"]}, {"categories": ["b", "phi"]},
+                   {"categories": "t"}, {"categories": [None]}, {"categories": [["t"]]},
                    {"bounds": {"wall": []}}, {"bounds": {"pad": [200, 100]}},
                    {"bounds": {"pad": [100, 100]}}, {"bounds": {"pad": [float("nan")]}},
                    {"colors": {"t": "red;display:none"}}, {"colors": {"t": "#abcd"}},
@@ -272,13 +312,17 @@ class TestGrundplanColour(unittest.TestCase):
                        {"lang": 0, "b": 1.8, "l": 2.1, "t": .3, "F_vy": 399.9999},
                        {"endast_h_stabilitet": True, "V_Ed_EQU": 300, "glid_x": True, "glid_y": True},
                        {"glid_x": True, "glid_mu": None}, {"lang": 0, "glid_y": True, "V_Ed_EQU": 0},
-                       {"isolering": True, "glid_x": True, "glid_y": True}, {"t": None}):
+                       {"isolering": True, "glid_x": True, "glid_y": True}, {"t": None},
+                       {"lang": 0, "lasttyp": 1, "b": .8, "l": 1.3, "L_vagg": .5, "t": .25, "F_vy": 150}):
             self.add(**values)
         cases = [validate_settings({"category": category, "phase": phase})
                  for category in ("t", "b", "l", "V", "isolering") for phase in ("brott", "bruk", "EQU")]
         cases += [validate_settings({"category": a, "secondary": b, "phase": phase})
                   for a in ("t", "b", "l", "V", "isolering") for b in ("t", "b", "l", "V", "isolering")
                   if a != b for phase in ("brott", "bruk", "EQU")]
+        cases += [validate_settings({"categories": list(selected), "phase": phase})
+                  for count in range(1, 6) for selected in combinations(("t", "b", "l", "V", "isolering"), count)
+                  for phase in ("brott", "bruk", "EQU")]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';
 const {colourGroups} = await import('data:text/javascript;base64,' + readFileSync(process.argv[1]).toString('base64'));

@@ -409,7 +409,7 @@ Vid aktiv **Färggruppering** får litteran i kommentarsrutan en kompakt ram med
 Dra widgetens rubrik för att flytta rutan. Klicka på den och dra hörnhandtaget för att skala hela rutan. Piltangenter flyttar och plus/minus på hörnhandtaget ändrar storlek. På/av, placering och storlek sparas med projektet och behålls när widgeten stängs av. PDF och resultat-HTML visar den sparade rutan; HTML:s PDF-knapp hämtar samma inbäddade PDF.
 
 ```python
-plan.farggruppering = {"enabled": True, "category": "t", "secondary": "b"}
+plan.farggruppering = {"enabled": True, "categories": ["t", "b"]}
 plan.kommentarwidget = {"enabled": True, "x": .08, "y": .55, "size": 410}
 plan.isoleringswidget = {"enabled": True, "x": .65, "y": .55, "size": 300}
 plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
@@ -419,8 +419,9 @@ plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
 ## Färggruppering
 
 **Färggruppering** öppnar en kompakt inställningsrad under verktygsfältet.
-Välj en eller två av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**.
-Med två kategorier får varje unik kombination en färg, exempelvis t = 0,3 m tillsammans med bₓ = 0,6 m. Bara upptagna kombinationer visas i legend och färgval. Avmarkera en vald kategori för att byta till en annan; en kategori är alltid vald. Lastintervallets inställningar fungerar även när V är den andra kategorin. Egna färger behålls också om samma kategorier väljs i omvänd ordning.
+Välj valfritt antal av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**, från en till alla fem.
+Varje unik kombination får en färg. Vid exempelvis bₓ + t + V · brott måste både bredd, tjocklek och lastintervall vara samma för att sulorna ska dela färg. Bara upptagna kombinationer visas i legend och färgval. Klicka på en vald kategori för att avmarkera den; minst en kategori är alltid vald. Lastintervallets inställningar visas när V ingår bland valen. Egna färger behålls oavsett i vilken ordning samma kategorier väljs.
+Kombinationer med V visar mått och övriga val på första raden i legenden och lastintervall med kN eller kN/m på andra raden. Kombinerade mått utan V behåller en gemensam rad och bryts vid behov.
 Sulor med **Endast H-stabilitet** utesluts helt när t, bₓ eller bᵧ ingår bland de valda kategorierna, även vid kombinerad gruppering. Dessa sulor får ingen gruppfärg och räknas inte i legenden. Gruppering enbart efter Isolering eller Vertikallast V behåller dem.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
@@ -475,7 +476,7 @@ sulor per grupp. Vid lastgruppering visas separata enheter för de två typerna.
 Sulor med **Endast H-stabilitet** utesluts från måttgruppering. Vid
 lastgruppering visas de som **Ej tillämpligt** för Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
 
-När **Färggruppering** stängs av döljs färger och legend. Båda kategorierna, lastfall,
+När **Färggruppering** stängs av döljs färger och legend. Alla valda kategorier, lastfall,
 intervall, färger, legendens visningsval, placering och storlek behålls och
 återkommer när knappen aktiveras igen. Inställningarna sparas i projektet.
 PDF och låst resultat-HTML visar den sparade färggrupperingen och legenden;
@@ -484,11 +485,15 @@ HTML:s PDF-knapp exporterar samma inbäddade PDF med dessa färger.
 Python kan också ändra inställningarna utan att ändra sulornas indata:
 
 ```python
+plan.farggruppering = {"enabled": True, "categories": ["b", "t", "V"],
+                       "phase": "brott", "bounds": {"wall": [100, 200, 400, 600]}}
 plan.farggruppering = {"enabled": True, "category": "V", "phase": "EQU",
                        "bounds": {"wall": [100, 300, 600]}, "show_legend": True}
 plan.farggruppering = {"legend": {"x": 0.6, "y": 0.15, "size": 360}}
 plan.farggruppering = {"enabled": False}  # Inställningarna behålls.
 ```
+
+Äldre projekt och Python-anrop med `category` och `secondary` fungerar fortfarande och behåller sina färgval. `categories` är listan för nya kombinationer. Ett anrop med `category` eller `secondary` utan `categories` ersätter listan med det äldre kategori-/parvalet.
 
 ## Linjestödslängd och sulgeometri
 

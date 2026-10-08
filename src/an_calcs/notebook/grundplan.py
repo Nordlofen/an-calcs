@@ -940,6 +940,8 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(changes, dict):
             raise ValueError("Färggruppering anges som en dict med inställningar.")
         settings = {**self._colour, **changes}
+        if "categories" not in changes and {"category", "secondary"} & changes.keys():
+            settings["categories"] = None
         for name in ("bounds", "colors", "legend"):
             if name in changes and isinstance(changes[name], dict):
                 settings[name] = {**self._colour[name], **changes[name]}

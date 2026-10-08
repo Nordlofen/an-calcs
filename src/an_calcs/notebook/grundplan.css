@@ -178,6 +178,9 @@
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }
 .an-grundplan .gp-colour-swatch { height: 21px; border: 1px solid #b9cdd1; border-radius: 4px; }
 .an-grundplan .gp-colour-group-count { color: var(--gp-muted); font-size: 11px; }
+.an-grundplan .gp-colour-legend-details, .an-grundplan .gp-colour-legend-load { display: block; }
+.an-grundplan .gp-colour-legend-load { color: var(--gp-muted); font-size: 11px; }
+.an-grundplan .gp-colour-legend-row[data-multiline] .gp-colour-swatch { height: 26px; }
 .an-grundplan .gp-colour-legend .gp-sliding-note { margin-top: 9px; }
 .an-grundplan .gp-panning, .an-grundplan .gp-dragging-tag, .an-grundplan .gp-dragging-tag .gp-tag { cursor: grabbing !important; }
 .an-grundplan .gp-selecting { cursor: crosshair !important; }

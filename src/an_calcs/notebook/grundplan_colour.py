@@ -10,7 +10,7 @@ from .grundplan_loads import line_loads
 
 PALETTE = ["#cce7ff", "#e5d8ff", "#ffdfba", "#cfeee5", "#ffd9e5", "#f3edbb",
            "#d6e0ff", "#dcf0ca", "#f3d8ca", "#d2eef3", "#eedaf1", "#e7e3d1"]
-DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "phase": "brott", "edit_type": "pad",
+DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categories": None, "phase": "brott", "edit_type": "pad",
                     "show_legend": True, "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "colors": {}, "legend": {"x": .65, "y": .08, "size": 300}}
 CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
@@ -42,7 +42,16 @@ def validate_settings(settings):
     secondary = result["secondary"]
     if secondary is not None and (not isinstance(secondary, str) or secondary not in CATEGORIES
                                   or secondary == result["category"]):
-        raise ValueError("Välj högst två olika kategorier för färggruppering.")
+        raise ValueError("Välj olika giltiga kategorier för färggruppering.")
+    categories = result["categories"]
+    if categories is not None:
+        if (not isinstance(categories, list) or not 1 <= len(categories) <= len(CATEGORIES)
+                or any(not isinstance(name, str) or name not in CATEGORIES for name in categories)
+                or len(set(categories)) != len(categories)):
+            raise ValueError("Välj minst en av de tillgängliga kategorierna utan upprepningar.")
+        result["categories"] = selected_categories(result)
+        result["category"] = result["categories"][0]
+        result["secondary"] = result["categories"][1] if len(categories) > 1 else None
     bounds = result["bounds"]
     if not isinstance(bounds, dict) or set(bounds) != {"pad", "wall"}:
         raise ValueError("Ange separata intervallgränser för pelarsulor och väggsulor.")
@@ -86,14 +95,19 @@ def background_color(color):
     return "#" + "".join(f"{int(channel * weight + 255 * (1 - weight) + .5):02x}" for channel in channels)
 
 
+def selected_categories(settings):
+    """Canonical order preserves colours regardless of selection order, including old projects."""
+    selected = settings.get("categories") or [settings["category"], settings.get("secondary")]
+    return [name for name in CATEGORIES if name in selected]
+
+
 def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
-    if {settings["category"], settings.get("secondary")} & {"t", "b", "l"}:
+    categories = selected_categories(settings)
+    if set(categories) & {"t", "b", "l"}:
         tags = [tag for tag in tags if not tag["values"].get("endast_h_stabilitet")]
-    if settings.get("secondary"):
-        # Canonical order keeps custom colours when the same pair is selected in reverse.
-        categories = [name for name in CATEGORIES if name in (settings["category"], settings["secondary"])]
-        parts = [group_data(tags, {**settings, "category": name, "secondary": None}) for name in categories]
+    if len(categories) > 1:
+        parts = [group_data(tags, {**settings, "categories": [name]}) for name in categories]
         order = [{group["key"]: i for i, group in enumerate(part["groups"])} for part in parts]
         pairs = {}
         for tag in tags:
@@ -105,12 +119,12 @@ def group_data(tags, settings):
             color = settings["colors"].get(key, palette_color(len(groups)))
             group = {"key": key, "color": color, "background": background_color(color),
                      "count": len(pairs[pair]), "kind": "combination", "unit": "", "categories": categories,
-                     "parts": [parts[i]["assignments"][pairs[pair][0]] for i in range(2)]}
+                     "parts": [parts[i]["assignments"][pairs[pair][0]] for i in range(len(categories))]}
             groups.append(group)
             for ident in pairs[pair]:
                 assignments[ident] = group
         return {"groups": groups, "assignments": assignments}
-    category, phase = settings["category"], settings["phase"]
+    category, phase = categories[0], settings["phase"]
     groups, assignments = [], {}
     def make(key, default_color=None, **data):
         color = settings["colors"].get(key, default_color or palette_color(len(groups)))

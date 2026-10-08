@@ -2571,10 +2571,14 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
   assert.equal(ui.sent.length, 0);
 });
 
-const defaultColour = {enabled: false, category: "t", secondary: null, phase: "brott", edit_type: "pad", show_legend: true,
+const defaultColour = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, legend: {x: .65, y: .08, size: 300}};
 function colourFixture(ui, changes = {}) {
   ui.data.state.colour_grouping = {...structuredClone(defaultColour), enabled: true, ...changes};
+  if (changes.categories) {
+    ui.data.state.colour_grouping.category = changes.categories[0];
+    ui.data.state.colour_grouping.secondary = changes.categories[1] || null;
+  }
   ui.model.get("state").colour_grouping = ui.data.state.colour_grouping;
   ui.changed();
   const accept = request => {
@@ -2582,6 +2586,7 @@ function colourFixture(ui, changes = {}) {
     if (request.action === "colour_grouping") {
       const patch = request.settings;
       const next = {...settings, ...patch};
+      if (patch.categories) {next.category = patch.categories[0]; next.secondary = patch.categories[1] || null;}
       for (const name of ["bounds", "colors", "legend"]) if (patch[name]) next[name] = {...settings[name], ...patch[name]};
       ui.data.state.colour_grouping = next;
     } else if (request.action === "colour_placement") ui.data.state.colour_grouping.legend = request.position;
@@ -2613,12 +2618,13 @@ test("group category and phase buttons recolour labels without changing footing 
   Object.assign(ui.tag.values, {t: .3, b: .6, l: 1, F_vy: 150, F_vy_bruk: 99.9999, V_Ed_EQU: 400}); ui.changed();
   const before = structuredClone(ui.tag);
   for (const [caption, category] of [["Bredd bₓ", "b"], ["Längd bᵧ", "l"], ["Vertikallast V", "V"]]) {
+    const previous = ui.data.state.colour_grouping.category;
     const choice = ui.byText(caption); choice.click();
     assert.equal(ui.sent.at(-1).action, "colour_grouping");
-    assert.deepEqual(ui.sent.at(-1).settings, {secondary: category});
-    const previous = ui.data.state.colour_grouping.category; accept(ui.sent.at(-1));
+    assert.deepEqual(ui.sent.at(-1).settings, {categories: [previous, category]});
+    accept(ui.sent.at(-1));
     ui.byText({t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ"}[previous]).click();
-    assert.deepEqual(ui.sent.at(-1).settings, {category, secondary: null});
+    assert.deepEqual(ui.sent.at(-1).settings, {categories: [category]});
     assert.equal(choice.getAttribute("aria-pressed"), "true"); accept(ui.sent.at(-1));
     assert.ok(ui.marker().style["--gp-tag-bg"].startsWith("#"));
     assert.ok(ui.marker().className.includes("gp-tag-ok"));
@@ -2684,7 +2690,7 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
   const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t"});
   if (!readOnly) {
     ui.find(e => e.tag === "button" && e.textContent === "Isolering" && e.closest(".gp-colour-controls")).click();
-    assert.deepEqual(ui.sent.at(-1).settings, {secondary: "isolering"}); accept(ui.sent.at(-1));
+    assert.deepEqual(ui.sent.at(-1).settings, {categories: ["t", "isolering"]}); accept(ui.sent.at(-1));
     ui.byText("Tjocklek t").click(); accept(ui.sent.at(-1));
     assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, true);
   }
@@ -2899,7 +2905,7 @@ test("two category buttons produce combination colours and allow deselecting eit
   ui.changed(); ui.byText("Bredd bₓ").click(); accept(ui.sent.at(-1));
   assert.equal(ui.byText("Tjocklek t").getAttribute("aria-pressed"), "true");
   assert.equal(ui.byText("Bredd bₓ").getAttribute("aria-pressed"), "true");
-  assert.equal(ui.byText("Vertikallast V").disabled, true);
+  assert.equal(ui.byText("Vertikallast V").disabled, false);
   const markers = ui.elements().filter(e => e.className.split(" ").includes("gp-tag"));
   assert.equal(markers[0].dataset.colourGroup, markers[1].dataset.colourGroup);
   assert.equal(new Set(markers.map(e => e.style["--gp-tag-bg"])).size, 3);
@@ -2913,6 +2919,43 @@ test("two category buttons produce combination colours and allow deselecting eit
   assert.equal(ui.data.state.colour_grouping.category, "b"); assert.equal(ui.data.state.colour_grouping.secondary, null);
   ui.byText("Vertikallast V").click(); accept(ui.sent.at(-1));
   assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, false, "V interval controls also work as the second category");
+  for (const caption of ["Tjocklek t", "Längd bᵧ", "Isolering"]) {
+    ui.byText(caption).click(); accept(ui.sent.at(-1));
+  }
+  assert.deepEqual(ui.data.state.colour_grouping.categories, ['t', 'b', 'l', 'V', 'isolering']);
+  for (const caption of ["Tjocklek t", "Bredd bₓ", "Längd bᵧ", "Vertikallast V"]) {
+    ui.byText(caption).click(); accept(ui.sent.at(-1));
+  }
+  assert.deepEqual(ui.data.state.colour_grouping.categories, ['isolering']);
+  const count = ui.sent.length;
+  ui.find(e => e.textContent === 'Isolering' && e.closest('.gp-colour-controls')).click();
+  assert.equal(ui.sent.length, count, 'The last category cannot be deselected');
+});
+
+for (const readOnly of [false, true]) test(`three parameter grouping splits load intervals onto a second legend line and colours comments (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  Object.assign(ui.tag.values, {b: .8, t: .25, F_vy: 150, kommentar: 'Samordnas.'});
+  ui.data.state.tags.push(...[
+    {id:'tag2', label:'VS2', values:{F_vy:190}},
+    {id:'tag3', label:'VS3', values:{F_vy:250}},
+    {id:'tag4', label:'VS4', values:{t:.3}},
+  ].map(item => ({...structuredClone(ui.tag), ...item, values:{...ui.tag.values, ...item.values}})));
+  const before = structuredClone(ui.data.state.tags);
+  colourFixture(ui, {categories:['t', 'b', 'V'], edit_type:'wall'});
+  const markers = () => ui.elements().filter(e => e.className.split(' ').includes('gp-tag'));
+  assert.equal(markers()[0].dataset.colourGroup, markers()[1].dataset.colourGroup);
+  assert.equal(new Set(markers().map(e => e.dataset.colourGroup)).size, 3);
+  const rows = ui.elements().filter(e => e.className === 'gp-colour-legend-row');
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].dataset.multiline, 'true');
+  assert.match(elementText(rows[0].children[1].children[0]), /t 0,25 m · bx 0,8 m/);
+  assert.equal(elementText(rows[0].children[1].children[1]), '100 ≤ V < 200 kN/m');
+  assert.equal(ui.byClass('gp-colour-legend-title').textContent, 'Tjocklek t + Bredd bₓ + V · brott');
+  assert.equal(ui.byClass('gp-comment-label').style.background, markers()[0].style['--gp-tag-bg']);
+  ui.data.state.colour_grouping.phase = 'bruk'; ui.changed();
+  assert.equal(ui.elements().filter(e => e.className === 'gp-colour-legend-row').length, 2);
+  assert.equal(elementText(ui.byClass('gp-colour-legend-load')), 'V Saknar värde');
+  assert.deepEqual(ui.data.state.tags, before);
 });
 
 for (const readOnly of [false, true]) test(`insulation widget excludes H-only footings from counts and uninsulated littera (readOnly=${readOnly})`, t => {
