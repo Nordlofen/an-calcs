@@ -135,7 +135,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
   globalThis.requestAnimationFrame = fn => fn();
   const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
-      summary: { utnyttjandegrad: .75, b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
+      summary: { utnyttjandegrad: .75, styrande: "Jord · brott", b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.L_vagg = null;
@@ -189,7 +189,7 @@ test("PDF mode uses the shared readonly overlays at drawing coordinates and 100%
   const sheet = ui.byClass("gp-sheet");
   assert.equal(sheet.style.width, "800px"); assert.equal(sheet.style.height, "600px");
   assert.equal(sheet.style.left, "0px"); assert.equal(sheet.style.top, "0px");
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · t 1 m");
   assert.deepEqual(ui.position(), [.3, .4]);
   assert.equal(ui.sent.length, 0);
 });
@@ -732,7 +732,7 @@ test("wall by is editable in table and dialog and can be overridden for selected
   assert.deepEqual(ui.sent.at(-1).values, {l: 2.4});
   ui.tag.values.l = second.values.l = 2.4; ui.changed(); ui.ack(ui.sent.at(-1));
   assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
-  assert.match(ui.byClass("gp-tag-result").textContent, /1 × 2,4 m/);
+  assert.match(ui.byClass("gp-tag-result").textContent, /bₓ 1 m · bᵧ 2,4 m · t 1 m/);
   assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
   ui.byText("Ändra markerade").click();
   assert.ok(ui.find(e => e.name === "bulk_l"), "Bulk dialog also includes wall by");
@@ -1596,7 +1596,7 @@ for (const readOnly of [false, true]) test(`wall length is editable but hidden o
   const ui = setup(t, {readOnly});
   slidingFixture(ui);
   ui.tag.values.glid_x = ui.tag.values.glid_y = false; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · t 1 m");
   assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
   ui.marker().click();
   const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("glid_L")) : ui.field("glid_L").parent;
@@ -2027,7 +2027,7 @@ test("standalone result labels open read-only values and remember expanded secti
   const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Importera/Uppdatera ritning", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
   assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
   ui.marker().click();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · 1,8 × 2,4 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1,8 m · bᵧ 2,4 m · t 1 m");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Utan isolering");
   assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
@@ -2415,6 +2415,8 @@ test("insulation toggles required capacities and service load requirements, reta
 
 test("labels retain the governing check below insulation, utilization and geometry", t => {
   const ui = setup(t);
+  assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Jord · brott");
+  assert.match(ui.marker().getAttribute("aria-label"), /styrande: Jord · brott/);
   Object.assign(ui.tag.values, { isolering: true, F_vy_bruk: 70, f_d_brott: 200, f_d_bruk: 50 });
   Object.assign(ui.tag.summary, {
     utnyttjandegrad: 1.6, styrande: "Isolering · bruk",
@@ -2431,7 +2433,7 @@ test("labels retain the governing check below insulation, utilization and geomet
   assert.equal(ui.marker().children.length, 4);
   assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Isolering · bruk");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering");
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · bₓ 1 m");
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · bₓ 1 m · t 1 m");
   assert.match(ui.marker().title, /styrande: Isolering · bruk/);
   ui.marker().dispatch("click");
   ui.byText("Styrande: Isolering · bruk");
@@ -2495,6 +2497,7 @@ test("H-only checkbox hides bearing inputs, keeps stored values and restores the
   assert.equal(ui.marker().getAttribute("aria-label").includes("bₓ"), false);
   assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "144 kN");
   assert.equal(ui.elements().some(e => e.className.includes("gp-tag-load-row")), false);
+  assert.equal(ui.elements().some(e => e.className === "gp-governing"), false);
   assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
   assert.equal(tableField(ui, "tag1", "F_vy").disabled, true);
   assert.equal(tableField(ui, "tag1", "isolering").disabled, true);
@@ -3237,12 +3240,14 @@ test("size validation restores missing widths in old projects and rejects invali
 
 for (const readOnly of [false, true]) test(`pad models expose the load basis and full wall length independently of model geometry (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
-  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: 2.4, L_vagg_minst_1: true,
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: 2.4, L_vagg_minst_1: true, t: .275,
     F_vy: 200, F_vy_bruk: 100, V_Ed_EQU: 150, isolering: true});
   ui.tag.load_resultants = {brott: 480, bruk: 240};
   ui.data.state.sliding = {enabled: true}; ui.changed(); ui.marker().click();
   assert.match(elementText(ui.byClass('gp-basis')), /hela Lvägg/);
   assert.match(elementText(ui.marker()), /V 200 kN\/m → 480 kN/);
+  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · bᵧ 1 m · t 0,275 m");
+  assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Jord · brott");
   assert.equal(resultTableValue(ui, 'tag1', 'V_res_brott').textContent, '480');
   assert.equal(resultTableValue(ui, 'tag1', 'V_res_bruk').textContent, '240');
   if (!readOnly) {

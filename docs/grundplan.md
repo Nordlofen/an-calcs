@@ -113,9 +113,11 @@ PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
    **Med isolering** eller **Utan isolering**. Symbolen visar sulan över en
    skrafferad isoleringsremsa; bara remsan stryks över när isolering saknas.
    Andra raden visar högsta utnyttjandegrad och geometri, till exempel
-   `U 34,6 % · bₓ 1,8 m` för väggsula eller `U 68,3 % · 1,8 × 2,4 m`
-   för pelarsula. Pelarsulans mått anges alltid som bₓ × bᵧ.
-   För isolerade sulor visar en tredje rad styrande kontroll, till exempel
+   `U 34,6 % · bₓ 1,8 m · t 0,3 m` för väggsula eller
+   `U 68,3 % · bₓ 1,8 m · bᵧ 2,4 m · t 0,3 m` för pelarsula.
+   Även väggsulor med ändrat bᵧ visar båda måtten med respektive beteckning.
+   Alla beräknade sulor utom **Endast H-stabilitet** visar en tredje rad
+   med styrande kontroll, till exempel `Styrande: Jord · brott` eller
    `Styrande: Isolering · bruk`. Kontrollen finns också i dialogen och
    i etikettens hovringstext.
    Klicka på taggen igen för att öppna samma indata.

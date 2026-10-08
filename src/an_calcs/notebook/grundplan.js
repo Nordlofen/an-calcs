@@ -1992,8 +1992,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       heading.append(node("strong", "", label), insulation);
       const comment = typeof values.kommentar === "string" ? values.kommentar.trim() : "";
       if (comment) heading.append(commentBubble(tag, comment));
-      const geometry = !onlyH && summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l) ? (tag.values.lang === 1 && tag.values.l === 1 ? "bₓ " + number(summary.b) + " m"
-        : number(summary.b) + " × " + number(tag.values.l) + " m") : "";
+      const dimensions = [];
+      if (!onlyH && summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l)) {
+        dimensions.push("bₓ " + number(summary.b) + " m");
+        if (tag.values.lang === 0 || tag.values.l !== 1) dimensions.push("bᵧ " + number(tag.values.l) + " m");
+        if (Number.isFinite(tag.values.t)) dimensions.push("t " + precise(tag.values.t) + " m");
+      }
+      const geometry = dimensions.join(" · ");
       const showSlidingBlock = (sliding().enabled || onlyH) && !insulated && (values.glid_x || values.glid_y);
       const rawLength = values.glid_L;
       const length = rawLength == null || rawLength === "" ? NaN : Number(String(rawLength).replace(",", "."));
@@ -2004,12 +2009,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           : "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata")) + lengthText;
       const accessibleGeometry = !onlyH && summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
-      const governing = summary?.isolering ? ", styrande: " + summary.styrande : "";
+      const governingLabel = !onlyH && summary?.styrande;
+      const governing = governingLabel ? ", styrande: " + governingLabel : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
       marker.title += accessibleGeometry + governing;
       if (group) marker.title += " · Färggrupp: " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : "");
       marker.append(heading, mathText("span", "gp-tag-result", text));
-      if (summary?.isolering) marker.append(node("span", "gp-governing", "Styrande: " + summary.styrande));
+      if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
       const accessibleLoads = [];
       for (const group of model.get("schema").load_groups || []) {

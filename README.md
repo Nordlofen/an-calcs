@@ -188,9 +188,10 @@ i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
 lastkombination. Resultatet visar
 jordkontrollen och båda isoleringskontrollerna. Etiketten visar littera,
 isoleringssymbol och **Med/utan isolering** på första raden. Andra raden
-visar högsta utnyttjandegrad och bₓ, eller bₓ × bᵧ för pelarsulor och
-väggsulor med ändrat bᵧ.
-För isolerade sulor visas även en tredje rad med styrande kontroll.
+visar högsta utnyttjandegrad, bₓ och tjocklek t. Pelarsulor och
+väggsulor med ändrat bᵧ visar även bᵧ, med varje mått separat betecknat.
+Alla beräknade sulor utom **Endast H-stabilitet** visar även en tredje rad
+med styrande kontroll, exempelvis **Styrande: Jord · brott**.
 Kontrollen visas också i dialogen och hovringstexten. Utseendet följer med
 i HTML- och PDF-exporten. Se lastantagandena i
 [användningsbeskrivningen](docs/grundplan.md#isolering-under-sulan).

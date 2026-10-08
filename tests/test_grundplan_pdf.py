@@ -265,7 +265,7 @@ class TestGrundplanPdf(unittest.TestCase):
         plan = self.plan()
         ident = self.tag(plan, indata={"b": .8, "l": 2.4, "glid_L": 6.2, "glid_x": True})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        self.assertIn("0,8 × 2,4 m", text)
+        self.assertRegex(text, r"bₓ 0,8 m · b\s*ᵧ\s+2,4 m · t 0,3 m")
         self.assertRegex(text, r"L\s*su\s+6,2 m")
         plan.uppdatera(ident, indata={"l": 1})
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
@@ -392,10 +392,12 @@ class TestGrundplanPdf(unittest.TestCase):
         plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
         for expected in ("U 22,7 %", "U 6,4 %", "Kontrollera indata", "U 160 % · bₓ 1 m",
-                         "Med isolering", "Utan isolering", "1,8 × 2,4 m"):
+                         "Med isolering", "Utan isolering"):
             self.assertIn(expected, text)
+        self.assertRegex(text, r"bₓ 1,8 m · b\s*ᵧ\s+2,4 m · t 0,3 m")
         self.assertIn("Styrande: Isolering · bruk", text)
-        self.assertEqual(text.count("Styrande:"), 1, "Only the current insulation result has a governing-check line")
+        self.assertEqual(text.count("Styrande: Jord · brott"), 3)
+        self.assertEqual(text.count("Styrande:"), 4, "Every current bearing result has a governing-check line")
         self.assertEqual(text.count("U "), 4, "All valid objects are current; failed objects never show a utilization")
 
     def test_laster_filtreras_med_ratt_axel_enhet_och_negativa_sma_varden(self):
