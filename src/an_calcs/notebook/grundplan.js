@@ -1,7 +1,7 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
-  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
+  include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
 const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
@@ -63,8 +63,9 @@ function decorateColourGroups(groups, settings) {
 }
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
-  if (categories.some(category => ["t", "b", "l"].includes(category)))
-    tags = tags.filter(tag => !tag.values.endast_h_stabilitet);
+  const includeH = settings.include_only_h === true && !categories.some(category => ["t", "b", "l"].includes(category))
+    && (!categories.includes("V") || settings.phase === "EQU");
+  tags = tags.filter(tag => includeH || !tag.values.endast_h_stabilitet);
   if (categories.length > 1) {
     const parts = categories.map(category => colourGroups(tags, {...settings, categories: [category]}));
     const order = parts.map(part => new Map(part.groups.map((group, index) => [group.key, index])));
@@ -119,13 +120,12 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       const group = byKey.get(insulated ? "1" : direction || "0");
       group.count++; assignments.set(tag.id, group); continue;
     }
-    const na = values.endast_h_stabilitet && (category !== "V" || phase !== "EQU");
     const value = values[category === "V" ? {brott: "F_vy", bruk: "F_vy_bruk", EQU: "V_Ed_EQU"}[phase] : category];
     let group;
-    if (na || !finite(value)) {
-      const key = na ? "na" : "missing";
+    if (!finite(value)) {
+      const key = "missing";
       if (!special.has(key)) {
-        const item = make(key, {label: na ? "Ej tillämpligt" : "Saknar värde", kind: "special", unit: ""});
+        const item = make(key, {label: "Saknar värde", kind: "special", unit: ""});
         special.set(key, item);
       }
       group = special.get(key);
@@ -941,7 +941,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   colourLegendCheck.setAttribute("aria-label", "Visa färglegend");
   colourLegendCheck.addEventListener("change", () => setColour({show_legend: colourLegendCheck.checked}));
   colourLegendChoice.append(colourLegendCheck, node("span", "", "Visa legend"));
-  colourCategories.append(categoryChoices, colourLegendChoice);
+  const colourOnlyHChoice = node("label", "gp-colour-inclusion-choice");
+  colourOnlyHChoice.title = "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Isolering och V · EQU.";
+  const colourOnlyHCheck = node("input"); colourOnlyHCheck.type = "checkbox";
+  colourOnlyHCheck.setAttribute("aria-label", "Inkludera sulor med endast H-stabilitet i färggrupperingen");
+  colourOnlyHCheck.addEventListener("change", () => setColour({include_only_h: colourOnlyHCheck.checked}));
+  colourOnlyHChoice.append(colourOnlyHCheck, node("span", "", "Endast H"));
+  colourCategories.append(categoryChoices, colourOnlyHChoice, colourLegendChoice);
   const colourLoadOptions = node("div", "gp-colour-row");
   colourLoadOptions.append(node("span", "gp-colour-caption", "Lastfall"));
   const phaseChoices = node("div", "gp-colour-choices");
@@ -1958,6 +1964,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     }
     colourLegendCheck.checked = settings.show_legend;
+    colourOnlyHCheck.checked = settings.include_only_h === true;
     colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
     colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {

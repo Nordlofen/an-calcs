@@ -13,7 +13,8 @@ PALETTE = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
            "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"]
 PATTERNS = ("plain", "bands", "dots", "cross", "horizontal", "vertical")
 DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categories": None, "phase": "brott", "edit_type": "pad",
-                    "show_legend": True, "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
+                    "show_legend": True, "include_only_h": False,
+                    "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "colors": {}, "styles": {}, "legend": {"x": .65, "y": .08, "size": 300}}
 CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
@@ -35,7 +36,7 @@ def validate_settings(settings):
     if not isinstance(settings, dict) or set(settings) - set(DEFAULT_SETTINGS):
         raise ValueError("Ogiltiga inställningar för färggruppering.")
     result = {**copy.deepcopy(DEFAULT_SETTINGS), **copy.deepcopy(settings)}
-    for name in ("enabled", "show_legend"):
+    for name in ("enabled", "show_legend", "include_only_h"):
         if type(result[name]) is not bool:
             raise ValueError(f"{name} måste vara True eller False.")
     for name, choices in (("category", CATEGORIES), ("phase", PHASES), ("edit_type", ("pad", "wall"))):
@@ -154,8 +155,11 @@ def remember_styles(tags, settings):
 def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
     categories = selected_categories(settings)
-    if set(categories) & {"t", "b", "l"}:
-        tags = [tag for tag in tags if not tag["values"].get("endast_h_stabilitet")]
+    include_h = (settings.get("include_only_h", False) and not set(categories) & {"t", "b", "l"}
+                 and ("V" not in categories or settings["phase"] == "EQU"))
+    # Filter before combining categories, so excluded footings create no group
+    # or palette slot and every remaining footing has an assignment in each part.
+    tags = [tag for tag in tags if include_h or not tag["values"].get("endast_h_stabilitet")]
     if len(categories) > 1:
         parts = [group_data(tags, {**settings, "categories": [name]}) for name in categories]
         order = [{group["key"]: i for i, group in enumerate(part["groups"])} for part in parts]
@@ -211,12 +215,11 @@ def group_data(tags, settings):
             group["count"] += 1
             assignments[tag["id"]] = group
             continue
-        inapplicable = values.get("endast_h_stabilitet") and (category != "V" or phase != "EQU")
         value = values.get(LOAD_FIELDS[phase] if category == "V" else category)
-        if inapplicable or not _finite(value):
-            key = "na" if inapplicable else "missing"
+        if not _finite(value):
+            key = "missing"
             if key not in special:
-                group = make(key, label="Ej tillämpligt" if inapplicable else "Saknar värde", kind="special", unit="")
+                group = make(key, label="Saknar värde", kind="special", unit="")
                 special[key] = group
             group = special[key]
         elif category == "V":

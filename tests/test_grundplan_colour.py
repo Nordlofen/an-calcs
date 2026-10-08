@@ -155,6 +155,8 @@ class TestGrundplanColour(unittest.TestCase):
         self.assertIn("Endast H-stabilitet", text, "Excluded footings remain on the drawing")
         for category in ("isolering", "V"):
             data = group_data(tags, validate_settings({"category": category}))
+            self.assertNotIn(only_h, data["assignments"])
+            data = group_data(tags, validate_settings({"category": category, "phase": "EQU", "include_only_h": True}))
             self.assertIn(only_h, data["assignments"])
 
     def test_insulation_groups_both_footing_types_and_h_only_and_survives_export_and_reload(self):
@@ -168,6 +170,7 @@ class TestGrundplanColour(unittest.TestCase):
         before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
         colors = {"isolering:1": "#f0d8c8", "isolering:0": "#cce7ff", "isolering:xy": "#d8eedc"}
         self.plan.farggruppering = {"enabled": True, "category": "isolering",
+                                  "include_only_h": True,
                                   "colors": colors, "legend": {"x": .4, "y": .1, "size": 350}}
         data = group_data(self.plan.taggar, self.plan.farggruppering)
         self.assertEqual([(group["label"], group["count"], group["unit"]) for group in data["groups"]],
@@ -230,10 +233,63 @@ class TestGrundplanColour(unittest.TestCase):
         pad = self.add(lang=0, F_vy=150, F_vy_bruk=80, V_Ed_EQU=250)
         only_h = self.add(endast_h_stabilitet=True, V_Ed_EQU=300)
         for phase, low in (("brott", 100), ("bruk", None), ("EQU", 200)):
-            settings = validate_settings({"category": "V", "phase": phase})
-            data = group_data(self.plan.taggar, settings)
-            self.assertEqual(data["assignments"][pad]["low"], low)
-            self.assertEqual(data["assignments"][only_h].get("label"), None if phase == "EQU" else "Ej tillämpligt")
+            for include in (False, True):
+                settings = validate_settings({"category": "V", "phase": phase, "include_only_h": include})
+                data = group_data(self.plan.taggar, settings)
+                self.assertEqual(data["assignments"][pad]["low"], low)
+                self.assertEqual(only_h in data["assignments"], include and phase == "EQU")
+                self.assertNotIn("na", [group["key"] for group in data["groups"]])
+
+    def test_h_only_inclusion_filters_all_category_combinations_without_neutral_groups(self):
+        normal = self.add(t=.3, b=.6, F_vy=250, F_vy_bruk=150, V_Ed_EQU=200)
+        only_h = self.add(endast_h_stabilitet=True, t=.3, b=.6, F_vy=250,
+                          F_vy_bruk=150, V_Ed_EQU=200, glid_y=True)
+        before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
+        for count in range(1, 6):
+            for categories in combinations(("t", "b", "l", "V", "isolering"), count):
+                for phase in ("brott", "bruk", "EQU"):
+                    for include in (False, True):
+                        with self.subTest(categories=categories, phase=phase, include=include):
+                            data = group_data(self.plan.taggar, validate_settings({
+                                "categories": list(categories), "phase": phase, "include_only_h": include}))
+                            eligible = include and not set(categories) & {"t", "b", "l"} and ("V" not in categories or phase == "EQU")
+                            self.assertEqual(set(data["assignments"]), {normal, only_h} if eligible else {normal})
+                            self.assertEqual(sum(group["count"] for group in data["groups"]), 2 if eligible else 1)
+                            self.assertFalse(any(group.get("label") == "Ej tillämpligt" for group in data["groups"]))
+        self.assertEqual((self.plan.taggar, self.plan.resultat), before)
+
+    def test_h_only_inclusion_saves_and_old_projects_default_to_white(self):
+        only_h = self.add(endast_h_stabilitet=True, V_Ed_EQU=200)
+        self.plan.farggruppering = {"enabled": True, "category": "V", "phase": "EQU", "include_only_h": True}
+        restored = Grundplan.oppna(self.plan.spara(self.folder / "h-inclusion.json"))
+        self.addCleanup(restored.close)
+        self.assertTrue(restored.farggruppering["include_only_h"])
+        self.assertIn(only_h, group_data(restored.taggar, restored.farggruppering)["assignments"])
+        legacy = restored._document()
+        legacy["version"] = 17
+        del legacy["colour_grouping"]["include_only_h"]
+        legacy["colour_grouping"]["colors"]["na"] = "#123456"
+        restored._load_document(json.dumps(legacy).encode())
+        self.assertFalse(restored.farggruppering["include_only_h"])
+        self.assertNotIn(only_h, group_data(restored.taggar, restored.farggruppering)["assignments"])
+
+    def test_h_only_pdf_and_html_keep_white_labels_and_omit_inapplicable_groups(self):
+        self.add(endast_h_stabilitet=True, F_vy=250, F_vy_bruk=150, V_Ed_EQU=200,
+                 glid_y=True, glid_mu=.4, glid_L=3, L_vagg=3, kommentar="Kommentar H")
+        self.plan.farggruppering = {"enabled": True, "category": "V", "phase": "bruk", "include_only_h": True}
+        content = self.plan._pdf_bytes()
+        text = PdfReader(io.BytesIO(content)).pages[0].extract_text()
+        self.assertIn("Endast H-stabilitet", text)
+        self.assertNotIn("Ej tillämpligt", text)
+        self.assertNotIn("Saknar värde", text)
+        self.assertNotIn("Linjelaster [kN/m]", text, "Excluded footings create no legend section")
+        with pdfium.PdfDocument(content) as pdf:
+            image = pdf[0].render(scale=96 / 72).to_pil().convert("RGB")
+        self.assertEqual(image.getpixel((165, 180)), (255, 255, 255), "Excluded labels have a white interior")
+        self.assertNotEqual(image.getpixel((160, 136)), (255, 255, 255), "The status dot remains visible")
+        html = self.plan._html_bytes().decode()
+        self.assertIn('"include_only_h": true', html)
+        self.assertNotIn("Ej tillämpligt", html)
 
     def test_combined_categories_group_only_matching_pairs_and_keep_custom_colours_when_reversed(self):
         first = self.add(t=.3, b=.6)
@@ -317,7 +373,8 @@ class TestGrundplanColour(unittest.TestCase):
 
     def test_invalid_settings_and_import_are_atomic_and_old_projects_default_to_off(self):
         document = self.plan._document()
-        invalid = [{"enabled": 1}, {"category": "phi"}, {"secondary": "t"}, {"secondary": "bad"}, {"secondary": []}, {"phase": "uls"}, {"edit_type": "all"},
+        invalid = [{"enabled": 1}, {"include_only_h": 1}, {"include_only_h": "true"}, {"include_only_h": None},
+                   {"category": "phi"}, {"secondary": "t"}, {"secondary": "bad"}, {"secondary": []}, {"phase": "uls"}, {"edit_type": "all"},
                    {"categories": []}, {"categories": ["t", "t"]}, {"categories": ["b", "phi"]},
                    {"categories": "t"}, {"categories": [None]}, {"categories": [["t"]]},
                    {"bounds": {"wall": []}}, {"bounds": {"pad": [200, 100]}},
@@ -400,6 +457,7 @@ class TestGrundplanColour(unittest.TestCase):
                   for count in range(1, 6) for selected in combinations(("t", "b", "l", "V", "isolering"), count)
                   for phase in ("brott", "bruk", "EQU")]
         cases += [remember_styles(self.plan.taggar[::-1], settings) for settings in cases[:15]]
+        cases += [{**settings, "include_only_h": True} for settings in cases]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';
 const {colourGroups} = await import('data:text/javascript;base64,' + readFileSync(process.argv[1]).toString('base64'));

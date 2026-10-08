@@ -2907,7 +2907,7 @@ test("H-only table checkbox changes selected walls and pads together", t => {
     assert.equal(tableField(ui, id, "F_vy").disabled, true);
     for (const name of ["b", "l", "l_override"]) assert.equal(tableField(ui, id, name).disabled, true);
   }
-  assert.equal(ui.elements().filter(e => e.textContent === "Endast H").length, 3);
+  assert.equal(ui.elements().filter(e => e.textContent === "Endast H" && e.closest(".gp-table-scroll")).length, 3);
   ui.byText("Ändra markerade").click();
   assert.equal(ui.elements().some(e => e.name === "bulk_isolering"), false);
   for (const name of ["b", "l", "l_override"]) assert.equal(ui.elements().some(e => e.name === "bulk_" + name), false);
@@ -2935,7 +2935,7 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
 });
 
 const defaultColour = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
-  bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
+  include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
 
 test("whole-label patterns retain visible screen dimensions at small label sizes and zoom", () => {
   for (const scale of [.02, .1, .2, .5, 1, 1.8]) {
@@ -3095,6 +3095,59 @@ test("custom colours and legend checkbox persist while status remains unchanged"
   assert.deepEqual(ui.tag, before);
 });
 
+for (const readOnly of [false, true]) test(`H-only footings stay white until included and never create an inapplicable group (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  Object.assign(ui.tag.values, {F_vy: 80, F_vy_bruk: 60, V_Ed_EQU: 150});
+  const h = {...structuredClone(ui.tag), id: "h", label: "H-GR.1", summary: structuredClone(onlyHSummary),
+    values: {...ui.tag.values, endast_h_stabilitet: true, V_Ed_EQU: 250, glid_y: true, kommentar: "Kommentar H"}};
+  ui.data.state.tags.push(h); ui.model.get("state").tags = ui.data.state.tags;
+  const before = structuredClone(ui.data.state.tags);
+  ui.data.state.comment_widget = {enabled: true, x: .05, y: .6, size: 410};
+  const accept = colourFixture(ui, {category: "V", phase: "EQU"});
+  const marker = () => ui.find(e => e.className.split(" ").includes("gp-tag") && e.dataset.tagId === "h");
+  const counts = () => ui.elements().filter(e => e.className === "gp-colour-group-count").reduce((sum, e) => sum + Number(e.textContent), 0);
+  const excluded = () => {
+    assert.equal(marker().style["--gp-tag-bg"], "#ffffff");
+    assert.equal(marker().dataset.colourGroup, undefined);
+    assert.equal(marker().children.some(e => e.className === "gp-group-pattern"), false);
+    assert.ok(marker().className.includes("gp-tag-horizontal"));
+    assert.equal(counts(), 1);
+    assert.equal(ui.elements().filter(e => e.className === "gp-comment-label").length, 0);
+  };
+  const include = checked => {
+    if (readOnly) {ui.data.state.colour_grouping.include_only_h = checked; ui.changed();}
+    else {
+      const check = ui.byClass("gp-colour-inclusion-choice").children[0];
+      check.checked = checked; check.dispatch("change");
+      assert.deepEqual(ui.sent.at(-1).settings, {include_only_h: checked});
+      accept(ui.sent.at(-1));
+    }
+  };
+  excluded();
+  if (!readOnly) {
+    const choice = ui.byClass("gp-colour-inclusion-choice");
+    assert.equal(choice.children[1].textContent, "Endast H");
+    assert.equal(choice.children[0].checked, false);
+    assert.match(choice.title, /Inkludera sulor med endast H-stabilitet/);
+  }
+  include(true);
+  assert.notEqual(marker().style["--gp-tag-bg"], "#ffffff");
+  assert.equal(counts(), 2);
+  assert.equal(ui.byClass("gp-comment-label").style.background, marker().style["--gp-tag-bg"]);
+  for (const phase of ["brott", "bruk"]) {
+    ui.data.state.colour_grouping.phase = phase; ui.changed(); excluded();
+    assert.equal(ui.elements().some(e => e.textContent === "Ej tillämpligt"), false);
+  }
+  ui.data.state.colour_grouping.phase = "EQU"; ui.changed();
+  assert.equal(counts(), 2);
+  ui.data.state.colour_grouping.categories = ["b", "V"]; ui.changed(); excluded();
+  ui.data.state.colour_grouping.categories = ["isolering"]; ui.changed();
+  assert.equal(counts(), 2);
+  include(false); excluded();
+  assert.deepEqual(ui.data.state.tags, before, "Inclusion only changes the visual grouping");
+  if (readOnly) assert.equal(ui.sent.length, 0);
+});
+
 for (const readOnly of [false, true]) test(`five insulation colours follow selected global directions including H-only (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly, standalone: readOnly});
   Object.assign(ui.tag.values, {isolering: true, glid_x: true, glid_y: true});
@@ -3107,7 +3160,7 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
   ].map(([id, values]) => ({...structuredClone(ui.tag), id, label: id, values: {...ui.tag.values, ...values}}));
   ui.data.state.tags.push(...footings); ui.model.get("state").tags = ui.data.state.tags;
   const before = structuredClone(ui.data.state.tags);
-  const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t"});
+  const accept = colourFixture(ui, {category: readOnly ? "isolering" : "t", include_only_h: true});
   if (!readOnly) {
     ui.find(e => e.tag === "button" && e.textContent === "Isolering" && e.closest(".gp-colour-controls")).click();
     assert.deepEqual(ui.sent.at(-1).settings, {categories: ["t", "isolering"]}); accept(ui.sent.at(-1));

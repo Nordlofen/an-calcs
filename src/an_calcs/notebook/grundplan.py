@@ -1133,7 +1133,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 17,
+            "version": 18,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1292,8 +1292,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 18):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–17.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 19):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–18.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)

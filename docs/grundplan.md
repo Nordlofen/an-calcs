@@ -469,7 +469,13 @@ plan.tabellvy = {"collapsed": ["F_vy", "F_vy_bruk"],
 Välj valfritt antal av **Tjocklek t**, **Bredd bₓ**, **Längd bᵧ**, **Vertikallast V** och **Isolering**, från en till alla fem.
 Varje unik kombination får en färg. Vid exempelvis bₓ + t + V · brott måste både bredd, tjocklek och lastintervall vara samma för att sulorna ska dela färg. Bara upptagna kombinationer visas i legend och färgval. Klicka på en vald kategori för att avmarkera den; minst en kategori är alltid vald. Lastintervallets inställningar visas när V ingår bland valen. Egna färger behålls oavsett i vilken ordning samma kategorier väljs.
 Kombinationer med V visar mått och övriga val på första raden i legenden och lastintervall med kN eller kN/m på andra raden. Kombinerade mått utan V behåller en gemensam rad och bryts vid behov.
-Sulor med **Endast H-stabilitet** utesluts helt när t, bₓ eller bᵧ ingår bland de valda kategorierna, även vid kombinerad gruppering. Dessa sulor får helt vit bakgrund utan gruppmönster och räknas inte i legenden. Statusprick och ram behålls. Gruppering enbart efter Isolering eller Vertikallast V behåller dem.
+Checkboxen **Endast H** är avmarkerad som standard. Sulor med **Endast H-stabilitet**
+får då helt vit bakgrund utan gruppmönster och räknas inte i färglegenden.
+Statusprick, ram och glidmotståndsinformation behålls. Markera rutan för att ta med
+dem vid **Isolering**, **V · EQU** eller kombinationen av dessa.
+De utesluts alltid när t, bₓ, bᵧ eller V · Brott/Bruk ingår bland valen,
+även vid kombinerad gruppering. Ingen grupp **Ej tillämpligt** skapas.
+Inställningen sparas i projektet; äldre projekt får rutan avmarkerad.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
 etiketten så att texten förblir läsbar. Prick och kant visar fortfarande
@@ -483,7 +489,7 @@ Mönstren ligger bakom texten och får grövre avstånd och markeringar vid utzo
 så att de kan urskiljas i översiktsläget. Legendens färgrutor och kommentarsrutans littera
 visar samma färg och mönstertyp. PDF-exporten behåller dem som vektorer.
 
-Tomma intervall och neutrala grupper (Ej tillämpligt/Saknar värde) tar inga färgplatser.
+Tomma intervall och den neutrala gruppen **Saknar värde** tar inga färgplatser.
 Automatiska markeringar sparas separat för varje kategorikombination och lastfall.
 En grupp behåller därför sin markering vid redigering, byte av gruppering och återöppning.
 Även en tillfälligt tom grupp behåller sin tilldelning; nya grupper får nästa lediga plats.
@@ -502,8 +508,9 @@ Grupperna följer sulans valda bidragsriktningar under **Glidning**, även när
 den globala glidningskontrollen är avstängd. De anger valda riktningar,
 inte att bärförmågan är färdigberäknad eller större än noll. Isolerade sulor
 hör alltid till första gruppen, oavsett sparade riktningsval. Både vägg- och
-pelarsulor ingår; **Endast H-stabilitet** grupperas som utan isolering med
-sina valda riktningar. X_g och Y_g kontrolleras som separata lastfall.
+pelarsulor ingår. Sulor med **Endast H-stabilitet** ingår när **Endast H** är
+markerad och grupperas som utan isolering med sina valda riktningar.
+X_g och Y_g kontrolleras som separata lastfall.
 Legenden visar endast grupper med minst en sula och uppdateras när indata
 eller sulor ändras. Tomma grupper döljs även i HTML och PDF. Alla grupper
 behåller sina färgval i inställningarna, så att en grupp som åter får sulor
@@ -535,8 +542,8 @@ den, klicka på den och dra hörnhandtaget för att skala rutan inklusive texten
 Piltangenter flyttar den och plus/minus på hörnhandtaget ändrar storleken.
 Legenden följer ritningens zoom och visar färgernas betydelse samt antal
 sulor per grupp. Vid lastgruppering visas separata enheter för de två typerna.
-Sulor med **Endast H-stabilitet** utesluts från måttgruppering. Vid
-lastgruppering visas de som **Ej tillämpligt** för Brott/Bruk; deras EQU-last kan grupperas. Saknad indata får **Saknar värde**.
+Sulor som uteslutits ur grupperingen visas vita och utelämnas ur legenden.
+Saknad indata hos sulor som omfattas av grupperingen får **Saknar värde**.
 
 När **Färggruppering** stängs av döljs färger och legend. Alla valda kategorier, lastfall,
 intervall, färger, legendens visningsval, placering och storlek behålls och
@@ -550,7 +557,8 @@ Python kan också ändra inställningarna utan att ändra sulornas indata:
 plan.farggruppering = {"enabled": True, "categories": ["b", "t", "V"],
                        "phase": "brott", "bounds": {"wall": [100, 200, 400, 600]}}
 plan.farggruppering = {"enabled": True, "category": "V", "phase": "EQU",
-                       "bounds": {"wall": [100, 300, 600]}, "show_legend": True}
+                       "bounds": {"wall": [100, 300, 600]}, "show_legend": True,
+                       "include_only_h": True}  # Ta även med sulor med endast H-stabilitet.
 plan.farggruppering = {"legend": {"x": 0.6, "y": 0.15, "size": 360}}
 plan.farggruppering = {"enabled": False}  # Inställningarna behålls.
 ```
@@ -887,7 +895,7 @@ aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 17. Äldre projekt i formatversion 1–16 kan
+Projekt sparas i formatversion 18. Äldre projekt i formatversion 1–17 kan
 öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
 Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
