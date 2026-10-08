@@ -172,6 +172,7 @@
 .an-grundplan .gp-comment-table th:first-child { width: 80px; }
 .an-grundplan .gp-comment-table thead { color: var(--gp-muted); font-size: 10px; }
 .an-grundplan .gp-comment-table tbody tr { border-top: 1px solid var(--gp-line); }
+.an-grundplan .gp-comment-label { display: inline-block; padding: 1px 4px; border: 1px solid #9fbbbf; border-radius: 3px; line-height: 1.35; }
 .an-grundplan .gp-colour-legend-title { margin-top: 5px; font-size: 12px; }
 .an-grundplan .gp-colour-legend-section { display: block; font-size: 11px; margin-top: 10px; color: var(--gp-muted); }
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }

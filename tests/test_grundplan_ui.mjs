@@ -3485,6 +3485,26 @@ for (const readOnly of [false, true]) test(`comment widget shows only filled com
   assert.equal(rows[1].children[1].textContent, 'Första raden\nAndra raden');
   assert.doesNotMatch(elementText(body), /PS1|Endast sulor med kommentarer/);
   assert.equal(ui.byClass('gp-comment-resize').hidden, true);
+  Object.assign(ui.tag.values, {t: .2, b: 1});
+  Object.assign(ui.data.state.tags[1].values, {t: .25, b: .85});
+  colourFixture(ui, {category: 't', secondary: 'b', show_legend: false});
+  const badges = () => ui.elements().filter(e => e.className === 'gp-comment-label');
+  assert.deepEqual(badges().map(e => e.textContent), ['VS2', 'VS10']);
+  assert.equal(badges()[1].style.background, ui.marker().style['--gp-tag-bg']);
+  assert.notEqual(badges()[0].style.background, badges()[1].style.background);
+  assert.equal(ui.byClass('gp-colour-legend').hidden, true);
+  const group = colourGroups(ui.data.state.tags, ui.data.state.colour_grouping).assignments.get('tag1');
+  ui.data.state.colour_grouping.colors[group.key] = '#0000ff'; ui.changed();
+  assert.equal(badges()[1].style.background, '#b3b3ff', 'Custom dark colours stay readable and match the footing');
+  assert.equal(badges()[1].style.background, ui.marker().style['--gp-tag-bg']);
+  ui.data.state.tags[1].values.endast_h_stabilitet = true; ui.changed();
+  rows = ui.byClass('gp-comment-table').children[1].children;
+  assert.equal(rows[0].children[0].textContent, 'VS2', 'Geometry grouping leaves H-only comments uncoloured');
+  assert.deepEqual(badges().map(e => e.textContent), ['VS10']);
+  ui.data.state.colour_grouping.enabled = false; ui.changed();
+  assert.equal(badges().length, 0);
+  rows = ui.byClass('gp-comment-table').children[1].children;
+  assert.deepEqual(rows.map(row => row.children[0].textContent), ['VS2', 'VS10']);
   if (readOnly) {
     assert.equal(ui.elements().some(e => e.textContent === 'Lägg till kommentarer'), false);
     const before = ui.sent.length;

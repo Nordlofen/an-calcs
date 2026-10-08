@@ -1536,7 +1536,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
     showInsulationWidget();
-    showCommentWidget();
+    showCommentWidget(settings.enabled ? data.assignments : null);
     renderSlidingGeometry();
   }
   function showInsulationWidget() {
@@ -1555,12 +1555,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       node("p", "gp-insulation-list", uninsulated.map(tag => drafts.get(tag.id)?.label.trim() || tag.label)
         .sort(tableCollator.compare).join(", ") || "Inga sulor"));
   }
-  function showCommentWidget() {
+  function showCommentWidget(groups) {
     const settings = commentWidget();
     commentWidgetToggle.classList.toggle("gp-selected", settings.enabled);
     commentWidgetToggle.setAttribute("aria-pressed", String(settings.enabled));
     commentWidgetToggle.disabled = !background().url || drawingBusy;
-    const rows = state().tags.map(tag => ({label: drafts.get(tag.id)?.label.trim() || tag.label,
+    const rows = state().tags.map(tag => ({id: tag.id, label: drafts.get(tag.id)?.label.trim() || tag.label,
       comment: (drafts.get(tag.id)?.values || tag.values).kommentar?.trim() || ""}))
       .filter(row => row.comment).sort((a, b) => tableCollator.compare(a.label, b.label));
     commentBody.replaceChildren(node("p", "gp-sliding-note", rows.length
@@ -1569,7 +1569,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const table = node("table", "gp-comment-table"), head = node("thead"), heading = node("tr"), body = node("tbody");
     heading.append(node("th", "", "Littera"), node("th", "", "Kommentar")); head.append(heading);
     for (const row of rows) {
-      const tr = node("tr"); tr.append(node("th", "", row.label), node("td", "", row.comment)); body.append(tr);
+      const tr = node("tr"), label = node("th"), group = groups?.get(row.id);
+      if (group) {
+        const badge = node("span", "gp-comment-label", row.label);
+        badge.style.background = group.background;
+        label.append(badge);
+      } else label.textContent = row.label;
+      tr.append(label, node("td", "", row.comment)); body.append(tr);
     }
     table.append(head, body); commentBody.append(table);
   }
