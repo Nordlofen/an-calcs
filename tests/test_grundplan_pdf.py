@@ -125,8 +125,8 @@ class TestGrundplanPdf(unittest.TestCase):
         visible = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
         self.assertFalse(visible.images, "Spline, arrow and labels must all remain vectors")
         self.assertIn("VS.SPLINE", visible.extract_text())
-        # The overlay retains both Bezier segments and clips a circle around
-        # the arrowhead; the circle itself can also use Bezier operators.
+        # The overlay retains both Bezier segments and vector clearance bands
+        # along the arrow arms, without a reshaped transition at the tip.
         curves = sum(operator == b"c" for _, operator in visible.get_contents().operations)
         clips = sum(operator in (b"W", b"W*") for _, operator in visible.get_contents().operations)
         plan.hanvisningslinje(ident, {**leader, "enabled": False})

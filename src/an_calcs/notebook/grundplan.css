@@ -82,10 +82,12 @@
 .an-grundplan .gp-leader-handle { pointer-events: all; cursor: move; }
 .an-grundplan .gp-leader-handle:focus-visible { outline: none; stroke: #14695e; }
 .an-grundplan .gp-placing-leader, .an-grundplan .gp-placing-leader .gp-tag { cursor: crosshair; }
+.an-grundplan .gp-leader-draw-start { pointer-events: all; cursor: crosshair; }
+.an-grundplan .gp-placing-leader .gp-leader-hit { pointer-events: none; }
 .an-grundplan .gp-leader-section { margin-bottom: 12px; font-size: 12px; border-bottom: 1px solid var(--gp-line); padding-bottom: 8px; }
 .an-grundplan .gp-leader-section summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
 .an-grundplan .gp-leader-choice { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
-.an-grundplan .gp-leader-section button { padding: 4px 7px; font-size: 11px; }
+.an-grundplan .gp-leader-section button { padding: 4px 7px; font-size: 11px; margin-right: 4px; }
 .an-grundplan .gp-selection-box { position: absolute; border: 1px dashed var(--gp-accent); background: #14695e1a; pointer-events: none; z-index: 5; }
 .an-grundplan .gp-tag {
   --gp-tag-bg: #fff;

@@ -228,62 +228,31 @@ export function leaderCurvePoint(a, b, t) {
     r = leaderLerp(leaderAdd(b, b.in), b, t);
   return leaderLerp(leaderLerp(p, q, t), leaderLerp(q, r, t), t);
 }
-const splitLeaderBezier = (points, t) => {
-  const [a, b, c, d] = points, p = leaderLerp(a, b, t), q = leaderLerp(b, c, t), r = leaderLerp(c, d, t),
-    s = leaderLerp(p, q, t), u = leaderLerp(q, r, t), v = leaderLerp(s, u, t);
-  return {left: [a, p, s, v], right: [v, u, r, d]};
-};
 export function leaderTip(vertices, width, height, size) {
   const pixel = point => ({x: point.x * width, y: point.y * height});
-  const anchor = pixel(vertices[0]), radius = 10 * size;
-  const distance = point => Math.hypot(point.x - anchor.x, point.y - anchor.y);
-  const controls = vertices.slice(1).map((b, i) => {
+  const anchor = pixel(vertices[0]);
+  const curves = vertices.slice(1).map((b, i) => {
     const a = vertices[i];
     return [pixel(a), pixel(leaderAdd(a, a.out)), pixel(leaderAdd(b, b.in)), pixel(b)];
   });
-  // The convex hull lets us skip entire pieces inside the clearance circle.
-  // Trim only the prefix inside a small circle. Keep exact Bezier controls for
-  // the remaining curve so added nodes, loops and distant bends retain shape.
-  const blendRadius = 18 * size;
-  const firstOutside = (points, from = 0, to = 1, depth = 0) => {
-    if (distance(points[0]) > blendRadius) return from;
-    if (points.every(point => distance(point) <= blendRadius)) return null;
-    const {left, right} = splitLeaderBezier(points, .5), middle = (from + to) / 2;
-    if (depth === 20) return distance(left[3]) > blendRadius ? middle : distance(points[3]) > blendRadius ? to : null;
-    return firstOutside(left, from, middle, depth + 1) ?? firstOutside(right, middle, to, depth + 1);
-  };
-  let cut = null, tail = [];
-  for (let i = 0; i < controls.length; i++) {
-    const t = firstOutside(controls[i]);
-    if (t !== null) {cut = {segment: i, t}; tail = [splitLeaderBezier(controls[i], t).right, ...controls.slice(i + 1)]; break;}
+  const tangent = curves.flat().map(p => leaderSub(p, anchor)).find(v => Math.hypot(v.x, v.y) > 1e-8) || {x: 1, y: 0};
+  const direction = Math.atan2(tangent.y, tangent.x);
+  const points = curves.flat(), margin = 10 * size;
+  const left = Math.min(anchor.x, ...points.map(p => p.x)) - margin,
+    top = Math.min(anchor.y, ...points.map(p => p.y)) - margin,
+    right = Math.max(anchor.x, ...points.map(p => p.x)) + margin,
+    bottom = Math.max(anchor.y, ...points.map(p => p.y)) + margin;
+  let clip = `M ${left} ${top} H ${right} V ${bottom} H ${left} Z`;
+  // Clear narrow bands along the arrow arms, leaving the original spline and
+  // its true endpoint tangent intact. The two disjoint holes remain vectors.
+  for (const angle of [direction - .45, direction + .45]) {
+    const u = {x: Math.cos(angle), y: Math.sin(angle)}, n = {x: -u.y, y: u.x};
+    const p = (distance, offset) => ({x: anchor.x + (u.x * distance + n.x * offset) * size,
+      y: anchor.y + (u.y * distance + n.y * offset) * size});
+    const polygon = [p(3, -.8), p(9, -1.5), p(9, 1.5), p(3, .8)];
+    clip += ` M ${polygon[0].x} ${polygon[0].y}` + polygon.slice(1).map(p => ` L ${p.x} ${p.y}`).join("") + " Z";
   }
-  const end = controls.at(-1)?.[3], exit = tail[0]?.[0] || (end && distance(end) > radius ? end : null);
-  const fallback = controls.flat().find(point => distance(point) > 1e-8);
-  const delta = leaderSub(exit || fallback || {x: anchor.x + 1, y: anchor.y}, anchor);
-  const direction = Math.atan2(delta.y, delta.x);
-  const join = {x: anchor.x + Math.cos(direction) * radius, y: anchor.y + Math.sin(direction) * radius};
-  const curves = [];
-  if (exit) {
-    const gap = distance(exit) - radius, handle = gap / 3;
-    const tangent = tail.flat().map(point => leaderSub(point, exit)).find(v => Math.hypot(v.x, v.y) > 1e-8) || delta;
-    const length = Math.hypot(tangent.x, tangent.y);
-    const first = {x: join.x + Math.cos(direction) * handle, y: join.y + Math.sin(direction) * handle},
-      last = {x: exit.x - tangent.x / length * handle, y: exit.y - tangent.y / length * handle};
-    // All four controls project beyond the clearance radius. Their convex hull
-    // therefore keeps this tangent-matched blend clear of the arrow arms.
-    curves.push([join, first, last, exit], ...tail);
-  }
-  const points = controls.flat();
-  const left = Math.min(anchor.x - radius, ...points.map(p => p.x)) - radius,
-    top = Math.min(anchor.y - radius, ...points.map(p => p.y)) - radius,
-    right = Math.max(anchor.x + radius, ...points.map(p => p.x)) + radius,
-    bottom = Math.max(anchor.y + radius, ...points.map(p => p.y)) + radius;
-  // An even-odd SVG clip preserves vector output and clears any returning loops
-  // as well as the initial curve. Only the straight stem enters this circle.
-  const clip = `M ${left} ${top} H ${right} V ${bottom} H ${left} Z`
-    + ` M ${anchor.x + radius} ${anchor.y} A ${radius} ${radius} 0 1 0 ${anchor.x - radius} ${anchor.y}`
-    + ` A ${radius} ${radius} 0 1 0 ${anchor.x + radius} ${anchor.y} Z`;
-  return {anchor, join, direction, radius, clip, curves, cut};
+  return {anchor, direction, clip, curves};
 }
 export function splitLeader(leader, endpoint, segment, t) {
   const result = JSON.parse(JSON.stringify(leader)), vertices = leaderVertices(result, endpoint);
@@ -296,6 +265,104 @@ export function splitLeader(leader, endpoint, segment, t) {
   else b.in = leaderSub(r, b);
   result.nodes.splice(segment + 1, 0, {...v, in: leaderSub(s, v), out: leaderSub(u, v)});
   return result;
+}
+
+const leaderSegmentDistance = (p, a, b) => {
+  const v = leaderSub(b, a), length = v.x ** 2 + v.y ** 2;
+  const t = length ? Math.max(0, Math.min(1, ((p.x - a.x) * v.x + (p.y - a.y) * v.y) / length)) : 0;
+  const q = leaderLerp(a, b, t);
+  return Math.hypot(p.x - q.x, p.y - q.y);
+};
+export function leaderFromStroke(stroke, attachment, width, height, zoom = 1) {
+  if (!stroke.length) return null;
+  // Distances use drawing pixels; screen zoom only sets the fitting tolerance.
+  const points = [], spacing = 2 / zoom, tolerance = 3 / zoom;
+  for (const p of stroke) {
+    const q = {x: p.x * width, y: p.y * height}, previous = points.at(-1);
+    if (!previous || Math.hypot(q.x - previous.x, q.y - previous.y) >= spacing) points.push(q);
+  }
+  const last = stroke.at(-1), end = {x: last.x * width, y: last.y * height};
+  if (points.length && Math.hypot(end.x - points.at(-1).x, end.y - points.at(-1).y) > .01) points.push(end);
+  if (points.length < 2) return null;
+  let length = 0;
+  for (let i = 1; i < points.length; i++) length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  if (length * zoom < 12) return null;
+  // Average small hand tremors, keeping both endpoints and intentional loops.
+  const smooth = points.map((p, i) => i && i < points.length - 1
+    ? {x: (points[i - 1].x + 2 * p.x + points[i + 1].x) / 4, y: (points[i - 1].y + 2 * p.y + points[i + 1].y) / 4} : p);
+  let indices;
+  for (let error = tolerance; ; error *= 1.35) {
+    const kept = new Set([0, smooth.length - 1]), ranges = [[0, smooth.length - 1]];
+    while (ranges.length) {
+      const [a, b] = ranges.pop(); let farthest = error, index = null;
+      for (let i = a + 1; i < b; i++) {
+        const d = leaderSegmentDistance(smooth[i], smooth[a], smooth[b]);
+        if (d > farthest) {farthest = d; index = i;}
+      }
+      if (index !== null) {kept.add(index); ranges.push([a, index], [index, b]);}
+    }
+    indices = [...kept].sort((a, b) => a - b);
+    if (indices.length <= 65) break;
+  }
+  const build = () => {
+    const vertices = indices.map(i => ({...smooth[i], in: {x: 0, y: 0}, out: {x: 0, y: 0}}));
+    const times = vertices.slice(1).map((p, i) => Math.sqrt(Math.hypot(p.x - vertices[i].x, p.y - vertices[i].y)));
+    const tangent = (i) => {
+      if (!i) return leaderSub(vertices[1], vertices[0]);
+      if (i === vertices.length - 1) return leaderSub(vertices[i], vertices[i - 1]);
+      const before = leaderSub(vertices[i], vertices[i - 1]), after = leaderSub(vertices[i + 1], vertices[i]),
+        a = Math.max(times[i - 1], .0001), b = Math.max(times[i], .0001);
+      return {x: before.x / a - (before.x + after.x) / (a + b) + after.x / b,
+        y: before.y / a - (before.y + after.y) / (a + b) + after.y / b};
+    };
+    for (let i = 0; i < vertices.length - 1; i++) {
+      const a = tangent(i), b = tangent(i + 1), h = times[i];
+      vertices[i].out = {x: a.x * (i ? h : 1) / 3, y: a.y * (i ? h : 1) / 3};
+      vertices[i + 1].in = {x: -b.x * (i + 1 < vertices.length - 1 ? h : 1) / 3,
+        y: -b.y * (i + 1 < vertices.length - 1 ? h : 1) / 3};
+    }
+    return vertices;
+  };
+  // Refine only bends where the fitted curve loses the drawn shape. Straight
+  // stretches need no extra nodes, regardless of how many pointer samples arrive.
+  let vertices;
+  for (;;) {
+    vertices = build(); let worst = tolerance * 1.5, extra = null;
+    for (let s = 0; s < vertices.length - 1; s++) {
+      const samples = Array.from({length: 25}, (_, i) => leaderCurvePoint(vertices[s], vertices[s + 1], i / 24));
+      for (let i = indices[s] + 1; i < indices[s + 1]; i++) {
+        const d = Math.min(...samples.slice(1).map((p, j) => leaderSegmentDistance(smooth[i], samples[j], p)));
+        if (d > worst) {worst = d; extra = i;}
+      }
+    }
+    if (extra === null || indices.length >= 65) break;
+    indices.push(extra); indices.sort((a, b) => a - b);
+  }
+  // A cubic can follow a bend with fewer anchors than its polyline needs.
+  // Remove redundant anchors only when both the drawn and fitted paths stay
+  // close over the corresponding interval, preserving crossings and loops.
+  const fits = candidate => {
+    for (let s = 0; s < candidate.length - 1; s++) {
+      const samples = Array.from({length: 25}, (_, i) => leaderCurvePoint(candidate[s], candidate[s + 1], i / 24));
+      const trace = smooth.slice(indices[s], indices[s + 1] + 1);
+      for (const [path, target] of [[trace, samples], [samples, trace]]) for (const p of path) {
+        let distance = Infinity;
+        for (let i = 1; i < target.length; i++) distance = Math.min(distance, leaderSegmentDistance(p, target[i - 1], target[i]));
+        if (distance > tolerance * 1.5) return false;
+      }
+    }
+    return true;
+  };
+  for (let i = 1; i < indices.length - 1;) {
+    const previous = indices, next = indices.filter((_, j) => j !== i);
+    indices = next; const candidate = build();
+    if (fits(candidate)) vertices = candidate;
+    else {indices = previous; i++;}
+  }
+  const normalized = p => ({x: p.x / width, y: p.y / height});
+  // Stored leaders run from the arrow tip to the label, opposite to drawing.
+  const reversed = vertices.reverse().map(p => ({...normalized(p), in: normalized(p.out), out: normalized(p.in)}));
+  return {enabled: true, attachment: {...attachment}, nodes: reversed.slice(0, -1), end_handle: reversed.at(-1).in};
 }
 
 function render({ model, el, readOnly = false, pdfMode = false }) {
@@ -1097,20 +1164,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const id = active; if (!id) return;
     beginLeaderEdit(id);
   });
+  const leaderRedrawButton = button("Rita om spline", () => {if (active) beginLeaderDraw(active);});
+  leaderRedrawButton.title = "Rita en ny bana från etikettens anslutning. Escape behåller den gamla linjen.";
   leaderCheck.addEventListener("change", () => {
     const tag = current(); if (!tag) return;
     const saved = leaderFor(tag);
     if (leaderCheck.checked && !saved) {
-      setMode("pan"); leaderPlacement = tag.id; closeDialog();
-      viewport.focus({preventScroll: true});
-      viewport.classList.add("gp-placing-leader");
-      showMessage("Klicka på ritningen för att placera hänvisningslinjens spets. Escape avbryter.");
+      beginLeaderDraw(tag.id);
     } else if (saved) {
       if (!leaderCheck.checked) {leaderEdit = leaderNode = null;}
       saveLeader(tag.id, {...saved, enabled: leaderCheck.checked});
     }
   });
-  leaderSection.append(leaderChoice, leaderEditButton);
+  leaderSection.append(leaderChoice, leaderEditButton, leaderRedrawButton);
   const basis = node("p", "gp-basis");
   const sketchToggle = button("Visa definitionsskiss", () => {
     if (!current()) return;
@@ -1606,6 +1672,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const tag = current(), value = tag && leaderFor(tag);
     leaderCheck.checked = !!value?.enabled;
     leaderEditButton.hidden = !value?.enabled;
+    leaderRedrawButton.hidden = !value?.enabled;
+  }
+  function beginLeaderDraw(id) {
+    if (readOnly || drawingBusy || importBusy || deleteBusy || bulkBusy) return;
+    const tag = state().tags.find(tag => tag.id === id); if (!tag) return;
+    const saved = leaderFor(tag);
+    cancelDrag(); setMode("pan"); closeDialog(); closeBulk();
+    leaderPlacement = {id, attachment: saved ? {...saved.attachment} : null, stroke: null};
+    viewport.classList.add("gp-placing-leader");
+    viewport.focus({preventScroll: true}); renderLeaders();
+    showMessage(saved ? "Rita om från den blå anslutningspunkten till önskad pilspets. Escape behåller den gamla linjen."
+      : "Dra från etikettens ram till önskad pilspets för att rita banan. Ett klick på ritningen skapar en enkel spline. Escape avbryter.");
   }
   function beginLeaderEdit(id) {
     if (readOnly) return;
@@ -1646,11 +1724,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           clearance = svgNode("path", {"clip-rule": "evenodd"}),
           path = svgNode("path", {class: "gp-leader-path", fill: "none", stroke: "#26343a", "clip-path": `url(#${clipId})`,
           "stroke-linecap": "round", "stroke-linejoin": "round"}),
-          stem = svgNode("path", {class: "gp-leader-stem", fill: "none", stroke: "#26343a", "stroke-linecap": "round"}),
           arrow = svgNode("path", {class: "gp-leader-arrow", fill: "none", stroke: "#26343a",
             "stroke-linecap": "round", "stroke-linejoin": "round"});
         clip.append(clearance);
-        path.dataset.tagId = tag.id; group.append(clip, path, stem, arrow);
+        path.dataset.tagId = tag.id; group.append(clip, path, arrow);
         const hit = readOnly ? null : svgNode("path", {class: "gp-leader-hit", fill: "none", stroke: "transparent",
           role: "button", tabindex: 0});
         if (hit) {
@@ -1660,24 +1737,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           });
           group.append(hit);
         }
-        elements = {group, path, stem, arrow, hit, clearance}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
+        elements = {group, path, arrow, hit, clearance}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
       }
       const vertices = leaderVertices(value, leaderEndpoint(value.attachment, box));
-      const {anchor, join, direction, clip, curves} = leaderTip(vertices, bg.width, bg.height, size);
-      let d = `M ${join.x} ${join.y}`;
+      const {anchor, direction, clip, curves} = leaderTip(vertices, bg.width, bg.height, size);
+      let d = `M ${anchor.x} ${anchor.y}`;
       for (const [, a, b, end] of curves) {
         d += ` C ${a.x} ${a.y} ${b.x} ${b.y} ${end.x} ${end.y}`;
       }
       elements.path.setAttribute("d", d); elements.path.setAttribute("stroke-width", size);
+      elements.group.setAttribute("opacity", leaderPlacement?.id === tag.id ? ".25" : "1");
       elements.clearance.setAttribute("d", clip);
-      elements.stem.setAttribute("d", `M ${anchor.x} ${anchor.y} L ${join.x} ${join.y}`);
-      elements.stem.setAttribute("stroke-width", size);
       const arm = angle => ({x: anchor.x + Math.cos(angle) * 7 * size, y: anchor.y + Math.sin(angle) * 7 * size});
       const left = arm(direction - .45), right = arm(direction + .45);
       elements.arrow.setAttribute("d", `M ${left.x} ${left.y} L ${anchor.x} ${anchor.y} L ${right.x} ${right.y}`);
       elements.arrow.setAttribute("stroke-width", size);
       if (readOnly) continue;
-      elements.hit.setAttribute("d", d + ` M ${anchor.x} ${anchor.y} L ${join.x} ${join.y}`);
+      elements.hit.setAttribute("d", d);
       elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
       elements.hit.setAttribute("aria-label", "Redigera hänvisningslinje för " + tag.label);
       if (leaderEdit !== tag.id) continue;
@@ -1706,6 +1782,21 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     for (const [id, elements] of leaderElements) if (!painted.has(id)) {
       elements.group.remove(); leaderElements.delete(id);
+    }
+    if (leaderPlacement && !readOnly) {
+      const box = leaderBox(leaderPlacement.id);
+      if (box) {
+        const attachment = leaderPlacement.drawingAttachment || leaderPlacement.attachment || {side: "right", offset: .5};
+        const start = pixel(leaderEndpoint(attachment, box));
+        leaderHandles.append(svgNode("circle", {class: "gp-leader-draw-start", cx: start.x, cy: start.y,
+          r: 6 / zoom, fill: "white", stroke: "#1688e5", "stroke-width": 2 / zoom,
+          "aria-label": "Rita från etikettens anslutning"}));
+        if (leaderPlacement.stroke?.length) {
+          const d = leaderPlacement.stroke.map((p, i) => {const q = pixel(p); return `${i ? "L" : "M"} ${q.x} ${q.y}`;}).join(" ");
+          leaderHandles.append(svgNode("path", {class: "gp-leader-preview", d, fill: "none", stroke: "#14695e",
+            "stroke-width": size, "stroke-linecap": "round", "stroke-linejoin": "round"}));
+        }
+      }
     }
   }
   function addLeaderNode(event) {
@@ -3387,6 +3478,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function update() {
     const bg = background();
     const data = state();
+    if (leaderPlacement && (bg.url !== lastBackground
+      || !data.tags.some(tag => tag.id === leaderPlacement.id && tag.page === bg.page))) {
+      cancelDrag(); leaderPlacement = null;
+      viewport.classList.remove("gp-placing-leader");
+    }
     if (leaderEdit && !data.tags.some(tag => tag.id === leaderEdit && leaderFor(tag)?.enabled)) leaderEdit = leaderNode = null;
     for (const id of selected) {
       if (!data.tags.some(tag => tag.id === id)) selected.delete(id);
@@ -3503,6 +3599,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       else leaderDrafts.delete(previous.leader);
       renderLeaders();
     }
+    if (previous?.stroke && leaderPlacement) {
+      leaderPlacement.stroke = null; leaderPlacement.drawingAttachment = null; renderLeaders();
+    }
     if (previous?.overlay) {
       const key = previous.page + ":" + previous.overlay;
       if (pendingOverlayPositions.has(key)) overlayPositions.set(key, pendingOverlayPositions.get(key));
@@ -3524,6 +3623,22 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
+    }
+    if (leaderPlacement && !readOnly && !importBusy && !bulkBusy) {
+      const box = leaderBox(leaderPlacement.id), point = measurementPoint(event); if (!box || !point) return;
+      const marker = event.target.closest(".gp-tag"), ownFrame = marker?.dataset.tagId === leaderPlacement.id;
+      const attachment = leaderPlacement.attachment || leaderAttachment(point, box);
+      const endpoint = leaderEndpoint(attachment, box), bg = background();
+      const nearStart = Math.hypot((point.x - endpoint.x) * bg.width, (point.y - endpoint.y) * bg.height) * zoom < 16;
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      if (!ownFrame && !nearStart && leaderPlacement.attachment) {
+        showMessage("Börja vid den blå anslutningspunkten på etiketten. Escape behåller den gamla linjen."); return;
+      }
+      const drawing = ownFrame || nearStart;
+      drag = {stroke: drawing, leaderClick: drawing ? null : leaderPlacement.id, attachment,
+        x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId};
+      if (drawing) {leaderPlacement.stroke = [endpoint]; leaderPlacement.drawingAttachment = attachment;}
+      viewport.setPointerCapture(event.pointerId); renderLeaders(); return;
     }
     if (event.target.closest(".gp-tag-comment")) return;
     if (event.target.closest(".gp-annotation-editor") || event.target.closest(".gp-annotation-tools")) return;
@@ -3597,6 +3712,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.stroke) {
+      const point = measurementPoint(event); if (!point || !leaderPlacement) return;
+      const previous = leaderPlacement.stroke.at(-1), bg = background();
+      if (Math.hypot((point.x - previous.x) * bg.width, (point.y - previous.y) * bg.height) * zoom >= 2) {
+        // Bound memory during a long gesture without losing the whole trace.
+        if (leaderPlacement.stroke.length >= 4096) leaderPlacement.stroke = leaderPlacement.stroke.filter((_, i) => !i || i % 2);
+        leaderPlacement.stroke.push(point); renderLeaders();
+      }
+      return;
+    }
+    if (drag.leaderClick) return;
     if (drag.leader) {
       if (!drag.moved) return;
       const point = measurementPoint(event), box = leaderBox(drag.leader); if (!point || !box) return;
@@ -3662,7 +3788,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
-    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader, tagPositions } = drag;
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader, tagPositions,
+      stroke, leaderClick, attachment } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
@@ -3670,11 +3797,24 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
     if (pan) return;
-    if (leader) {if (moved) saveLeader(leader, leaderDrafts.get(leader)); return;}
-    if (leaderPlacement && !moved && !readOnly) {
-      const point = measurementPoint(event); if (point) createLeader(leaderPlacement, point);
+    if (stroke && leaderPlacement) {
+      const point = measurementPoint(event); if (point) leaderPlacement.stroke.push(point);
+      const bg = background(), value = point && moved && leaderFromStroke(leaderPlacement.stroke, attachment, bg.width, bg.height, zoom);
+      if (value) {
+        const id = leaderPlacement.id;
+        leaderPlacement = null; viewport.classList.remove("gp-placing-leader");
+        saveLeader(id, value); beginLeaderEdit(id);
+      } else {
+        leaderPlacement.stroke = null; renderLeaders();
+        showMessage("Dra en bana från anslutningspunkten till pilspetsen. Escape behåller den gamla linjen.");
+      }
       return;
     }
+    if (leaderClick) {
+      if (!moved && leaderPlacement) {const point = measurementPoint(event); if (point) createLeader(leaderClick, point);}
+      return;
+    }
+    if (leader) {if (moved) saveLeader(leader, leaderDrafts.get(leader)); return;}
     if (measurement) {if (!moved) chooseMeasurementPoint(event); return;}
     if (box) {
       if (moved) {
@@ -3828,9 +3968,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       event.preventDefault();
       const selecting = !!drag?.box || selected.size > 0;
       const wasMeasuring = measuring();
+      const wasDrawingLeader = !!leaderPlacement;
       cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
       if (!bulkBusy) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); renderMarkers(); }
-      setMode("pan"); showMessage(wasMeasuring ? "Mätningen avslutades. Kalibreringen behålls." : selecting && !bulkBusy ? "Markeringen avbröts."
+      setMode("pan"); showMessage(wasDrawingLeader ? "Ritningen av splinen avbröts. Den tidigare linjen behålls."
+        : wasMeasuring ? "Mätningen avslutades. Kalibreringen behålls." : selecting && !bulkBusy ? "Markeringen avbröts."
         : readOnly ? "Klicka på en etikett för indata och resultat." : "Klicka på en etikett för indata eller dra den för att flytta.");
     }
   });

@@ -119,7 +119,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, validateLayout,
-  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -227,87 +227,44 @@ test("label attachments remain relative when moving or sizing and can use all fo
   }
 });
 
-const bezierNodes = ([a, b, c, d]) => [{...a, out: {x: b.x - a.x, y: b.y - a.y}},
-  {...d, in: {x: c.x - d.x, y: c.y - d.y}}];
-const vector = (from, to) => ({x: to.x - from.x, y: to.y - from.y});
-const sameDirection = (a, b) => {
-  near(a.x * b.y - a.y * b.x, 0);
-  assert.ok(a.x * b.x + a.y * b.y > 0, "The tangent points forward on both sides of the join");
-};
-
-test("automatic tip blends stay smooth and clear at every size and preserve distant curls", () => {
+test("arrowheads follow the true spline tangent without reshaping tight bends or returning loops", () => {
   const cases = [
-    [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: .001}},
-      {x: .6, y: .4, in: {x: -.2, y: .01}, out: {x: 0, y: 0}}],
+    [{x: .7, y: .2, in: {x: 0, y: 0}, out: {x: .18, y: .1}},
+      {x: .2, y: .4, in: {x: .2, y: 0}, out: {x: 0, y: 0}}],
     [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}},
-      {x: .3, y: .4, in: {x: -.2, y: .2}, out: {x: .1, y: 0}},
-      {x: .6, y: .5, in: {x: -.1, y: 0}, out: {x: 0, y: 0}}],
-    // Entirely coincident or short curves must still yield finite arrow geometry.
+      {x: .3, y: .4, in: {x: -.25, y: .04}, out: {x: -.2, y: .1}},
+      {x: .1, y: .7, in: {x: .1, y: 0}, out: {x: 0, y: 0}}],
     [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}},
       {x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: 0}}],
   ];
-  for (const vertices of cases) for (const [width, height] of [[800, 600], [500, 1800], [2400, 400]]) {
-    for (const size of [.2, 1, 1.8]) {
-      const before = structuredClone(vertices), tip = leaderTip(vertices, width, height, size);
-      near(Math.hypot(tip.join.x - tip.anchor.x, tip.join.y - tip.anchor.y), 10 * size);
-      assert.ok(tip.radius - 7 * size - size / 2 >= 2 * size, "Clearance remains outside arrow arms and round caps");
-      assert.ok(Number.isFinite(tip.direction)); assert.doesNotMatch(tip.clip, /NaN|Infinity/);
-      assert.deepEqual(vertices, before, "Rendering never alters saved nodes or handles");
-      if (!tip.curves.length) continue;
-      const [blend, tail] = tip.curves;
-      sameDirection(vector(tip.anchor, tip.join), vector(blend[0], blend[1]));
-      if (tail) {
-        assert.deepEqual(blend[3], tail[0]);
-        sameDirection(vector(blend[2], blend[3]), vector(tail[0], tail[1]));
-        assert.ok(Math.hypot(blend[3].x - tip.anchor.x, blend[3].y - tip.anchor.y) < 18 * size + .02,
-          "The automatic change is confined to the small tip region");
-        const cut = tip.cut, source = vertices[cut.segment], next = vertices[cut.segment + 1];
-        const [a, b] = bezierNodes(tail);
-        for (let i = 0; i <= 100; i++) {
-          const t = i / 100, expected = leaderCurvePoint(source, next, cut.t + (1 - cut.t) * t), actual = leaderCurvePoint(a, b, t);
-          near(actual.x, expected.x * width); near(actual.y, expected.y * height);
-        }
-        const remaining = vertices.slice(cut.segment + 2).map((b, i) => {
-          const a = vertices[cut.segment + 1 + i];
-          return [a, {x: a.x + a.out.x, y: a.y + a.out.y}, {x: b.x + b.in.x, y: b.y + b.in.y}, b]
-            .map(p => ({x: p.x * width, y: p.y * height}));
-        });
-        assert.deepEqual(tip.curves.slice(2), remaining, "All remaining curls retain their exact controls");
-      }
-      for (const p of blend) assert.ok((p.x - tip.anchor.x) * Math.cos(tip.direction)
-        + (p.y - tip.anchor.y) * Math.sin(tip.direction) >= tip.radius - 1e-10);
-    }
+  for (const [width,height] of [[800,600],[500,1800],[2400,400]]) for (const size of [.2,1,1.8]) for (const vertices of cases) {
+    const original = structuredClone(vertices), tip = leaderTip(vertices,width,height,size);
+    const expected = vertices.slice(1).map((b,i) => {
+      const a = vertices[i]; return [a,{x:a.x+a.out.x,y:a.y+a.out.y},{x:b.x+b.in.x,y:b.y+b.in.y},b]
+        .map(p=>({x:p.x*width,y:p.y*height}));
+    });
+    assert.deepEqual(tip.curves,expected,"Every original Bezier control remains exact, including the tip");
+    const first = expected.flat().find(p=>Math.hypot(p.x-tip.anchor.x,p.y-tip.anchor.y)>1e-8);
+    near(tip.direction, first ? Math.atan2(first.y-tip.anchor.y,first.x-tip.anchor.x) : 0);
+    assert.doesNotMatch(tip.clip,/NaN|Infinity/); assert.equal(tip.clip.match(/ Z/g).length,3);
+    assert.deepEqual(vertices,original);
   }
 });
 
-test("adding nodes keeps the automatic tip transition unchanged", () => {
-  const original = sampleLeader(), endpoint = {x: .65, y: .4};
-  const before = leaderTip(leaderVertices(original, endpoint), 800, 600, 1);
-  for (const t of [.01, .12, .7]) {
-    const divided = splitLeader(original, endpoint, 0, t);
-    const after = leaderTip(leaderVertices(divided, endpoint), 800, 600, 1);
-    for (let i = 0; i < 4; i++) {
-      assert.ok(Math.hypot(before.curves[0][i].x - after.curves[0][i].x,
-        before.curves[0][i].y - after.curves[0][i].y) < .002);
-    }
-  }
-});
-
-for (const readOnly of [false, true]) test(`leader strokes keep vector clearance around the head (readOnly=${readOnly})`, t => {
-  const ui = leaderUi(t, {readOnly, pdfMode: readOnly}), path = ui.byClass("gp-leader-path");
-  const ref = path.getAttribute("clip-path").match(/^url\(#(.+)\)$/)[1];
-  const clip = ui.find(el => el.getAttribute("id") === ref);
-  assert.equal(clip.tag, "clipPath"); assert.equal(clip.children[0].getAttribute("clip-rule"), "evenodd");
-  assert.match(clip.children[0].getAttribute("d"), / A 10 10 /);
-  assert.match(path.getAttribute("d"), / C /, "The automatic blend is drawn in editable, HTML and PDF views");
-  const stem = ui.byClass("gp-leader-stem"), original = structuredClone(ui.tag.leader);
-  ui.data.state.label_size = 20; ui.changed();
-  assert.match(clip.children[0].getAttribute("d"), / A 2 2 /);
-  assert.equal(stem.getAttribute("stroke-width"), "0.2");
-  if (!readOnly) {
-    ui.edit(); assert.equal(ui.byClass("gp-leader-path"), path, "Entering edit mode retains the native double-click target");
-  }
-  assert.deepEqual(ui.tag.leader, original); assert.equal(ui.sent.length, 0);
+for (const readOnly of [false,true]) test(`leader arm clearance stays vector and preserves the actual spline (readOnly=${readOnly})`, t=>{
+  const ui=leaderUi(t,{readOnly,pdfMode:readOnly}), path=ui.byClass("gp-leader-path");
+  const ref=path.getAttribute("clip-path").slice(5,-1), clip=ui.find(el=>el.getAttribute("id")===ref);
+  assert.equal(clip.tag,"clipPath"); assert.equal(clip.children[0].getAttribute("clip-rule"),"evenodd");
+  assert.equal(ui.elements().filter(e=>e.className==='gp-leader-stem').length,0,"No forced straight tip segment");
+  const numbers=path.getAttribute("d").match(/-?\d+(?:\.\d+)?/g).map(Number);
+  near(numbers[0],ui.tag.leader.nodes[0].x*800);near(numbers[1],ui.tag.leader.nodes[0].y*600);
+  const original=structuredClone(ui.tag.leader), before=path.getAttribute("d"), clearance=clip.children[0].getAttribute("d");
+  ui.data.state.label_size=20;ui.changed();
+  assert.notEqual(clip.children[0].getAttribute("d"),clearance);
+  ui.data.state.label_size=100;ui.changed();
+  assert.equal(path.getAttribute("d"),before);
+  if(!readOnly){ui.edit();assert.equal(ui.byClass("gp-leader-path"),path);}
+  assert.deepEqual(ui.tag.leader,original);assert.equal(ui.sent.length,0);
 });
 
 test("enabling a new leader places its tip and toggling it retains the entire spline", t => {
@@ -328,6 +285,99 @@ test("enabling a new leader places its tip and toggling it retains the entire sp
   check.checked = true; check.dispatch("change");
   assert.deepEqual(ui.sent.at(-1).leader, original);
   assert.ok(ui.sent.every(message => ["leader"].includes(message.action)));
+});
+
+test("freehand fitting removes tremor samples on straight stretches and retains intentional loops with few nodes", () => {
+  const attachment={side:"right",offset:.5}, width=800,height=600;
+  const straight=Array.from({length:501},(_,i)=>({x:.7-.5*i/500,y:.4+.2*i/500+Math.sin(i)*.0007}));
+  const line=leaderFromStroke(straight,attachment,width,height);
+  assert.equal(line.nodes.length,1);assert.deepEqual(line.attachment,attachment);
+  assert.deepEqual({x:line.nodes[0].x,y:line.nodes[0].y},straight.at(-1));
+  const shape=[
+    [{x:.75,y:.2},{x:.82,y:.35},{x:.83,y:.5},{x:.8,y:.55}],
+    [{x:.8,y:.55},{x:.65,y:.82},{x:.38,y:.68},{x:.5,y:.55}],
+    [{x:.5,y:.55},{x:.62,y:.42},{x:.86,y:.55},{x:.8,y:.7}],
+    [{x:.8,y:.7},{x:.72,y:.9},{x:.38,y:.72},{x:.2,y:.9}],
+  ];
+  const trace=shape.flatMap(([a,b,c,d],s)=>Array.from({length:101},(_,i)=>{
+    const t=i/100,u=1-t;return {x:u**3*a.x+3*u*u*t*b.x+3*u*t*t*c.x+t**3*d.x,
+      y:u**3*a.y+3*u*u*t*b.y+3*u*t*t*c.y+t**3*d.y};
+  }));
+  const loop=leaderFromStroke(trace,attachment,width,height);
+  assert.ok(loop.nodes.length>line.nodes.length);assert.ok(loop.nodes.length<35,"Complex paths stay editable without hundreds of sample nodes");
+  const vertices=leaderVertices(loop,trace[0]);
+  const fitted=vertices.slice(1).flatMap((b,s)=>Array.from({length:101},(_,i)=>leaderCurvePoint(vertices[s],b,i/100)));
+  const intersection=(a,b,c,d)=>{
+    const cross=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
+    return cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0;
+  };
+  let crosses=false;
+  for(let i=1;i<fitted.length&&!crosses;i++)for(let j=i+8;j<fitted.length;j++)if(intersection(fitted[i-1],fitted[i],fitted[j-1],fitted[j])){crosses=true;break;}
+  assert.ok(crosses,"The deliberate drawn loop survives fitting");
+  for(const p of trace)assert.ok(Math.min(...fitted.map(q=>Math.hypot((p.x-q.x)*width,(p.y-q.y)*height)))<7,"Fitting stays close to the drawn path");
+  assert.equal(leaderFromStroke([],attachment,width,height),null);
+  assert.equal(leaderFromStroke([{x:.2,y:.3},{x:.201,y:.301}],attachment,width,height),null);
+});
+
+const drawLeaderStart = ui => {
+  const handle=ui.byClass("gp-leader-draw-start"), image=ui.byClass("gp-picture").getBoundingClientRect();
+  const x=image.left+Number(handle.getAttribute("cx"))*image.width/ui.data.background.width,
+    y=image.top+Number(handle.getAttribute("cy"))*image.height/ui.data.background.height;
+  ui.start(handle,x,y);return {x,y,image};
+};
+const moveLeaderTrace = ui => {
+  const {image}=drawLeaderStart(ui);
+  for(const [x,y] of [[.5,.4],[.53,.5],[.45,.58],[.35,.52],[.25,.65]])ui.move(image.left+x*image.width,image.top+y*image.height);
+  return {x:image.left+.25*image.width,y:image.top+.65*image.height};
+};
+test("redrawing a spline retains its attachment and only replaces old nodes after finishing", t=>{
+  const ui=leaderUi(t), original=structuredClone(ui.tag.leader), position=ui.position();
+  ui.start();ui.finish(300,300);ui.byText("Rita om spline").click();
+  assert.equal(ui.sent.length,0);assert.equal(ui.byClass("gp-leader-path").parent.getAttribute("opacity"),".25");
+  const end=moveLeaderTrace(ui);
+  assert.ok(ui.byClass("gp-leader-preview"));assert.deepEqual(ui.tag.leader,original);assert.equal(ui.sent.length,0);
+  ui.finish(end.x,end.y);const saved=ui.apply().leader;
+  assert.deepEqual(saved.attachment,original.attachment);assert.notDeepEqual(saved.nodes,original.nodes);
+  near(saved.nodes[0].x,.25);near(saved.nodes[0].y,.65);assert.deepEqual(ui.position(),position);
+  assert.equal(ui.byClass("gp-leader-path").parent.getAttribute("opacity"),"1");
+  assert.equal(ui.elements().filter(e=>e.className==='gp-leader-preview').length,0);
+  assert.ok(ui.sent.every(m=>m.action==='leader'),"Drawing changes no footing inputs or placements");
+});
+test("Escape and pointer cancellation keep the previous spline and discard the unfinished trace", t=>{
+  const ui=leaderUi(t), original=structuredClone(ui.tag.leader), path=ui.byClass("gp-leader-path").getAttribute("d");
+  const redraw=()=>{ui.start();ui.finish(300,300);ui.byText("Rita om spline").click();};
+  redraw();const end=moveLeaderTrace(ui);
+  ui.byClass("an-grundplan").dispatch("keydown",{target:ui.viewport,key:"Escape"});ui.finish(end.x,end.y);
+  assert.deepEqual(ui.tag.leader,original);assert.equal(ui.sent.length,0);assert.equal(ui.byClass("gp-leader-path").getAttribute("d"),path);
+  assert.equal(ui.byClass("gp-leader-path").parent.getAttribute("opacity"),"1");
+  redraw();moveLeaderTrace(ui);ui.viewport.dispatch("pointercancel");
+  assert.equal(ui.elements().filter(e=>e.className==='gp-leader-preview').length,0);assert.deepEqual(ui.tag.leader,original);assert.equal(ui.sent.length,0);
+  ui.byClass("an-grundplan").dispatch("keydown",{target:ui.viewport,key:"Escape"});
+});
+test("short strokes, releases outside the drawing and changed pages cannot replace an existing spline", t=>{
+  const ui=leaderUi(t), original=structuredClone(ui.tag.leader);
+  const redraw=()=>{ui.start();ui.finish(300,300);ui.byText("Rita om spline").click();};
+  redraw();const start=drawLeaderStart(ui);ui.move(start.x+5,start.y+1);ui.finish(start.x+5,start.y+1);
+  assert.equal(ui.sent.length,0);assert.deepEqual(ui.tag.leader,original);
+  const end=moveLeaderTrace(ui);ui.finish(-100,-100);
+  assert.equal(ui.sent.length,0);assert.deepEqual(ui.tag.leader,original);
+  moveLeaderTrace(ui);ui.data.background.page=2;ui.changed();ui.finish(end.x,end.y);
+  assert.equal(ui.sent.length,0);assert.deepEqual(ui.tag.leader,original);
+  assert.equal(ui.elements().filter(e=>e.className==='gp-leader-preview'||e.className==='gp-leader-draw-start').length,0);
+  assert.ok(!ui.viewport.className.includes("gp-placing-leader"));
+});
+test("new freehand leaders can be created from the frame and a failed redraw restores the old geometry", t=>{
+  const ui=setup(t);ui.start();ui.finish(300,300);
+  const check=ui.find(e=>e.getAttribute("aria-label")==="Hänvisningslinje");check.checked=true;check.dispatch("change");
+  const end=moveLeaderTrace(ui);ui.finish(end.x,end.y);
+  const first=ui.sent.at(-1);assert.equal(first.action,"leader");assert.ok(first.leader.nodes.length>1);
+  ui.tag.leader=structuredClone(first.leader);ui.changed();ui.ack(first);
+  const oldPath=ui.byClass("gp-leader-path").getAttribute("d");
+  ui.start();ui.finish(300,300);ui.byText("Rita om spline").click();
+  const start=drawLeaderStart(ui);ui.move(start.x-100,start.y+60);ui.finish(start.x-100,start.y+60);
+  const replacement=ui.sent.at(-1);assert.notEqual(replacement,first);
+  ui.ack(replacement,{ok:false,error:"Kunde inte spara."});
+  assert.deepEqual(ui.tag.leader,first.leader);assert.equal(ui.byClass("gp-leader-path").getAttribute("d"),oldPath);
 });
 
 test("native double click keeps its hit target alive and adds and deletes only intermediate nodes", t => {

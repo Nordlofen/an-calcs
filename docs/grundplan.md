@@ -353,10 +353,18 @@ följer etiketternas ramar, medan spetsar och mellannoder ligger kvar.
 Gruppflyttning är tillgänglig i redigeringsvyn; resultat-HTML behåller låsta placeringar.
 
 **Hänvisningslinje (spline):** öppna sulans redigeringspanel och fäll ut
-**Etikett**. Markera **Hänvisningslinje** och klicka på ritningen för att placera
-spetsen. Den andra änden sitter fast i etikettens ram och följer med vid flytt
+**Etikett**. Markera **Hänvisningslinje** och dra en bana från etikettens ram
+till önskad pilspets. Banan jämnas ut och får automatiskt så få noder som behövs
+för att återge formen. Långa raka sträckor får färre noder; böjar och avsiktliga
+öglor behålls. Ett klick på ritningen skapar i stället en enkel spline.
+Den andra änden sitter fast i etikettens ram och följer med vid flytt
 eller ändrad etikettstorlek. Avmarkering döljer linjen; när den aktiveras igen
 återkommer samma placering, anslutningspunkt och kurvform.
+
+**Rita om spline** låter dig börja om med en ny bana från samma anslutningspunkt.
+Den gamla linjen visas svagt medan du ritar och ersätts först när du släpper en
+giltig ny bana. Alla gamla noder ersätts. Escape avbryter och behåller den tidigare
+formen. En avbruten eller alltför kort dragning sparar ingen ändring.
 
 Klicka på linjen eller **Redigera linje** för att visa noder och kontrollhandtag.
 Dra anslutningsnoden längs ramen för att välja sida och läge. Dra spetsen eller
@@ -370,11 +378,10 @@ Linjetjocklek och pilhuvud följer etikettstorleken: vid 100 % är de 1 px
 respektive 7 px, vid 150 % 1,5 px respektive 10,5 px. Ritningszoom skalar hela
 presentationen på skärmen och ändrar inte exportens grundstorlek. Spets och
 mellannoder behåller sina relativa ritningspositioner när etiketten skalas.
-Närmast pilspetsen anpassas anslutningen automatiskt med en kort, mjuk
-Bézierövergång. Den följer riktningen både på splinen och den korta delen vid
-pilhuvudet, så att ingen knäck uppstår. Justeringen gäller bara området runt
-spetsen; övriga böjar och loopar behåller sin form. Kurvan hålls fri från
-pilhuvudets sidor. Övergången följer etikettstorleken och kräver ingen manuell justering.
+Pilhuvudet följer splinens verkliga riktning vid spetsen. Ingen extra rak del
+eller övergångskurva ändrar den ritade formen. Smala skyddsområden längs
+pilhuvudets armar håller förbipasserande kurvdelar fria från pilens sidor.
+Även dessa områden följer etikettstorleken.
 PDF och resultat-HTML visar linje och pil som vektorer utan redigeringshandtag.
 Linjen lagras separat från beräkningsindata och ändrar inga beräkningsresultat.
 
