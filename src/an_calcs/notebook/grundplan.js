@@ -228,6 +228,11 @@ export function leaderCurvePoint(a, b, t) {
     r = leaderLerp(leaderAdd(b, b.in), b, t);
   return leaderLerp(leaderLerp(p, q, t), leaderLerp(q, r, t), t);
 }
+const splitLeaderBezier = (points, t) => {
+  const [a, b, c, d] = points, p = leaderLerp(a, b, t), q = leaderLerp(b, c, t), r = leaderLerp(c, d, t),
+    s = leaderLerp(p, q, t), u = leaderLerp(q, r, t), v = leaderLerp(s, u, t);
+  return {left: [a, p, s, v], right: [v, u, r, d]};
+};
 export function leaderTip(vertices, width, height, size) {
   const pixel = point => ({x: point.x * width, y: point.y * height});
   const anchor = pixel(vertices[0]), radius = 10 * size;
@@ -237,21 +242,37 @@ export function leaderTip(vertices, width, height, size) {
     return [pixel(a), pixel(leaderAdd(a, a.out)), pixel(leaderAdd(b, b.in)), pixel(b)];
   });
   // The convex hull lets us skip entire pieces inside the clearance circle.
-  // Search in curve order so the straight stem meets the first visible piece.
-  const firstOutside = (points, depth = 0) => {
-    if (distance(points[0]) > radius) return points[0];
-    if (points.every(point => distance(point) <= radius)) return null;
-    const [a, b, c, d] = points, ab = leaderLerp(a, b, .5), bc = leaderLerp(b, c, .5), cd = leaderLerp(c, d, .5),
-      left = leaderLerp(ab, bc, .5), right = leaderLerp(bc, cd, .5), middle = leaderLerp(left, right, .5);
-    if (depth === 18) return [middle, d].find(point => distance(point) > radius) || null;
-    return firstOutside([a, ab, left, middle], depth + 1) || firstOutside([middle, right, cd, d], depth + 1);
+  // Trim only the prefix inside a small circle. Keep exact Bezier controls for
+  // the remaining curve so added nodes, loops and distant bends retain shape.
+  const blendRadius = 18 * size;
+  const firstOutside = (points, from = 0, to = 1, depth = 0) => {
+    if (distance(points[0]) > blendRadius) return from;
+    if (points.every(point => distance(point) <= blendRadius)) return null;
+    const {left, right} = splitLeaderBezier(points, .5), middle = (from + to) / 2;
+    if (depth === 20) return distance(left[3]) > blendRadius ? middle : distance(points[3]) > blendRadius ? to : null;
+    return firstOutside(left, from, middle, depth + 1) ?? firstOutside(right, middle, to, depth + 1);
   };
-  let exit;
-  for (const points of controls) {exit = firstOutside(points); if (exit) break;}
+  let cut = null, tail = [];
+  for (let i = 0; i < controls.length; i++) {
+    const t = firstOutside(controls[i]);
+    if (t !== null) {cut = {segment: i, t}; tail = [splitLeaderBezier(controls[i], t).right, ...controls.slice(i + 1)]; break;}
+  }
+  const end = controls.at(-1)?.[3], exit = tail[0]?.[0] || (end && distance(end) > radius ? end : null);
   const fallback = controls.flat().find(point => distance(point) > 1e-8);
   const delta = leaderSub(exit || fallback || {x: anchor.x + 1, y: anchor.y}, anchor);
   const direction = Math.atan2(delta.y, delta.x);
   const join = {x: anchor.x + Math.cos(direction) * radius, y: anchor.y + Math.sin(direction) * radius};
+  const curves = [];
+  if (exit) {
+    const gap = distance(exit) - radius, handle = gap / 3;
+    const tangent = tail.flat().map(point => leaderSub(point, exit)).find(v => Math.hypot(v.x, v.y) > 1e-8) || delta;
+    const length = Math.hypot(tangent.x, tangent.y);
+    const first = {x: join.x + Math.cos(direction) * handle, y: join.y + Math.sin(direction) * handle},
+      last = {x: exit.x - tangent.x / length * handle, y: exit.y - tangent.y / length * handle};
+    // All four controls project beyond the clearance radius. Their convex hull
+    // therefore keeps this tangent-matched blend clear of the arrow arms.
+    curves.push([join, first, last, exit], ...tail);
+  }
   const points = controls.flat();
   const left = Math.min(anchor.x - radius, ...points.map(p => p.x)) - radius,
     top = Math.min(anchor.y - radius, ...points.map(p => p.y)) - radius,
@@ -262,7 +283,7 @@ export function leaderTip(vertices, width, height, size) {
   const clip = `M ${left} ${top} H ${right} V ${bottom} H ${left} Z`
     + ` M ${anchor.x + radius} ${anchor.y} A ${radius} ${radius} 0 1 0 ${anchor.x - radius} ${anchor.y}`
     + ` A ${radius} ${radius} 0 1 0 ${anchor.x + radius} ${anchor.y} Z`;
-  return {anchor, join, direction, radius, clip};
+  return {anchor, join, direction, radius, clip, curves, cut};
 }
 export function splitLeader(leader, endpoint, segment, t) {
   const result = JSON.parse(JSON.stringify(leader)), vertices = leaderVertices(result, endpoint);
@@ -1642,14 +1663,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         elements = {group, path, stem, arrow, hit, clearance}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
       }
       const vertices = leaderVertices(value, leaderEndpoint(value.attachment, box));
-      let d = `M ${pixel(vertices[0]).x} ${pixel(vertices[0]).y}`;
-      for (let i = 1; i < vertices.length; i++) {
-        const a = pixel(leaderAdd(vertices[i - 1], vertices[i - 1].out)),
-          b = pixel(leaderAdd(vertices[i], vertices[i].in)), end = pixel(vertices[i]);
+      const {anchor, join, direction, clip, curves} = leaderTip(vertices, bg.width, bg.height, size);
+      let d = `M ${join.x} ${join.y}`;
+      for (const [, a, b, end] of curves) {
         d += ` C ${a.x} ${a.y} ${b.x} ${b.y} ${end.x} ${end.y}`;
       }
       elements.path.setAttribute("d", d); elements.path.setAttribute("stroke-width", size);
-      const {anchor, join, direction, clip} = leaderTip(vertices, bg.width, bg.height, size);
       elements.clearance.setAttribute("d", clip);
       elements.stem.setAttribute("d", `M ${anchor.x} ${anchor.y} L ${join.x} ${join.y}`);
       elements.stem.setAttribute("stroke-width", size);

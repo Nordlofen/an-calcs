@@ -227,7 +227,15 @@ test("label attachments remain relative when moving or sizing and can use all fo
   }
 });
 
-test("arrow clearance stays larger than its arms and meets tight and returning curves at every label size", () => {
+const bezierNodes = ([a, b, c, d]) => [{...a, out: {x: b.x - a.x, y: b.y - a.y}},
+  {...d, in: {x: c.x - d.x, y: c.y - d.y}}];
+const vector = (from, to) => ({x: to.x - from.x, y: to.y - from.y});
+const sameDirection = (a, b) => {
+  near(a.x * b.y - a.y * b.x, 0);
+  assert.ok(a.x * b.x + a.y * b.y > 0, "The tangent points forward on both sides of the join");
+};
+
+test("automatic tip blends stay smooth and clear at every size and preserve distant curls", () => {
   const cases = [
     [{x: .3, y: .4, in: {x: 0, y: 0}, out: {x: 0, y: .001}},
       {x: .6, y: .4, in: {x: -.2, y: .01}, out: {x: 0, y: 0}}],
@@ -245,15 +253,44 @@ test("arrow clearance stays larger than its arms and meets tight and returning c
       assert.ok(tip.radius - 7 * size - size / 2 >= 2 * size, "Clearance remains outside arrow arms and round caps");
       assert.ok(Number.isFinite(tip.direction)); assert.doesNotMatch(tip.clip, /NaN|Infinity/);
       assert.deepEqual(vertices, before, "Rendering never alters saved nodes or handles");
+      if (!tip.curves.length) continue;
+      const [blend, tail] = tip.curves;
+      sameDirection(vector(tip.anchor, tip.join), vector(blend[0], blend[1]));
+      if (tail) {
+        assert.deepEqual(blend[3], tail[0]);
+        sameDirection(vector(blend[2], blend[3]), vector(tail[0], tail[1]));
+        assert.ok(Math.hypot(blend[3].x - tip.anchor.x, blend[3].y - tip.anchor.y) < 18 * size + .02,
+          "The automatic change is confined to the small tip region");
+        const cut = tip.cut, source = vertices[cut.segment], next = vertices[cut.segment + 1];
+        const [a, b] = bezierNodes(tail);
+        for (let i = 0; i <= 100; i++) {
+          const t = i / 100, expected = leaderCurvePoint(source, next, cut.t + (1 - cut.t) * t), actual = leaderCurvePoint(a, b, t);
+          near(actual.x, expected.x * width); near(actual.y, expected.y * height);
+        }
+        const remaining = vertices.slice(cut.segment + 2).map((b, i) => {
+          const a = vertices[cut.segment + 1 + i];
+          return [a, {x: a.x + a.out.x, y: a.y + a.out.y}, {x: b.x + b.in.x, y: b.y + b.in.y}, b]
+            .map(p => ({x: p.x * width, y: p.y * height}));
+        });
+        assert.deepEqual(tip.curves.slice(2), remaining, "All remaining curls retain their exact controls");
+      }
+      for (const p of blend) assert.ok((p.x - tip.anchor.x) * Math.cos(tip.direction)
+        + (p.y - tip.anchor.y) * Math.sin(tip.direction) >= tip.radius - 1e-10);
     }
   }
-  const tip = leaderTip(cases[0], 800, 600, 1), a = cases[0][0], b = cases[0][1];
-  let closest = Infinity;
-  for (let i = 0; i <= 10000; i++) {
-    const p = leaderCurvePoint(a, b, i / 10000);
-    closest = Math.min(closest, Math.hypot(p.x * 800 - tip.join.x, p.y * 600 - tip.join.y));
+});
+
+test("adding nodes keeps the automatic tip transition unchanged", () => {
+  const original = sampleLeader(), endpoint = {x: .65, y: .4};
+  const before = leaderTip(leaderVertices(original, endpoint), 800, 600, 1);
+  for (const t of [.01, .12, .7]) {
+    const divided = splitLeader(original, endpoint, 0, t);
+    const after = leaderTip(leaderVertices(divided, endpoint), 800, 600, 1);
+    for (let i = 0; i < 4; i++) {
+      assert.ok(Math.hypot(before.curves[0][i].x - after.curves[0][i].x,
+        before.curves[0][i].y - after.curves[0][i].y) < .002);
+    }
   }
-  assert.ok(closest < .04, "The straight stem joins the actual curve on the clearance boundary");
 });
 
 for (const readOnly of [false, true]) test(`leader strokes keep vector clearance around the head (readOnly=${readOnly})`, t => {
@@ -262,6 +299,7 @@ for (const readOnly of [false, true]) test(`leader strokes keep vector clearance
   const clip = ui.find(el => el.getAttribute("id") === ref);
   assert.equal(clip.tag, "clipPath"); assert.equal(clip.children[0].getAttribute("clip-rule"), "evenodd");
   assert.match(clip.children[0].getAttribute("d"), / A 10 10 /);
+  assert.match(path.getAttribute("d"), / C /, "The automatic blend is drawn in editable, HTML and PDF views");
   const stem = ui.byClass("gp-leader-stem"), original = structuredClone(ui.tag.leader);
   ui.data.state.label_size = 20; ui.changed();
   assert.match(clip.children[0].getAttribute("d"), / A 2 2 /);
