@@ -3552,6 +3552,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const [label, value] of [
       ["Vertikallast V – brott", number(r.last) + " " + r.lastenhet],
       ["Jordens bärförmåga", number(r.barformaga) + " " + r.lastenhet],
+      ["Lasteffekt q_Ed", number(r.q_Ed) + " kPa"],
       ["Bärförmåga q_bd", number(r.q_bd) + " kPa"],
       ["Effektivt mått b_x,eff", number(r.b_ef, 3) + " m"],
     ]) table.append(mathText("dt", "", label), node("dd", "", value));

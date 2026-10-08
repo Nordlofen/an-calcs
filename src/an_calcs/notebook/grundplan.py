@@ -424,6 +424,8 @@ def _calculate(values):
             "Grundplans sammanfattning och areaskiss visar totala krafter och moment; "
             "den gemensamma beräkningsmotorns rapport använder ekvivalenta värden per meter sula."
         )})
+    area = areas["brott"]
+    summary["q_Ed"] = _number(area["V"] / area["area"], "Lasteffekt q_Ed")
     return details, summary
 
 

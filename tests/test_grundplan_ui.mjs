@@ -139,7 +139,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
   globalThis.requestAnimationFrame = fn => fn();
   const tag = { id: "tag1", label: "VS1", x: .3, y: .4, page,
     values: Object.fromEntries(names.map(name => [name, 1])), status: "calculated",
-      summary: { utnyttjandegrad: .75, styrande: "Jord · brott", b: 1, last: 100, barformaga: 133, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
+      summary: { utnyttjandegrad: .75, styrande: "Jord · brott", b: 1, last: 100, barformaga: 133, q_Ed: 100, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.L_vagg = null;
@@ -2096,7 +2096,12 @@ for (const readOnly of [false, true]) test(`effective-area plot preserves signed
     Mx: -60, My: 30, ex_placement: .1, ey_placement: -.1,
     ex_moment: .1, ey_moment: -.2, ex: .2, ey: -.3};
   ui.tag.summary.effective_area = {brott: a, bruk: {...a, ex: -.2, ey: .3}};
+  ui.tag.summary.q_Ed = 300 / 3.84;
   ui.marker().click();
+  const pressure = ui.find(element => element.tag === "dt" && elementText(element) === "Lasteffekt qEd");
+  const list = pressure.parent, row = list.children.indexOf(pressure);
+  assert.equal(list.children[row + 1].textContent, "78,13 kPa");
+  assert.equal(elementText(list.children[row + 2]), "Bärförmåga qbd", "qEd immediately precedes qbd");
   const rectangle = () => ui.find(element => element.getAttribute("class") === "gp-effective-rectangle");
   const outline = () => ui.find(element => element.getAttribute("class") === "gp-footing-outline");
   const get = (element, name) => Number(element.getAttribute(name));
@@ -2107,6 +2112,7 @@ for (const readOnly of [false, true]) test(`effective-area plot preserves signed
   near(get(rectangle(), "height") / get(outline(), "height"), .8);
   const before = ui.sent.length;
   ui.byClass("gp-area-phase").value = "bruk"; ui.byClass("gp-area-phase").dispatch("change");
+  assert.equal(list.children[row + 1].textContent, "78,13 kPa", "The soil summary always shows Brott pressure");
   near(get(rectangle(), "x"), get(outline(), "x"));
   near(get(rectangle(), "y"), get(outline(), "y"));
   ui.byText("Minimera").click(); ui.marker().click();

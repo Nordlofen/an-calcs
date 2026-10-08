@@ -619,6 +619,10 @@ Sulans egentyngd beräknas från bₓ, bᵧ och t, med befintliga faktorer 1,5 i
 Resultatsammanfattningen visar total last och bärförmåga i kN, och areaskissen visar totala krafter och moment.
 Trycket för isoleringen är total kraft / effektiv area. Den gemensamma väggsulemotorn och dess
 rapport använder ekvivalenta laster per meter sula; dess modell och formfaktorer ändras inte.
+Resultatdialogen visar **Lasteffekt q_Ed [kPa]** direkt ovanför **Bärförmåga q_bd**.
+q_Ed är vertikallastresultanten i brott, inklusive sulans egentyngd, delad med
+den effektiva kontaktarean `A_eff = b_x,eff × b_y,eff`. Samma värde visas i
+den låsta resultat-HTML:en, även när isolering inte används.
 
 Äldre projekt med angiven L_vägg får kryssrutan inställd efter längden och räknas om.
 Projekt utan känd linjestödslängd och nya manuella sulor använder **Minst 1 m**

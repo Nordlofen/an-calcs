@@ -176,6 +176,24 @@ class TestWallLoads(unittest.TestCase):
         self.assertAlmostEqual(r["barformaga"], r["q_bd"] * 1 * 2.4)
         self.assertEqual(r["load_conversion"]["bruk"], 60)
 
+    def test_soil_pressure_uses_total_brott_force_and_both_effective_contact_dimensions(self):
+        cases = (("vaggsula", 1, .6, 1), ("vaggsula", 1, 5, 2.5),
+                 ("vaggsula", 1, None, 2), ("pelarsula", 1, 2.4, 1.3),
+                 ("pelarsula", 0, None, 1.3))
+        for model, basis, wall, by in cases:
+            with self.subTest(model=model, basis=basis, wall=wall, by=by):
+                ident = self.plan.lagg_till(.2, .3, typ=model, indata={
+                    "lasttyp": basis, "L_vagg": wall, "b": 1.2, "l": by, "t": .4,
+                    "F_vy": 200, "M_insp_b": 10, "M_insp_l": 5,
+                    "e_b_plac": .1, "e_l_plac": .05})
+                r = self.plan._tag(ident)["summary"]
+                length = (min(wall, 1) if wall is not None else 1) if model == "vaggsula" else wall if basis else 1
+                normal = 200 * length + 1.5 * 25 * 1.2 * by * .4
+                area = (1.2 - 2 * abs(.1 + 5 * length / normal)) * (by - 2 * abs(.05 + 10 * length / normal))
+                self.assertAlmostEqual(r["last"], normal)
+                self.assertAlmostEqual(r["q_Ed"], normal / area)
+                self.assertAlmostEqual(r["q_Ed"], r["effective_area"]["brott"]["V"] / r["effective_area"]["brott"]["area"])
+
     def test_sliding_uses_footing_length_independently_of_local_wall_length(self):
         ident = self.imported()
         self.plan.uppdatera(ident, indata={"glid_x": True, "glid_mu": .4})
