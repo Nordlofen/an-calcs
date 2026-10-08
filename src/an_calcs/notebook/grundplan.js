@@ -6,6 +6,15 @@ const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
   .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
+const onlyHColourRestriction = settings => {
+  const categories = selectedColourCategories(settings);
+  const dimensions = categories.filter(category => ["t", "b", "l"].includes(category));
+  if (dimensions.length) return "Endast H: avmarkera sulmått (" + dimensions.map(category => ({t: "t", b: "bₓ", l: "bᵧ"})[category]).join(", ")
+    + ") för att kunna inkludera dessa sulor.";
+  if (categories.includes("V") && settings.phase !== "EQU")
+    return "Endast H: välj EQU för att gruppera dessa sulor efter vertikallast.";
+  return "";
+};
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
 const COMMENT_WIDGET_DEFAULTS = {enabled: false, x: .08, y: .55, size: 410};
 const LAYOUT_DEFAULTS = {board_height: null, table_height: null, board_width: null, table_width: null};
@@ -76,8 +85,7 @@ function decorateColourGroups(groups, settings) {
 }
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
-  const includeH = settings.include_only_h === true && !categories.some(category => ["t", "b", "l"].includes(category))
-    && (!categories.includes("V") || settings.phase === "EQU");
+  const includeH = settings.include_only_h === true && !onlyHColourRestriction(settings);
   tags = tags.filter(tag => includeH || !tag.values.endast_h_stabilitet);
   if (categories.length > 1) {
     const parts = categories.map(category => colourGroups(tags, {...settings, categories: [category]}));
@@ -955,10 +963,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   colourLegendCheck.addEventListener("change", () => setColour({show_legend: colourLegendCheck.checked}));
   colourLegendChoice.append(colourLegendCheck, node("span", "", "Visa legend"));
   const colourOnlyHChoice = node("label", "gp-colour-inclusion-choice");
-  colourOnlyHChoice.title = "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Isolering och V · EQU.";
   const colourOnlyHCheck = node("input"); colourOnlyHCheck.type = "checkbox";
   colourOnlyHCheck.setAttribute("aria-label", "Inkludera sulor med endast H-stabilitet i färggrupperingen");
-  colourOnlyHCheck.addEventListener("change", () => setColour({include_only_h: colourOnlyHCheck.checked}));
+  const colourOnlyHNote = node("p", "gp-colour-hint gp-colour-inclusion-note");
+  colourOnlyHNote.id = "gp-colour-only-h-" + view;
+  colourOnlyHCheck.setAttribute("aria-describedby", colourOnlyHNote.id);
+  colourOnlyHCheck.addEventListener("change", () => {
+    if (!colourOnlyHCheck.disabled) setColour({include_only_h: colourOnlyHCheck.checked});
+  });
   colourOnlyHChoice.append(colourOnlyHCheck, node("span", "", "Endast H"));
   colourCategories.append(categoryChoices, colourOnlyHChoice, colourLegendChoice);
   const colourLoadOptions = node("div", "gp-colour-row");
@@ -1004,7 +1016,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   colourBoundsRow.append(colourBoundsLabel, colourError);
   const colourHint = node("p", "gp-colour-hint");
   const colourSwatches = node("div", "gp-colour-swatches");
-  colourControls.append(colourCategories, colourLoadOptions, colourBoundsRow, colourHint, colourSwatches);
+  colourControls.append(colourCategories, colourLoadOptions, colourBoundsRow, colourOnlyHNote, colourHint, colourSwatches);
   const cancelCopy = button("Avbryt kopiering", () => {
     setMode("pan");
     showMessage("Kopieringen avbröts.");
@@ -1977,7 +1989,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     }
     colourLegendCheck.checked = settings.show_legend;
-    colourOnlyHCheck.checked = settings.include_only_h === true;
+    const onlyHRestriction = onlyHColourRestriction(settings);
+    colourOnlyHCheck.disabled = !!onlyHRestriction;
+    colourOnlyHCheck.checked = !onlyHRestriction && settings.include_only_h === true;
+    colourOnlyHChoice.classList.toggle("gp-disabled", !!onlyHRestriction);
+    colourOnlyHChoice.title = onlyHRestriction || "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Isolering och V · EQU.";
+    colourOnlyHNote.textContent = onlyHRestriction;
+    colourOnlyHNote.hidden = !onlyHRestriction;
     colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
     colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {

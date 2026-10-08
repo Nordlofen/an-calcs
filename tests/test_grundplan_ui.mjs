@@ -3182,6 +3182,64 @@ for (const readOnly of [false, true]) test(`H-only footings stay white until inc
   if (readOnly) assert.equal(ui.sent.length, 0);
 });
 
+test("H-only inclusion is unavailable for irrelevant parameters and recolours immediately when applicable", t => {
+  const ui = setup(t);
+  const h = {...structuredClone(ui.tag), id: "h", label: "H-GR.1", summary: structuredClone(onlyHSummary),
+    values: {...ui.tag.values, endast_h_stabilitet: true, V_Ed_EQU: 250, glid_y: true}};
+  ui.data.state.tags.push(h);
+  const before = structuredClone(ui.data.state.tags);
+  const accept = colourFixture(ui, {category: "V", phase: "bruk"});
+  const choice = ui.byClass("gp-colour-inclusion-choice"), check = choice.children[0];
+  const note = ui.byClass("gp-colour-inclusion-note");
+  const marker = () => ui.find(e => e.className.split(" ").includes("gp-tag") && e.dataset.tagId === "h");
+  const counts = () => ui.elements().filter(e => e.className === "gp-colour-group-count").reduce((sum, e) => sum + Number(e.textContent), 0);
+  const select = text => {
+    ui.find(e => e.tag === "button" && e.textContent === text && e.closest(".gp-colour-controls")).click();
+    accept(ui.sent.at(-1));
+  };
+  const excluded = () => {
+    assert.equal(check.disabled, true);
+    assert.equal(check.checked, false, "Unavailable checkbox reflects effective inclusion, without discarding the saved preference");
+    assert.equal(note.hidden, false);
+    assert.equal(marker().style["--gp-tag-bg"], "#ffffff");
+    assert.equal(counts(), 1);
+  };
+  excluded();
+  assert.match(note.textContent, /välj EQU/);
+  assert.equal(check.getAttribute("aria-describedby"), note.id);
+  const sent = ui.sent.length;
+  check.checked = true; check.dispatch("change");
+  assert.equal(ui.sent.length, sent, "A disabled inclusion control must not submit settings");
+  select("EQU");
+  assert.equal(check.disabled, false);
+  assert.equal(check.checked, false);
+  assert.equal(note.hidden, true);
+  check.checked = true; check.dispatch("change");
+  assert.notEqual(marker().style["--gp-tag-bg"], "#ffffff", "Colour changes before the kernel acknowledges the checkbox");
+  assert.equal(counts(), 2);
+  accept(ui.sent.at(-1));
+  assert.equal(ui.data.state.colour_grouping.include_only_h, true);
+  select("Bredd bₓ"); excluded();
+  assert.match(note.textContent, /bₓ/);
+  assert.equal(ui.data.state.colour_grouping.include_only_h, true);
+  select("Bredd bₓ");
+  assert.equal(check.checked, true);
+  assert.notEqual(marker().style["--gp-tag-bg"], "#ffffff");
+  select("Brott"); excluded();
+  select("Isolering"); excluded();
+  select("Vertikallast V");
+  assert.equal(check.disabled, false, "Insulation grouping is independent of the hidden load phase");
+  assert.equal(check.checked, true);
+  assert.equal(note.hidden, true);
+  assert.equal(counts(), 2);
+  check.checked = false; check.dispatch("change");
+  assert.equal(marker().style["--gp-tag-bg"], "#ffffff");
+  assert.equal(counts(), 1);
+  accept(ui.sent.at(-1));
+  assert.deepEqual(ui.data.state.tags, before, "Grouping controls do not change footing inputs or results");
+  assert.equal(ui.elements().some(e => e.textContent === "Ej tillämpligt"), false);
+});
+
 for (const readOnly of [false, true]) test(`five insulation colours follow selected global directions including H-only (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly, standalone: readOnly});
   Object.assign(ui.tag.values, {isolering: true, glid_x: true, glid_y: true});

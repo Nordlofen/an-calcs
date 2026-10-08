@@ -476,6 +476,10 @@ Statusprick, ram och glidmotståndsinformation behålls. Markera rutan för att 
 dem vid **Isolering**, **V · EQU** eller kombinationen av dessa.
 De utesluts alltid när t, bₓ, bᵧ eller V · Brott/Bruk ingår bland valen,
 även vid kombinerad gruppering. Ingen grupp **Ej tillämpligt** skapas.
+Rutan är då inaktiv och avmarkerad, med en förklaring som visar vilka val
+som behöver ändras. Det sparade valet behålls och gäller igen när du återgår
+till Isolering eller V · EQU. Vid dessa val uppdateras etikettfärger och
+legend direkt när rutan markeras eller avmarkeras.
 Inställningen sparas i projektet; äldre projekt får rutan avmarkerad.
 Sulmått och tjocklek får en färg per unikt indatavärde. Klicka på färgrutorna
 för att välja egna färger. Mörka färger visas med ljusare bakgrund på
