@@ -22,6 +22,7 @@ except ImportError as exc:
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
+from .grundplan_leaders import validate_leader
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
@@ -815,6 +816,12 @@ class Grundplan(anywidget.AnyWidget):
             self._refresh_tag(tag)
         self._publish()
 
+    def hanvisningslinje(self, tagg, linje):
+        """Spara en spline i relativa ritningskoordinater, oberoende av indata."""
+        tag = self._tag(tagg)
+        tag["leader"] = validate_leader(linje)
+        self._publish()
+
     def _refresh_tag(self, tag):
         """En felaktig sula får aldrig behålla ett tidigare godkänt resultat."""
         try:
@@ -1103,7 +1110,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 15,
+            "version": 16,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1125,6 +1132,7 @@ class Grundplan(anywidget.AnyWidget):
                 {**{key: copy.deepcopy(tag[key]) for key in
                     ("id", "label", "x", "y", "page", "values")},
                  **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
+                 **({"leader": copy.deepcopy(tag["leader"])} if "leader" in tag else {}),
                  "calculated": tag["status"] == "calculated"}
                 for tag in self._tags
             ],
@@ -1261,8 +1269,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–15.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–16.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1313,6 +1321,8 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved_values, draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
+            if "leader" in saved:
+                tag["leader"] = validate_leader(saved["leader"])
             if "imported_length" in saved:
                 length = _number(saved["imported_length"], "Importerad linjestödslängd")
                 if length <= 0:
@@ -1372,6 +1382,8 @@ class Grundplan(anywidget.AnyWidget):
                     content["id"], indata=content.get("values"), littera=content.get("label"),
                     x=content.get("x"), y=content.get("y"),
                 )
+            elif action == "leader":
+                self.hanvisningslinje(content["id"], content["leader"])
             elif action == "calculate":
                 self.uppdatera(content["id"], indata=content["values"], littera=content["label"])
                 self.berakna(content["id"])

@@ -75,6 +75,17 @@
 .an-grundplan .gp-sheet { position: absolute; background: white; box-shadow: 0 3px 16px #18333b14; }
 .an-grundplan .gp-picture { width: 100%; height: 100%; max-width: none; display: block; user-select: none; }
 .an-grundplan .gp-markers { position: absolute; inset: 0; pointer-events: none; }
+.an-grundplan .gp-leaders, .an-grundplan .gp-leader-handles { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.an-grundplan .gp-leader-handles { z-index: 3; }
+.an-grundplan .gp-leader-hit { pointer-events: stroke; cursor: pointer; }
+.an-grundplan .gp-leader-hit:focus-visible { stroke: #1688e530; }
+.an-grundplan .gp-leader-handle { pointer-events: all; cursor: move; }
+.an-grundplan .gp-leader-handle:focus-visible { outline: none; stroke: #14695e; }
+.an-grundplan .gp-placing-leader, .an-grundplan .gp-placing-leader .gp-tag { cursor: crosshair; }
+.an-grundplan .gp-leader-section { margin-bottom: 12px; font-size: 12px; border-bottom: 1px solid var(--gp-line); padding-bottom: 8px; }
+.an-grundplan .gp-leader-section summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
+.an-grundplan .gp-leader-choice { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+.an-grundplan .gp-leader-section button { padding: 4px 7px; font-size: 11px; }
 .an-grundplan .gp-selection-box { position: absolute; border: 1px dashed var(--gp-accent); background: #14695e1a; pointer-events: none; z-index: 5; }
 .an-grundplan .gp-tag {
   --gp-tag-bg: #fff;

@@ -54,7 +54,10 @@ class Element {
     if (this.tag === "a") document.downloads.push({ href: this.href, filename: this.download });
     this.dispatch("click");
   }
-  setAttribute(name, value) { (this.attributes ??= {})[name] = String(value); }
+  setAttribute(name, value) {
+    (this.attributes ??= {})[name] = String(value);
+    if (name === "class") this.className = String(value);
+  }
   getAttribute(name) { return this.attributes?.[name] ?? null; }
   removeAttribute() {}
   setCustomValidity(value) { this.validityMessage = value; }
@@ -115,7 +118,8 @@ class Element {
 }
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
-const { default: widget, validateCalibration, measuredDistance, colourGroups, validateLayout } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+const { default: widget, validateCalibration, measuredDistance, colourGroups, validateLayout,
+  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, splitLeader } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -182,6 +186,125 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+const sampleLeader = () => ({enabled: true, attachment: {side: "left", offset: .5},
+  nodes: [{x: .1, y: .7, in: {x: 0, y: 0}, out: {x: .1, y: .03}},
+    {x: .2, y: .5, in: {x: -.05, y: .1}, out: {x: .05, y: -.1}}], end_handle: {x: -.08, y: 0}});
+function leaderUi(t, options = {}) {
+  const ui = setup(t, options);
+  ui.tag.leader = sampleLeader(); ui.changed();
+  const check = () => ui.find(el => el.getAttribute("aria-label") === "Hänvisningslinje");
+  const apply = () => {
+    const request = ui.sent.at(-1); assert.equal(request.action, "leader");
+    ui.tag.leader = structuredClone(request.leader); ui.changed(); ui.ack(request); return request;
+  };
+  const edit = () => {ui.start(ui.byClass("gp-leader-hit")); ui.finish(300, 300);};
+  return {...ui, check, apply, edit};
+}
+
+test("splitting a cubic adds a node without changing any part of the curve", () => {
+  const original = sampleLeader(), endpoint = {x: .65, y: .4};
+  for (const segment of [0, 1]) {
+    const next = splitLeader(original, endpoint, segment, .37);
+    assert.equal(next.nodes.length, original.nodes.length + 1);
+    const before = leaderVertices(original, endpoint), after = leaderVertices(next, endpoint);
+    for (let step = 0; step <= 100; step++) {
+      const t = step / 100, a = leaderCurvePoint(before[segment], before[segment + 1], t);
+      const i = t <= .37 ? segment : segment + 1, u = t <= .37 ? t / .37 : (t - .37) / .63;
+      const b = leaderCurvePoint(after[i], after[i + 1], u); near(a.x, b.x); near(a.y, b.y);
+    }
+  }
+  assert.deepEqual(original, sampleLeader(), "Splitting does not mutate saved state");
+});
+
+test("label attachments remain relative when moving or sizing and can use all four sides", () => {
+  const box = {x: .4, y: .2, width: .2, height: .1};
+  for (const side of ["left", "right", "top", "bottom"]) {
+    const attachment = {side, offset: .3}, p = leaderEndpoint(attachment, box);
+    assert.deepEqual(leaderAttachment(p, box), attachment);
+    const moved = leaderEndpoint(attachment, {...box, x: .5, y: .4});
+    near(moved.x - p.x, .1); near(moved.y - p.y, .2);
+  }
+});
+
+test("enabling a new leader places its tip and toggling it retains the entire spline", t => {
+  const ui = setup(t); ui.start(); ui.finish(300, 300);
+  const check = ui.find(el => el.getAttribute("aria-label") === "Hänvisningslinje");
+  check.checked = true; check.dispatch("change");
+  assert.equal(ui.sent.length, 0, "Wait for a drawing point before saving");
+  ui.place(200, 300);
+  const request = ui.sent.at(-1); assert.equal(request.action, "leader");
+  assert.ok(request.leader.enabled); assert.equal(request.leader.nodes.length, 1);
+  const original = structuredClone(request.leader);
+  ui.tag.leader = original; ui.changed(); ui.ack(request);
+  ui.start(); ui.finish(300, 300);
+  check.checked = false; check.dispatch("change");
+  const hidden = ui.sent.at(-1); assert.deepEqual(hidden.leader, {...original, enabled: false});
+  assert.equal(ui.elements().filter(el => el.className === "gp-leader-path").length, 0);
+  ui.tag.leader = hidden.leader; ui.changed(); ui.ack(hidden);
+  check.checked = true; check.dispatch("change");
+  assert.deepEqual(ui.sent.at(-1).leader, original);
+  assert.ok(ui.sent.every(message => ["leader"].includes(message.action)));
+});
+
+test("native double click keeps its hit target alive and adds and deletes only intermediate nodes", t => {
+  const ui = leaderUi(t), hit = ui.byClass("gp-leader-hit");
+  ui.edit(); assert.equal(ui.byClass("gp-leader-hit"), hit, "First click must retain the double-click target");
+  const image = ui.byClass("gp-picture").getBoundingClientRect();
+  ui.viewport.dispatch("dblclick", {target: hit, clientX: image.left + image.width * .16,
+    clientY: image.top + image.height * .6});
+  assert.equal(ui.apply().leader.nodes.length, 3);
+  const root = ui.byClass("an-grundplan");
+  root.dispatch("keydown", {target: ui.viewport, key: "Delete"});
+  assert.equal(ui.apply().leader.nodes.length, 2);
+  for (const index of [0, 2]) {
+    const node = ui.find(el => el.className === "gp-leader-handle" && el.dataset.handle === "node" && el.dataset.index === String(index));
+    ui.start(node); ui.finish(300, 300);
+    const count = ui.sent.length; root.dispatch("keydown", {target: ui.viewport, key: "Backspace"});
+    assert.equal(ui.sent.length, count, "The two endpoints cannot be deleted");
+  }
+});
+
+test("dragging a label keeps tip and nodes fixed, moves the connection and scales stroke and arrow", t => {
+  const ui = leaderUi(t), before = ui.byClass("gp-leader-path").getAttribute("d"), nodes = structuredClone(ui.tag.leader.nodes);
+  ui.drag(80, -30);
+  assert.notEqual(ui.byClass("gp-leader-path").getAttribute("d"), before);
+  assert.deepEqual(ui.tag.leader.nodes, nodes);
+  assert.equal(ui.sent.at(-1).action, "update");
+  ui.data.state.label_size = 150; ui.changed();
+  assert.equal(ui.byClass("gp-leader-path").getAttribute("stroke-width"), "1.5");
+  const arrow = ui.byClass("gp-leader-arrow").getAttribute("d").match(/-?\d+(?:\.\d+)?/g).map(Number);
+  near(Math.hypot(arrow[0] - arrow[2], arrow[1] - arrow[3]), 10.5);
+});
+
+test("node and tangent drags save once, cancellation restores shape and older replies cannot roll back edits", t => {
+  const ui = leaderUi(t); ui.edit();
+  const handle = () => ui.find(el => el.className === "gp-leader-handle" && el.dataset.index === "1" && el.dataset.handle === "node");
+  const initial = ui.byClass("gp-leader-path").getAttribute("d");
+  ui.start(handle()); ui.move(340, 320);
+  assert.equal(ui.sent.length, 0);
+  assert.notEqual(ui.byClass("gp-leader-path").getAttribute("d"), initial);
+  ui.viewport.dispatch("pointercancel"); assert.equal(ui.byClass("gp-leader-path").getAttribute("d"), initial);
+  ui.start(handle()); ui.move(340, 320); ui.finish(340, 320);
+  const first = ui.sent.at(-1);
+  ui.start(handle()); ui.move(360, 340); ui.finish(360, 340);
+  const second = ui.sent.at(-1), latest = ui.byClass("gp-leader-path").getAttribute("d");
+  ui.tag.leader = first.leader; ui.changed(); ui.ack(first);
+  assert.equal(ui.byClass("gp-leader-path").getAttribute("d"), latest);
+  ui.tag.leader = second.leader; ui.changed(); ui.ack(second);
+  const tangent = ui.find(el => el.className === "gp-leader-handle" && el.dataset.index === "1" && el.dataset.handle === "out");
+  ui.start(tangent); ui.move(330, 280); ui.finish(330, 280);
+  const updated = ui.apply().leader;
+  assert.deepEqual(updated.nodes.map(({x,y})=>({x,y})), second.leader.nodes.map(({x,y})=>({x,y})));
+  assert.notDeepEqual(updated.nodes[1].out, second.leader.nodes[1].out);
+});
+
+test("readonly and PDF views draw saved splines without editable paths, nodes or commands", t => {
+  const ui = leaderUi(t, {readOnly:true, pdfMode:true});
+  assert.ok(ui.byClass("gp-leader-path")); assert.ok(ui.byClass("gp-leader-arrow"));
+  assert.equal(ui.elements().filter(el => ["gp-leader-hit", "gp-leader-handle", "gp-leader-section"].includes(el.className)).length, 0);
+  ui.drag(80, 50); assert.equal(ui.sent.length, 0);
+});
 
 test("PDF mode uses the shared readonly overlays at drawing coordinates and 100% zoom", t => {
   const ui = setup(t, {readOnly: true, pdfMode: true});

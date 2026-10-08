@@ -196,6 +196,51 @@ function definitionSketch(strip) {
   return svg;
 }
 
+// Nodes and handles use relative drawing coordinates. Only the final endpoint
+// is computed from the label's actual frame, so it follows dragging and sizing.
+export function leaderEndpoint(attachment, box) {
+  const {side, offset} = attachment;
+  return {x: box.x + (side === "left" ? 0 : side === "right" ? box.width : box.width * offset),
+    y: box.y + (side === "top" ? 0 : side === "bottom" ? box.height : box.height * offset)};
+}
+export function leaderAttachment(point, box) {
+  const clamp = value => Math.max(0, Math.min(1, value));
+  const candidates = [
+    {side: "left", offset: clamp((point.y - box.y) / box.height)},
+    {side: "right", offset: clamp((point.y - box.y) / box.height)},
+    {side: "top", offset: clamp((point.x - box.x) / box.width)},
+    {side: "bottom", offset: clamp((point.x - box.x) / box.width)},
+  ];
+  return candidates.sort((a, b) => {
+    const distance = candidate => {const p = leaderEndpoint(candidate, box);
+      return ((p.x - point.x) / box.width) ** 2 + ((p.y - point.y) / box.height) ** 2;};
+    return distance(a) - distance(b);
+  })[0];
+}
+const leaderAdd = (a, b) => ({x: a.x + b.x, y: a.y + b.y});
+const leaderSub = (a, b) => ({x: a.x - b.x, y: a.y - b.y});
+const leaderLerp = (a, b, t) => ({x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t});
+export function leaderVertices(leader, endpoint) {
+  return [...leader.nodes, {...endpoint, in: leader.end_handle, out: {x: 0, y: 0}}];
+}
+export function leaderCurvePoint(a, b, t) {
+  const p = leaderLerp(a, leaderAdd(a, a.out), t), q = leaderLerp(leaderAdd(a, a.out), leaderAdd(b, b.in), t),
+    r = leaderLerp(leaderAdd(b, b.in), b, t);
+  return leaderLerp(leaderLerp(p, q, t), leaderLerp(q, r, t), t);
+}
+export function splitLeader(leader, endpoint, segment, t) {
+  const result = JSON.parse(JSON.stringify(leader)), vertices = leaderVertices(result, endpoint);
+  const a = vertices[segment], b = vertices[segment + 1];
+  const p = leaderLerp(a, leaderAdd(a, a.out), t), q = leaderLerp(leaderAdd(a, a.out), leaderAdd(b, b.in), t),
+    r = leaderLerp(leaderAdd(b, b.in), b, t);
+  const s = leaderLerp(p, q, t), u = leaderLerp(q, r, t), v = leaderLerp(s, u, t);
+  a.out = leaderSub(p, a);
+  if (segment + 1 === result.nodes.length) result.end_handle = leaderSub(r, b);
+  else b.in = leaderSub(r, b);
+  result.nodes.splice(segment + 1, 0, {...v, in: leaderSub(s, v), out: leaderSub(u, v)});
+  return result;
+}
+
 function render({ model, el, readOnly = false, pdfMode = false }) {
   const node = (tag, className, text) => {
     const element = document.createElement(tag);
@@ -239,6 +284,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   let headingDraft = null;
+  let leaderEdit = null, leaderNode = null, leaderPlacement = null;
+  const leaderDrafts = new Map();
+  const leaderElements = new Map();
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
@@ -871,6 +919,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return element;
   };
   const measurementOverlay = node("div", "gp-measurement-overlay");
+  const leaderSvg = svgNode("svg", {class: "gp-leaders", "aria-label": "Etiketternas hänvisningslinjer"});
+  const leaderHandles = svgNode("svg", {class: "gp-leader-handles", "aria-label": "Redigera hänvisningslinje"});
+  const leaderResizeObserver = new ResizeObserver(() => renderLeaders());
   measurementOverlay.setAttribute("aria-hidden", "true");
   measurementOverlay.hidden = true;
   const measurementSvg = svgNode("svg", {"aria-hidden": "true"});
@@ -950,7 +1001,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   commentLegend.append(commentHeader, commentBody, commentResize);
   overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend);
-  sheet.append(picture, markers, overlays);
+  sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
   viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
@@ -978,6 +1029,30 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   labelInput.maxLength = 80;
   labelInput.required = true;
   labelRow.append(labelInput);
+  const leaderSection = node("details", "gp-leader-section");
+  leaderSection.append(node("summary", "", "Etikett"));
+  const leaderChoice = node("label", "gp-leader-choice");
+  const leaderCheck = node("input"); leaderCheck.type = "checkbox";
+  leaderCheck.setAttribute("aria-label", "Hänvisningslinje");
+  leaderChoice.append(leaderCheck, node("span", "", "Hänvisningslinje"));
+  const leaderEditButton = button("Redigera linje", () => {
+    const id = active; if (!id) return;
+    beginLeaderEdit(id);
+  });
+  leaderCheck.addEventListener("change", () => {
+    const tag = current(); if (!tag) return;
+    const saved = leaderFor(tag);
+    if (leaderCheck.checked && !saved) {
+      setMode("pan"); leaderPlacement = tag.id; closeDialog();
+      viewport.focus({preventScroll: true});
+      viewport.classList.add("gp-placing-leader");
+      showMessage("Klicka på ritningen för att placera hänvisningslinjens spets. Escape avbryter.");
+    } else if (saved) {
+      if (!leaderCheck.checked) {leaderEdit = leaderNode = null;}
+      saveLeader(tag.id, {...saved, enabled: leaderCheck.checked});
+    }
+  });
+  leaderSection.append(leaderChoice, leaderEditButton);
   const basis = node("p", "gp-basis");
   const sketchToggle = button("Visa definitionsskiss", () => {
     if (!current()) return;
@@ -1030,7 +1105,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
   footer.append(remove, copy);
   if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
-  else form.append(labelRow, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
+  else form.append(labelRow, leaderSection, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
   const bulkDialog = node("section", "gp-dialog gp-bulk-dialog");
   bulkDialog.hidden = true;
@@ -1316,6 +1391,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
   loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
+    leaderPlacement = null; leaderEdit = leaderNode = null;
+    viewport.classList.remove("gp-placing-leader");
+    renderLeaders();
     if (mode === "import" && value !== "import" && loadImport() && !loadImport().paused && !importBusy) {
       command("import_control", {token: loadImport().token, operation: "pause"});
     }
@@ -1446,7 +1524,146 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     sizeInput.value = value;
     sizeText.textContent = value + "%";
     root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
+    renderLeaders();
   }
+  function leaderFor(tag) {return leaderDrafts.get(tag.id) || tag.leader;}
+  function leaderBox(id) {
+    const marker = [...markers.children].find(element => element.dataset.tagId === id);
+    if (!marker) return null;
+    const image = picture.getBoundingClientRect(), box = marker.getBoundingClientRect();
+    if (!image.width || !image.height) return null;
+    return {x: (box.left - image.left) / image.width, y: (box.top - image.top) / image.height,
+      width: box.width / image.width, height: box.height / image.height};
+  }
+  function saveLeader(id, value) {
+    if (readOnly) return;
+    leaderDrafts.set(id, value); renderLeaders(); showLeaderChoice();
+    command("leader", {id, leader: value}, [], reply => {
+      if (leaderDrafts.get(id) === value) leaderDrafts.delete(id);
+      renderLeaders(); showLeaderChoice();
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  }
+  function showLeaderChoice() {
+    const tag = current(), value = tag && leaderFor(tag);
+    leaderCheck.checked = !!value?.enabled;
+    leaderEditButton.hidden = !value?.enabled;
+  }
+  function beginLeaderEdit(id) {
+    if (readOnly) return;
+    setMode("pan"); closeDialog(); closeBulk();
+    leaderEdit = id; leaderNode = null; renderLeaders();
+    viewport.focus({preventScroll: true});
+    showMessage("Dra noder och blå handtag för att forma kurvan. Dra anslutningen längs etikettens ram. Dubbelklick lägger till en nod; Delete tar bort vald mellannod. Escape avslutar.");
+  }
+  function createLeader(id, anchor) {
+    const box = leaderBox(id); if (!box) return;
+    const attachment = leaderAttachment(anchor, box), endpoint = leaderEndpoint(attachment, box);
+    const handle = Math.min(.12, Math.hypot(endpoint.x - anchor.x, endpoint.y - anchor.y) / 2);
+    const normal = {left: {x: -handle, y: 0}, right: {x: handle, y: 0},
+      top: {x: 0, y: -handle}, bottom: {x: 0, y: handle}}[attachment.side];
+    const delta = leaderSub(endpoint, anchor);
+    const length = Math.hypot(delta.x, delta.y) || 1;
+    saveLeader(id, {enabled: true, attachment, nodes: [{...anchor, in: {x: 0, y: 0},
+      out: {x: delta.x / length * handle, y: delta.y / length * handle}}], end_handle: normal});
+    leaderPlacement = null; viewport.classList.remove("gp-placing-leader"); beginLeaderEdit(id);
+  }
+  function renderLeaders() {
+    // Keep each hit path alive while entering edit mode. Replacing it between
+    // the two clicks prevents browsers from dispatching a native dblclick.
+    leaderHandles.replaceChildren();
+    const bg = background(); if (!bg.width || !bg.height) return;
+    const painted = new Set();
+    for (const svg of [leaderSvg, leaderHandles]) svg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
+    const size = (sizeDraft ?? state().label_size ?? 100) / 100;
+    const pixel = point => ({x: point.x * bg.width, y: point.y * bg.height});
+    for (const tag of state().tags.filter(tag => tag.page === bg.page)) {
+      const value = leaderFor(tag), box = leaderBox(tag.id);
+      if (!value?.enabled || !box) continue;
+      painted.add(tag.id);
+      let elements = leaderElements.get(tag.id);
+      if (!elements) {
+        const group = svgNode("g", {}), path = svgNode("path", {class: "gp-leader-path", fill: "none", stroke: "#26343a",
+          "stroke-linecap": "round", "stroke-linejoin": "round"}),
+          arrow = svgNode("path", {class: "gp-leader-arrow", fill: "none", stroke: "#26343a",
+            "stroke-linecap": "round", "stroke-linejoin": "round"});
+        path.dataset.tagId = tag.id; group.append(path, arrow);
+        const hit = readOnly ? null : svgNode("path", {class: "gp-leader-hit", fill: "none", stroke: "transparent",
+          role: "button", tabindex: 0});
+        if (hit) {
+          hit.dataset.tagId = tag.id;
+          hit.addEventListener("keydown", event => {
+            if (["Enter", " "].includes(event.key)) {event.preventDefault(); beginLeaderEdit(tag.id);}
+          });
+          group.append(hit);
+        }
+        elements = {group, path, arrow, hit}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
+      }
+      const vertices = leaderVertices(value, leaderEndpoint(value.attachment, box));
+      let d = `M ${pixel(vertices[0]).x} ${pixel(vertices[0]).y}`;
+      for (let i = 1; i < vertices.length; i++) {
+        const a = pixel(leaderAdd(vertices[i - 1], vertices[i - 1].out)),
+          b = pixel(leaderAdd(vertices[i], vertices[i].in)), end = pixel(vertices[i]);
+        d += ` C ${a.x} ${a.y} ${b.x} ${b.y} ${end.x} ${end.y}`;
+      }
+      elements.path.setAttribute("d", d); elements.path.setAttribute("stroke-width", size);
+      const anchor = pixel(vertices[0]), tangent = pixel(vertices[0].out);
+      const direction = Math.hypot(tangent.x, tangent.y) > 1e-8 ? Math.atan2(tangent.y, tangent.x)
+        : Math.atan2(pixel(vertices[1]).y - anchor.y, pixel(vertices[1]).x - anchor.x);
+      const arm = angle => ({x: anchor.x + Math.cos(angle) * 7 * size, y: anchor.y + Math.sin(angle) * 7 * size});
+      const left = arm(direction - .45), right = arm(direction + .45);
+      elements.arrow.setAttribute("d", `M ${left.x} ${left.y} L ${anchor.x} ${anchor.y} L ${right.x} ${right.y}`);
+      elements.arrow.setAttribute("stroke-width", size);
+      if (readOnly) continue;
+      elements.hit.setAttribute("d", d); elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
+      elements.hit.setAttribute("aria-label", "Redigera hänvisningslinje för " + tag.label);
+      if (leaderEdit !== tag.id) continue;
+      const handle = (point, index, kind) => {
+        const p = pixel(point), circle = svgNode("circle", {cx: p.x, cy: p.y,
+          r: (kind === "node" ? 5 : 3.5) / zoom, class: "gp-leader-handle",
+          fill: kind === "node" ? leaderNode === index ? "#1688e5" : "white" : "#1688e5",
+          stroke: kind === "node" ? "#1688e5" : "white", "stroke-width": 1.5 / zoom,
+          tabindex: 0, role: "button", "aria-label": kind === "node"
+            ? index === 0 ? "Spets på ritningen" : index === vertices.length - 1 ? "Anslutning på etikettens ram" : "Nod " + index
+            : "Kontrollhandtag " + kind + " för nod " + index});
+        circle.dataset.tagId = tag.id; circle.dataset.index = String(index); circle.dataset.handle = kind;
+        circle.addEventListener("focus", () => {leaderNode = kind === "node" ? index : null;});
+        leaderHandles.append(circle);
+      };
+      vertices.forEach((vertex, index) => {
+        for (const kind of ["in", "out"]) {
+          if ((index === 0 && kind === "in") || (index === vertices.length - 1 && kind === "out")) continue;
+          const p = pixel(vertex), q = pixel(leaderAdd(vertex, vertex[kind]));
+          leaderHandles.append(svgNode("path", {d: `M ${p.x} ${p.y} L ${q.x} ${q.y}`, fill: "none",
+            stroke: "#1688e5", "stroke-width": 1 / zoom, "stroke-dasharray": `${3 / zoom} ${3 / zoom}`}));
+          handle(leaderAdd(vertex, vertex[kind]), index, kind);
+        }
+      });
+      vertices.forEach((vertex, index) => handle(vertex, index, "node"));
+    }
+    for (const [id, elements] of leaderElements) if (!painted.has(id)) {
+      elements.group.remove(); leaderElements.delete(id);
+    }
+  }
+  function addLeaderNode(event) {
+    if (readOnly || measuring() || drawingBusy || importBusy || deleteBusy || leaderPlacement) return;
+    const hit = event.target.closest(".gp-leader-hit"); if (!hit) return;
+    const tag = state().tags.find(tag => tag.id === hit.dataset.tagId), point = measurementPoint(event), box = leaderBox(tag.id);
+    if (!point || !box) return;
+    const value = leaderFor(tag); if (value.nodes.length >= 64) {showMessage("Linjen har redan 64 noder.", true); return;}
+    const endpoint = leaderEndpoint(value.attachment, box), vertices = leaderVertices(value, endpoint), bg = background();
+    let closest = {distance: Infinity, segment: 0, t: .5};
+    for (let i = 0; i < vertices.length - 1; i++) for (let step = 1; step < 100; step++) {
+      const t = step / 100, p = leaderCurvePoint(vertices[i], vertices[i + 1], t);
+      const distance = Math.hypot((point.x - p.x) * bg.width, (point.y - p.y) * bg.height);
+      if (distance < closest.distance) closest = {distance, segment: i, t};
+    }
+    leaderEdit = tag.id; leaderNode = closest.segment + 1;
+    saveLeader(tag.id, splitLeader(value, endpoint, closest.segment, closest.t));
+    viewport.focus({preventScroll: true});
+  }
+  viewport.addEventListener("dblclick", addLeaderNode);
+  sheet.addEventListener("gp:layout", renderLeaders);
   function setSliding(patch) {
     if (patch.enabled === false) { cancelDrag(); overlaySelected = null; }
     const draft = {...sliding(), ...patch};
@@ -1837,6 +2054,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     sheet.style.left = panX + "px";
     sheet.style.top = panY + "px";
     renderMeasurement();
+    renderLeaders();
   }
   function fit() {
     const bg = background();
@@ -1865,6 +2083,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function openDialog(tag) {
     if (bulkBusy || deleteBusy) return;
     closeBulk();
+    leaderEdit = leaderNode = null;
     if (!readOnly) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); }
     active = tag.id;
     formId = null;
@@ -1971,6 +2190,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return icon;
   }
   function renderMarkers() {
+    leaderResizeObserver.disconnect();
     markers.replaceChildren();
     const grouped = colour().enabled ? colourGroups(state().tags, colour()).assignments : null;
     for (const tag of state().tags.filter((t) => t.page === background().page)) {
@@ -2087,7 +2307,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         grid.append(data, capacities); section.append(grid); marker.append(section);
       }
       markers.append(marker);
+      if (leaderFor(tag)?.enabled) leaderResizeObserver.observe(marker);
     }
+    renderLeaders();
     syncTableSelection();
   }
   const groups = [
@@ -3100,6 +3322,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function update() {
     const bg = background();
     const data = state();
+    if (leaderEdit && !data.tags.some(tag => tag.id === leaderEdit && leaderFor(tag)?.enabled)) leaderEdit = leaderNode = null;
     for (const id of selected) {
       if (!data.tags.some(tag => tag.id === id)) selected.delete(id);
     }
@@ -3150,6 +3373,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (document.activeElement !== labelInput) labelInput.value = draft?.label ?? tag.label;
       }
       fieldUnits();
+      showLeaderChoice();
       showResult();
     } else sketch.hidden = true;
     renderMarkers();
@@ -3207,6 +3431,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (pendingPositions.has(previous.id)) positions.set(previous.id, pendingPositions.get(previous.id));
       else positions.delete(previous.id);
     }
+    if (previous?.leader) {
+      if (previous.hadLeaderDraft) leaderDrafts.set(previous.leader, previous.beforeLeader);
+      else leaderDrafts.delete(previous.leader);
+      renderLeaders();
+    }
     if (previous?.overlay) {
       const key = previous.page + ":" + previous.overlay;
       if (pendingOverlayPositions.has(key)) overlayPositions.set(key, pendingOverlayPositions.get(key));
@@ -3232,6 +3461,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (event.target.closest(".gp-tag-comment")) return;
     if (event.target.closest(".gp-annotation-editor") || event.target.closest(".gp-annotation-tools")) return;
     if (bulkBusy) return;
+    if (!readOnly && !measuring() && !importBusy) {
+      const handle = event.target.closest(".gp-leader-handle"), hit = event.target.closest(".gp-leader-hit");
+      if (handle || hit) {
+        event.preventDefault(); viewport.focus({preventScroll: true});
+        const id = (handle || hit).dataset.tagId, tag = state().tags.find(tag => tag.id === id);
+        if (!tag) return;
+        if (!handle) {beginLeaderEdit(id); return;}
+        leaderNode = handle.dataset.handle === "node" ? Number(handle.dataset.index) : null;
+        drag = {leader: id, index: Number(handle.dataset.index), handle: handle.dataset.handle,
+          beforeLeader: leaderFor(tag), hadLeaderDraft: leaderDrafts.has(id),
+          x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId};
+        viewport.setPointerCapture(event.pointerId); renderLeaders(); return;
+      }
+    }
     if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) {
       if (calibrationBusy || importBusy) return;
       event.preventDefault(); viewport.focus({preventScroll: true});
@@ -3264,6 +3507,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!tag && event.target.closest("button")) return;
     event.preventDefault();
     viewport.focus({preventScroll: true});
+    if (!marker && !leaderPlacement && leaderEdit) {leaderEdit = leaderNode = null; renderLeaders();}
     const position = tag && (positions.get(tag.id) || tag);
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
       moved: false, pointerId: event.pointerId, id: tag?.id, position,
@@ -3280,6 +3524,21 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.leader) {
+      if (!drag.moved) return;
+      const point = measurementPoint(event), box = leaderBox(drag.leader); if (!point || !box) return;
+      const value = JSON.parse(JSON.stringify(drag.beforeLeader)), index = drag.index;
+      const endpoint = leaderEndpoint(value.attachment, box);
+      if (drag.handle === "node") {
+        if (index === value.nodes.length) value.attachment = leaderAttachment(point, box);
+        else Object.assign(value.nodes[index], point);
+      } else {
+        const offset = leaderSub(point, index === value.nodes.length ? endpoint : value.nodes[index]);
+        if (index === value.nodes.length) value.end_handle = offset;
+        else value.nodes[index][drag.handle] = offset;
+      }
+      leaderDrafts.set(drag.leader, value); renderLeaders(); return;
+    }
     if (drag.measurement) {
       if (drag.moved) {
         panX = drag.left + dx; panY = drag.top + dy; placeSheet();
@@ -3329,7 +3588,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
-    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement } = drag;
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
@@ -3337,6 +3596,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
     if (pan) return;
+    if (leader) {if (moved) saveLeader(leader, leaderDrafts.get(leader)); return;}
+    if (leaderPlacement && !moved && !readOnly) {
+      const point = measurementPoint(event); if (point) createLeader(leaderPlacement, point);
+      return;
+    }
     if (measurement) {if (!moved) chooseMeasurementPoint(event); return;}
     if (box) {
       if (moved) {
@@ -3468,6 +3732,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   root.addEventListener("keydown", (event) => {
     event.stopPropagation();
+    if (!readOnly && leaderEdit && ["Delete", "Backspace"].includes(event.key)
+        && !["input", "textarea", "select"].some(selector => event.target.closest(selector))) {
+      event.preventDefault();
+      const tag = state().tags.find(tag => tag.id === leaderEdit), value = tag && leaderFor(tag);
+      if (value && leaderNode > 0 && leaderNode < value.nodes.length) {
+        const next = JSON.parse(JSON.stringify(value)); next.nodes.splice(leaderNode, 1);
+        leaderNode = null; saveLeader(tag.id, next); viewport.focus({preventScroll: true});
+      }
+      return;
+    }
     if (event.key === "Escape" && !savePanel.hidden) {
       if (!saving) { savePanel.hidden = true; saveProject.focus(); }
       return;
@@ -3500,6 +3774,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
   });
   resizeObserver.observe(board);
+  picture.addEventListener("load", renderLeaders);
   resizeObserver.observe(tableScroll);
   if (!readOnly) resizeObserver.observe(headingText);
   model.on("change:state", update);
@@ -3518,6 +3793,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     document.removeEventListener("pointerup", outsideUp, true);
     document.removeEventListener("pointercancel", outsideCancel, true);
     resizeObserver.disconnect();
+    leaderResizeObserver.disconnect();
     model.off("change:state", update);
     model.off("change:background", update);
     model.off("msg:custom", receive);

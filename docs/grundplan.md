@@ -343,6 +343,27 @@ och dragningar för panorering lämnar dialogen öppen.
 indata; en dragning flyttar etiketten utan att ändra indata eller resultat.
 Positionen sparas i projektet. Dialogen kan flyttas genom att dra dess rubrik.
 
+**Hänvisningslinje (spline):** öppna sulans redigeringspanel och fäll ut
+**Etikett**. Markera **Hänvisningslinje** och klicka på ritningen för att placera
+spetsen. Den andra änden sitter fast i etikettens ram och följer med vid flytt
+eller ändrad etikettstorlek. Avmarkering döljer linjen; när den aktiveras igen
+återkommer samma placering, anslutningspunkt och kurvform.
+
+Klicka på linjen eller **Redigera linje** för att visa noder och kontrollhandtag.
+Dra anslutningsnoden längs ramen för att välja sida och läge. Dra spetsen eller
+mellannoder för att flytta dem; de små blå handtagen ändrar böjningen.
+Dubbelklick på kurvan lägger till en mellannod utan att ändra kurvformen.
+Markera en mellannod och tryck Delete eller Backsteg för att ta bort den.
+Ändpunkterna behålls. Escape avslutar redigeringen och avbryter en pågående
+dragning eller placering. En linje kan ha upp till 64 ritningsnoder.
+
+Linjetjocklek och pilhuvud följer etikettstorleken: vid 100 % är de 1 px
+respektive 7 px, vid 150 % 1,5 px respektive 10,5 px. Ritningszoom skalar hela
+presentationen på skärmen och ändrar inte exportens grundstorlek. Spets och
+mellannoder behåller sina relativa ritningspositioner när etiketten skalas.
+PDF och resultat-HTML visar linje och pil som vektorer utan redigeringshandtag.
+Linjen lagras separat från beräkningsindata och ändrar inga beräkningsresultat.
+
 **Kopiera:** öppna en etikett, tryck **Kopiera sula** och klicka på ritningen
 där den nya sulan ska placeras. Alla indata följer med, även ändringar som
 ännu väntar på uppdatering. Kopian får nästa lediga VS-/PS-littera och egna indata.

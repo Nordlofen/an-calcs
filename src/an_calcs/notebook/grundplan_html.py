@@ -64,6 +64,7 @@ for (const element of sheet.querySelectorAll(".gp-tag, .gp-sliding-overlay")) {
   element.style.left = parseFloat(element.style.left) + dx / pageBox.width * 100 + "%";
   element.style.top = parseFloat(element.style.top) + dy / pageBox.height * 100 + "%";
 }
+sheet.dispatchEvent(new Event("gp:layout"));
 document.documentElement.dataset.pdfReady = "true";
 '''
     return f'''<!doctype html>

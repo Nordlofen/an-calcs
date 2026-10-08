@@ -112,6 +112,29 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIn('"gp-colour-legend-load"', html)
         self.assertIn('"gp-comment-label"', html)
 
+    def test_spline_leaders_are_vector_curves_in_pdf_and_saved_in_readonly_html(self):
+        plan = self.plan(self.drawing())
+        ident = self.tag(plan, x=.55, y=.15, littera="VS.SPLINE")
+        leader = {"enabled": True, "attachment": {"side": "left", "offset": .6},
+                  "nodes": [{"x": .12, "y": .6, "in": {"x": 0, "y": 0}, "out": {"x": .08, "y": .02}},
+                            {"x": .3, "y": .4, "in": {"x": -.08, "y": .1}, "out": {"x": .08, "y": -.1}}],
+                  "end_handle": {"x": -.08, "y": 0}}
+        before = plan.resultat
+        plan.etikettstorlek = 150
+        plan.hanvisningslinje(ident, leader)
+        visible = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        self.assertFalse(visible.images, "Spline, arrow and labels must all remain vectors")
+        self.assertIn("VS.SPLINE", visible.extract_text())
+        # The vector overlay adds two cubic Bezier operators to the page.
+        curves = sum(operator == b"c" for _, operator in visible.get_contents().operations)
+        plan.hanvisningslinje(ident, {**leader, "enabled": False})
+        hidden = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0]
+        self.assertEqual(curves - sum(operator == b"c" for _, operator in hidden.get_contents().operations), 2)
+        self.assertEqual(plan.resultat, before)
+        html = plan._html_bytes().decode()
+        self.assertIn('"leader": {"enabled": false', html)
+        self.assertIn('"end_handle": {"x": -0.08', html)
+
     def drawing(self):
         source = self.root / "original.pdf"
         canvas = Canvas(str(source), pagesize=(500, 700))
