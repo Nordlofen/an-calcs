@@ -138,3 +138,43 @@ class TestGrundplanBulk(unittest.TestCase):
         self.assertTrue(reply["ok"])
         self.assertEqual(reply["request"], 5)
         self.assertEqual(reply["report"]["calculated"], 2)
+
+    def test_group_move_only_changes_positions_publishes_once_and_roundtrips(self):
+        self.plan.hanvisningslinje(self.wall1, {"enabled": True,
+            "attachment": {"side": "left", "offset": .5},
+            "nodes": [{"x": .05, "y": .2, "in": {"x": 0, "y": 0}, "out": {"x": .1, "y": 0}}],
+            "end_handle": {"x": -.1, "y": 0}})
+        before, results = copy.deepcopy(self.plan._tags), self.plan.resultat
+        placements = [{"id": self.wall1, "x": .2, "y": .4}, {"id": self.wall2, "x": .4, "y": .6}]
+        with patch.object(self.plan, "_refresh_tag", side_effect=AssertionError("No recalculation")), \
+                patch.object(self.plan, "_publish", wraps=self.plan._publish) as publish, \
+                patch.object(self.plan, "send") as send:
+            self.plan._on_message(None, {"action": "move_tags", "positions": placements,
+                "request": 6, "view": "test"}, [])
+        self.assertTrue(send.call_args.args[0]["ok"])
+        publish.assert_called_once()
+        for tag in before:
+            p = next((p for p in placements if p["id"] == tag["id"]), {})
+            self.assertEqual(self.plan._tag(tag["id"]), {**tag, **p})
+        self.assertEqual(self.plan.resultat, results)
+        reopened = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "group-move.json"))
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.taggar, self.plan.taggar)
+        self.assertEqual(reopened.resultat, results)
+
+    def test_invalid_group_move_never_partially_moves_labels(self):
+        before = self.plan._document(), self.plan.resultat, copy.deepcopy(self.plan.state)
+        first = {"id": self.wall1, "x": .2, "y": .3}
+        cases = [None, [], [first, first], [first, {"id": "missing", "x": .4, "y": .5}],
+                 [first, {"id": self.wall2, "x": 1.1, "y": .5}],
+                 [first, {"id": self.wall2, "x": -.1, "y": .5}],
+                 [first, {"id": self.wall2, "x": .4, "y": float("nan")}],
+                 [first, {"id": self.wall2, "x": True, "y": .5}],
+                 [first, {"id": self.wall2, "x": .4}],
+                 [first, {"id": self.wall2, "x": .4, "y": .5, "values": {"b": 10}}]]
+        for placements in cases:
+            with self.subTest(placements=placements), patch.object(self.plan, "send") as send:
+                self.plan._on_message(None, {"action": "move_tags", "positions": placements,
+                    "request": 7, "view": "test"}, [])
+                self.assertFalse(send.call_args.args[0]["ok"])
+                self.assertEqual((self.plan._document(), self.plan.resultat, self.plan.state), before)

@@ -412,14 +412,14 @@ class TestGrundplanPdf(unittest.TestCase):
         ident = self.tag(plan)
         plan.berakna(ident)
         bounds = []
-        for size in (60, 180):
+        for size in (20, 180):
             plan.etikettstorlek = size
             image = self.render(plan._pdf_bytes(), scale=4)
             self.assertEqual(image.size, (2400, 1800))
             bounds.append(ImageChops.difference(image, Image.new("RGB", image.size, "white")).getbbox())
         small, large = bounds
-        self.assertAlmostEqual((large[2] - large[0]) / (small[2] - small[0]), 3, delta=.1)
-        self.assertAlmostEqual((large[3] - large[1]) / (small[3] - small[1]), 3, delta=.1)
+        self.assertAlmostEqual((large[2] - large[0]) / (small[2] - small[0]), 9, delta=.3)
+        self.assertAlmostEqual((large[3] - large[1]) / (small[3] - small[1]), 9, delta=.3)
 
     def test_status_for_inaktuella_sulor_och_isoleringsresultat(self):
         plan = self.plan()

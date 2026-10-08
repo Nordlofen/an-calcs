@@ -883,7 +883,7 @@ class TestGrundplan(unittest.TestCase):
         self.plan.berakna(ident)
         self.plan.etikettstorlek = 120
         snapshot, state, results = self.plan._document(), copy.deepcopy(self.plan.state), self.plan.resultat
-        for value in (59, 181, float("nan"), float("inf"), True, None, "120"):
+        for value in (19, 181, float("nan"), float("inf"), True, None, "120"):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     self.plan.etikettstorlek = value
@@ -894,9 +894,12 @@ class TestGrundplan(unittest.TestCase):
                 self.assertEqual(self.plan.state, state)
                 self.assertEqual(self.plan._document(), snapshot)
                 self.assertEqual(self.plan.resultat, results)
-        for value in (60, 180):
+        for value in (20, 180):
             self.plan.etikettstorlek = value
             self.assertEqual(self.plan.etikettstorlek, value)
+            loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "size-limit.json"))
+            self.addCleanup(loaded.close)
+            self.assertEqual(loaded.etikettstorlek, value)
 
     def test_ui_etikettstorlek_andrar_bara_presentationen(self):
         ident = self.add()

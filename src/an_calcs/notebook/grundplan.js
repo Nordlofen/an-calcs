@@ -825,7 +825,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   sizeLabel.title = "Grundstorlek vid 100 % ritningszoom. Etiketterna följer ritningens zoom.";
   const sizeInput = node("input");
   sizeInput.type = "range";
-  sizeInput.min = "60";
+  sizeInput.min = "20";
   sizeInput.max = "180";
   sizeInput.step = "10";
   sizeInput.setAttribute("aria-label", "Etikettstorlek i procent");
@@ -2215,7 +2215,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         marker.style.setProperty("--gp-tag-bg", group.background);
         marker.dataset.colourGroup = group.key;
       }
-      marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen" : "Dra för att flytta · klicka för indata och kopiering";
+      marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen"
+        : selected.has(tag.id) && selected.size > 1 ? "Dra för att flytta alla " + selected.size + " markerade etiketter tillsammans"
+        : "Dra för att flytta · klicka för indata och kopiering";
       const position = positions.get(tag.id) || tag;
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
@@ -3428,8 +3430,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       renderMarkers(); showSelection();
     }
     if (previous?.id) {
-      if (pendingPositions.has(previous.id)) positions.set(previous.id, pendingPositions.get(previous.id));
-      else positions.delete(previous.id);
+      for (const id of previous.tagPositions.keys()) {
+        if (pendingPositions.has(id)) positions.set(id, pendingPositions.get(id));
+        else positions.delete(id);
+      }
     }
     if (previous?.leader) {
       if (previous.hadLeaderDraft) leaderDrafts.set(previous.leader, previous.beforeLeader);
@@ -3508,13 +3512,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     event.preventDefault();
     viewport.focus({preventScroll: true});
     if (!marker && !leaderPlacement && leaderEdit) {leaderEdit = leaderNode = null; renderLeaders();}
-    const position = tag && (positions.get(tag.id) || tag);
+    const select = !!tag && (event.shiftKey || event.ctrlKey || event.metaKey);
+    const movingTags = tag && !select && selected.has(tag.id) && selected.size > 1
+      ? selectionTags().filter(tag => tag.page === background().page) : tag ? [tag] : [];
+    const tagPositions = new Map(movingTags.map(tag => {
+      const p = positions.get(tag.id) || tag;
+      return [tag.id, {x: p.x, y: p.y}];
+    }));
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
-      moved: false, pointerId: event.pointerId, id: tag?.id, position,
+      moved: false, pointerId: event.pointerId, id: tag?.id, tagPositions,
       placementBlocked: importBusy,
       box: !tag && (event.shiftKey || event.ctrlKey || event.metaKey),
       beforeSelection: new Set(selected),
-      select: !!tag && (event.shiftKey || event.ctrlKey || event.metaKey) };
+      select };
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener("pointermove", (event) => {
@@ -3571,10 +3581,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       } else if (drag.id) {
         if (readOnly) return;
         const rect = picture.getBoundingClientRect();
-        positions.set(drag.id, {
-          x: Math.max(0, Math.min(1, drag.position.x + dx / rect.width)),
-          y: Math.max(0, Math.min(1, drag.position.y + dy / rect.height)),
-        });
+        const starts = [...drag.tagPositions.values()];
+        // Clamp one shared delta so reaching a drawing edge cannot distort the group.
+        const moveX = Math.max(-Math.min(...starts.map(p => p.x)), Math.min(1 - Math.max(...starts.map(p => p.x)), dx / rect.width));
+        const moveY = Math.max(-Math.min(...starts.map(p => p.y)), Math.min(1 - Math.max(...starts.map(p => p.y)), dy / rect.height));
+        for (const [id, p] of drag.tagPositions) positions.set(id, {x: p.x + moveX, y: p.y + moveY});
         viewport.classList.add("gp-dragging-tag");
         closeDialog();
       } else {
@@ -3588,7 +3599,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
-    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader } = drag;
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader, tagPositions } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
@@ -3618,14 +3629,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (select) { if (!moved && tag) toggleTag(tag); return; }
       if (!moved) { if (tag) openDialog(tag); return; }
       if (readOnly) return;
-      const position = positions.get(id);
-      pendingPositions.set(id, position);
-      command("update", { id, ...position }, [], (reply) => {
+      const movedPositions = new Map([...tagPositions.keys()].map(id => [id, positions.get(id)]));
+      for (const [id, position] of movedPositions) pendingPositions.set(id, position);
+      const multiple = movedPositions.size > 1;
+      const payload = multiple ? {positions: [...movedPositions].map(([id, p]) => ({id, ...p}))} : {id, ...positions.get(id)};
+      command(multiple ? "move_tags" : "update", payload, [], (reply) => {
         // A delayed response must not roll back a subsequent drag.
-        if (pendingPositions.get(id) === position) pendingPositions.delete(id);
-        if (positions.get(id) === position) positions.delete(id);
+        for (const [id, position] of movedPositions) {
+          if (pendingPositions.get(id) === position) pendingPositions.delete(id);
+          if (positions.get(id) === position) positions.delete(id);
+        }
         renderMarkers();
-        if (reply.ok) showMessage((tag?.label || "Etiketten") + " flyttad.");
+        if (reply.ok) showMessage(multiple ? movedPositions.size + " markerade etiketter flyttade." : (tag?.label || "Etiketten") + " flyttad.");
       });
       return;
     }

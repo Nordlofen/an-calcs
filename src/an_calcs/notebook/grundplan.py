@@ -233,8 +233,8 @@ def _page_number(page, count):
 
 
 def _label_size(value):
-    if not 60 <= _number(value, "Etikettstorlek") <= 180:
-        raise ValueError("Etikettstorlek måste ligga mellan 60 och 180 procent.")
+    if not 20 <= _number(value, "Etikettstorlek") <= 180:
+        raise ValueError("Etikettstorlek måste ligga mellan 20 och 180 procent.")
     return value
 
 
@@ -816,6 +816,27 @@ class Grundplan(anywidget.AnyWidget):
             self._refresh_tag(tag)
         self._publish()
 
+    def flytta_flera(self, placeringar):
+        """Flytta etiketter atomärt utan att ändra indata eller beräkna om."""
+        if not isinstance(placeringar, list) or not 1 <= len(placeringar) <= _MAX_TAGS:
+            raise ValueError("Ange minst en giltig etikettplacering.")
+        validated, ids = [], set()
+        for position in placeringar:
+            if not isinstance(position, dict) or set(position) != {"id", "x", "y"}:
+                raise ValueError("Ogiltig etikettplacering.")
+            ident = position["id"]
+            if not isinstance(ident, str) or ident in ids:
+                raise ValueError("Etiketternas id måste vara unika.")
+            ids.add(ident)
+            tag = self._tag(ident)
+            coords = {axis: _number(position[axis], axis) for axis in ("x", "y")}
+            if any(not 0 <= value <= 1 for value in coords.values()):
+                raise ValueError("Etiketternas positioner måste ligga inom ritningen.")
+            validated.append((tag, coords))
+        for tag, coords in validated:
+            tag.update(coords)
+        self._publish()
+
     def hanvisningslinje(self, tagg, linje):
         """Spara en spline i relativa ritningskoordinater, oberoende av indata."""
         tag = self._tag(tagg)
@@ -1059,7 +1080,7 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def etikettstorlek(self):
-        """Etiketternas grundstorlek i procent (60–180), vid 100 % ritningszoom."""
+        """Etiketternas grundstorlek i procent (20–180), vid 100 % ritningszoom."""
         return self._label_size
 
     @etikettstorlek.setter
@@ -1382,6 +1403,8 @@ class Grundplan(anywidget.AnyWidget):
                     content["id"], indata=content.get("values"), littera=content.get("label"),
                     x=content.get("x"), y=content.get("y"),
                 )
+            elif action == "move_tags":
+                self.flytta_flera(content["positions"])
             elif action == "leader":
                 self.hanvisningslinje(content["id"], content["leader"])
             elif action == "calculate":

@@ -20,7 +20,7 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
     send(message) {
       const reply = { request: message.request, view: message.view, ok: true };
       if (message.action === "label_size" && typeof message.value === "number" &&
-                 Number.isFinite(message.value) && message.value >= 60 && message.value <= 180) {
+                 Number.isFinite(message.value) && message.value >= 20 && message.value <= 180) {
         data.state = { ...data.state, label_size: message.value };
         emit("change:state");
       } else if (message.action === "layout") {

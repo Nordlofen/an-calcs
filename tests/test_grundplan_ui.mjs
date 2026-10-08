@@ -763,7 +763,7 @@ function bulkFixture(ui, pad = false) {
   Object.assign(second, {id: "tag2", label: pad ? "PS2" : "VS2", x: .6, y: .6});
   Object.assign(second.values, {lang: pad ? 0 : 1, b: 2, l: 3, F_vy: 200});
   ui.data.state.tags.push(second); ui.changed();
-  const marker = id => ui.find(e => e.dataset.tagId === id);
+  const marker = id => ui.find(e => e.dataset.tagId === id && e.className.split(" ").includes("gp-tag"));
   const field = name => ui.find(e => e.name === "bulk_" + name);
   const choose = name => ui.find(e => e.getAttribute("aria-label") === "Ändra " + name);
   const select = () => {
@@ -1397,28 +1397,45 @@ test("multi-selection only sends chosen fields and retains different loads", t =
   ui.byText("2 av 2 sulor beräknade automatiskt.");
 });
 
-for (const entry of ["Shift-click", "marquee"]) {
-  test("ordinary left drag moves only the dragged footing after selection entered via " + entry, t => {
+for (const entry of ["Shift-click", "marquee", "table"]) {
+  test("ordinary left drag moves every selected label after selection entered via " + entry, t => {
     const ui = setup(t), bulk = bulkFixture(ui);
-    if (entry === "Shift-click") bulk.marker("tag1").dispatch("click", {shiftKey: true});
-    else marquee(ui, [200, 200], [700, 500]);
+    if (entry === "Shift-click") {
+      bulk.marker("tag1").dispatch("click", {shiftKey: true});
+      bulk.marker("tag2").dispatch("click", {shiftKey: true});
+    } else if (entry === "table") {
+      selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+    } else marquee(ui, [200, 200], [700, 500]);
+    const unselected = {...structuredClone(ui.tag), id: "tag3", label: "VS3", x: .1, y: .1};
+    ui.data.state.tags.push(unselected); ui.changed();
     const original = structuredClone(ui.data.state), selected = selectedIds(ui);
     ui.start(bulk.marker("tag2"), 520, 390); ui.move(640, 450); ui.finish(640, 450);
     const request = ui.sent.at(-1);
     assert.equal(ui.sent.length, 1);
-    assert.equal(request.action, "update"); assert.equal(request.id, "tag2");
-    near(request.x, bulk.second.x + 120 / 800); near(request.y, bulk.second.y + 60 / 600);
-    assert.equal(request.values, undefined, "A position update never replaces loads or geometry");
+    assert.equal(request.action, "move_tags");
+    assert.deepEqual(Object.keys(request).sort(), ["action", "positions", "request", "view"]);
+    assert.deepEqual(request.positions.map(p => p.id).sort(), ["tag1", "tag2"]);
+    for (const p of request.positions) {
+      const before = original.tags.find(tag => tag.id === p.id);
+      near(p.x, before.x + 120 / 800); near(p.y, before.y + 60 / 600);
+      assert.deepEqual(Object.keys(p).sort(), ["id", "x", "y"]);
+    }
     assert.deepEqual(ui.data.state, original, "The project waits for the kernel acknowledgment");
-    assert.deepEqual(selectedIds(ui), selected, "Moving one label does not toggle the group selection");
+    assert.deepEqual(selectedIds(ui), selected, "Moving the group preserves selection");
     assert.equal(ui.byClass("gp-dialog").hidden, true, "A drag does not open the single-footing form");
-    Object.assign(bulk.second, {x: request.x, y: request.y}); ui.changed(); ui.ack(request);
-    assert.deepEqual(ui.tag, original.tags[0], "The other footing remains unchanged");
-    assert.deepEqual(bulk.second.values, original.tags[1].values);
-    near(parseFloat(bulk.marker("tag2").style.left) / 100, request.x);
-    near(parseFloat(bulk.marker("tag2").style.top) / 100, request.y);
+    for (const p of request.positions) Object.assign(ui.data.state.tags.find(tag => tag.id === p.id), p);
+    ui.changed(); ui.ack(request);
+    for (const p of request.positions) {
+      const before = original.tags.find(tag => tag.id === p.id);
+      assert.deepEqual(ui.data.state.tags.find(tag => tag.id === p.id), {...before, x: p.x, y: p.y});
+      near(parseFloat(bulk.marker(p.id).style.left) / 100, p.x);
+      near(parseFloat(bulk.marker(p.id).style.top) / 100, p.y);
+    }
+    assert.deepEqual(unselected, original.tags[2]);
+    assert.deepEqual(selectedIds(ui), selected);
   });
 
+  if (entry === "table") continue;
   for (const activation of ["pointer", "keyboard"]) {
     test("ordinary " + activation + " click edits a footing after selection entered via " + entry, t => {
       const ui = setup(t), bulk = bulkFixture(ui);
@@ -2194,7 +2211,7 @@ test("standalone keeps the exported label size without a slider and rejects page
   assert.equal(ui.elements().some(e => e.className.includes("gp-size-label") || e.tag === "input" && e.type === "range"), false);
   assert.equal(ui.model.get("state").label_size, original.state.label_size);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
-  for (const action of ["calculate", "update", "delete", "copy", "add", "save", "export_pdf", "sliding", "sliding_placement"]) {
+  for (const action of ["calculate", "update", "move_tags", "delete", "copy", "add", "save", "export_pdf", "sliding", "sliding_placement"]) {
     ui.model.send({ action, id: ui.tag.id, values: { b: 55 }, view: "test", request: 1 });
     assert.equal(replies.at(-1).ok, false);
   }
@@ -2240,6 +2257,88 @@ test("older drag acknowledgments cannot undo the newer pending position", t => {
   near(ui.position()[0], second.x); near(ui.position()[1], second.y);
   Object.assign(ui.tag, { x: second.x, y: second.y }); ui.changed(); ui.ack(second);
   near(ui.position()[0], second.x); near(ui.position()[1], second.y);
+});
+
+function movingGroup(t, options = {}) {
+  const ui = setup(t, options), bulk = bulkFixture(ui);
+  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
+  return {...ui, ...bulk, xy: id => ["left", "top"].map(axis => parseFloat(bulk.marker(id).style[axis]) / 100)};
+}
+
+test("group dragging clamps a shared delta at every drawing edge without changing relative spacing", t => {
+  const ui = movingGroup(t);
+  ui.drag(2000, 2000);
+  near(ui.xy("tag1")[0], .7); near(ui.xy("tag1")[1], .8);
+  assert.deepEqual(ui.xy("tag2"), [1, 1]);
+  ui.drag(-2000, -2000);
+  near(ui.xy("tag1")[0], 0); near(ui.xy("tag1")[1], 0);
+  near(ui.xy("tag2")[0], .3); near(ui.xy("tag2")[1], .2);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+});
+
+for (const cancel of ["pointercancel", "lostpointercapture", "Escape"]) {
+  test("canceling a group drag restores all labels via " + cancel, t => {
+    const ui = movingGroup(t);
+    ui.start(); ui.move(380, 360);
+    near(ui.xy("tag1")[0], .4); near(ui.xy("tag2")[0], .7);
+    if (cancel === "Escape") ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
+    else ui.viewport.dispatch(cancel);
+    assert.deepEqual(ui.xy("tag1"), [.3, .4]); assert.deepEqual(ui.xy("tag2"), [.6, .6]);
+    assert.equal(ui.sent.length, 0);
+    assert.equal(ui.viewport.hasPointerCapture(1), false);
+  });
+}
+
+test("group cancellation and delayed acknowledgments preserve newer pending placements for every label", t => {
+  const ui = movingGroup(t);
+  ui.drag(80, 60); const first = ui.sent.at(-1);
+  ui.start(); ui.move(460, 420); ui.viewport.dispatch("pointercancel");
+  for (const p of first.positions) {near(ui.xy(p.id)[0], p.x); near(ui.xy(p.id)[1], p.y);}
+  assert.equal(ui.sent.length, 1);
+  ui.drag(80, 60); const second = ui.sent.at(-1);
+  for (const p of first.positions) Object.assign(ui.data.state.tags.find(tag => tag.id === p.id), p);
+  ui.changed(); ui.ack(first);
+  for (const p of second.positions) {near(ui.xy(p.id)[0], p.x); near(ui.xy(p.id)[1], p.y);}
+  for (const p of second.positions) Object.assign(ui.data.state.tags.find(tag => tag.id === p.id), p);
+  ui.changed(); ui.ack(second);
+  for (const p of second.positions) {near(ui.xy(p.id)[0], p.x); near(ui.xy(p.id)[1], p.y);}
+});
+
+test("a rejected group move rolls back all labels and keeps their selection", t => {
+  const ui = movingGroup(t);
+  ui.drag(80, 60); ui.ack(ui.sent.at(-1), {ok: false, error: "Flytten avvisades"});
+  assert.deepEqual(ui.xy("tag1"), [.3, .4]); assert.deepEqual(ui.xy("tag2"), [.6, .6]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+});
+
+test("dragging an unselected label leaves the selected group in place", t => {
+  const ui = movingGroup(t), third = {...structuredClone(ui.tag), id: "tag3", label: "VS3", x: .1, y: .1};
+  ui.data.state.tags.push(third); ui.changed();
+  ui.start(ui.marker("tag3")); ui.move(380, 360); ui.finish(380, 360);
+  assert.equal(ui.sent.at(-1).action, "update"); assert.equal(ui.sent.at(-1).id, "tag3");
+  assert.deepEqual(ui.xy("tag1"), [.3, .4]); assert.deepEqual(ui.xy("tag2"), [.6, .6]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
+});
+
+test("result HTML keeps group placements locked while allowing selection", t => {
+  const ui = movingGroup(t, {readOnly: true}); ui.drag(80, 60);
+  assert.deepEqual(ui.xy("tag1"), [.3, .4]); assert.deepEqual(ui.xy("tag2"), [.6, .6]);
+  assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]); assert.equal(ui.sent.length, 0);
+});
+
+test("group movement carries spline frame attachments while all drawing nodes stay fixed", t => {
+  const ui = movingGroup(t);
+  for (const tag of ui.data.state.tags) tag.leader = sampleLeader();
+  ui.changed(); const before = structuredClone(ui.data.state.tags);
+  const paths = () => ui.elements().filter(e => e.className === "gp-leader-path").map(e => e.getAttribute("d"));
+  const oldPaths = paths(); assert.equal(oldPaths.length, 2);
+  ui.drag(80, 60);
+  const newPaths = paths();
+  for (let i = 0; i < 2; i++) {
+    assert.notEqual(newPaths[i], oldPaths[i], "The curve updates to the moved label");
+    assert.equal(newPaths[i].split("C")[0], oldPaths[i].split("C")[0], "The arrow tip stays fixed");
+    assert.deepEqual(ui.data.state.tags[i].leader, before[i].leader);
+  }
 });
 
 test("pointer cancellation abandons an unfinished drag without sending an update", t => {
@@ -2299,6 +2398,7 @@ test("copy places one independent snapshot with unsynchronized inputs; Escape ca
 test("labels follow drawing zoom while the size control persists their base size", t => {
   const ui = setup(t);
   const slider = ui.find(element => element.type === "range");
+  assert.equal(slider.min, "20"); assert.equal(slider.max, "180");
   const root = ui.byClass("an-grundplan");
   const sheet = ui.byClass("gp-sheet");
   const initialWidth = sheet.style.width;
@@ -2325,6 +2425,13 @@ test("labels follow drawing zoom while the size control persists their base size
   ui.byText("Anpassa").dispatch("click");
   assert.equal(root.style["--gp-tag-scale"], "1.6");
   assert.equal(slider.value, "160");
+  for (const value of [20, 180]) {
+    slider.value = value; slider.dispatch("input"); slider.dispatch("change");
+    const request = ui.sent.at(-1);
+    assert.equal(request.value, value);
+    ui.data.state.label_size = value; ui.changed(); ui.ack(request);
+    assert.equal(slider.value, String(value)); near(Number(root.style["--gp-tag-scale"]), value / 100);
+  }
 });
 
 for (const [label, kind] of [["+ Väggsula", "vaggsula"], ["+ Pelarsula", "pelarsula"]]) {

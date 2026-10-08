@@ -343,6 +343,15 @@ och dragningar för panorering lämnar dialogen öppen.
 indata; en dragning flyttar etiketten utan att ändra indata eller resultat.
 Positionen sparas i projektet. Dialogen kan flyttas genom att dra dess rubrik.
 
+**Flytta flera:** markera etiketter med Shift + klick, urvalsruta eller
+tabellens kryssrutor. Dra sedan en av de markerade etiketterna med vanligt
+vänsterdrag. Alla markerade etiketter flyttas lika långt och behåller sina
+inbördes avstånd. Vid ritningskanten begränsas hela gruppens förflyttning.
+Markeringen behålls efter flytten; en omarkerad etikett flyttas individuellt.
+Escape avbryter dragningen och återställer alla placeringar. Hänvisningslinjer
+följer etiketternas ramar, medan spetsar och mellannoder ligger kvar.
+Gruppflyttning är tillgänglig i redigeringsvyn; resultat-HTML behåller låsta placeringar.
+
 **Hänvisningslinje (spline):** öppna sulans redigeringspanel och fäll ut
 **Etikett**. Markera **Hänvisningslinje** och klicka på ritningen för att placera
 spetsen. Den andra änden sitter fast i etikettens ram och följer med vid flytt
@@ -371,7 +380,7 @@ Anpassa last och geometri; kopian beräknas automatiskt och originalet påverkas
 **Avbryt kopiering** eller Escape avslutar kopieringen utan att skapa en sula.
 
 **Storlek:** reglaget **Etikettstorlek** ändrar etiketternas grundstorlek mellan
-60 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
+20 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
 tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
 Dra på ritningen med vänster eller höger musknapp för att panorera fritt,
 även när hela ritningen redan ryms i vyn. **Shift + scroll** över ritningen
