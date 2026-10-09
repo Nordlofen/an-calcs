@@ -172,7 +172,8 @@ def group_data(tags, settings):
                  and ("V" not in categories or settings["phase"] == "EQU"))
     # Filter before combining categories, so excluded footings create no group
     # or palette slot and every remaining footing has an assignment in each part.
-    tags = [tag for tag in tags if include_h or not tag["values"].get("endast_h_stabilitet")]
+    tags = [tag for tag in tags if not tag["values"].get("inaktiv")
+            and (include_h or not tag["values"].get("endast_h_stabilitet"))]
     if len(categories) > 1:
         parts = [group_data(tags, {**settings, "categories": [name]}) for name in categories]
         order = [{group["key"]: i for i, group in enumerate(part["groups"])} for part in parts]

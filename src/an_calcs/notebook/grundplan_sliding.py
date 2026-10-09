@@ -67,8 +67,10 @@ def validate_settings(settings, page_count=None):
 
 
 def contribution(values):
-    selected = {axis: values.get("glid_" + axis) is True for axis in ("x", "y")}
+    selected = {axis: not values.get("inaktiv") and values.get("glid_" + axis) is True for axis in ("x", "y")}
     result = {"selected": selected, "x": 0, "y": 0, "capacity": 0, "status": "inactive", "error": ""}
+    if values.get("inaktiv"):
+        return result
     if values.get("isolering") is True:
         return {**result, "status": "insulated"}
     if not any(selected.values()):
@@ -97,7 +99,8 @@ def project_results(tags, settings):
     results = {}
     for axis in ("x", "y"):
         demand = settings["H_" + axis + "_Ed"]
-        selected = [(tag, contribution(tag["values"])) for tag in tags if tag["values"].get("glid_" + axis)]
+        selected = [(tag, contribution(tag["values"])) for tag in tags
+                    if not tag["values"].get("inaktiv") and tag["values"].get("glid_" + axis)]
         missing = [tag["label"] for tag, result in selected if result[axis] is None]
         contributors = [{"id": tag["id"], "label": tag["label"], "resistance": result[axis]}
                         for tag, result in selected if result[axis] is not None and result[axis] > 0]

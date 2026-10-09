@@ -38,6 +38,30 @@ class TestGrundplanPdf(unittest.TestCase):
             "x": .3, "y": .4, "indata": {"b": 1, "F_vy": 100}, **kwargs,
         })
 
+    def test_inactive_exports_comment_and_white_vector_label_without_old_results(self):
+        source = self.root / "drawing.pdf"
+        canvas = Canvas(str(source), pagesize=(600, 450))
+        canvas.setFillColorRGB(.9, .95, .9); canvas.rect(0, 0, 600, 450, fill=1, stroke=0)
+        canvas.showPage(); canvas.save()
+        plan = self.plan(source)
+        ident = self.tag(plan, littera="VS.PAUS", indata={"F_vy": 999, "b": 1.7, "t": .31,
+            "glid_x": True, "V_Ed_EQU": 999, "glid_mu": .4, "glid_L": 3, "kommentar": "Avvaktar granskning"})
+        plan.farggruppering = {"enabled": True, "category": "t"}
+        plan.kommentarwidget = {"enabled": True, "x": .1, "y": .7}
+        plan.uppdatera(ident, indata={"inaktiv": True})
+        pdf = PdfReader(io.BytesIO(plan._pdf_bytes()))
+        page = pdf.pages[0]; text = page.extract_text()
+        self.assertIn("VS.PAUS", text)
+        self.assertIn("Inaktiv", text)
+        self.assertIn("Avvaktar granskning", text)
+        for absent in ("999", "Brott", "Bruk", "Styrande", "Glidmotstånd", "1,7", "0,31"):
+            self.assertNotIn(absent, text)
+        self.assertEqual(len(page.images), 0, "Drawing, label, frame and comments remain vectors")
+        html = plan._html_bytes().decode()
+        self.assertIn('"inaktiv": true', html)
+        self.assertIn('"status": "inactive"', html)
+        self.assertIn("Avvaktar granskning", html)
+
     def test_horizontal_only_exports_mode_and_contribution_without_bearing_results_or_loads(self):
         plan = self.plan()
         ident = self.tag(plan, indata={"endast_h_stabilitet": True, "glid_x": True, "glid_y": True,

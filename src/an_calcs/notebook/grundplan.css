@@ -207,6 +207,9 @@
 .an-grundplan .gp-tag-ok::before { background: #238161; }
 .an-grundplan .gp-tag-horizontal { border-color: #708999; --gp-tag-bg: #f1f6fa; }
 .an-grundplan .gp-tag-horizontal::before { background: #708999; }
+.an-grundplan .gp-tag-inactive { border-color: #8b999e; border-style: dashed; --gp-tag-bg: #fff; }
+.an-grundplan .gp-tag-inactive::before { background: #8b999e; }
+.an-grundplan .gp-inactive { color: #687c84; }
 .an-grundplan .gp-tag-over, .an-grundplan .gp-tag-error { border-color: #bc5750; --gp-tag-bg: #fff8f6; }
 .an-grundplan .gp-tag-over::before, .an-grundplan .gp-tag-error::before { background: #b4443d; }
 .an-grundplan .gp-tag-stale { border-style: dashed; border-color: #ac802f; --gp-tag-bg: #fffbef; }

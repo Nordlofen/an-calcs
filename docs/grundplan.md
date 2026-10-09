@@ -668,6 +668,19 @@ Under **Glidning** i respektive sulas indatadialog anges:
   lastomräkningen i brott och bruk. Importen fyller initialt båda längderna med
   linjestödslängden; en manuellt ändrad L_su bevaras vid senare lastimport.
 
+Markera **Inaktiv** under **Geometri** eller i indatatabellen för att pausa
+en sula helt. Bärighet, isolering, lokala lastresultanter och glidningsbidrag
+beräknas inte. Sulan utesluts även från färggruppering och isoleringswidgeten.
+Etiketten blir vit med streckad grå ram och texten **Inaktiv**, utan last- eller
+resultatuppgifter. Endast kommentaren kan redigeras i detta läge och visas
+fortfarande i kommentarswidgeten. Övriga indata och eventuell hänvisningslinje
+bevaras; etiketten går fortsatt att flytta. Avmarkera **Inaktiv** för att
+återaktivera sulan och beräkna den från dess sparade indata. Läget följer med
+vid kopiering, projektsparande samt JSON-, HTML- och PDF-export. Lastimport
+hoppar över befintliga inaktiva sulor. Om ett gemensamt urval innehåller
+inaktiva sulor kan endast **Inaktiv** och **Kommentar** ändras för urvalet.
+I Python används till exempel `plan.uppdatera(id, indata={"inaktiv": True})`.
+
 Markera **Endast H-stabilitet** under **Geometri** om sulan endast ska ingå
 i glidningskontrollen. Jordens bärighetskontroll och isoleringskontrollen
 utförs då inte, och deras indata döljs i dialogen och inaktiveras i tabellen.
@@ -904,13 +917,14 @@ projektfil/key i gränssnittet senare. Knappen **Spara projekt** skriver lokalt;
 behåller också funktionen för portabel export. En sparad notebook ersätter
 inte projektfilen.
 
-Vid återöppning beräknas alla sulor automatiskt från sparade indata med
+Vid återöppning beräknas alla aktiva sulor automatiskt från sparade indata med
 aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 18. Äldre projekt i formatversion 1–17 kan
+Projekt sparas i formatversion 19. Äldre projekt i formatversion 1–18 kan
 öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
+Sulor utan det nya fältet **Inaktiv** är aktiva som tidigare.
 Deras angivna
 momentvärden bevaras; tidigare hävarmar och horisontallaster i bruk tas bort
 utan att räknas om till moment. Dessa borttagna fält ignoreras även om de

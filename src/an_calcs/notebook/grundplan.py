@@ -51,6 +51,7 @@ _FIELDS = [field for field in allmanna_barighetsekvationen.panel_schema["fields"
 _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"]
                       if field["name"] not in _SOIL_NAMES and field["name"] not in _REMOVED_FIELDS]
 _EXTRA_FIELDS = [
+    {"name": "inaktiv", "type": "bool", "label": "Inaktiv", "unit": "", "default": False},
     {"name": "lasttyp", "type": "choice", "label": "Last anges som", "unit": "", "default": 0,
      "options": [{"value": 1, "label": "Linjelast [kN/m]"}, {"value": 0, "label": "Total last [kN]"}]},
     {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
@@ -102,7 +103,7 @@ def _values(values, *, draft=False):
         values = {**values, "lasttyp": 1 if values["lang"] == 1 else 0}
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"}
+    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"}
     for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
@@ -118,7 +119,7 @@ def _values(values, *, draft=False):
                 raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name == "L_vagg") and value is None and name not in {"lang", "lasttyp"}:
+        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name == "L_vagg") and value is None and name not in {"lang", "lasttyp"}:
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -186,6 +187,9 @@ def _comment_widget(value):
 
 
 def _updated_values(current, updates):
+    if current.get("inaktiv") and updates.get("inaktiv") is not False:
+        if any(name not in {"inaktiv", "kommentar"} and value != current.get(name) for name, value in updates.items()):
+            raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras; avmarkera Inaktiv för att ändra indata.")
     # Explicit Python length updates keep their existing meaning. The UI sends
     # the checkbox too, so unchecking it always restores the standard strip.
     values = {**current, **updates}
@@ -315,8 +319,14 @@ def _render_source(data, filename, page=1, *, fallback_page=False):
     }
 
 
+def _inactive_result():
+    return {"inaktiv": True, "kontroller": []}, {"inaktiv": True, "utnyttjandegrad": None, "kontroller": []}
+
+
 def _calculate(values):
     values = _values(values)
+    if values["inaktiv"]:
+        return _inactive_result()
     if values["endast_h_stabilitet"]:
         # No bearing engine or insulation check applies to this footing. Its
         # sliding contribution is calculated separately from explicit EQU data.
@@ -725,7 +735,7 @@ class Grundplan(anywidget.AnyWidget):
         by_label = {}
         for tag in self._tags:
             by_label.setdefault(tag["label"], []).append(tag)
-        prepared, new_items = [], []
+        prepared, new_items, skipped_inactive = [], [], []
         # Validate the entire update before changing any footing or starting placement.
         for item in items:
             matches = by_label.get(item["label"], [])
@@ -735,6 +745,9 @@ class Grundplan(anywidget.AnyWidget):
             if len(matches) != 1:
                 raise ValueError(f"Littera {item['label']} matchar flera sulor. Ge dem unika littera före uppdatering.")
             tag = matches[0]
+            if tag["values"]["inaktiv"]:
+                skipped_inactive.append(tag["id"])
+                continue
             kind = "vaggsula" if line_loads(tag["values"]) else "pelarsula"
             if kind != item["kind"]:
                 raise ValueError(f"{item['label']}: sultypen/lasttypen i filen skiljer sig från den befintliga lasttypen. Kontrollera littera och lasttyp.")
@@ -760,6 +773,7 @@ class Grundplan(anywidget.AnyWidget):
         self._load_import = queue
         self._publish()
         return {"updated": len(prepared), "new": len(new_items),
+                **({"skipped_inactive": len(skipped_inactive)} if skipped_inactive else {}),
                 "updated_ids": [tag["id"] for tag, _, _ in prepared]}
 
     def _control_load_import(self, token, operation):
@@ -805,6 +819,8 @@ class Grundplan(anywidget.AnyWidget):
             updated["values"] = _updated_values(tag["values"], indata)
         if littera is not None:
             updated["label"] = _label(littera)
+            if updated["values"]["inaktiv"] and updated["label"] != tag["label"]:
+                raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras; avmarkera Inaktiv för att ändra littera.")
         for name, value in (("x", x), ("y", y)):
             if value is not None:
                 if not 0 <= _number(value, name) <= 1:
@@ -844,11 +860,18 @@ class Grundplan(anywidget.AnyWidget):
     def hanvisningslinje(self, tagg, linje):
         """Spara en spline i relativa ritningskoordinater, oberoende av indata."""
         tag = self._tag(tagg)
+        if tag["values"]["inaktiv"]:
+            raise ValueError("Sulan är inaktiv. Avmarkera Inaktiv för att ändra hänvisningslinjen.")
         tag["leader"] = validate_leader(linje)
         self._publish()
 
     def _refresh_tag(self, tag):
         """En felaktig sula får aldrig behålla ett tidigare godkänt resultat."""
+        if tag["values"]["inaktiv"]:
+            details, summary = _inactive_result()
+            tag.update(status="inactive", summary=summary, error="")
+            self._details[tag["id"]] = details
+            return
         try:
             details, summary = _calculate(tag["values"])
         except (ValueError, ArithmeticError) as exc:
@@ -859,7 +882,7 @@ class Grundplan(anywidget.AnyWidget):
             self._details[tag["id"]] = details
 
     def berakna(self, tagg):
-        """Beräkna en tagg; endast H-stabilitet ger inga bärighetskontroller."""
+        """Beräkna en tagg; inaktiva sulor hoppas över utan beräkningsresultat."""
         tag = self._tag(tagg)
         self._refresh_tag(tag)
         self._publish()
@@ -905,9 +928,16 @@ class Grundplan(anywidget.AnyWidget):
             if changed:
                 tag.update(status="stale", summary=None, error="")
                 self._details.pop(tag["id"], None)
+            if values["inaktiv"]:
+                self._refresh_tag(tag)
         report = {"updated": len(tags), "calculated": 0, "errors": []}
+        inactive = sum(tag["values"]["inaktiv"] for tag in tags)
+        if inactive:
+            report["inactive"] = inactive
         if berakna:
             for tag in tags:
+                if tag["values"]["inaktiv"]:
+                    continue
                 try:
                     details, summary = _calculate(tag["values"])
                 except (ValueError, ArithmeticError) as exc:
@@ -1135,7 +1165,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 18,
+            "version": 19,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1294,8 +1324,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 19):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–18.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 20):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–19.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1354,8 +1384,8 @@ class Grundplan(anywidget.AnyWidget):
                     raise ValueError("Importerad linjestödslängd måste vara större än noll.")
                 tag["imported_length"] = length
             try:
-                details, summary = _calculate(tag["values"])
-                tag.update(status="calculated", summary=summary)
+                details, summary = _inactive_result() if tag["values"]["inaktiv"] else _calculate(tag["values"])
+                tag.update(status="inactive" if tag["values"]["inaktiv"] else "calculated", summary=summary)
                 details_by_id[ident] = details
             except (ValueError, ArithmeticError) as exc:
                 tag.update(status="error", error=str(exc))

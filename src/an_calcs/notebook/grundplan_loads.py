@@ -31,7 +31,7 @@ def bearing_load_length(values):
 def load_resultants(values):
     """Display external totals even if unrelated geometry/soil inputs are invalid."""
     result = {"brott": None, "bruk": None}
-    if values.get("endast_h_stabilitet"):
+    if values.get("inaktiv") or values.get("endast_h_stabilitet"):
         return result
     try:
         length = bearing_load_length(values)

@@ -125,7 +125,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "kommentar", "lasttyp");
+names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "inaktiv", "kommentar", "lasttyp");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
@@ -146,12 +146,13 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
   tag.values.L_vagg_minst_1 = true;
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
+  tag.values.inaktiv = false;
   tag.values.lasttyp = 0; // A wall model always uses line units; pads default to total inputs.
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
-      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet"].includes(name) ? "bool" : ["lang", "lasttyp"].includes(name) ? "choice" : "number",
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp"].includes(name) ? "choice" : "number",
       unit: loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
       options: name === "lasttyp" ? [{value: 0, label: "Total last [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
@@ -2841,6 +2842,107 @@ test("labels retain the governing check below insulation, utilization and geomet
 });
 
 const onlyHSummary = {endast_h_stabilitet: true, utnyttjandegrad: null, b: 1, kontroller: []};
+
+test("inactive checkbox locks engineering inputs, keeps comments and restores saved inputs on reactivation", t => {
+  const ui = setup(t);
+  Object.assign(ui.tag.values, {lasttyp: 1, b: .95, t: .3, isolering: true, glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3,
+    kommentar: "Kommentar bevaras"});
+  ui.data.state.comment_widget = {enabled: true, x: .1, y: .7, size: 410};
+  ui.data.state.insulation_widget = {enabled: true, x: .7, y: .3, size: 285};
+  colourFixture(ui, {category: 't'});
+  const saved = structuredClone(ui.tag.values), summary = structuredClone(ui.tag.summary);
+  ui.marker().click();
+  const toggle = ui.field('inaktiv'); toggle.checked = true; toggle.dispatch('input');
+  let request = ui.sent.at(-1);
+  assert.deepEqual(request.values, {inaktiv: true, kommentar: saved.kommentar});
+  assert.equal(ui.label().disabled, true);
+  for (const name of names.filter(name => !['inaktiv', 'kommentar'].includes(name))) {
+    assert.equal(ui.field(name).disabled, true, `${name} is locked`);
+  }
+  assert.equal(ui.field('kommentar').disabled, false);
+  assert.equal(toggle.disabled, false);
+  assert.match(ui.marker().className, /gp-tag-inactive/);
+  assert.equal(ui.marker().style['--gp-tag-bg'], '#ffffff');
+  assert.equal(ui.marker().getAttribute('aria-label'), 'VS1, Inaktiv');
+  assert.equal(elementText(ui.marker()), 'VS1Inaktiv');
+  assert.equal(ui.byClass('gp-comment-widget-body').children[0].textContent, '1 sula med kommentar');
+  assert.equal(ui.elements().filter(e => e.className === 'gp-comment-label').length, 0);
+  assert.deepEqual(ui.elements().filter(e => e.className === 'gp-insulation-count').map(e => e.children[1].textContent), ['0', '0']);
+  assert.equal(ui.byClass('gp-insulation-list').textContent, 'Inga sulor');
+  Object.assign(ui.tag.values, request.values);
+  Object.assign(ui.tag, {status: 'inactive', summary: {inaktiv: true, utnyttjandegrad: null, kontroller: []}});
+  ui.changed(); ui.ack(request);
+  assert.equal(tableField(ui, 'tag1', 'F_vy').disabled, true);
+  assert.equal(tableField(ui, 'tag1', 'glid_L').disabled, true);
+  assert.equal(tableField(ui, 'tag1', 'kommentar').disabled, false);
+  ui.field('kommentar').value = 'Ny kommentar'; ui.field('kommentar').dispatch('input');
+  request = ui.sent.at(-1);
+  assert.deepEqual(request.values, {inaktiv: true, kommentar: 'Ny kommentar'});
+  assert.match(elementText(ui.byClass('gp-comment-widget-body')), /Ny kommentar/);
+  Object.assign(ui.tag.values, request.values); ui.changed(); ui.ack(request);
+  toggle.checked = false; toggle.dispatch('input'); request = ui.sent.at(-1);
+  assert.equal(request.values.inaktiv, false);
+  assert.equal(request.values.b, .95); assert.equal(request.values.t, .3);
+  assert.equal(request.values.isolering, true);
+  assert.equal(request.values.glid_L, 3);
+  assert.equal(ui.field('b').disabled, false); assert.equal(ui.field('isolering').disabled, false);
+  assert.equal(ui.label().disabled, false);
+  Object.assign(ui.tag.values, request.values); Object.assign(ui.tag, {status: 'calculated', summary});
+  ui.changed(); ui.ack(request);
+  assert.doesNotMatch(ui.marker().className, /gp-tag-inactive/);
+  assert.deepEqual(ui.tag.values, {...saved, kommentar: 'Ny kommentar'});
+  assert.equal(elementText(ui.byClass('gp-comment-label')), 'VS1');
+});
+
+test("mixed selection containing inactive footings permits only comments and mode changes", t => {
+  const ui = setup(t), inactive = {...structuredClone(ui.tag), id: 'tag2', label: 'VS2'};
+  inactive.values.inaktiv = true; ui.data.state.tags.push(inactive); ui.changed();
+  selectTableRow(ui, 'VS1'); selectTableRow(ui, 'VS2');
+  for (const id of ['tag1', 'tag2']) {
+    for (const name of ['b', 'F_vy', 'glid_x', 'label', 'lang']) assert.equal(tableField(ui, id, name).disabled, true);
+    assert.equal(tableField(ui, id, 'inaktiv').disabled, false);
+    assert.equal(tableField(ui, id, 'kommentar').disabled, false);
+  }
+  const before = ui.sent.length, width = tableField(ui, 'tag1', 'b');
+  width.value = '2'; width.dispatch('input'); assert.equal(ui.sent.length, before);
+  ui.byText('Ändra markerade').click();
+  assert.deepEqual(ui.elements().filter(e => e.name?.startsWith('bulk_')).map(e => e.name).sort(), ['bulk_inaktiv', 'bulk_kommentar']);
+  const comment = tableField(ui, 'tag2', 'kommentar'); comment.value = 'Gemensam'; comment.dispatch('input');
+  assert.deepEqual(ui.sent.at(-1).values, {kommentar: 'Gemensam'});
+  assert.deepEqual(ui.sent.at(-1).ids, ['tag1', 'tag2']);
+});
+
+for (const readOnly of [false, true]) test(`inactive label ignores obsolete results and grouping while comments remain (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly, standalone: readOnly});
+  Object.assign(ui.tag.values, {inaktiv: true, isolering: true, F_vy: 999, kommentar: 'Endast denna kommentar', glid_x: true});
+  ui.tag.sliding = {x: 999, y: 999, status: 'ready'};
+  ui.data.state.comment_widget = {enabled: true, x: .1, y: .7, size: 410};
+  colourFixture(ui, {categories: ['t', 'b', 'V'], include_only_h: true});
+  assert.equal(colourGroups(ui.data.state.tags, ui.data.state.colour_grouping).assignments.size, 0);
+  assert.match(ui.marker().className, /gp-tag-inactive/);
+  assert.equal(ui.marker().style['--gp-tag-bg'], '#ffffff');
+  assert.doesNotMatch(elementText(ui.marker()), /999|U |Brott|Bruk|Styrande|isolering/);
+  assert.match(elementText(ui.byClass('gp-comment-widget-body')), /VS1.*Endast denna kommentar/);
+  assert.equal(ui.elements().filter(e => e.className === 'gp-comment-label').length, 0);
+  ui.marker().click();
+  assert.equal(ui.elements().some(e => e.className.includes('gp-result-main')), false);
+  assert.equal(ui.elements().some(e => e.className.includes('gp-tag-sliding')), false);
+  if (readOnly) {
+    assert.equal(resultTableValue(ui, 'tag1', 'F_vy').textContent, '—');
+    assert.equal(resultTableValue(ui, 'tag1', 'inaktiv').textContent, 'Ja');
+    assert.equal(resultTableValue(ui, 'tag1', 'kommentar').textContent, 'Endast denna kommentar');
+  }
+});
+
+test("inactive leader remains visible but has no editing handles", t => {
+  const ui = leaderUi(t); ui.edit();
+  assert.ok(ui.elements().some(e => e.className === 'gp-leader-handle'));
+  ui.tag.values.inaktiv = true; ui.changed();
+  assert.equal(ui.elements().filter(e => e.className === 'gp-leader-handle').length, 0);
+  assert.equal(ui.byClass('gp-leader-hit').style.display, 'none');
+  const before = ui.sent.length; ui.edit(); assert.equal(ui.sent.length, before);
+  assert.equal(ui.elements().filter(e => e.className === 'gp-leader-handle').length, 0);
+});
 
 test("H-only checkbox hides bearing inputs, keeps stored values and restores them when unchecked", t => {
   const ui = setup(t);

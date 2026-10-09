@@ -86,7 +86,7 @@ function decorateColourGroups(groups, settings) {
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
   const includeH = settings.include_only_h === true && !onlyHColourRestriction(settings);
-  tags = tags.filter(tag => includeH || !tag.values.endast_h_stabilitet);
+  tags = tags.filter(tag => !tag.values.inaktiv && (includeH || !tag.values.endast_h_stabilitet));
   if (categories.length > 1) {
     const parts = categories.map(category => colourGroups(tags, {...settings, categories: [category]}));
     const order = parts.map(part => new Map(part.groups.map((group, index) => [group.key, index])));
@@ -498,6 +498,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const commentWidget = () => commentWidgetDraft || state().comment_widget || COMMENT_WIDGET_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
+  const groupingTags = () => state().tags.filter(tag => !(drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv));
   const sectionStates = new Map(), inputSections = [], resultSections = [];
   const sketchStates = new Map();
   const areaPhases = new Map();
@@ -1371,7 +1372,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   legend.setAttribute("role", "list");
   legend.setAttribute("aria-label", "Etikettförklaring");
   for (const [state, label] of [["error", "Fel i indata"], ["ok", "U ≤ 100 %"],
-    ["over", "U > 100 %"], ["horizontal", "Endast H-stabilitet"], ["stale", "Uppdaterar"]]) {
+    ["over", "U > 100 %"], ["horizontal", "Endast H-stabilitet"], ["inactive", "Inaktiv"], ["stale", "Uppdaterar"]]) {
     const item = node("span", "gp-legend-item gp-tag-" + state, label);
     item.setAttribute("role", "listitem");
     legend.append(item);
@@ -1586,6 +1587,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           update();
           if (!reply.ok) showMessage(reply.error, true);
           else if (reply.report) showMessage(reply.report.updated + " befintliga sulor uppdaterade. "
+            + (reply.report.skipped_inactive ? reply.report.skipped_inactive + " inaktiva sulor överhoppade. " : "")
             + (loadImport() ? reply.report.new + " nya sulor att placera. " + importCaption()
               : "Inga nya sulor att placera."));
           return;
@@ -1773,7 +1775,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       width: box.width / image.width, height: box.height / image.height};
   }
   function saveLeader(id, value) {
-    if (readOnly) return;
+    if (readOnly || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
     leaderDrafts.set(id, value); renderLeaders(); showLeaderChoice();
     command("leader", {id, leader: value}, [], reply => {
       if (leaderDrafts.get(id) === value) leaderDrafts.delete(id);
@@ -1783,13 +1785,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function showLeaderChoice() {
     const tag = current(), value = tag && leaderFor(tag);
+    leaderSection.hidden = !!(drafts.get(tag?.id)?.values.inaktiv ?? tag?.values.inaktiv);
     leaderCheck.checked = !!value?.enabled;
     leaderEditButton.hidden = !value?.enabled;
     leaderRedrawButton.hidden = !value?.enabled;
   }
   function beginLeaderDraw(id) {
     if (readOnly || drawingBusy || importBusy || deleteBusy || bulkBusy) return;
-    const tag = state().tags.find(tag => tag.id === id); if (!tag) return;
+    const tag = state().tags.find(tag => tag.id === id); if (!tag || tag.values.inaktiv) return;
     const saved = leaderFor(tag);
     cancelDrag(); setMode("pan"); closeDialog(); closeBulk();
     leaderPlacement = {id, attachment: saved ? {...saved.attachment} : null, stroke: null};
@@ -1799,7 +1802,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       : "Dra från etikettens ram till önskad pilspets för att rita banan. Ett klick på ritningen skapar en enkel spline. Escape avbryter.");
   }
   function beginLeaderEdit(id) {
-    if (readOnly) return;
+    if (readOnly || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
     setMode("pan"); closeDialog(); closeBulk();
     leaderEdit = id; leaderNode = null; renderLeaders();
     viewport.focus({preventScroll: true});
@@ -1865,7 +1868,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const left = arm(direction - .45), right = arm(direction + .45);
       elements.arrow.setAttribute("d", `M ${left.x} ${left.y} L ${anchor.x} ${anchor.y} L ${right.x} ${right.y}`);
       elements.arrow.setAttribute("stroke-width", size);
-      if (readOnly) continue;
+      const inactive = drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv;
+      if (elements.hit) elements.hit.style.display = inactive ? "none" : "";
+      if (readOnly || inactive) continue;
       elements.hit.setAttribute("d", d);
       elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
       elements.hit.setAttribute("aria-label", "Redigera hänvisningslinje för " + tag.label);
@@ -1969,7 +1974,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
   }
   function showColour() {
-    const settings = colour(), data = colourGroups(state().tags, settings);
+    const settings = colour(), data = colourGroups(groupingTags(), settings);
     colourToggle.classList.toggle("gp-selected", settings.enabled);
     colourToggle.setAttribute("aria-pressed", String(settings.enabled));
     colourToggle.disabled = !background().url || drawingBusy;
@@ -2055,7 +2060,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     insulationWidgetToggle.classList.toggle("gp-selected", settings.enabled);
     insulationWidgetToggle.setAttribute("aria-pressed", String(settings.enabled));
     insulationWidgetToggle.disabled = !background().url || drawingBusy;
-    const tags = state().tags.filter(tag => !(drafts.get(tag.id)?.values || tag.values).endast_h_stabilitet),
+    const tags = groupingTags().filter(tag => !(drafts.get(tag.id)?.values || tag.values).endast_h_stabilitet),
       uninsulated = tags.filter(tag => !(drafts.get(tag.id)?.values || tag.values).isolering);
     insulationBody.replaceChildren();
     for (const [caption, count] of [["Med isolering", tags.length - uninsulated.length], ["Utan isolering", uninsulated.length]]) {
@@ -2429,7 +2434,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function showSketch() {
     const tag = current();
-    const onlyH = readOnly ? tag?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked;
+    const onlyH = tag?.values.inaktiv || inputs.get("inaktiv")?.input.checked
+      || (readOnly ? tag?.values.endast_h_stabilitet : inputs.get("endast_h_stabilitet")?.input.checked);
     sketchToggle.hidden = !!onlyH;
     const open = !!tag && !onlyH && !!sketchStates.get(tag.id) && !dialog.hidden;
     sketch.hidden = !open;
@@ -2474,14 +2480,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function renderMarkers() {
     leaderResizeObserver.disconnect();
     markers.replaceChildren();
-    const grouped = colour().enabled ? colourGroups(state().tags, colour()).assignments : null;
+    const grouped = colour().enabled ? colourGroups(groupingTags(), colour()).assignments : null;
     for (const tag of state().tags.filter((t) => t.page === background().page)) {
       const summary = dirty.has(tag.id) ? null : tag.summary;
       const tagState = dirty.has(tag.id) ? "stale" : tag.status;
       const draft = drafts.get(tag.id);
       const values = draft?.values || tag.values;
+      const inactive = values.inaktiv === true;
       const onlyH = values.endast_h_stabilitet === true;
-      const color = summary ? (onlyH ? "horizontal" : summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
+      const color = inactive ? "inactive" : summary ? (onlyH ? "horizontal" : summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
       const marker = button("", (event) => {
         event.stopPropagation();
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
@@ -2506,6 +2513,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       marker.classList.toggle("gp-active", active === tag.id);
       marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
       marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
+      if (inactive) {
+        const heading = node("span", "gp-tag-heading");
+        heading.append(node("strong", "", draft?.label.trim() || tag.label));
+        const comment = typeof values.kommentar === "string" ? values.kommentar.trim() : "";
+        if (comment) heading.append(commentBubble(tag, comment));
+        marker.style.setProperty("--gp-tag-bg", "#ffffff");
+        marker.setAttribute("aria-label", tag.label + ", Inaktiv");
+        marker.append(heading, node("span", "gp-tag-result", "Inaktiv"));
+        markers.append(marker);
+        if (leaderFor(tag)?.enabled) leaderResizeObserver.observe(marker);
+        continue;
+      }
       const insulated = !onlyH && values.isolering === true;
       const insulationText = insulated ? "Med isolering" : "Utan isolering";
       const label = draft?.label.trim() || tag.label;
@@ -2598,7 +2617,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     syncTableSelection();
   }
   const groups = [
-    ["Geometri", ["lang", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -2690,6 +2709,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableDisplayValue(name, value, tag) {
+    if (tag.values.inaktiv && !["label", "inaktiv", "kommentar"].includes(name)) return "—";
     if (resultantFields.has(name)) {
       const total = dirty.has(tag.id) ? null : tag.load_resultants?.[resultantFields.get(name).phase];
       return Number.isFinite(total) ? precise(total) : "—";
@@ -2714,7 +2734,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id)));
   }
   function tableEdit(id, name, control) {
-    if (readOnly || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
+    if (readOnly || control.disabled || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
     const tag = state().tags.find(tag => tag.id === id);
     if (!tag) return;
     tableFeedback.replaceChildren();
@@ -2851,6 +2871,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     tableSelectionInfo.textContent = selected.size + (readOnly ? " markerade" : " markerade · ändra en cell för gemensamt värde");
     const mixed = new Set(selectionTags().map(tag => tag.values.lang)).size > 1;
     const mixedLoads = new Set(selectionTags().map(tag => lineLoads(tag.values))).size > 1;
+    const selectedInactive = selectionTags().some(tag => drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv);
     for (const tag of tags) {
       const entry = tableRows.get(tag.id);
       if (!entry) continue;
@@ -2862,18 +2883,21 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       for (const [name, control] of entry.controls) {
         if (resultantFields.has(name)) continue;
         const values = {...tag.values, ...drafts.get(tag.id)?.values};
+        const inactiveField = (values.inaktiv || selected.has(tag.id) && selectedInactive)
+          && !["inaktiv", "kommentar"].includes(name);
         const blocked = selected.has(tag.id) && (mixed && sameTypeFields.has(name) || mixedLoads && loadTypeFields.has(name));
         const ownLength = drafts.get(tag.id)?.values.l_override ?? tag.values.l_override;
         const atLeastOne = drafts.get(tag.id)?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1;
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = busy || blocked || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
+        control.disabled = inactiveField || busy || blocked || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
           || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
-        control.title = ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
+        control.title = inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
+          : ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
           : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
           : blocked ? "Välj samma beräkningsmodell och lasttyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
@@ -2894,11 +2918,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (!tableRows.has(tag.id)) tableRows.set(tag.id, makeTableRow(tag));
       const {controls, result} = tableRows.get(tag.id), draft = drafts.get(tag.id);
       const stale = dirty.has(tag.id), summary = stale ? null : tag.summary;
-      result.textContent = summary ? summary.endast_h_stabilitet ? "Endast H" : "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
+      const inactive = draft?.values.inaktiv ?? tag.values.inaktiv;
+      result.textContent = inactive ? "Inaktiv" : summary ? summary.endast_h_stabilitet ? "Endast H" : "U " + number(summary.utnyttjandegrad * 100, 1) + "%"
         : stale || tag.status === "stale" ? "Uppdaterar…" : tag.status === "error" ? "Fel i indata" : "Kontrollera indata";
-      result.className = "gp-table-status " + (summary ? summary.endast_h_stabilitet ? "gp-horizontal"
+      result.className = "gp-table-status " + (inactive ? "gp-inactive" : summary ? summary.endast_h_stabilitet ? "gp-horizontal"
         : summary.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail" : "");
-      result.title = tag.error || (summary?.endast_h_stabilitet ? "Jordens bärighet och isolering kontrolleras inte." : summary?.styrande) || "";
+      result.title = inactive ? "Ingår inte i beräkningar eller sammanställningar. Kommentaren kan redigeras."
+        : tag.error || (summary?.endast_h_stabilitet ? "Jordens bärighet och isolering kontrolleras inte." : summary?.styrande) || "";
       for (const [name, control] of controls) {
         const field = tableSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
@@ -3028,6 +3054,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const strip = !mixed && types.has(1);
     const mixedLoads = new Set(tags.map(tag => lineLoads(tag.values))).size > 1;
     const onlyH = tags.every(tag => tag.values.endast_h_stabilitet);
+    const hasInactive = tags.some(tag => tag.values.inaktiv);
     const syncLength = () => {
       const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
       if (strip && length && override) {
@@ -3071,12 +3098,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
-      + (mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
+      + (hasInactive ? "Urvalet innehåller inaktiva sulor. Endast Inaktiv och Kommentar kan ändras. "
+        : mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
         : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller totalt. ")
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
       const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
+        && (!hasInactive || ["inaktiv", "kommentar"].includes(name))
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
         && !(strip && name === "lasttyp")
         && !(!mixed && !strip && ["L_vagg_minst_1", "l_override"].includes(name)));
@@ -3173,7 +3202,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (reply.ok) {
         for (const id of ids) { dirty.delete(id); drafts.delete(id); slidingDirty.delete(id); edits.delete(id); }
         const report = reply.report;
-        const message = report.calculated + " av " + report.updated + " sulor beräknade automatiskt.";
+        const message = report.calculated + " av " + report.updated + " sulor beräknade automatiskt."
+          + (report.inactive ? " " + report.inactive + " inaktiva sulor undantagna." : "");
         buildBulkFields(); bulkFeedback.replaceChildren(node("p", "", message));
         for (const error of report.errors) bulkFeedback.append(node("p", "gp-error-text", error.label + ": " + error.error));
         bulkForm.scrollTop = 0;
@@ -3315,6 +3345,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
   }
   function readValues() {
+    if (inputs.get("inaktiv")?.input.checked) return {inaktiv: true, kommentar: inputs.get("kommentar")?.input.value ?? current().values.kommentar};
     return Object.fromEntries([...inputs].map(([name, { input }]) => {
       if (input.type === "checkbox") return [name, input.checked];
       if (fieldSchema.get(name).type === "text") return [name, input.value];
@@ -3325,6 +3356,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }));
   }
   function fieldUnits() {
+    const inactive = readOnly ? current()?.values.inaktiv : inputs.get("inaktiv")?.input.checked;
+    if (!readOnly) labelInput.disabled = !!inactive;
+    if (inactive) {
+      basis.textContent = "Inaktiv sula: ingår inte i beräkningar, färggruppering eller isoleringswidgeten. Kommentaren kan redigeras. Sparade indata behålls.";
+      for (const [name, entry] of inputs) {
+        const editable = ["inaktiv", "kommentar"].includes(name);
+        entry.row.hidden = !editable;
+        if (!readOnly) {entry.input.disabled = !editable; entry.input.required = false; entry.input.setCustomValidity("");}
+      }
+      for (const group of new Set([...inputs.values()].map(entry => entry.group)))
+        group.hidden = ![...inputs.values()].some(entry => entry.group === group && !entry.row.hidden);
+      showSketch(); showLeaderChoice();
+      return;
+    }
     const strip = readOnly ? current()?.values.lang === 1 : inputs.get("lang")?.input.value === "1";
     if (strip && !readOnly && inputs.has("lasttyp")) inputs.get("lasttyp").input.value = "1";
     const line = strip || (readOnly ? lineLoads(current()?.values || {}) : inputs.get("lasttyp")?.input.value === "1");
@@ -3532,6 +3577,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     rememberSections(resultSections);
     results.replaceChildren();
     if (!tag) return;
+    if (drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv) {
+      results.append(node("strong", "gp-inactive", "Inaktiv"),
+        node("p", "gp-result-note", "Sulan ingår inte i bärighets-, isolerings- eller glidningsberäkningar."));
+      return;
+    }
     if (dirty.has(tag.id) || tag.status === "stale") {
       results.append(node("p", "", readOnly ? "Indata ändrade. Inget aktuellt resultat vid exporten." : "Uppdaterar resultat automatiskt…"));
       return;
@@ -3616,11 +3666,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const bg = background();
     const data = state();
     if (leaderPlacement && (bg.url !== lastBackground
-      || !data.tags.some(tag => tag.id === leaderPlacement.id && tag.page === bg.page))) {
+      || !data.tags.some(tag => tag.id === leaderPlacement.id && tag.page === bg.page && !tag.values.inaktiv))) {
       cancelDrag(); leaderPlacement = null;
       viewport.classList.remove("gp-placing-leader");
     }
-    if (leaderEdit && !data.tags.some(tag => tag.id === leaderEdit && leaderFor(tag)?.enabled)) leaderEdit = leaderNode = null;
+    if (leaderEdit && !data.tags.some(tag => tag.id === leaderEdit && !tag.values.inaktiv && leaderFor(tag)?.enabled)) leaderEdit = leaderNode = null;
     for (const id of selected) {
       if (!data.tags.some(tag => tag.id === id)) selected.delete(id);
     }
