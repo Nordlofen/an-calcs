@@ -35,6 +35,7 @@ from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES
                                DEFAULT_SETTINGS, DEFAULT_PLACEMENT, contribution, project_results, validate_settings)
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 from .grundplan_history import History, history_command
+from .grundplan_width import propose as propose_widths
 
 
 _ASSETS = Path(__file__).parent
@@ -504,6 +505,7 @@ class Grundplan(anywidget.AnyWidget):
         self._reference_widget = copy.deepcopy(DEFAULT_REFERENCE)
         self._text_objects = []
         self._placement_locks = {}
+        self._auto_bx_preview = None
         self._canvas_bounds = dict(DEFAULT_BOUNDS)
         self._drawing_layout = drawing_layout({}, {})
         self._drawing_preview = None
@@ -720,6 +722,7 @@ class Grundplan(anywidget.AnyWidget):
             "id": uuid.uuid4().hex,
             "label": _label(littera),
             "x": x, "y": y, "page": page, "values": values, "footing_type": typ,
+            "input_locked": False,
             "status": "new", "summary": None, "error": "",
         }
         self._tags.append(tag)
@@ -778,7 +781,7 @@ class Grundplan(anywidget.AnyWidget):
         by_label = {}
         for tag in self._tags:
             by_label.setdefault(tag["label"], []).append(tag)
-        prepared, new_items, skipped_inactive = [], [], []
+        prepared, new_items, skipped_inactive, skipped_locked = [], [], [], []
         # Validate the entire update before changing any footing or starting placement.
         for item in items:
             matches = by_label.get(item["label"], [])
@@ -788,6 +791,9 @@ class Grundplan(anywidget.AnyWidget):
             if len(matches) != 1:
                 raise ValueError(f"Littera {item['label']} matchar flera sulor. Ge dem unika littera före uppdatering.")
             tag = matches[0]
+            if tag.get("input_locked"):
+                skipped_locked.append(tag["id"])
+                continue
             if tag["values"]["inaktiv"]:
                 skipped_inactive.append(tag["id"])
                 continue
@@ -817,6 +823,7 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
         return {"updated": len(prepared), "new": len(new_items),
                 **({"skipped_inactive": len(skipped_inactive)} if skipped_inactive else {}),
+                **({"skipped_locked": len(skipped_locked)} if skipped_locked else {}),
                 "updated_ids": [tag["id"] for tag, _, _ in prepared]}
 
     def _control_load_import(self, token, operation):
@@ -858,6 +865,10 @@ class Grundplan(anywidget.AnyWidget):
         """Uppdatera indata och beräkna automatiskt; ogiltiga indata visas som fel."""
         tag = self._tag(tagg)
         updated = copy.deepcopy(tag)
+        if tag.get("input_locked") and (indata is not None and any(
+                value != tag["values"].get(name) for name, value in indata.items())
+                or littera is not None and _label(littera) != tag["label"]):
+            self._assert_input_unlocked(tag)
         if indata is not None:
             updated["values"] = _updated_values(tag["values"], indata)
             validate_model(footing_type(tag), updated["values"])
@@ -1065,6 +1076,60 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError(tag["error"])
         return copy.deepcopy(self._details[tagg])
 
+    @staticmethod
+    def _assert_input_unlocked(tag):
+        if tag.get("input_locked"):
+            raise ValueError(f"{tag['label']}: indata är låsta. Lås upp indata för att redigera.")
+
+    def _selected_tags(self, ids):
+        if (not isinstance(ids, (list, tuple)) or not ids or len(ids) > _MAX_TAGS
+                or any(not isinstance(ident, str) for ident in ids) or len(set(ids)) != len(ids)):
+            raise ValueError("Ange en lista med unika sul-id.")
+        return [self._tag(ident) for ident in ids]
+
+    def las_indata(self, taggar, *, last=True):
+        """Lås sulornas indata; beräkningar och placeringsinställningar behålls."""
+        tags = self._selected_tags(taggar)
+        if type(last) is not bool:
+            raise ValueError("Indatalåset ska vara True eller False.")
+        for tag in tags:
+            tag["input_locked"] = last
+        self._publish()
+
+    def forhandsvisa_auto_bx(self, taggar, *, installningar=None):
+        """Prova tillåtna bredder utan att ändra sulorna. Returnerar en tilldelningstoken."""
+        self._auto_bx_preview = None
+        tags = self._selected_tags(taggar)
+        report, prepared = propose_widths(tags, {} if installningar is None else installningar, _calculate)
+        token = uuid.uuid4().hex
+        self._auto_bx_preview = {"token": token, "prepared": prepared,
+            "report": report, "basis": self._width_basis(tags)}
+        return copy.deepcopy({**report, "token": token})
+
+    @staticmethod
+    def _width_basis(tags):
+        return copy.deepcopy([{name: tag.get(name) for name in
+            ("id", "label", "values", "footing_type", "input_locked")} for tag in tags])
+
+    def tilldela_auto_bx(self, token):
+        """Tilldela endast den fortfarande aktuella, beräknade förhandsvisningen."""
+        preview = self._auto_bx_preview
+        if not preview or token != preview["token"]:
+            raise ValueError("Förhandsvisningen är inte längre aktuell. Förhandsvisa Auto bₓ igen.")
+        tags = self._selected_tags([tag["id"] for tag in preview["basis"]])
+        if self._width_basis(tags) != preview["basis"]:
+            self._auto_bx_preview = None
+            raise ValueError("Sulornas indata eller indatalås har ändrats. Förhandsvisa Auto bₓ igen.")
+        for result in preview["prepared"]:
+            tag = self._tag(result["id"])
+            self._assert_input_unlocked(tag)
+            tag.update(values=copy.deepcopy(result["values"]), summary=copy.deepcopy(result["summary"]),
+                       status="calculated", error="")
+            self._details[tag["id"]] = copy.deepcopy(result["details"])
+        self._auto_bx_preview = None
+        self._publish()
+        return copy.deepcopy({key: preview["report"][key] for key in ("changed", "unchanged", "skipped")})
+
     def uppdatera_flera(self, taggar, *, indata, berakna=True):
         """Ändra endast angivna fält för flera sulor och beräkna som standard.
 
@@ -1081,6 +1146,10 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(berakna, bool):
             raise ValueError("berakna måste vara True eller False.")
         tags = [self._tag(ident) for ident in taggar]
+        locked = sum(bool(tag.get("input_locked")) for tag in tags)
+        tags = [tag for tag in tags if not tag.get("input_locked")]
+        if not tags:
+            return {"updated": 0, "calculated": 0, "errors": [], "locked": locked}
         types = {tag["values"]["lang"] for tag in tags}
         load_types = {line_loads(tag["values"]) for tag in tags}
         if len(types) > 1 and set(indata) & _BULK_SAME_TYPE:
@@ -1108,6 +1177,8 @@ class Grundplan(anywidget.AnyWidget):
             if values["inaktiv"]:
                 self._refresh_tag(tag)
         report = {"updated": len(tags), "calculated": 0, "errors": []}
+        if locked:
+            report["locked"] = locked
         inactive = sum(tag["values"]["inaktiv"] for tag in tags)
         if inactive:
             report["inactive"] = inactive
@@ -1277,6 +1348,7 @@ class Grundplan(anywidget.AnyWidget):
     def bekrafta_sultyp(self, tagg, typ):
         """Resolve ambiguous legacy origin without changing the bearing model."""
         tag = self._tag(tagg)
+        self._assert_input_unlocked(tag)
         if not tag.get("footing_type_inferred"):
             raise ValueError("Sultypen är redan definierad när objektet skapades.")
         if tag["values"]["inaktiv"]:
@@ -1393,7 +1465,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 23,
+            "version": 24,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1418,7 +1490,7 @@ class Grundplan(anywidget.AnyWidget):
             },
             "tags": [
                 {**{key: copy.deepcopy(tag[key]) for key in
-                    ("id", "label", "x", "y", "page", "values", "footing_type")},
+                    ("id", "label", "x", "y", "page", "values", "footing_type", "input_locked")},
                  **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
                  **({"leader": copy.deepcopy(tag["leader"])} if "leader" in tag else {}),
                  **({"footing_type_inferred": True} if tag.get("footing_type_inferred") else {}),
@@ -1562,8 +1634,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 24):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–23.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 25):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–24.")
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
@@ -1617,7 +1689,10 @@ class Grundplan(anywidget.AnyWidget):
                 "x": saved["x"], "y": saved["y"],
                 "values": _values(saved_values, draft=True),
                 "status": "stale", "summary": None, "error": "",
+                "input_locked": saved.get("input_locked", False),
             }
+            if type(tag["input_locked"]) is not bool:
+                raise ValueError("Indatalåset ska vara True eller False.")
             if "footing_type" in saved:
                 typ = saved["footing_type"]
                 inferred = saved.get("footing_type_inferred", False)
@@ -1670,12 +1745,14 @@ class Grundplan(anywidget.AnyWidget):
         self._placement_locks = {object_key(item): item for item in locks}
         self._tags = valid_tags
         self._load_import = None
+        self._auto_bx_preview = None
         self._details = details_by_id
         self.background = rendered
         self._initial_page = drawing["page"]
         self._publish()
 
     def _restore_history_calculations(self, before):
+        self._auto_bx_preview = None
         for tag in self._tags:
             previous = before.get("tag:" + tag["id"])
             if previous is None or any(value != previous["values"].get(name)
@@ -1755,6 +1832,15 @@ class Grundplan(anywidget.AnyWidget):
                 self.ritningsram = content["bounds"]
             elif action == "placement_lock":
                 self.las_placering(content["objects"], last=content["locked"])
+            elif action == "input_lock":
+                self.las_indata(content["ids"], last=content["locked"])
+            elif action == "auto_bx_preview":
+                reply["preview"] = self.forhandsvisa_auto_bx(content["ids"], installningar=content["settings"])
+            elif action == "auto_bx_apply":
+                reply["report"] = self.tilldela_auto_bx(content["token"])
+            elif action == "auto_bx_cancel":
+                if self._auto_bx_preview and self._auto_bx_preview["token"] == content.get("token"):
+                    self._auto_bx_preview = None
             elif action == "leader":
                 self.hanvisningslinje(content["id"], content["leader"])
             elif action == "calculate":

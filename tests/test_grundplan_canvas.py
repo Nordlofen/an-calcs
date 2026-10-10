@@ -60,7 +60,7 @@ class TestCanvas(unittest.TestCase):
         self.plan.kommentarwidget = {'enabled': True}
         self.plan.uppdatera_text(text, text='Finns kvar')
         self.plan.uppdatera(self.ident, indata={'kommentar': 'Finns kvar'})
-        saved = self.plan._document(); self.assertEqual(saved['version'], 23)
+        saved = self.plan._document(); self.assertEqual(saved['version'], 24)
         self.plan._load_document(json.dumps(saved).encode()); self.assertEqual(self.plan._document(), saved)
         self.assertEqual(self.plan._tag(new)['x'], 1.1)
         self.plan.ritningsram = self.bounds

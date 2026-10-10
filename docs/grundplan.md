@@ -1307,11 +1307,59 @@ Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
 objekt utanför referensgrupperna. I äldre projekt används modell, littera och
 importinformation för att härleda sultyp. När ursprunget är osäkert måste det
 bekräftas i objektets indataruta; beräkningsindata och resultat behålls.
-Projektformat 23 sparar underlagets transform, fast koordinatgrund, individuella
-objektskalor och lagerordning samt ritningsramen och placeringslås. Versionerna 1–22
+Projektformat 24 sparar indatalås, underlagets transform, fast koordinatgrund, individuella
+objektskalor och lagerordning samt ritningsramen och placeringslås. Versionerna 1–23
 kan fortfarande öppnas och använder originalramen när en ram saknas.
 Projekt före format 21 börjar utan placeringslås. Äldre programversioner
-kan inte öppna format 23.
+kan inte öppna format 24.
+
+### Markera samtliga och Lås indata
+
+**Markera samtliga** väljer alla sulor, synliga widgets och textobjekt på
+ritningsytan. Pilknappen öppnar valen **Sulor**, **Widgets** och **Text**.
+Ett sådant val ersätter urvalet; håll Shift för att lägga till kategorin i
+det befintliga urvalet. Låsta objekt kan markeras. Ritningsunderlaget omfattas
+inte och redigeras fortsatt med **Redigera ritningsunderlag**.
+
+**Lås indata** och **Lås upp indata** visas för markerade sulor. Det finns
+också en låsknapp i sulans indataruta. Indatalåset är separat från
+placeringslåset: beräkningar fortsätter och positionen kan ändras om placeringen
+är upplåst. Alla indata, inklusive littera, kommentar, sultyp och Inaktiv,
+skyddas i dialog, tabell och Python-uppdateringar. Gemensam redigering och
+lasteffektimport hoppar över sulor med låsta indata. En kopia får upplåsta
+indata. Indatalåset sparas i projektet och kan ångras/göras om. Äldre projekt
+utan indatalås öppnas med upplåsta indata.
+
+### Auto bₓ
+
+Markera sulor och välj **Auto bₓ**. Välj måttsteg (50, 100, 200, 500,
+1 000 mm eller ett eget helt millimetervärde), undre och övre U-gräns samt
+minsta och största sökbredd. **Förhandsvisa** visar en kompakt lista med
+nuvarande → föreslaget bₓ och U. Inga sulor ändras innan **Tilldela bₓ**.
+
+Bredderna är hela multiplar av måttsteget. Varje kandidat beräknas med
+sulans befintliga modell och indata, inklusive egentyngd och alla aktiva
+jord- och isoleringskontroller. U avser den högsta utnyttjandegraden; styrande
+kontroll kan ändras med bredden. Minsta giltiga bredd inom U-spannet väljs.
+Övre U-gränsen är ett krav och undre gränsen ett mål: om inget måttsteg
+hamnar i spannet väljs minsta giltiga bredd under övre gränsen, utan särskild
+markering för U under målspannet. Tilldelningen kan både öka och minska bₓ.
+
+Sulor med låsta indata, inaktiva sulor, Endast H och sulor med ogiltiga
+beräkningsindata hoppas över med en förklaring i listan. Om ingen bredd
+klarar övre gränsen inom sökbredden behålls befintlig bredd. Högst 500
+breddsteg per sula och 50 000 steg per förhandsvisning tillåts.
+
+Förhandsvisningen kommer från Python. En tilldelning avvisas om sulornas
+indata, littera, sultyp eller indatalås har ändrats under tiden; förhandsvisa
+då igen. Hela tilldelningen är en ångra-handling. Förhandsvisningen sparas
+inte i projektet.
+
+Python: `plan.las_indata([id1, id2], last=True)` låser indata.
+`plan.forhandsvisa_auto_bx([id1, id2], installningar={"step_mm": 100,
+"u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5})` returnerar ett
+förslag och en `token`. Tilldela med `plan.tilldela_auto_bx(forslag["token"])`.
+Som andra direkta Python-ändringar skapar dessa anrop ingen UI-historik.
 
 ### Gemensam placering och placeringslås
 

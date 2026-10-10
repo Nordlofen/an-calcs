@@ -93,7 +93,7 @@ class TestPlacement(unittest.TestCase):
     def test_save_open_migration_and_invalid_saved_locks_are_atomic(self):
         self.plan.las_placering(self.objects)
         document = self.plan._document()
-        self.assertEqual(document["version"], 23)
+        self.assertEqual(document["version"], 24)
         loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "project.json"))
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.placeringslas, self.plan.placeringslas)

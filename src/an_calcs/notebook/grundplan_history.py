@@ -21,6 +21,7 @@ _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "up
             "reference_widget", "footing_type", "text_add", "text_update", "text_delete",
             "insulation_placement", "comment_placement", "reference_placement",
             "colour_placement", "sliding_placement", "drawing"}
+_ACTIONS.update({"input_lock", "auto_bx_apply"})
 
 
 def snapshot(plan):
@@ -61,6 +62,12 @@ def description(content, before, after):
                                  "front": "Flytta längst fram", "back": "Flytta längst bak"}.get(content.get("operation"), "Ändra lager för")}[action]
         return f"{verb} {count} objekt"
     if action == "bulk_update": return f"Ändra {len(content.get('ids', []))} sulor"
+    if action == "input_lock":
+        return ("Lås indata för " if content.get("locked") else "Lås upp indata för ") + f"{len(content.get('ids', []))} sulor"
+    if action == "auto_bx_apply":
+        changed = sum(k.startswith("tag:") and v.get("values") != before.get(k, {}).get("values")
+                      for k, v in after.items() if isinstance(v, dict))
+        return f"Tilldela bₓ för {changed} sulor"
     if action == "leader": return "Ändra spline för " + label
     if action == "footing_type": return "Ändra sultyp för " + label
     if action in ("text_update", "text_delete", "text_add"):

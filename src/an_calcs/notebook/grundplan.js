@@ -544,6 +544,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const selected = new Set(), bulkInputs = new Map();
   let tableAnchor = null;
   let bulkIds = [], bulkBusy = false, bulkSignature = "";
+  let inputLockBusy = false, autoBxBusy = false, autoBxPreview = null, autoBxBasis = "";
   let importBusy = false, drawingBusy = false, deleteBusy = false, lastImportToken = null;
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   const state = () => model.get("state") || { tags: [] };
@@ -583,6 +584,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     pending.set(request, onDone);
     showHistory();
     model.send({ action, ...payload, ...(coalesce ? {history_group: historyEditGroup.token} : {}), request, view }, undefined, buffers);
+    showSelection();
   }
   const heading = node("header", "gp-heading");
   const headingText = node("div", "gp-heading-text");
@@ -675,6 +677,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (readOnly || historyBusy || pending.size || drawingDraft || cropDraft || canvasPending || leaderPlacement) return;
     if (drag || panelDrag) {cancelDrag(); endPanelDrag(); showHistory(); return;}
     if (!state().history?.[action]) return;
+    if (autoBxBusy || inputLockBusy) return;
+    autoBxDialog.hidden = true; invalidateAutoBx(); closeSelectAllMenu();
     hideHistoryTooltip(); historyEditGroup = null; historyBusy = true;
     cancelDrag(); closeDialog(); closeBulk(); setMode("pan"); copySource = null;
     for (const values of [dirty, drafts, edits, slidingDirty, positions, pendingPositions, overlayPositions,
@@ -999,11 +1003,35 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const selectionBar = node("div", "gp-selection-bar");
   selectionBar.hidden = true;
   const selectionCount = node("span", "gp-selection-count");
+  const selectAllGroup = node("div", "gp-select-all");
+  const selectAllButton = button("Markera samtliga", event => selectAllObjects("all", event));
+  const selectAllMenuButton = button("▾", () => {
+    selectAllMenu.hidden = !selectAllMenu.hidden;
+    selectAllMenuButton.setAttribute("aria-expanded", String(!selectAllMenu.hidden));
+  });
+  selectAllMenuButton.setAttribute("aria-label", "Välj vad som markeras");
+  selectAllMenuButton.setAttribute("aria-expanded", "false");
+  const selectAllMenu = node("div", "gp-select-all-menu"); selectAllMenu.hidden = true;
+  selectAllMenu.setAttribute("role", "group"); selectAllMenu.setAttribute("aria-label", "Markera samtliga av typ");
+  const selectAllChoices = [];
+  for (const [kind, caption] of [["tags", "Sulor"], ["widgets", "Widgets"], ["text", "Text"]]) {
+    const choice = button(caption, event => selectAllObjects(kind, event));
+    choice.title = "Markera " + caption.toLowerCase() + ". Shift behåller övrig markering.";
+    selectAllChoices.push(choice); selectAllMenu.append(choice);
+  }
+  selectAllGroup.append(selectAllButton, selectAllMenuButton, selectAllMenu);
+  if (!readOnly) toolbar.append(selectAllGroup);
+  root.addEventListener("pointerdown", event => {
+    if (!event.target.closest(".gp-select-all")) closeSelectAllMenu();
+  });
   const editMany = button("Ändra markerade", openBulk, "gp-primary");
+  const autoBxButton = button("", openAutoBx); autoBxButton.append(mathText("span", "", "Auto b_x"));
+  const lockInputs = button("Lås indata", () => setInputLock(true));
+  const unlockInputs = button("Lås upp indata", () => setInputLock(false));
   const clearMany = button("Avmarkera", () => {
     if (bulkBusy) return;
     selected.clear(); selectedOverlays.clear(); overlaySelected = null;
-    tableAnchor = null; bulkSignature = ""; closeBulk(); renderMarkers(); renderSlidingGeometry(); showSelection();
+    tableAnchor = null; bulkSignature = ""; closeBulk(); closeAutoBx(); renderMarkers(); renderSlidingGeometry(); showSelection();
   });
   const lockMany = button("Lås placering", () => setPlacementLock(true));
   const unlockMany = button("Lås upp", () => setPlacementLock(false));
@@ -1023,7 +1051,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   objectScaleLabel.append(objectScaleInput, node("span", "", "%"));
   const orderButtons = [ ["Flytta fram", "forward"], ["Flytta bak", "backward"], ["Längst fram", "front"], ["Längst bak", "back"] ]
     .map(([label, operation]) => button(label, () => changeOrder(operation)));
-  if (!readOnly) selectionBar.append(editMany, lockMany, unlockMany, objectScaleLabel, objectScaleApply, ...orderButtons);
+  if (!readOnly) selectionBar.append(editMany, autoBxButton, lockInputs, unlockInputs, lockMany, unlockMany, objectScaleLabel, objectScaleApply, ...orderButtons);
   selectionBar.append(clearMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
@@ -1500,6 +1528,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   labelInput.maxLength = 80;
   labelInput.required = true;
   labelRow.append(labelInput);
+  const inputLockRow = node("div", "gp-input-lock-row");
+  const inputLockButton = button("Lås indata", () => {
+    const tag = current(); if (tag) setInputLock(!inputLocked(tag), [tag.id]);
+  });
+  inputLockButton.setAttribute("aria-pressed", "false");
+  const inputLockInfo = node("span", "gp-field-note");
+  inputLockRow.append(inputLockButton, inputLockInfo);
   const leaderSection = node("details", "gp-leader-section");
   leaderSection.append(node("summary", "", "Etikett"));
   const leaderChoice = node("label", "gp-leader-choice");
@@ -1575,7 +1610,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
   footer.append(remove, copy);
   if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
-  else form.append(labelRow, leaderSection, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
+  else form.append(labelRow, inputLockRow, leaderSection, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
   dialog.append(dialogHeader, form);
   const bulkDialog = node("section", "gp-dialog gp-bulk-dialog");
   bulkDialog.hidden = true;
@@ -1597,8 +1632,47 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   bulkForm.append(bulkNote, bulkFeedback, bulkFields, bulkFooter);
   bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(); });
   bulkDialog.append(bulkHeader, bulkForm);
+  const autoBxDialog = node("section", "gp-dialog gp-auto-bx-dialog"); autoBxDialog.hidden = true;
+  autoBxDialog.setAttribute("role", "dialog"); autoBxDialog.setAttribute("aria-label", "Auto bₓ");
+  const autoBxHeader = node("div", "gp-dialog-header");
+  const autoBxClose = button("Avbryt", closeAutoBx);
+  autoBxHeader.append(mathText("strong", "", "Auto b_x"), autoBxClose);
+  const autoBxForm = node("form", "gp-form gp-auto-bx-form"); autoBxForm.noValidate = true;
+  const autoBxCount = node("p", "gp-field-note");
+  const autoBxSettings = node("div", "gp-auto-bx-settings");
+  const autoBxFields = new Map();
+  function bxSetting(caption, name, initial) {
+    const label = node("label", "gp-auto-bx-setting"), input = node("input");
+    input.type = "text"; input.inputMode = "decimal"; input.value = String(initial); input.name = "auto_bx_" + name;
+    input.setAttribute("aria-label", caption);
+    label.append(node("span", "", caption), input); autoBxFields.set(name, input);
+    input.addEventListener("input", invalidateAutoBx);
+    return label;
+  }
+  const bxStepLabel = node("label", "gp-auto-bx-setting"), bxStepChoice = node("select");
+  bxStepChoice.setAttribute("aria-label", "Måttsteg [mm]");
+  for (const step of [50, 100, 200, 500, 1000, "custom"]) {
+    const option = node("option", "", step === "custom" ? "Eget…" : step + " mm"); option.value = String(step); bxStepChoice.append(option);
+  }
+  bxStepChoice.value = "100"; bxStepLabel.append(node("span", "", "Måttsteg [mm]"), bxStepChoice);
+  const bxCustomStep = bxSetting("Eget måttsteg [mm]", "step_mm", 100); bxCustomStep.hidden = true;
+  bxStepChoice.addEventListener("change", () => {bxCustomStep.hidden = bxStepChoice.value !== "custom"; invalidateAutoBx();});
+  autoBxSettings.append(bxStepLabel, bxSetting("Undre U-gräns [%]", "u_min", 70), bxSetting("Övre U-gräns [%]", "u_max", 99),
+    bxCustomStep, bxSetting("Minsta bₓ [m]", "b_min", .2), bxSetting("Största bₓ [m]", "b_max", 5));
+  const autoBxFeedback = node("div", "gp-auto-bx-feedback"); autoBxFeedback.setAttribute("role", "status");
+  const autoBxPreviewButton = button("Förhandsvisa", previewAutoBx);
+  const autoBxList = node("div", "gp-auto-bx-list");
+  const autoBxSummary = node("p", "gp-field-note"); autoBxSummary.setAttribute("aria-live", "polite");
+  const autoBxApply = button("", applyAutoBx, "gp-primary"); autoBxApply.append(mathText("span", "", "Tilldela b_x")); autoBxApply.disabled = true;
+  const autoBxFooter = node("div", "gp-dialog-footer gp-auto-bx-footer");
+  autoBxFooter.append(autoBxPreviewButton, autoBxApply);
+  autoBxForm.append(autoBxCount, autoBxSettings,
+    node("p", "gp-field-note", "Övre U-gränsen är ett krav; undre är ett mål. Endast bredden ändras."),
+    autoBxFeedback, autoBxList, autoBxSummary, autoBxFooter);
+  autoBxForm.addEventListener("submit", event => {event.preventDefault(); previewAutoBx();});
+  autoBxDialog.append(autoBxHeader, autoBxForm);
   board.append(viewport, empty, zoomBar, dialog, sketch);
-  if (!readOnly) board.append(bulkDialog);
+  if (!readOnly) board.append(bulkDialog, autoBxDialog);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
   const legend = node("div", "gp-legend");
@@ -1827,6 +1901,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           if (!reply.ok) showMessage(reply.error, true);
           else if (reply.report) showMessage(reply.report.updated + " befintliga sulor uppdaterade. "
             + (reply.report.skipped_inactive ? reply.report.skipped_inactive + " inaktiva sulor överhoppade. " : "")
+            + (reply.report.skipped_locked ? reply.report.skipped_locked + " sulor med låsta indata överhoppade. " : "")
             + (loadImport() ? reply.report.new + " nya sulor att placera. " + importCaption()
               : "Inga nya sulor att placera."));
           return;
@@ -1836,6 +1911,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           tableFeedback.replaceChildren();
           selected.clear(); tableAnchor = null; bulkIds = []; bulkSignature = ""; closeBulk();
           formId = null;
+          autoBxDialog.hidden = true; invalidateAutoBx(); closeSelectAllMenu();
           dirty.clear();
           drafts.clear();
           edits.clear();
@@ -2755,8 +2831,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderMarkers();
   }
   function openDialog(tag) {
-    if (bulkBusy || deleteBusy) return;
-    closeBulk();
+    if (bulkBusy || deleteBusy || autoBxBusy || inputLockBusy) return;
+    closeBulk(); closeAutoBx();
     leaderEdit = leaderNode = null;
     if (!readOnly) { selected.clear(); selected.add(tag.id); selectedOverlays.clear(); overlaySelected = null;
       tableAnchor = null; bulkSignature = ""; renderSlidingGeometry(); showSelection(); }
@@ -2769,7 +2845,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const left = imageRect.left - rect.left + tag.x * imageRect.width + 25;
     const top = imageRect.top - rect.top + tag.y * imageRect.height - 20;
     placeDialog(left, top);
-    (readOnly ? minimize : labelInput).focus({ preventScroll: true });
+    (readOnly ? minimize : inputLocked(tag) ? inputLockButton : labelInput).focus({ preventScroll: true });
   }
   function openComment(tag) {
     openDialog(tag);
@@ -3143,13 +3219,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return tableText(value);
   }
   function tableTargets(id, name) {
-    return state().tags.filter(tag => tag.id === id ||
-      (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id)));
+    return state().tags.filter(tag => !inputLocked(tag) && (tag.id === id ||
+      (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id))));
   }
   function tableEdit(id, name, control) {
     if (readOnly || control.disabled || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
     const tag = state().tags.find(tag => tag.id === id);
-    if (!tag) return;
+    if (!tag || inputLocked(tag)) return;
     tableFeedback.replaceChildren();
     const field = fieldSchema.get(name);
     const raw = field?.type === "bool" ? control.checked : control.value;
@@ -3276,15 +3352,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return {row, controls, cells, placeholders, result, select};
   }
   function syncTableSelection() {
-    const tags = state().tags, busy = bulkBusy || importBusy || deleteBusy;
+    const tags = state().tags, busy = bulkBusy || importBusy || deleteBusy || autoBxBusy || inputLockBusy;
     tableSelectAll.checked = !!tags.length && tags.every(tag => selected.has(tag.id));
     tableSelectAll.indeterminate = selected.size > 0 && !tableSelectAll.checked;
     tableSelectAll.disabled = !tags.length || busy;
     tableSelectionInfo.hidden = !selected.size;
-    tableSelectionInfo.textContent = selected.size + (readOnly ? " markerade" : " markerade · ändra en cell för gemensamt värde");
-    const mixed = new Set(selectionTags().map(tag => tag.values.lang)).size > 1;
-    const mixedLoads = new Set(selectionTags().map(tag => lineLoads(tag.values))).size > 1;
-    const selectedInactive = selectionTags().some(tag => drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv);
+    const lockedCount = selectionTags().filter(inputLocked).length;
+    tableSelectionInfo.textContent = selected.size + (readOnly ? " markerade" : " markerade · ändra en cell för gemensamt värde")
+      + (!readOnly && lockedCount ? " · " + lockedCount + " med låsta indata undantagna" : "");
+    const editableTags = selectionTags().filter(tag => !inputLocked(tag));
+    const mixed = new Set(editableTags.map(tag => tag.values.lang)).size > 1;
+    const mixedLoads = new Set(editableTags.map(tag => lineLoads(tag.values))).size > 1;
+    const selectedInactive = editableTags.some(tag => drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv);
     for (const tag of tags) {
       const entry = tableRows.get(tag.id);
       if (!entry) continue;
@@ -3292,6 +3371,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       entry.select.setAttribute("aria-label", "Markera " + tag.label + " i tabellen");
       entry.select.title = "Shift + klick markerar eller avmarkerar intervallet från föregående vanliga klick.";
       entry.row.classList.toggle("gp-table-row-selected", selected.has(tag.id));
+      entry.row.classList.toggle("gp-input-locked", inputLocked(tag));
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         if (resultantFields.has(name)) continue;
@@ -3304,17 +3384,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
+        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
           || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
-        control.title = inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
+        control.title = inputLocked(tag) ? "Indata är låsta. Lås upp indata för att redigera."
+          : inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
           : ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
           : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
           : blocked ? "Välj samma beräkningsmodell och lasttyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
-          : selected.has(tag.id) && selected.size > 1 ? "Ändrar denna kolumn för alla " + selected.size + " markerade sulor."
+          : selected.has(tag.id) && editableTags.length > 1 ? "Ändrar denna kolumn för " + editableTags.length + " markerade sulor med upplåsta indata."
           : name === "L_vagg" && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Avmarkera för att ange ett kortare linjestöd. Glidning använder L_su."
           : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
       }
@@ -3554,6 +3635,126 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return event.target.closest(".gp-tag") === winner.target || event.target.closest(".gp-sliding-overlay") === winner.target ? event.target : winner.element;
   }
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
+  const inputLocked = tag => !!tag?.input_locked;
+  function closeSelectAllMenu() {
+    selectAllMenu.hidden = true; selectAllMenuButton.setAttribute("aria-expanded", "false");
+  }
+  function selectAllObjects(kind, event = {}) {
+    if (readOnly || bulkBusy || autoBxBusy || inputLockBusy || drawingDraft || drawingPending || cropDraft || canvasPending) return;
+    cancelDrag(); closeDialog(); closeBulk(); closeAutoBx(); closeSelectAllMenu();
+    setMode("pan");
+    if (!event.shiftKey) {selected.clear(); selectedOverlays.clear(); overlaySelected = null;}
+    if (["all", "tags"].includes(kind)) for (const tag of state().tags)
+      if (tag.page === background().page) selected.add(tag.id);
+    for (const element of visibleOverlays()) {
+      const overlay = element.dataset.kind, text = overlay.startsWith("text:");
+      if (kind === "all" || kind === "text" && text || kind === "widgets" && !text) selectedOverlays.add(overlay);
+    }
+    tableAnchor = null; bulkSignature = "";
+    renderMarkers(); renderSlidingGeometry(); showSelection(); viewport.focus({preventScroll: true});
+  }
+  function setInputLock(locked, ids = selectionTags().map(tag => tag.id)) {
+    if (readOnly || !ids.length || inputLockBusy || autoBxBusy || bulkBusy || pending.size) return;
+    inputLockBusy = true; closeBulk(); closeAutoBx();
+    command("input_lock", {ids, locked}, [], reply => {
+      inputLockBusy = false; formId = null;
+      for (const id of ids) {drafts.delete(id); dirty.delete(id); edits.delete(id); slidingDirty.delete(id);}
+      update();
+      if (reply.ok) showMessage(ids.length + (locked ? " sulor har låsta indata." : " sulor har upplåsta indata."));
+    });
+    update();
+  }
+  function autoBxFingerprint() {
+    return JSON.stringify(selectionTags().map(tag => [tag.id, tag.label, tag.values, inputLocked(tag), tag.footing_type]));
+  }
+  function invalidateAutoBx() {
+    autoBxPreview = null; autoBxBasis = ""; autoBxApply.disabled = true;
+    autoBxList.replaceChildren(); autoBxSummary.textContent = ""; autoBxFeedback.textContent = "";
+    autoBxPreviewButton.textContent = "Förhandsvisa";
+  }
+  function closeAutoBx() {
+    if (autoBxBusy) return;
+    const token = autoBxPreview?.token;
+    autoBxDialog.hidden = true; invalidateAutoBx();
+    if (token) command("auto_bx_cancel", {token});
+  }
+  function openAutoBx() {
+    if (readOnly || autoBxBusy || bulkBusy || inputLockBusy || pending.size || !selected.size) return;
+    if (selectionTags().some(tag => dirty.has(tag.id))) {showMessage("Slutför ändringarna i markerade sulor före Auto bₓ.", true); return;}
+    closeDialog(); closeBulk(); cancelDrag(); setMode("pan"); invalidateAutoBx();
+    autoBxDialog.hidden = false;
+    autoBxCount.textContent = selectionTags().length + " markerade sulor";
+    autoBxDialog.style.left = Math.max(8, (board.clientWidth - autoBxDialog.offsetWidth) / 2) + "px";
+    autoBxDialog.style.top = "8px"; autoBxPreviewButton.focus({preventScroll: true});
+  }
+  function showAutoBxBusy() {
+    autoBxClose.disabled = autoBxPreviewButton.disabled = autoBxBusy;
+    autoBxApply.disabled = autoBxBusy || !autoBxPreview?.changed;
+    bxStepChoice.disabled = autoBxBusy;
+    for (const input of autoBxFields.values()) input.disabled = autoBxBusy;
+  }
+  function previewAutoBx() {
+    if (readOnly || autoBxBusy || inputLockBusy || bulkBusy || pending.size || !selected.size) return;
+    const settings = Object.fromEntries([...autoBxFields].map(([name, input]) => [name,
+      input.value.trim() === "" ? null : Number(input.value.trim().replace(",", "."))]));
+    if (bxStepChoice.value !== "custom") settings.step_mm = Number(bxStepChoice.value);
+    if (Object.values(settings).some(value => value === null || !Number.isFinite(value))) {
+      autoBxFeedback.textContent = "Ange ett tal i varje inställning."; return;
+    }
+    invalidateAutoBx(); autoBxBasis = autoBxFingerprint();
+    const basis = autoBxBasis;
+    autoBxBusy = true; showAutoBxBusy(); showSelection(); syncTableSelection();
+    autoBxFeedback.textContent = "Provar bredder och beräknar sulorna…";
+    command("auto_bx_preview", {ids: selectionTags().map(tag => tag.id), settings}, [], reply => {
+      autoBxBusy = false;
+      if (reply.ok && basis === autoBxFingerprint()) {
+        autoBxPreview = reply.preview; autoBxBasis = basis; autoBxFeedback.textContent = ""; renderAutoBxPreview();
+      } else {
+        invalidateAutoBx(); autoBxFeedback.textContent = reply.ok ? "Urvalet har ändrats. Förhandsvisa igen." : reply.error;
+      }
+      showAutoBxBusy(); update();
+    });
+  }
+  function renderAutoBxPreview() {
+    const table = node("table", "gp-auto-bx-table"), head = node("thead"), body = node("tbody"), headings = node("tr");
+    for (const text of ["Sula", "b_x [m]", "U [%]"]) {
+      const cell = mathText("th", "", text); cell.setAttribute("scope", "col");
+      if (text !== "Sula") cell.append(node("span", "gp-auto-bx-subhead", "Nu → Förslag"));
+      headings.append(cell);
+    }
+    head.append(headings);
+    for (const row of autoBxPreview.rows) {
+      const line = node("tr"), label = node("th", "", row.label); label.setAttribute("scope", "row"); line.append(label);
+      if (row.status === "skipped") {
+        const reason = node("td", "gp-auto-bx-reason", row.reason); reason.colSpan = 2; line.append(reason);
+      } else for (const [before, after, digits, factor] of [[row.b_before, row.b_after, 3, 1], [row.u_before, row.u_after, 1, 100]]) {
+        const cell = node("td"); cell.append(node("span", "gp-auto-bx-before", number(before * factor, digits)),
+          node("span", "gp-auto-bx-arrow", "→"), node("strong", "", number(after * factor, digits))); line.append(cell);
+      }
+      body.append(line);
+    }
+    table.append(head, body); autoBxList.replaceChildren(table);
+    autoBxSummary.textContent = autoBxPreview.changed + " bredder ändras · " + autoBxPreview.unchanged + " oförändrade"
+      + (autoBxPreview.skipped ? " · " + autoBxPreview.skipped + " överhoppade" : "");
+    autoBxPreviewButton.textContent = "Förhandsvisa igen";
+  }
+  function applyAutoBx() {
+    if (readOnly || autoBxBusy || !autoBxPreview?.changed || pending.size) return;
+    if (autoBxBasis !== autoBxFingerprint()) {invalidateAutoBx(); autoBxFeedback.textContent = "Förhandsvisa igen efter ändringen."; return;}
+    const preview = autoBxPreview;
+    autoBxBusy = true; showAutoBxBusy(); showSelection(); syncTableSelection();
+    command("auto_bx_apply", {token: preview.token}, [], reply => {
+      autoBxBusy = false; invalidateAutoBx(); showAutoBxBusy();
+      if (reply.ok) {
+        for (const row of preview.rows) if (row.status === "changed") {
+          drafts.delete(row.id); dirty.delete(row.id); edits.delete(row.id); slidingDirty.delete(row.id);
+        }
+        autoBxDialog.hidden = true; formId = null;
+        showMessage(reply.report.changed + " sulor har fått nytt bₓ. Tilldelningen kan ångras i ett steg.");
+      } else autoBxFeedback.textContent = reply.error;
+      update();
+    });
+  }
   function overlayObject(kind) { return {type: "overlay", kind, page: background().page}; }
   function placementKey(object) {
     return object.type === "tag" ? "tag:" + object.id : "overlay:" + object.page + ":" + object.kind;
@@ -3657,13 +3858,24 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
     if (drag?.box) return;
+    if (!autoBxBusy && autoBxPreview && autoBxBasis !== autoBxFingerprint()) {
+      invalidateAutoBx(); autoBxFeedback.textContent = "Urvalet har ändrats. Förhandsvisa igen.";
+    }
     const objects = selectionObjects(), locked = objects.filter(placementLocked).length;
+    const tags = selectionTags(), inputLocks = tags.filter(inputLocked).length;
     selectionBar.hidden = !objects.length;
-    selectionCount.textContent = objects.length + " markerade" + (locked ? " · " + locked + " låsta" : "");
+    selectionCount.textContent = objects.length + " markerade" + (locked ? " · " + locked + " låsta" : "")
+      + (inputLocks ? " · " + inputLocks + " med låsta indata" : "");
     const titles = [...selectionTags().map(tag => tag.label), ...selectedOverlays].join(", ");
     selectionCount.title = titles;
     selectionBar.setAttribute("aria-label", "Markerade objekt: " + titles);
-    editMany.disabled = bulkBusy || !selected.size; clearMany.disabled = bulkBusy;
+    const inputBusy = bulkBusy || autoBxBusy || inputLockBusy;
+    editMany.disabled = inputBusy || !tags.length || inputLocks === tags.length; clearMany.disabled = inputBusy;
+    lockInputs.disabled = inputBusy || !!pending.size || !tags.length || inputLocks === tags.length;
+    unlockInputs.disabled = inputBusy || !!pending.size || !inputLocks;
+    autoBxButton.disabled = inputBusy || !!pending.size || !tags.length;
+    const selectBusy = inputBusy || !!drawingDraft || drawingPending || !!cropDraft || !!canvasPending || !background().url;
+    for (const button of [selectAllButton, selectAllMenuButton, ...selectAllChoices]) button.disabled = selectBusy;
     lockMany.disabled = bulkBusy || locked === objects.length;
     unlockMany.disabled = bulkBusy || !locked;
     objectScaleInput.disabled = objectScaleApply.disabled = bulkBusy || objectsBusy || locked === objects.length;
@@ -3686,9 +3898,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     bulkDialog.hidden = true;
   }
   function openBulk() {
-    if (readOnly || bulkBusy || !selected.size) return;
-    closeDialog();
-    const signature = [...selected].sort().join(":");
+    if (readOnly || bulkBusy || autoBxBusy || inputLockBusy || !selectionTags().some(tag => !inputLocked(tag))) return;
+    closeDialog(); closeAutoBx();
+    const signature = bulkSelectionSignature();
     if (signature !== bulkSignature) {
       bulkFeedback.replaceChildren();
       buildBulkFields();
@@ -3699,9 +3911,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     bulkMinimize.focus({preventScroll: true});
   }
   function buildBulkFields() {
-    const tags = selectionTags();
+    const all = selectionTags(), tags = all.filter(tag => !inputLocked(tag));
+    if (!tags.length) {bulkFields.replaceChildren(); bulkIds = []; applyMany.disabled = true; return;}
+    applyMany.disabled = false;
     bulkIds = tags.map(tag => tag.id);
-    bulkSignature = [...bulkIds].sort().join(":");
+    bulkSignature = bulkSelectionSignature();
     bulkInputs.clear(); bulkFields.replaceChildren();
     bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
     const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
@@ -3752,6 +3966,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
+      + (all.length > tags.length ? (all.length - tags.length) + " sulor med låsta indata hoppas över. " : "")
       + (hasInactive ? "Urvalet innehåller inaktiva sulor. Endast Inaktiv och Kommentar kan ändras. "
         : mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
         : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller som punktlast. ")
@@ -3869,6 +4084,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       update();
     });
   }
+  function bulkSelectionSignature() {
+    return selectionTags().map(tag => tag.id + ":" + inputLocked(tag)).sort().join("|");
+  }
   function rememberSections(sections) {
     // Read the DOM before rebuilding; native toggle events can arrive after closing.
     for (const { tagId, key, group } of sections) {
@@ -3894,7 +4112,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (tag.footing_type_inferred) {
       const note = node("div", "gp-type-confirmation");
       note.append(node("p", "gp-field-note", "Äldre objekt: ursprunglig sultyp saknas. Bekräfta för att använda Referens."));
-      if (!readOnly && !tag.values.inaktiv) {
+      if (!readOnly && !tag.values.inaktiv && !inputLocked(tag)) {
         const choice = node("select"); choice.setAttribute("aria-label", "Bekräfta ursprunglig sultyp");
         for (const [kind, caption] of [["vaggsula", "Väggsula"], ["pelarsula", "Pelarsula"]]) {
           const option = node("option", "", caption); option.value = kind; choice.append(option);
@@ -4021,6 +4239,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
   }
   function readValues() {
+    if (inputLocked(current())) return {};
     if (inputs.get("inaktiv")?.input.checked) return {inaktiv: true, kommentar: inputs.get("kommentar")?.input.value ?? current().values.kommentar};
     return Object.fromEntries([...inputs].map(([name, { input }]) => {
       if (input.type === "checkbox") return [name, input.checked];
@@ -4032,6 +4251,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }));
   }
   function fieldUnits() {
+    applyFieldUnits();
+    if (readOnly || !current()) return;
+    const locked = inputLocked(current());
+    inputLockButton.textContent = locked ? "Lås upp indata" : "Lås indata";
+    inputLockButton.setAttribute("aria-pressed", String(locked));
+    inputLockButton.disabled = inputLockBusy || autoBxBusy || !!pending.size;
+    inputLockInfo.textContent = locked ? "Indata är låsta · beräkningar fortsätter" : "";
+    if (locked || inputLockBusy || autoBxBusy) {
+      labelInput.disabled = true;
+      for (const {input} of inputs.values()) {input.disabled = true; input.required = false; input.setCustomValidity("");}
+    }
+  }
+  function applyFieldUnits() {
     const inactive = readOnly ? current()?.values.inaktiv : inputs.get("inaktiv")?.input.checked;
     if (!readOnly) labelInput.disabled = !!inactive;
     if (inactive) {
@@ -4137,7 +4369,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSketch();
   }
   function edit(calculationInput) {
-    if (!current()) return;
+    if (!current() || inputLocked(current()) || inputLockBusy || autoBxBusy) return;
     if (calculationInput) {
       dirty.add(active);
     }
@@ -4347,6 +4579,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function update() {
     const bg = background();
     const data = state();
+    for (const tag of data.tags) if (inputLocked(tag)) {
+      drafts.delete(tag.id); dirty.delete(tag.id); slidingDirty.delete(tag.id); edits.delete(tag.id);
+    }
+    if (!autoBxBusy && autoBxPreview && autoBxBasis !== autoBxFingerprint()) {
+      invalidateAutoBx(); autoBxFeedback.textContent = "Sulorna har ändrats. Förhandsvisa igen.";
+    }
+    if (!autoBxDialog.hidden) autoBxCount.textContent = selectionTags().length + " markerade sulor";
+    if (!autoBxBusy && !selected.size) {autoBxDialog.hidden = true; invalidateAutoBx();}
     if (leaderPlacement && (bg.url !== lastBackground
       || !data.tags.some(tag => tag.id === leaderPlacement.id && tag.page === bg.page && !tag.values.inaktiv))) {
       cancelDrag(); leaderPlacement = null;
@@ -4359,6 +4599,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!bulkDialog.hidden && bulkIds.some(id => !selected.has(id))) {
       closeBulk(); bulkSignature = "";
     }
+    if (!bulkDialog.hidden && !bulkBusy && bulkSignature !== bulkSelectionSignature()) buildBulkFields();
     showLayout();
     showHeading();
     showCanvas();
@@ -4366,10 +4607,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const storage = data.storage;
     showStorage(storage);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
-    loadDrawing.disabled = drawingBusy || drawingPending || !!drawingDraft || !!cropDraft || !!canvasPending || importBusy || bulkBusy || calibrationBusy || deleteBusy;
+    loadDrawing.disabled = drawingBusy || drawingPending || !!drawingDraft || !!cropDraft || !!canvasPending || importBusy || bulkBusy || autoBxBusy || inputLockBusy || calibrationBusy || deleteBusy;
     loadDrawing.title = "Flytta, skala eller uppdatera ritningsunderlaget i ett separat redigeringsläge.";
     const editingDrawing = !!drawingDraft || drawingPending || drawingBusy;
-    loadProject.disabled = editingDrawing;
+    loadProject.disabled = editingDrawing || autoBxBusy || inputLockBusy;
     sizeInput.disabled = editingDrawing;
     saveProject.disabled = saving || !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
     exportJson.disabled = !bg.url || editingDrawing;
@@ -4427,6 +4668,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSelection();
     if (editingDrawing) for (const b of [loadEffects, deleteAll, slidingToggle, colourToggle,
       insulationWidgetToggle, commentWidgetToggle, referenceToggle]) b.disabled = true;
+    if (autoBxBusy || inputLockBusy) {loadEffects.disabled = true; deleteAll.disabled = true;}
     showHistory();
   }
   let drag = null;
@@ -4519,7 +4761,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (![0, 2].includes(event.button) || drag || drawingBusy || drawingPending || objectsBusy || deleteBusy || !background().url) return;
+    if (![0, 2].includes(event.button) || drag || drawingBusy || drawingPending || objectsBusy || deleteBusy || autoBxBusy || inputLockBusy || !background().url) return;
     if (event.button === 2) {
       event.preventDefault();
       viewport.focus({preventScroll: true});
@@ -4852,14 +5094,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let outsidePress = null;
   const insideDialog = target => target?.closest?.(".gp-dialog") === dialog
     || target?.closest?.(".gp-dialog") === bulkDialog
+    || target?.closest?.(".gp-dialog") === autoBxDialog
     || target?.closest?.(".gp-sketch-panel") === sketch;
   const outsideDown = event => {
+    if (event.target?.closest?.(".gp-select-all") !== selectAllGroup) closeSelectAllMenu();
     outsidePress = null;
-    if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden) || insideDialog(event.target)
+    if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden && autoBxDialog.hidden) || insideDialog(event.target)
       || event.target?.closest?.(".gp-panel-resize")
       || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
     outsidePress = {pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-      tagId: active, bulk: !bulkDialog.hidden, moved: false};
+      tagId: active, bulk: !bulkDialog.hidden, auto: !autoBxDialog.hidden, moved: false};
   };
   const outsideMove = event => {
     if (outsidePress && outsidePress.pointerId === event.pointerId
@@ -4871,7 +5115,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     outsidePress = null;
     if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 4
       && active === press.tagId && !insideDialog(event.target)) {
-      if (press.bulk) closeBulk(); else closeDialog();
+      if (press.auto) closeAutoBx(); else if (press.bulk) closeBulk(); else closeDialog();
     }
   };
   const outsideCancel = () => { outsidePress = null; };
@@ -4880,7 +5124,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   document.addEventListener("pointermove", outsideMove, true);
   document.addEventListener("pointerup", outsideUp, true);
   document.addEventListener("pointercancel", outsideCancel, true);
-  for (const [header, panel] of [[dialogHeader, dialog], [bulkHeader, bulkDialog]]) {
+  for (const [header, panel] of [[dialogHeader, dialog], [bulkHeader, bulkDialog], [autoBxHeader, autoBxDialog]]) {
     let dialogDrag = null;
     header.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || event.target.closest("button")) return;
@@ -4904,6 +5148,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     event.stopPropagation();
     hideHistoryTooltip();
     const key = String(event.key).toLowerCase();
+    if (event.key === "Escape" && !selectAllMenu.hidden) {event.preventDefault(); closeSelectAllMenu(); selectAllMenuButton.focus(); return;}
+    if (event.key === "Escape" && !autoBxDialog.hidden) {event.preventDefault(); closeAutoBx(); return;}
     if (!readOnly && (event.metaKey || event.ctrlKey) && !event.altKey
         && (key === "z" || key === "y" && event.ctrlKey && !event.metaKey)) {
       const field = event.target.closest("input") || event.target.closest("textarea");
@@ -4951,6 +5197,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     pending.delete(reply.request);
     onDone?.(reply, buffers);
     showHistory();
+    showSelection();
+    if (current()) fieldUnits();
   }
   const resizeObserver = new ResizeObserver(() => {
     hideHistoryTooltip();
@@ -4961,6 +5209,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!bulkDialog.hidden) {
       bulkDialog.style.left = Math.max(8, Math.min(board.clientWidth - bulkDialog.offsetWidth - 8, parseFloat(bulkDialog.style.left) || 8)) + "px";
       bulkDialog.style.top = Math.max(8, Math.min(board.clientHeight - bulkDialog.offsetHeight - 8, parseFloat(bulkDialog.style.top) || 8)) + "px";
+    }
+    if (!autoBxDialog.hidden) {
+      autoBxDialog.style.left = Math.max(8, Math.min(board.clientWidth - autoBxDialog.offsetWidth - 8, parseFloat(autoBxDialog.style.left) || 8)) + "px";
+      autoBxDialog.style.top = "8px";
     }
   });
   resizeObserver.observe(board);

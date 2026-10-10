@@ -195,6 +195,96 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
 
+test('select all covers labels and visible widgets/text, with category actions and additive Shift', t => {
+  const ui = setup(t);
+  ui.data.state.tags.push({...structuredClone(ui.tag), id:'second', label:'VS2', x:.6, page:1});
+  ui.data.state.tags.push({...structuredClone(ui.tag), id:'other-page', label:'VS3', page:2});
+  ui.data.state.reference_widget = {enabled:true, x:.08, y:.2, size:410};
+  ui.data.state.comment_widget = {enabled:false};
+  ui.data.state.text_objects = [{id:'heading', kind:'heading', text:'Hus 1', x:.1, y:.1, size:20},
+    {id:'date', kind:'date', text:'26/10/10', x:.2, y:.1, size:18}];
+  ui.data.state.placement_locks = [{type:'tag',id:'tag1'}];
+  ui.changed();
+  ui.byText('Markera samtliga').click();
+  assert.match(ui.byClass('gp-selection-count').textContent, /^5 markerade/);
+  assert.equal(ui.find(el => el.getAttribute('aria-label') === 'Välj vad som markeras').disabled, false);
+});
+
+test('select-all submenu separates footing, widget and text selections', t => {
+  const ui = setup(t);
+  ui.data.state.reference_widget = {enabled:true, x:.08, y:.2, size:410};
+  ui.data.state.text_objects = [{id:'date', kind:'date', text:'26/10/10', x:.2, y:.1, size:18}];
+  ui.changed();
+  const menuButton = ui.find(el => el.getAttribute('aria-label') === 'Välj vad som markeras');
+  menuButton.click(); assert.equal(ui.byClass('gp-select-all-menu').hidden, false);
+  ui.byText('Widgets').click(); assert.equal(ui.byClass('gp-selection-count').textContent, '1 markerade');
+  assert.equal(ui.byClass('gp-select-all-menu').hidden, true);
+  ui.byText('Text').dispatch('click', {shiftKey:true}); assert.equal(ui.byClass('gp-selection-count').textContent, '2 markerade');
+  ui.byText('Sulor').click(); assert.equal(ui.byClass('gp-selection-count').textContent, '1 markerade');
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'true');
+  ui.byText('Lås indata').click(); assert.deepEqual(ui.sent.at(-1).ids, ['tag1']);
+});
+
+test('input lock disables all single-footing fields and table cells while leaving selection and copying available', t => {
+  const ui = setup(t); ui.tag.input_locked = true; ui.changed(); ui.marker().click();
+  assert.equal(ui.field('b').disabled, true); assert.equal(ui.field('kommentar').disabled, true);
+  assert.equal(ui.field('inaktiv').disabled, true); assert.equal(ui.label().disabled, true);
+  const before = ui.sent.length;
+  ui.field('b').value = '.9'; ui.field('b').dispatch('input'); assert.equal(ui.sent.length, before);
+  const lockButton = ui.byClass('gp-input-lock-row').children[0];
+  assert.equal(lockButton.textContent, 'Lås upp indata'); lockButton.click();
+  const request = ui.sent.at(-1); assert.equal(request.action, 'input_lock'); assert.equal(request.locked, false);
+  ui.tag.input_locked = false; ui.changed(); ui.ack(request);
+  assert.equal(ui.field('b').disabled, false); assert.equal(ui.field('kommentar').disabled, false);
+});
+
+test('bulk/table edits skip locked members of a mixed selection', t => {
+  const ui = setup(t);
+  const locked = {...structuredClone(ui.tag), id:'locked', label:'Locked', input_locked:true};
+  ui.data.state.tags.push(locked); ui.changed(); ui.byText('Markera samtliga').click();
+  ui.byText('Ändra markerade').click();
+  assert.match(elementText(ui.byClass('gp-bulk-form')), /1 sulor med låsta indata hoppas över/);
+  ui.byText('Minimera').click();
+  const b = ui.elements().find(el => el.name === 'table_b' && el.closest('tr')?.dataset.tagId === 'tag1');
+  b.value = '1.5'; b.dispatch('input'); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'update'); assert.equal(request.id, 'tag1');
+  assert.deepEqual(request.values, {b:1.5});
+});
+
+test('Auto bx previews server proposals, invalidates on setting changes and assigns only its token', t => {
+  const ui = setup(t); ui.byText('Markera samtliga').click();
+  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  assert.equal(ui.byClass('gp-auto-bx-dialog').hidden, false);
+  const previewButton = ui.byText('Förhandsvisa'); previewButton.click();
+  let request = ui.sent.at(-1); assert.equal(request.action, 'auto_bx_preview');
+  assert.deepEqual(request.settings, {step_mm:100,u_min:70,u_max:99,b_min:.2,b_max:5});
+  const preview = {token:'trusted',changed:1,unchanged:0,skipped:0,
+    rows:[{id:'tag1',label:'VS1',status:'changed',b_before:1,b_after:.9,u_before:.75,u_after:.86}]};
+  ui.ack(request, {preview}); assert.match(elementText(ui.byClass('gp-auto-bx-list')), /VS1/);
+  const apply = ui.byClass('gp-auto-bx-footer').children[1]; assert.equal(apply.disabled, false);
+  const minimum = ui.field('auto_bx_u_min'); minimum.value='90'; minimum.dispatch('input');
+  assert.equal(apply.disabled, true); assert.equal(ui.byClass('gp-auto-bx-list').children.length, 0);
+  ui.byText('Förhandsvisa').click(); request=ui.sent.at(-1); ui.ack(request, {preview});
+  apply.click(); request=ui.sent.at(-1); assert.equal(request.action, 'auto_bx_apply');
+  assert.equal(request.token, 'trusted'); assert.equal(request.values, undefined);
+  ui.tag.values.b=.9; ui.changed(); ui.ack(request, {report:{changed:1,unchanged:0,skipped:0}});
+  assert.equal(ui.byClass('gp-auto-bx-dialog').hidden, true);
+});
+
+test('Auto bx supports a custom step and invalidates proposals after external input-lock changes', t => {
+  const ui = setup(t); ui.byText('Markera samtliga').click();
+  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  const step = ui.find(el => el.getAttribute('aria-label') === 'Måttsteg [mm]'); step.value='custom'; step.dispatch('change');
+  ui.field('auto_bx_step_mm').value='150'; ui.byText('Förhandsvisa').click(); const request=ui.sent.at(-1);
+  assert.equal(request.settings.step_mm,150);
+  ui.ack(request,{preview:{token:'stale',changed:1,unchanged:0,skipped:0,
+    rows:[{id:'tag1',label:'VS1',status:'changed',b_before:1,b_after:.9,u_before:.75,u_after:.9}]}});
+  ui.tag.input_locked=true; ui.changed();
+  assert.equal(ui.byClass('gp-auto-bx-footer').children[1].disabled, true);
+  assert.equal(ui.byClass('gp-auto-bx-list').children.length, 0);
+  assert.match(ui.byClass('gp-auto-bx-feedback').textContent, /ändrats/);
+});
+
 test('undo and redo icon buttons follow kernel history, pending commands and acknowledgements', t => {
   const ui = setup(t), undo = ui.byClass('gp-undo'), redo = ui.byClass('gp-redo');
   assert.equal(undo.disabled, true); assert.equal(redo.disabled, true);
