@@ -365,3 +365,20 @@
   .an-grundplan .gp-toolbar { gap: 5px; }
   .an-grundplan .gp-toolbar button { font-size: 11px; }
 }
+
+.an-grundplan .gp-reference-section { display: block; margin: 14px 0 3px; font-size: 12px; }
+.an-grundplan .gp-reference-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 12px 0; border-top: 1px solid var(--gp-line); font-size: 11px; line-height: 1.5; }
+.an-grundplan .gp-reference-ident { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.an-grundplan .gp-reference-ident .gp-comment-label { font-size: 13px; font-weight: 700; }
+.an-grundplan .gp-reference-info p { margin: 0; overflow-wrap: anywhere; }
+.an-grundplan .gp-reference-geometry { margin-bottom: 6px !important; }
+.an-grundplan .gp-reference-load { display: grid; grid-template-columns: 65px minmax(0, 1fr); gap: 4px; }
+.an-grundplan .gp-reference-caption { color: var(--gp-muted); margin-top: 6px !important; }
+.an-grundplan .gp-reference-comment { color: var(--gp-muted); margin-top: 4px !important; }
+.an-grundplan .gp-reference-ok { color: #1e8063; }
+.an-grundplan .gp-reference-over { color: #b6443f; }
+.an-grundplan .gp-reference-warning { color: #94691f; font-size: 10px; overflow-wrap: anywhere; }
+.an-grundplan .gp-type-confirmation { padding: 8px; border: 1px solid var(--gp-line); margin-bottom: 8px; }
+.an-grundplan .gp-type-confirmation select { margin-right: 6px; }
+
+.an-grundplan .gp-reference-range { font-size: 9px; white-space: nowrap; margin-top: -3px; }

@@ -1,8 +1,13 @@
 /* Shared plan view. All engineering calculations run in the Python kernel. */
+const FOOTING_CATEGORIES = {wall: "Väggsula", wall_pad: "Väggsula m. beräkningsmodell pelarsula", pad: "Pelarsula"};
+const physicalType = tag => tag.footing_type || (Number(tag.values.lang) === 1 || /^VS[.\s_-]?\d/i.test(tag.label || "")
+  || tag.imported_length != null || Number(tag.values.lasttyp) === 1 ? "vaggsula" : "pelarsula");
+const footingCategory = tag => physicalType(tag) === "pelarsula" ? "pad" : Number(tag.values.lang) === 1 ? "wall" : "wall_pad";
+const REFERENCE_WIDGET_DEFAULTS = {enabled: false, x: .05, y: .3, size: 410};
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
-const COLOUR_CATEGORIES = {t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
+const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
   .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
@@ -111,7 +116,11 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     const group = {key, count: 0, ...data};
     groups.push(group); return group;
   };
-  if (category === "isolering") {
+  if (category === "sultyp") {
+    for (const [kind, label] of Object.entries(FOOTING_CATEGORIES)) {
+      byKey.set(kind, make("sultyp:" + kind, {label, kind: "footing_type", unit: "", category: kind}));
+    }
+  } else if (category === "isolering") {
     for (const [suffix, label] of COLOUR_INSULATION_GROUPS) {
       byKey.set(suffix, make("isolering:" + suffix, {label, kind: "insulation", unit: ""}));
     }
@@ -135,6 +144,10 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   }
   for (const tag of tags) {
     const values = tag.values;
+    if (category === "sultyp") {
+      const group = byKey.get(footingCategory(tag));
+      group.count++; assignments.set(tag.id, group); continue;
+    }
     if (category === "isolering") {
       const insulated = !values.endast_h_stabilitet && values.isolering === true;
       const direction = (values.glid_x ? "x" : "") + (values.glid_y ? "y" : "");
@@ -481,7 +494,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let slidingDraft = null, overlaySelected = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
-  let commentWidgetDraft = null;
+  let commentWidgetDraft = null, referenceWidgetDraft = null;
   let textAddBusy = false;
   const textElements = new Map(), textDrafts = new Map(), textDeleting = new Set();
   let layoutDraft = null, panelDrag = null;
@@ -496,6 +509,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const colour = () => colourDraft || state().colour_grouping || COLOUR_DEFAULTS;
   const insulationWidget = () => insulationWidgetDraft || state().insulation_widget || INSULATION_WIDGET_DEFAULTS;
   const commentWidget = () => commentWidgetDraft || state().comment_widget || COMMENT_WIDGET_DEFAULTS;
+  const referenceWidget = () => referenceWidgetDraft || state().reference_widget || REFERENCE_WIDGET_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
   const groupingTags = () => state().tags.filter(tag => !(drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv));
@@ -917,6 +931,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   commentWidgetToggle.title = "Visa objektkommentarer i en flyttbar och skalbar ruta. Senaste placering och storlek behålls.";
   if (!readOnly) toolbar.append(commentWidgetToggle);
+  const referenceToggle = button("Referens", () => {
+    const patch = {enabled: !referenceWidget().enabled};
+    if (!patch.enabled) {cancelDrag(); overlaySelected = null;}
+    const draft = {...referenceWidget(), ...patch}; referenceWidgetDraft = draft; update();
+    command("reference_widget", {settings: patch}, [], reply => {
+      if (referenceWidgetDraft === draft) {referenceWidgetDraft = null; update();}
+      if (!reply.ok) showMessage(reply.error, true);
+    });
+  });
+  referenceToggle.title = "Automatiska referensgrupper med mått och laster för vidare dimensionering i Foundation.";
+  if (!readOnly) toolbar.append(referenceToggle);
   const textAddButtons = [];
   for (const [kind, caption] of [["heading", "Lägg till rubrik"], ["date", "Lägg till datum (åå/mm/dd)"]]) {
     const add = button(caption, () => {
@@ -982,7 +1007,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourPhaseButtons.set(phase, choice); phaseChoices.append(choice);
   }
   const typeChoices = node("div", "gp-colour-choices");
-  for (const [kind, caption] of [["pad", "Totala laster [kN]"], ["wall", "Linjelaster [kN/m]"]]) {
+  for (const [kind, caption] of [["pad", "Punktlaster [kN]"], ["wall", "Linjelaster [kN/m]"]]) {
     const choice = button(caption, () => {
       colourError.textContent = ""; colourBounds.setCustomValidity("");
       colourEditType = kind; colourBounds.value = colour().bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
@@ -1238,7 +1263,21 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!readOnly) {overlaySelected = "comments"; renderSlidingGeometry();}
   });
   commentLegend.append(commentHeader, commentBody, commentResize);
-  overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend);
+  const referenceLegend = node("section", "gp-sliding-overlay gp-sliding-legend gp-reference-widget");
+  referenceLegend.dataset.kind = "reference";
+  referenceLegend.setAttribute("aria-label", "Referens – automatiska grupper för Foundation");
+  const referenceHeader = button("Referens", () => {
+    if (!readOnly) {overlaySelected = "reference"; renderSlidingGeometry();}
+  }, "gp-sliding-header gp-sliding-handle");
+  referenceHeader.setAttribute("aria-label", "Referens." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
+  const referenceBody = node("div", "gp-reference-body");
+  const referenceResize = button("", () => {}, "gp-overlay-resize");
+  referenceResize.setAttribute("aria-label", "Ändra Referensens storlek. Dra hörnet eller använd plus och minus.");
+  referenceLegend.addEventListener("click", () => {
+    if (!readOnly) {overlaySelected = "reference"; renderSlidingGeometry();}
+  });
+  referenceLegend.append(referenceHeader, referenceBody, referenceResize);
+  overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend, referenceLegend);
   sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
   viewport.append(sheet, selectionBox, measurementOverlay);
   const empty = node("div", "gp-empty");
@@ -1608,7 +1647,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           headingDraft = null;
           slidingDraft = null; overlaySelected = null;
           colourDraft = null; colourEditType = null; colourError.textContent = "";
-          tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null;
+          tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null; referenceWidgetDraft = null;
           textDrafts.clear(); textDeleting.clear(); textAddBusy = false;
           colourBounds.setCustomValidity("");
           overlayPositions.clear(); pendingOverlayPositions.clear(); slidingDirty.clear();
@@ -1998,7 +2037,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourOnlyHCheck.disabled = !!onlyHRestriction;
     colourOnlyHCheck.checked = !onlyHRestriction && settings.include_only_h === true;
     colourOnlyHChoice.classList.toggle("gp-disabled", !!onlyHRestriction);
-    colourOnlyHChoice.title = onlyHRestriction || "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Isolering och V · EQU.";
+    colourOnlyHChoice.title = onlyHRestriction || "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Sultyp, Isolering och V · EQU.";
     colourOnlyHNote.textContent = onlyHRestriction;
     colourOnlyHNote.hidden = !onlyHRestriction;
     colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
@@ -2006,9 +2045,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
       colourBounds.value = settings.bounds[kind].map(value => String(value).replace(".", ",")).join("; ");
     }
-    colourHint.textContent = categories.length > 1 ? categories.length + " valda parametrar. Samma kombination ger samma färg. " + (hasV ? "Linjelaster och totala laster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
+    colourHint.textContent = categories.length > 1 ? categories.length + " valda parametrar. Samma kombination ger samma färg. " + (hasV ? "Linjelaster och punktlaster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
       : categories[0] === "V"
-      ? "Linjelaster och totala laster har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
+      ? "Linjelaster och punktlaster har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
       : categories[0] === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
@@ -2027,23 +2066,30 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
       categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
         : categories[0] === "isolering" ? "Isolering och glidmotstånd"
-        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : " [m]")));
-    let previousKind = null;
+        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : categories[0] === "sultyp" ? "" : " [m]")));
+    let previousKind = null, previousFooting = null;
     for (const group of data.groups.filter(group => group.count > 0)) {
+      const typePart = group.parts?.find(part => part.kind === "footing_type") || (group.kind === "footing_type" ? group : null);
+      if (typePart && typePart.category !== previousFooting) {
+        previousFooting = typePart.category;
+        colourLegendBody.append(node("strong", "gp-colour-legend-section", typePart.label));
+      }
       if (categories.length === 1 && hasV && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
         colourLegendBody.append(node("strong", "gp-colour-legend-section",
-          group.kind === "wall" ? "Linjelaster [kN/m]" : "Totala laster [kN]"));
+          group.kind === "wall" ? "Linjelaster [kN/m]" : "Punktlaster [kN]"));
       }
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
       paintGroupPattern(swatch, group, true);
-      let caption = mathText("span", "", colourGroupCaption(group));
+      let caption = mathText("span", "", group.kind === "combination" && typePart
+        ? group.parts.flatMap((part, i) => group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).join(" · ")
+        : colourGroupCaption(group));
       if (group.kind === "combination" && hasV) {
         const index = group.categories.indexOf("V");
         caption = node("span", "gp-colour-legend-label"); row.dataset.multiline = "true";
         caption.append(mathText("span", "gp-colour-legend-details", group.parts.flatMap((part, i) =>
-          i === index ? [] : [colourPartCaption(group, i)]).join(" · ")),
+          i === index || group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).join(" · ")),
         mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
       }
       row.append(swatch, caption, node("span", "gp-colour-group-count", String(group.count)));
@@ -2052,6 +2098,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourLegendBody.append(node("p", "gp-sliding-note", "Antal sulor visas till höger."));
     showInsulationWidget();
     showCommentWidget(settings.enabled ? data.assignments : null);
+    showReferenceWidget(settings.enabled ? data.assignments : null);
     renderSlidingGeometry();
     refreshGroupPatterns(true);
   }
@@ -2096,6 +2143,53 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     table.append(head, body); commentBody.append(table);
   }
+  function showReferenceWidget(assignments) {
+    const settings = referenceWidget(), data = state().reference_data || {groups: [], excluded: []};
+    referenceToggle.classList.toggle("gp-selected", settings.enabled);
+    referenceToggle.setAttribute("aria-pressed", String(settings.enabled));
+    referenceToggle.disabled = !background().url || drawingBusy;
+    referenceBody.replaceChildren(node("p", "gp-sliding-note", "Underlag för vidare dimensionering i Foundation."),
+      node("p", "gp-sliding-note", "Referens väljs efter högst aktuell U. Varje sula beräknas individuellt."));
+    let category = null;
+    for (const group of data.groups) {
+      if (group.category !== category) {
+        category = group.category;
+        referenceBody.append(node("strong", "gp-reference-section", FOOTING_CATEGORIES[category]));
+      }
+      const row = node("div", "gp-reference-row"), ident = node("div", "gp-reference-ident");
+      const badge = node("span", "gp-comment-label"); badge.append(node("span", "", group.label));
+      const style = assignments?.get(group.reference_id);
+      badge.style.background = style?.background || "#ffffff";
+      if (style) paintGroupPattern(badge, style, true);
+      const utilization = node("strong", group.utilization > 1 ? "gp-reference-over" : "gp-reference-ok",
+        "U " + compactNumber(group.utilization * 100, 1) + " %");
+      const range = group.utilization_range || {min: group.utilization, max: group.utilization};
+      const interval = node("span", "gp-reference-range " + (range.max > 1 ? "gp-reference-over" : "gp-reference-ok"),
+        "(" + compactNumber(range.min * 100, 1) + "–" + compactNumber(range.max * 100, 1) + " %)");
+      interval.title = "Gruppens lägsta–högsta utnyttjandegrad";
+      ident.append(badge, utilization, interval);
+      const info = node("div", "gp-reference-info");
+      info.append(mathText("p", "gp-reference-geometry", Object.entries(group.geometry).map(([name, value]) =>
+        ({t: "t", b: "b_x", l: "b_y", L_vagg: "L_vägg"}[name] || name) + " " + precise(value) + " m").join(" · ")));
+      info.append(node("p", "gp-reference-caption", group.unit === "kN/m" ? "Linjelast" : "Punktlast"));
+      for (const phase of ["brott", "bruk"]) {
+        const line = node("p", "gp-reference-load"), value = group.loads[phase];
+        let caption = value == null ? "—" : compactNumber(value, 2) + " " + group.unit;
+        if (category === "wall_pad" && group.unit === "kN/m" && group.resultants[phase] != null)
+          caption += " → " + compactNumber(group.resultants[phase], 2) + " kN";
+        line.append(symbolNode({base: "V", subscript: phase}), node("span", "", caption));
+        info.append(line);
+      }
+      info.append(node("p", "gp-reference-caption", "Gäller för"),
+        node("p", "gp-reference-members", group.members.map(member => member.label).join(", ")));
+      for (const comment of group.comments) info.append(node("p", "gp-reference-comment", comment));
+      row.append(ident, info); referenceBody.append(row);
+    }
+    if (!data.groups.length) referenceBody.append(node("p", "gp-sliding-note", "Inga beräknade sulor att referera till."));
+    const unresolved = data.excluded.filter(item => !["Inaktiv", "Endast H-stabilitet"].includes(item.reason));
+    if (unresolved.length) referenceBody.append(node("p", "gp-reference-warning", "Utanför referensgrupper: "
+      + unresolved.map(item => item.label + " (" + item.reason + ")").join(", ")));
+  }
   function textObject(kind) {
     return kind?.startsWith("text:") ? state().text_objects?.find(item => item.id === kind.slice(5)) : null;
   }
@@ -2104,8 +2198,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const text = textObject(kind);
     if (text) return overlayPositions.get(key) || {x: text.x, y: text.y, size: text.size};
     if (kind === "colour") return {...COLOUR_DEFAULTS.legend, ...(overlayPositions.get(key) || colour().legend)};
-    if (["insulation", "comments"].includes(kind)) {
-      const {x, y, size} = overlayPositions.get(key) || (kind === "comments" ? commentWidget() : insulationWidget()); return {x, y, size};
+    if (["insulation", "comments", "reference"].includes(kind)) {
+      const {x, y, size} = overlayPositions.get(key) || (kind === "reference" ? referenceWidget() : kind === "comments" ? commentWidget() : insulationWidget()); return {x, y, size};
     }
     const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
     return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
@@ -2120,7 +2214,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     pendingOverlayPositions.set(key, position);
     const text = textObject(kind);
     command(text ? "text_update" : kind === "colour" ? "colour_placement" : kind === "insulation" ? "insulation_placement"
-      : kind === "comments" ? "comment_placement" : "sliding_placement",
+      : kind === "comments" ? "comment_placement" : kind === "reference" ? "reference_placement" : "sliding_placement",
       text ? {id: text.id, changes: position} : {kind, page, position}, [], () => {
       if (pendingOverlayPositions.get(key) === position) pendingOverlayPositions.delete(key);
       if (overlayPositions.get(key) === position) overlayPositions.delete(key);
@@ -2145,7 +2239,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   for (const [element, kind, resize] of [[axesButton, "symbol", false], [axesResize, "symbol", true],
       [slidingHeader, "legend", false], [legendResize, "legend", true], [colourHeader, "colour", false], [colourResize, "colour", true],
       [insulationHeader, "insulation", false], [insulationResize, "insulation", true],
-      [commentHeader, "comments", false], [commentResize, "comments", true]]) bindOverlayKeys(element, kind, resize);
+      [commentHeader, "comments", false], [commentResize, "comments", true],
+      [referenceHeader, "reference", false], [referenceResize, "reference", true]]) bindOverlayKeys(element, kind, resize);
   function showTextObjects() {
     for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || importBusy || deleteBusy;
     const objects = state().text_objects || [];
@@ -2227,10 +2322,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderSlidingGeometry();
   }
   function renderSlidingGeometry() {
-    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"], [commentLegend, "comments"]]) {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"], [commentLegend, "comments"], [referenceLegend, "reference"]]) {
       const p = overlayPosition(kind);
       element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend
-        : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : !sliding().enabled) || !background().url;
+        : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : kind === "reference" ? !referenceWidget().enabled : !sliding().enabled) || !background().url;
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
@@ -2240,7 +2335,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       } else {
         const scale = zoom * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
-        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : legendResize;
+        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : kind === "reference" ? referenceResize : legendResize;
         resize.hidden = readOnly || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";
@@ -2891,7 +2986,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = inactiveField || busy || blocked || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
+        control.disabled = inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
@@ -3100,7 +3195,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (hasInactive ? "Urvalet innehåller inaktiva sulor. Endast Inaktiv och Kommentar kan ändras. "
         : mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
-        : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller totalt. ")
+        : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller som punktlast. ")
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
@@ -3235,6 +3330,28 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     fieldsBox.replaceChildren();
     inputs.clear();
     const draft = drafts.get(tag.id);
+    const typeNote = node("p", "gp-field-note gp-footing-type", "Sultyp: " + FOOTING_CATEGORIES[footingCategory(tag)]);
+    fieldsBox.append(typeNote);
+    if (tag.footing_type_inferred) {
+      const note = node("div", "gp-type-confirmation");
+      note.append(node("p", "gp-field-note", "Äldre objekt: ursprunglig sultyp saknas. Bekräfta för att använda Referens."));
+      if (!readOnly && !tag.values.inaktiv) {
+        const choice = node("select"); choice.setAttribute("aria-label", "Bekräfta ursprunglig sultyp");
+        for (const [kind, caption] of [["vaggsula", "Väggsula"], ["pelarsula", "Pelarsula"]]) {
+          const option = node("option", "", caption); option.value = kind; choice.append(option);
+        }
+        choice.value = physicalType(tag);
+        const confirm = button("Bekräfta sultyp", () => {
+          confirm.disabled = true;
+          command("footing_type", {id: tag.id, kind: choice.value}, [], reply => {
+            confirm.disabled = false;
+            if (reply.ok) buildFields(current()); else showMessage(reply.error, true);
+          });
+        });
+        note.append(choice, confirm);
+      }
+      fieldsBox.append(note);
+    }
     for (const [index, [label, names, note]] of groups.entries()) {
       if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
       const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
@@ -3383,7 +3500,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       ? (strip ? "Väggsula: laster och moment avser en meter vägg." : "Pelarsula: laster och moment avser hela sulan.") + " Egentyngd ingår i beräkningsresultatet."
       : strip
         ? "Väggsula: samtliga laster och moment avser en meter vägg. Egentyngd tillkommer i beräkningen."
-        : "Pelarsula: ange totala laster och moment. Egentyngd tillkommer i beräkningen.";
+        : "Pelarsula: ange punktlaster och moment. Egentyngd tillkommer i beräkningen.";
     if (strip) {
       basis.replaceChildren(mathText("span", "", "Väggsula: laster och moment anges per meter linjestöd. Yttre lastresultant = angivet värde × "
         + (atLeastOne ? "1 m (Minst 1 m)." : "kort L_vägg.")
@@ -3392,6 +3509,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!strip && line) basis.replaceChildren(mathText("span", "", "Pelarsulemodell med linjelast: laster och moment anges per meter linjestöd och multipliceras med hela L_vägg. b_x och b_y anger kontaktmåtten. Egentyngd tillkommer i beräkningen."));
     if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
+      if (name === "lang") {
+        const pad = physicalType(current()) === "pelarsula";
+        entry.row.hidden = pad;
+        if (!readOnly) {entry.input.disabled = pad; entry.input.required = !pad;}
+        continue;
+      }
       if (name === "lasttyp") {
         entry.row.hidden = strip;
         if (!readOnly) {entry.input.disabled = strip; entry.input.required = !strip;}

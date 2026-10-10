@@ -154,7 +154,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
       type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp"].includes(name) ? "choice" : "number",
       unit: loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
-      options: name === "lasttyp" ? [{value: 0, label: "Total last [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
+      options: name === "lasttyp" ? [{value: 0, label: "Punktlast [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
   const model = standalone ? createResultModel(snapshot, validateCalibration, validateLayout) : { get: name => data[name], send: (payload, _, buffers) => {
@@ -3206,7 +3206,7 @@ test("custom intervals accept decimal comma with semicolons, validate boundaries
     const before = ui.sent.length; field.value = value; field.dispatch("change");
     assert.equal(ui.sent.length, before); assert.ok(field.validityMessage);
   }
-  ui.byText("Totala laster [kN]").click(); accept(ui.sent.at(-1));
+  ui.byText("Punktlaster [kN]").click(); accept(ui.sent.at(-1));
   assert.equal(field.value, "100,5; 200,5; 399,5");
   assert.equal(field.validityMessage, "", "Changing footing type restores its valid saved intervals");
   assert.equal(ui.byClass("gp-colour-error").textContent, "");
@@ -4303,4 +4303,72 @@ for (const readOnly of [false, true]) test(`H-only objects stay uncoloured and u
     assert.doesNotMatch(elementText(ui.byClass('gp-colour-legend-body')), /Ej tillämpligt/);
     assert.equal(ui.elements().filter(e => e.className === 'gp-colour-group-count').reduce((sum, e) => sum + Number(e.textContent), 0), 1);
   }
+});
+
+function referenceFixture(ui) {
+  ui.data.state.reference_widget = {enabled: true, x: .08, y: .2, size: 410};
+  ui.data.state.reference_data = {groups: [{category: 'wall_pad', label: 'VS.22', reference_id: ui.tag.id,
+    utilization: .947, utilization_range: {min: .603, max: .947}, geometry: {t: .25, b: .85, l: 1.3, L_vagg: .5}, unit: 'kN/m',
+    loads: {brott: 535.3, bruk: 438.6}, resultants: {brott: 267.65, bruk: 219.3},
+    members: [{id: ui.tag.id, label: 'VS.22'}, {id: 'b', label: 'VS.28'}],
+    comments: ['Styrande för VS.22: Isolering · bruk', 'Utan isolering: VS.28']}], excluded: []};
+  ui.changed();
+}
+
+for (const readOnly of [false, true]) test(`Reference renders geometry, external loads, conversions and automatic comments (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly}); referenceFixture(ui);
+  const text = elementText(ui.byClass('gp-reference-body'));
+  for (const caption of ['VS.22', 'b', '0,85 m', '1,3 m', '535,3 kN/m → 267,65 kN', '438,6 kN/m → 219,3 kN',
+    'Utan isolering: VS.28', 'Styrande för VS.22: Isolering · bruk', 'Foundation', 'Gäller för']) assert.ok(text.includes(caption), caption);
+  assert.equal(ui.byClass('gp-reference-widget').hidden, false);
+  assert.equal(ui.byClass('gp-reference-range').textContent, '(60,3–94,7 %)');
+  assert.equal(ui.byClass('gp-reference-ident').children[0].style.background, '#ffffff');
+  assert.equal(ui.sent.length, 0, 'Rendering never writes user comments or inputs');
+});
+
+test('Reference toggle, dragging, keyboard movement and scaling persist independently of calculations', t => {
+  const ui = setup(t); referenceFixture(ui); const before = structuredClone(ui.tag);
+  const accept = request => {
+    ui.data.state.reference_widget = {...ui.data.state.reference_widget, ...(request.settings || request.position)};
+    ui.changed(); ui.ack(request);
+  };
+  const widget = ui.byClass('gp-reference-widget'), header = widget.children[0], resize = widget.children.at(-1);
+  ui.start(header); ui.move(380, 360); ui.finish(380, 360);
+  let request = ui.sent.at(-1); assert.equal(request.action, 'reference_placement');
+  near(request.position.x, .18); near(request.position.y, .3); accept(request);
+  ui.start(resize); ui.move(505, 390); ui.finish(505, 390);
+  request = ui.sent.at(-1); near(request.position.size, 615); accept(request);
+  assert.equal(widget.style.transform, 'scale(1.5)');
+  header.dispatch('keydown', {key: 'ArrowRight'}); request = ui.sent.at(-1); accept(request);
+  near(request.position.x, .18 + 5 / 800);
+  ui.byText('Referens').click(); request = ui.sent.at(-1); assert.equal(request.action, 'reference_widget'); accept(request);
+  assert.equal(widget.hidden, true);
+  ui.byText('Referens').click(); accept(ui.sent.at(-1)); assert.equal(widget.hidden, false);
+  assert.deepEqual(ui.tag, before);
+});
+
+test('Sultyp grouping separates physical wall, wall with pad model and physical pad using one palette', () => {
+  const tags = [
+    {id: 'wall', footing_type: 'vaggsula', values: {lang: 1, t: .25}},
+    {id: 'wallpad', footing_type: 'vaggsula', values: {lang: 0, t: .25}},
+    {id: 'pad', footing_type: 'pelarsula', values: {lang: 0, t: .25}},
+  ];
+  const settings = {enabled: true, categories: ['sultyp', 't'], phase: 'brott', colors: {}};
+  const data = colourGroups(tags, settings);
+  assert.equal(data.groups.length, 3);
+  assert.equal(new Set(data.groups.map(g => g.color)).size, 3);
+  assert.deepEqual(data.groups.map(g => g.parts[0].category), ['wall', 'wall_pad', 'pad']);
+  assert.ok(data.groups.every(g => g.pattern === 'plain'));
+  const many = Array.from({length: 13}, (_, i) => ({...tags[i % 3], id: String(i), values: {...tags[i % 3].values, t: i + 1}}));
+  const groups = colourGroups(many, settings).groups;
+  assert.equal(groups.filter(g => g.pattern === 'plain').length, 12);
+  assert.equal(groups.filter(g => g.pattern === 'bands').length, 1);
+});
+
+test('Physical pad cannot choose a wall calculation model in the form or table', t => {
+  const ui = setup(t); Object.assign(ui.tag, {footing_type: 'pelarsula'}); ui.tag.values.lang = 0; ui.changed();
+  ui.marker().dispatch('click');
+  assert.equal(ui.field('lang').disabled, true);
+  assert.equal(ui.field('lang').parent.hidden, true);
+  assert.equal(ui.field('table_lang').disabled, true);
 });

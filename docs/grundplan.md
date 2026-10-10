@@ -168,7 +168,7 @@ markerar befintliga etiketter för flerredigering och pausar placeringskön.
 | JSON-fält | Indata i Grundplan |
 | --- | --- |
 | `supportId` | Littera |
-| `type: "line"` / `"point"` | Lasttyp linjelast / total last; nya objekt får väggsulemodell / pelarsulemodell |
+| `type: "line"` / `"point"` | Lasttyp linjelast / punktlast; nya objekt får väggsulemodell / pelarsulemodell |
 | `results[].category: "Brott"`, `V` | Vertikallast under Laster – Brott (`F_vy`) |
 | `results[].category: "Bruk"`, `V` | Vertikallast under Laster – Bruk (`F_vy_bruk`) |
 | `results[].category: "EQU"`, `V` | Färdig kontaktlast under Glidning (`V_Ed_EQU`) |
@@ -577,8 +577,8 @@ plan.farggruppering = {"enabled": False}  # Inställningarna behålls.
 
 **Beräkningsmodell** och **lasttyp** är separata inställningar. Väggsulemodellen
 använder alltid linjelaster. För **Pelarsula** visas **Last anges som** med
-alternativen **Linjelast [kN/m]** och **Total last [kN]**. Nya manuella pelarsulor
-har total last som standard. Vid byte från väggsulemodell behålls linjelasten.
+alternativen **Linjelast [kN/m]** och **Punktlast [kN]**. Nya manuella pelarsulor
+har punktlast som standard. Vid byte från väggsulemodell behålls linjelasten.
 
 En pelarsulemodell med linjelast visar **L_vägg** och använder hela den positiva
 längden, även över 1 m. Krafter i brott, bruk och EQU samt yttre moment
@@ -586,7 +586,7 @@ omräknas från per meter till totalsiffror. **Minst 1 m** döljs i denna modell
 bₓ/bᵧ anger kontaktmåtten och ändrar inte den yttre lastresultanten. Originalindatan
 behålls vid modellbyte, sparning och importuppdatering; ingen dubbel omräkning sker.
 Äldre importerade linjestöd känns igen på sparad importinformation även om deras
-beräkningsmodell ändrats till pelarsula. Äldre manuella pelarsulor behåller total last.
+beräkningsmodell ändrats till pelarsula. Äldre manuella pelarsulor behåller punktlast.
 
 Tabellen visar den skrivskyddade kolumnen **V_res [kN]** direkt efter V i både
 **Laster – Brott** och **Laster – Bruk**. V_res är den yttre lastresultanten,
@@ -597,7 +597,7 @@ last eller stödslängd visas som ett streck; andra indatafel hindrar inte att e
 giltig resultant visas. Endast H-stabilitet visar inga brott-/brukresultanter.
 På pelarsuleetiketter med linjelast visas exempelvis **V 200 kN/m → 120 kN**.
 
-Python-fältet `lasttyp` är 1 för linjelast och 0 för total last; `lang` väljer
+Python-fältet `lasttyp` är 1 för linjelast och 0 för punktlast; `lang` väljer
 fortfarande beräkningsmodell. Exempel för ett linjestöd som kontrolleras som pelarsula:
 
 ```python
@@ -620,7 +620,7 @@ Exempel: V = 200 kN/m och L_vägg = 0,6 m ger 120 kN yttre last oavsett bᵧ.
 Med **Minst 1 m** blir den lokala yttre lasten 200 kN även om hela väggen är 5 m.
 Brott- och brukmoment samt brottets horisontallaster omräknas med samma längdfaktor.
 Sulans egentyngd beräknas från bₓ, bᵧ och t, med befintliga faktorer 1,5 i brott och 1,0 i bruk.
-Resultatsammanfattningen visar total last och bärförmåga i kN, och areaskissen visar totala krafter och moment.
+Resultatsammanfattningen visar punktlast och bärförmåga i kN, och areaskissen visar totala krafter och moment.
 Trycket för isoleringen är total kraft / effektiv area. Den gemensamma väggsulemotorn och dess
 rapport använder ekvivalenta laster per meter sula; dess modell och formfaktorer ändras inte.
 Resultatdialogen visar **Lasteffekt q_Ed [kPa]** direkt ovanför **Bärförmåga q_bd**.
@@ -655,7 +655,7 @@ Under **Glidning** i respektive sulas indatadialog anges:
   parallella eller tvärgående sulor väljs manuellt. Funktionen kontrollerar
   inte att konstruktionen kan överföra krafterna till sulan.
 - **V_Ed,EQU:** färdig dimensionerande vertikal kontaktlast i EQU, **inklusive
-  sulans egentyngd**. Ange kN/m vid linjelast och kN vid total last, även när
+  sulans egentyngd**. Ange kN/m vid linjelast och kN vid punktlast, även när
   beräkningsmodellen är pelarsula. Linjelasten avser kontaktlast per meter sula. Ingen
   egentyngd eller lastfaktor tillkommer i glidningsberäkningen.
 - **μ_d:** färdig dimensionerande friktionskoefficient mellan sulan och
@@ -700,7 +700,7 @@ sulor och visas i PDF- och HTML-exporterna.
 
 Motståndet för en vald riktning beräknas som
 `H_Rd,i = V_Ed,EQU × L_su × μ_d` för linjelaster, oavsett beräkningsmodell, och
-`H_Rd,i = V_Ed,EQU × μ_d` för total last. **Sulor med isolering bidrar alltid
+`H_Rd,i = V_Ed,EQU × μ_d` för punktlast. **Sulor med isolering bidrar alltid
 med 0 kN**, oavsett tidigare glidningsindata. V och μ ska vara minst noll;
 sulängden L_su ska vara större än noll. EQU ska redan innehålla
 sulans egentyngd; varken bᵧ eller L_vägg multipliceras in.
@@ -761,14 +761,14 @@ anropas med en hävarm.
   angiven positiv L_vägg ≤ 1 m. Den yttre lastresultanten är `V × lokal L_vägg`.
   Vald bᵧ är fördelningslängden under sulan och ändrar inte denna resultant.
   Resultantlasterna normaliseras med bᵧ för den gemensamma väggsulemotorns API.
-  Grundplans resultat redovisar då total last, egentyngd och bärförmåga.
+  Grundplans resultat redovisar då punktlast, egentyngd och bärförmåga.
   Excentriciteten är `e_y = e_y,plac + M_x / N` med samma lastgrund för
   moment och normalkraft; effektiv längd är `b_y − 2 × abs(e_y)`.
   Jordmodellens specialfaktorer för långsträckt fundament behålls.
   Linjestödslängden `L_vägg` och sulängden `L_su` är separata. Ange inte hela väggens totallast i ett linjelastfält.
 - **Pelarsula:** `lang=0`. Med `lasttyp=0` anges krafter i kN och moment i kNm.
   Med `lasttyp=1` anges kN/m respektive kNm/m, och hela L_vägg används för
-  omräkning till total last. Måtten `b` respektive `l` anges i m.
+  omräkning till punktlast. Måtten `b` respektive `l` anges i m.
 - Ange moment direkt vid sulan kring l- respektive b-axeln, både i brott
   och bruk. Excentriciteten beräknas från dessa moment och eventuell
   placeringsexcentricitet. Horisontallaster i brott behålls för deras
@@ -839,7 +839,7 @@ längd. `l_ref = b_y`, total `EG_k = 25 × b × b_y × t` och
 I den gemensamma motorns rapport används ekvivalenta värden per meter.
 Egentyngdsfaktorn 1,5 i brott följer
 den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
-genereras från karakteristiska laster. Effektiva mått, total last och
+genereras från karakteristiska laster. Effektiva mått, punktlast och
 bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjandegrad.
 
 Valet **Minst 1 m** sparas med sulan och stöds i tabellen, flerredigering och
@@ -1160,3 +1160,71 @@ ogiltiga eller ändrade indata, projektets återöppning och separata vyer för 
 Isoleringstesterna omfattar olika effektiva areor i brott/bruk, egentyngd,
 styrande kontroll, saknade värden och import av äldre projekt.
 Interaktionerna kan testas med `node tests/test_grundplan_ui.mjs`.
+
+
+## Referens och fysisk sultyp
+
+Knappen **Referens** visar en flyttbar och proportionellt skalbar widget med
+automatiska grupper som underlag för vidare dimensionering i Foundation.
+Detta är en sammanställning; varje sula behåller sin egen beräkning.
+Referensobjektet väljs efter högst aktuell utnyttjandegrad. Vid lika U används
+litteras naturliga nummerordning. Det innebär inte att samma objekt måste styra
+alla framtida kontroller i Foundation.
+
+Objektets fysiska sultyp sparas när det skapas och ändras inte vid byte av
+beräkningsmodell eller kopiering. **Beräkningsmodell** kan endast väljas för
+väggsulor. Pelarsulor använder alltid pelarsulemodellen. Både Referens och det
+nya valet **Sultyp** i färggrupperingen skiljer mellan:
+
+- Väggsula.
+- Väggsula m. beräkningsmodell pelarsula.
+- Pelarsula.
+
+Referens grupperar väggsulor efter **t och bₓ** (samt eget bᵧ när det används).
+Väggsulor med pelarsulemodell grupperas dessutom efter **bᵧ och L_vägg** när
+laster anges som linjelast. Rena pelarsulor grupperas efter **t, bₓ och bᵧ**.
+Lasttyp, kortväggsinställning, jorddata, lastplacering och beräkningsfaktorer
+måste också överensstämma. Isolering får skilja inom gruppen.
+
+Varje referensrad redovisar gruppmått, referensobjektets **V_brott/V_bruk**,
+**Punktlast/Linjelast**, gruppmedlemmar och automatisk text. Under referensens U
+visas gruppens lägsta–högsta U, exempelvis **(60,3–94,7 %)**. För en väggsula med
+pelarsulemodell och linjelast visas också omräkning till punktlast med L_vägg.
+Lasterna är angivna yttre laster, exklusive tillkommande egentyngd.
+Saknad brukslast visas som ett streck.
+
+Den styrande kontrollen hör uttryckligen till referensobjektet, exempelvis
+**Styrande för VS.22: Isolering · bruk**. Om hela gruppen saknar isolering står
+**Utan isolering**. Vid avvikelse står exempelvis **Utan isolering: VS.28**.
+Oisolerade objekt med valt glidningsbidrag redovisas även som H-stabiliserande.
+De automatiska kommentarerna uppdateras efter ändrade indata och skriver aldrig
+över objektens manuella kommentarsfält. Befintlig Kommentarer-widget finns kvar.
+
+Inaktiva sulor och sulor med Endast H-stabilitet ingår inte i Referens.
+Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
+objekt utanför referensgrupperna. I äldre projekt används modell, littera och
+importinformation för att härleda sultyp. När ursprunget är osäkert måste det
+bekräftas i objektets indataruta; beräkningsindata och resultat behålls.
+Projektformat 20 sparar sultyp och widgetinställningar. Versionerna 1–19 kan
+fortfarande öppnas, men äldre programversioner kan inte öppna format 20.
+
+```python
+plan.referens = {"enabled": True, "x": .05, "y": .2, "size": 500}
+groups = plan.referensgrupper  # Härledda grupper och objekt som inte ingår.
+plan.farggruppering = {"enabled": True, "categories": ["sultyp", "t", "b", "V"]}
+```
+
+Sultyp kombineras med övriga valbara färgparametrar. De tre kategorierna delar
+samma tolv ColorBrewer-färger innan mönster börjar användas. Referensbadgen
+följer referensobjektets aktuella färg och mönster. Widgetarna använder samma
+layout i notebook, HTML och PDF; text, ramar och mönster behålls som vektorer.
+
+För att prova utvecklingsgrenen efter att den pushats:
+
+```sh
+uv pip install --upgrade --reinstall-package an-calcs "an-calcs[notebook] @ git+https://github.com/Nordlofen/an-calcs.git@codex/referens"
+```
+
+Starta om notebookens kernel efter installation. Testa på en kopia av
+projektfilen. För att återgå till ordinarie paket används samma kommando med
+`@main`; använd då originalprojektet som sparades före testet.

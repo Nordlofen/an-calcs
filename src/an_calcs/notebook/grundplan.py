@@ -22,6 +22,9 @@ except ImportError as exc:
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
+from .grundplan_types import footing_type, infer_type, validate_model
+from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
+    validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
@@ -53,7 +56,7 @@ _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fiel
 _EXTRA_FIELDS = [
     {"name": "inaktiv", "type": "bool", "label": "Inaktiv", "unit": "", "default": False},
     {"name": "lasttyp", "type": "choice", "label": "Last anges som", "unit": "", "default": 0,
-     "options": [{"value": 1, "label": "Linjelast [kN/m]"}, {"value": 0, "label": "Total last [kN]"}]},
+     "options": [{"value": 1, "label": "Linjelast [kN/m]"}, {"value": 0, "label": "Punktlast [kN]"}]},
     {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
     {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
     {"name": "L_vagg_minst_1", "type": "bool", "label": "Minst 1 m", "unit": "", "default": True},
@@ -125,7 +128,7 @@ def _values(values, *, draft=False):
     if values["lang"] not in (0, 1):
         raise ValueError("Fundamenttyp måste vara 0 eller 1.")
     if values["lasttyp"] not in (0, 1):
-        raise ValueError("Lasttyp måste vara 0 (total last) eller 1 (linjelast).")
+        raise ValueError("Lasttyp måste vara 0 (punktlast) eller 1 (linjelast).")
     if values["lang"] == 1:
         values["lasttyp"] = 1
     if values["lang"] == 1 and not values["l_override"]:
@@ -491,6 +494,7 @@ class Grundplan(anywidget.AnyWidget):
         self._layout = copy.deepcopy(_LAYOUT_DEFAULTS)
         self._insulation_widget = copy.deepcopy(_INSULATION_WIDGET_DEFAULTS)
         self._comment_widget = copy.deepcopy(_COMMENT_WIDGET_DEFAULTS)
+        self._reference_widget = copy.deepcopy(DEFAULT_REFERENCE)
         self._text_objects = []
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
@@ -603,6 +607,8 @@ class Grundplan(anywidget.AnyWidget):
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
             "comment_widget": self.kommentarwidget,
+            "reference_widget": self.referens,
+            "reference_data": self.referensgrupper,
             "text_objects": self.textobjekt,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
@@ -669,7 +675,8 @@ class Grundplan(anywidget.AnyWidget):
         if values["lang"] == 1 and "l" not in (indata or {}):
             values["l"] = 1.0
         values = _updated_values(values, indata or {})
-        prefix = "VS" if values["lang"] == 1 else "PS"
+        validate_model(typ, values)
+        prefix = "VS" if typ == "vaggsula" else "PS"
         if littera is None:
             existing = {tag["label"] for tag in self._tags}
             n = 1
@@ -679,7 +686,7 @@ class Grundplan(anywidget.AnyWidget):
         tag = {
             "id": uuid.uuid4().hex,
             "label": _label(littera),
-            "x": x, "y": y, "page": page, "values": values,
+            "x": x, "y": y, "page": page, "values": values, "footing_type": typ,
             "status": "new", "summary": None, "error": "",
         }
         self._tags.append(tag)
@@ -699,9 +706,12 @@ class Grundplan(anywidget.AnyWidget):
             values = _updated_values(values, indata)
         ident = self.lagg_till(
             x, y, littera=littera,
-            typ="vaggsula" if source["values"]["lang"] == 1 else "pelarsula",
+            typ=footing_type(source),
             sida=source["page"] if sida is None else sida, indata=values,
         )
+        if source.get("footing_type_inferred"):
+            self._tag(ident)["footing_type_inferred"] = True
+            self._publish()
         if "imported_length" in source:
             self._tag(ident)["imported_length"] = source["imported_length"]
             self._publish()
@@ -817,6 +827,7 @@ class Grundplan(anywidget.AnyWidget):
         updated = copy.deepcopy(tag)
         if indata is not None:
             updated["values"] = _updated_values(tag["values"], indata)
+            validate_model(footing_type(tag), updated["values"])
         if littera is not None:
             updated["label"] = _label(littera)
             if updated["values"]["inaktiv"] and updated["label"] != tag["label"]:
@@ -921,6 +932,8 @@ class Grundplan(anywidget.AnyWidget):
         if types == {0} and "l_override" in indata:
             raise ValueError("Egen remslängd gäller endast väggsulor.")
         prepared = [_updated_values(tag["values"], indata) for tag in tags]
+        for tag, values in zip(tags, prepared):
+            validate_model(footing_type(tag), values)
         for tag, values in zip(tags, prepared):
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
@@ -1070,6 +1083,34 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     @property
+    def referens(self):
+        """Flyttbar Referens-widget för vidare dimensionering i Foundation."""
+        return copy.deepcopy(self._reference_widget)
+
+    @referens.setter
+    def referens(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Referens anges som en dict.")
+        self._reference_widget = validate_reference({**self._reference_widget, **changes})
+        self._publish()
+
+    @property
+    def referensgrupper(self):
+        return reference_groups(self._tags)
+
+    def bekrafta_sultyp(self, tagg, typ):
+        """Resolve ambiguous legacy origin without changing the bearing model."""
+        tag = self._tag(tagg)
+        if not tag.get("footing_type_inferred"):
+            raise ValueError("Sultypen är redan definierad när objektet skapades.")
+        if tag["values"]["inaktiv"]:
+            raise ValueError("Avmarkera Inaktiv för att bekräfta sultypen.")
+        validate_model(typ, tag["values"])
+        tag["footing_type"] = typ
+        tag.pop("footing_type_inferred", None)
+        self._publish()
+
+    @property
     def resultat(self):
         """Aktuella details per tagg-id, användbara i an_print.CalcBlock."""
         return copy.deepcopy(self._details)
@@ -1165,7 +1206,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 19,
+            "version": 20,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1177,6 +1218,7 @@ class Grundplan(anywidget.AnyWidget):
             "layout": self.visningsstorlekar,
             "insulation_widget": self.isoleringswidget,
             "comment_widget": self.kommentarwidget,
+            "reference_widget": self.referens,
             "text_objects": self.textobjekt,
             "drawing": {
                 "name": self._filename,
@@ -1185,9 +1227,10 @@ class Grundplan(anywidget.AnyWidget):
             },
             "tags": [
                 {**{key: copy.deepcopy(tag[key]) for key in
-                    ("id", "label", "x", "y", "page", "values")},
+                    ("id", "label", "x", "y", "page", "values", "footing_type")},
                  **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
                  **({"leader": copy.deepcopy(tag["leader"])} if "leader" in tag else {}),
+                 **({"footing_type_inferred": True} if tag.get("footing_type_inferred") else {}),
                  "calculated": tag["status"] == "calculated"}
                 for tag in self._tags
             ],
@@ -1238,7 +1281,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ImportError("PDF-export kräver reportlab och pypdf. Uppdatera an-calcs[notebook].") from exc
         return render_pdf(self._source, self.taggar, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
-                          insulation_widget=self._insulation_widget, comment_widget=self._comment_widget,
+                          insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
                           text_objects=self._text_objects)
 
     def exportera_pdf(self, fil):
@@ -1276,7 +1319,9 @@ class Grundplan(anywidget.AnyWidget):
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
                       "insulation_widget": self.isoleringswidget,
-                      "comment_widget": self.kommentarwidget, "text_objects": self.textobjekt},
+                      "comment_widget": self.kommentarwidget,
+                      "reference_widget": self.referens, "reference_data": self.referensgrupper,
+                      "text_objects": self.textobjekt},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1324,8 +1369,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 20):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–19.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 21):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–20.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1340,6 +1385,7 @@ class Grundplan(anywidget.AnyWidget):
         layout = _layout(document.get("layout", {}))
         insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
         comment_widget = _comment_widget(document.get("comment_widget", {}))
+        reference_widget = validate_reference(document.get("reference_widget", {}))
         text_objects = validate_text_objects(document.get("text_objects", []))
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
@@ -1376,6 +1422,19 @@ class Grundplan(anywidget.AnyWidget):
                 "values": _values(saved_values, draft=True),
                 "status": "stale", "summary": None, "error": "",
             }
+            if "footing_type" in saved:
+                typ = saved["footing_type"]
+                inferred = saved.get("footing_type_inferred", False)
+                if type(inferred) is not bool:
+                    raise ValueError("Ogiltig markering för härledd sultyp.")
+            elif document["version"] < 20:
+                typ, inferred = infer_type({**saved, "values": tag["values"]})
+            else:
+                raise ValueError("Projektet saknar objektets sultyp.")
+            validate_model(typ, tag["values"])
+            tag["footing_type"] = typ
+            if inferred:
+                tag["footing_type_inferred"] = True
             if "leader" in saved:
                 tag["leader"] = validate_leader(saved["leader"])
             if "imported_length" in saved:
@@ -1403,6 +1462,7 @@ class Grundplan(anywidget.AnyWidget):
         self._layout = layout
         self._insulation_widget = insulation_widget
         self._comment_widget = comment_widget
+        self._reference_widget = reference_widget
         self._text_objects = text_objects
         self._tags = valid_tags
         self._load_import = None
@@ -1471,6 +1531,10 @@ class Grundplan(anywidget.AnyWidget):
                 self.isoleringswidget = content["settings"]
             elif action == "comment_widget":
                 self.kommentarwidget = content["settings"]
+            elif action == "reference_widget":
+                self.referens = content["settings"]
+            elif action == "footing_type":
+                self.bekrafta_sultyp(content["id"], content["kind"])
             elif action == "text_add":
                 kind = content["kind"]
                 if kind not in ("heading", "date"):
@@ -1491,6 +1555,9 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "comment_placement":
                 self._view_page(content["page"])
                 self.kommentarwidget = content["position"]
+            elif action == "reference_placement":
+                self._view_page(content["page"])
+                self.referens = content["position"]
             elif action == "colour_placement":
                 self._view_page(content["page"])
                 self.farggruppering = {"legend": content["position"]}

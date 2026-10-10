@@ -260,8 +260,10 @@ class TestGrundplan(unittest.TestCase):
             self.assertEqual(self.plan._tag(pad)["values"]["l"], 3)
             self.assertEqual((self.plan.taggar, self.plan.resultat), original)
 
-    def test_default_by_depends_on_actual_type_including_indata_lang(self):
-        wall = self.add(typ="pelarsula", indata={"lang": 1})
+    def test_default_by_depends_on_model_and_physical_pad_cannot_use_wall_model(self):
+        with self.assertRaisesRegex(ValueError, "bara väljas"):
+            self.add(typ="pelarsula", indata={"lang": 1})
+        wall = self.add(typ="vaggsula", indata={"lang": 1})
         pad = self.add(indata={"lang": 0})
         self.assertEqual(self.plan._tag(wall)["values"]["l"], 1)
         self.assertEqual(self.plan._tag(pad)["values"]["l"],
@@ -377,7 +379,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 19)
+        self.assertEqual(loaded._document()["version"], 20)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())

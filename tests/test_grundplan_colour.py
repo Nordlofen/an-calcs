@@ -468,7 +468,7 @@ class TestGrundplanColour(unittest.TestCase):
         self.plan.farggruppering = {"colors": {key: "#0000ff"}}
         content = self.plan._pdf_bytes()
         text = PdfReader(io.BytesIO(content)).pages[0].extract_text()
-        for expected in ("Färggruppering", "Vertikallast V", "Totala laster [kN]", "100 ≤ V < 200"):
+        for expected in ("Färggruppering", "Vertikallast V", "Punktlaster [kN]", "100 ≤ V < 200"):
             self.assertIn(expected, text)
         with pdfium.PdfDocument(content) as pdf:
             image = pdf[0].render(scale=96 / 72).to_pil().convert("RGB")
@@ -506,6 +506,10 @@ class TestGrundplanColour(unittest.TestCase):
         cases += [validate_settings({"categories": list(selected), "phase": phase})
                   for count in range(1, 6) for selected in combinations(("t", "b", "l", "V", "isolering"), count)
                   for phase in ("brott", "bruk", "EQU")]
+        cases += [validate_settings({"categories": ["sultyp", *selected], "phase": phase})
+                  for selected in ([], ["t"], ["t", "b"], ["V"], ["t", "b", "l", "V", "isolering"])
+                  for phase in ("brott", "bruk", "EQU")]
+        self.plan.lagg_till(.4, .4, typ="pelarsula", indata={"t": .25, "b": .6, "F_vy": 100.5})
         cases += [remember_styles(self.plan.taggar[::-1], settings) for settings in cases[:15]]
         # Old intervals and group deletions can leave sparse historic indices.
         for settings in cases[:15]:

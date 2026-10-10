@@ -6,6 +6,7 @@ import math
 import re
 from bisect import bisect_right
 from .grundplan_loads import line_loads
+from .grundplan_types import CATEGORIES as FOOTING_CATEGORIES, footing_category
 
 
 # ColorBrewer Set3 (12 classes), kept at its original strength in every view.
@@ -16,7 +17,7 @@ DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categ
                     "show_legend": True, "include_only_h": False,
                     "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "colors": {}, "styles": {}, "legend": {"x": .65, "y": .08, "size": 300}}
-CATEGORIES = {"t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
+CATEGORIES = {"sultyp": "Sultyp", "t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
 INSULATION_GROUPS = [
@@ -57,7 +58,7 @@ def validate_settings(settings):
         result["secondary"] = result["categories"][1] if len(categories) > 1 else None
     bounds = result["bounds"]
     if not isinstance(bounds, dict) or set(bounds) != {"pad", "wall"}:
-        raise ValueError("Ange separata intervallgränser för pelarsulor och väggsulor.")
+        raise ValueError("Ange separata intervallgränser för punktlaster och linjelaster.")
     for values in bounds.values():
         if (not isinstance(values, list) or not 1 <= len(values) <= 20
                 or not all(_finite(value) for value in values)
@@ -198,7 +199,10 @@ def group_data(tags, settings):
         groups.append(group)
         return group
     by_key = {}
-    if category == "isolering":
+    if category == "sultyp":
+        for kind, label in FOOTING_CATEGORIES.items():
+            by_key[kind] = make("sultyp:" + kind, label=label, kind="footing_type", unit="", category=kind)
+    elif category == "isolering":
         for suffix, label in INSULATION_GROUPS:
             # Keep the original 1/0 keys for saved insulated/no-contribution colours.
             by_key[suffix] = make("isolering:" + suffix, label=label, kind="insulation", unit="")
@@ -222,6 +226,11 @@ def group_data(tags, settings):
     special = {}
     for tag in tags:
         values = tag["values"]
+        if category == "sultyp":
+            group = by_key[footing_category(tag)]
+            group["count"] += 1
+            assignments[tag["id"]] = group
+            continue
         if category == "isolering":
             insulated = not values.get("endast_h_stabilitet") and values.get("isolering") is True
             direction = ("x" if values.get("glid_x") else "") + ("y" if values.get("glid_y") else "")

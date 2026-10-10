@@ -42,9 +42,10 @@ def _page_geometry(page):
 
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, text_objects=None):
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None):
     """Merge the shared HTML/CSS vector overlay onto the original drawing."""
     from .grundplan_pdf_browser import render_overlay
+    from .grundplan_reference import group_data as reference_groups
 
     if not source:
         raise ValueError("Öppna en ritning först.")
@@ -82,7 +83,8 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         preview_size, transform = preview.size, Transformation()
     if (tags or settings["enabled"] or colour_grouping and colour_grouping["enabled"]
             or insulation_widget and insulation_widget["enabled"]
-            or comment_widget and comment_widget["enabled"] or text_objects):
+            or comment_widget and comment_widget["enabled"]
+            or reference_widget and reference_widget["enabled"] or text_objects):
         # Hidden blank preview supplies dimensions only. The original page is
         # retained below the transparent overlay, including vector drawings.
         background = {"page": page_number, "width": preview_size[0], "height": preview_size[1],
@@ -94,7 +96,8 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                                         "load_resultants": load_resultants(tag["values"])} for tag in tags],
                               "sliding": settings, "sliding_result": project_results(tags, settings),
                               "colour_grouping": colour_grouping, "insulation_widget": insulation_widget,
-                              "comment_widget": comment_widget, "text_objects": text_objects or []}}
+                              "comment_widget": comment_widget, "reference_widget": reference_widget,
+                              "reference_data": reference_groups(tags), "text_objects": text_objects or []}}
         overlay = PdfReader(io.BytesIO(render_overlay(snapshot))).pages[0]
         sx, sy = width / float(overlay.mediabox.width), height / float(overlay.mediabox.height)
         a, b, c, d, e, f = transform.ctm
