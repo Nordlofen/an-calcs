@@ -4369,6 +4369,32 @@ test('Sultyp grouping separates physical wall, wall with pad model and physical 
   assert.equal(groups.filter(g => g.pattern === 'bands').length, 1);
 });
 
+for (const readOnly of [false, true]) test(`Length colour captions apply only to pad calculation models (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  ui.tag.footing_type = 'vaggsula'; Object.assign(ui.tag.values, {lang: 1, t: .25, b: 1.4, l: 1});
+  ui.data.state.tags.push(
+    {...structuredClone(ui.tag), id: 'wall2', values: {...ui.tag.values, l: 2}},
+    {...structuredClone(ui.tag), id: 'modeled', values: {...ui.tag.values, lang: 0, l: 1.3}},
+    {...structuredClone(ui.tag), id: 'pad', footing_type: 'pelarsula', values: {...ui.tag.values, lang: 0, l: 1.6}});
+  const before = structuredClone(ui.data.state.tags);
+  for (const categories of [['sultyp', 't', 'b', 'l'], ['sultyp', 't', 'b', 'l', 'V']]) {
+    colourFixture(ui, {categories, edit_type: 'wall'}); ui.changed();
+    const rows = ui.elements().filter(e => e.className === 'gp-colour-legend-row');
+    assert.equal(rows.length, 3);
+    assert.doesNotMatch(elementText(rows[0]), /by/);
+    assert.match(elementText(rows[1]), /by 1,3 m/);
+    assert.match(elementText(rows[2]), /by 1,6 m/);
+    if (!readOnly) {
+      const chips = ui.elements().filter(e => e.className === 'gp-colour-chip');
+      assert.doesNotMatch(elementText(chips[0]), /by/);
+    }
+  }
+  colourFixture(ui, {categories: ['l']}); ui.changed();
+  assert.equal(ui.elements().filter(e => e.className === 'gp-colour-legend-row').length, 2);
+  assert.equal(ui.marker().style['--gp-tag-bg'], '#ffffff');
+  assert.deepEqual(ui.data.state.tags, before);
+});
+
 test('Physical pad cannot choose a wall calculation model in the form or table', t => {
   const ui = setup(t); Object.assign(ui.tag, {footing_type: 'pelarsula'}); ui.tag.values.lang = 0; ui.changed();
   ui.marker().dispatch('click');

@@ -122,7 +122,7 @@ def _decorate(groups, settings):
     # Only occupied groups in the current view consume styles. Keep their plain
     # colours where possible, then fill all 12 plain slots before using patterns.
     saved = settings.get("styles", {}).get(style_scope(settings), {})
-    active = [group for group in groups if group["count"] and group["kind"] != "special"]
+    active = [group for group in groups if group["count"] and group["kind"] not in {"special", "omitted"}]
     mapping = {}
     start = 0
     while active:
@@ -141,7 +141,9 @@ def _decorate(groups, settings):
         active = [group for group in pending if group["key"] not in mapping]
         start = end
     for group in groups:
-        if group["kind"] == "special":
+        if group["kind"] == "omitted":
+            index, color = None, "#ffffff"
+        elif group["kind"] == "special":
             index = None
             color = settings["colors"].get(group["key"], "#d5dde1")
         else:
@@ -217,8 +219,11 @@ def group_data(tags, settings):
                 key = f"V:{phase}:{kind}:{number_key(low) if low is not None else '*'}:{number_key(high) if high is not None else '*'}"
                 by_key[kind, index] = make(key, kind=kind, low=low, high=high, unit="kN/m" if kind == "wall" else "kN")
     else:
+        if category == "l" and any(footing_category(tag) == "wall" for tag in tags):
+            by_key["omitted"] = make("l:wall", label="", kind="omitted", unit="")
         unique = sorted({tag["values"][category] for tag in tags
-                         if not tag["values"].get("endast_h_stabilitet") and _finite(tag["values"].get(category))})
+                         if not tag["values"].get("endast_h_stabilitet") and _finite(tag["values"].get(category))
+                         and (category != "l" or footing_category(tag) != "wall")})
         for value in unique:
             key = category + ":" + number_key(value)
             if key not in by_key:
@@ -235,6 +240,11 @@ def group_data(tags, settings):
             insulated = not values.get("endast_h_stabilitet") and values.get("isolering") is True
             direction = ("x" if values.get("glid_x") else "") + ("y" if values.get("glid_y") else "")
             group = by_key["1" if insulated else direction or "0"]
+            group["count"] += 1
+            assignments[tag["id"]] = group
+            continue
+        if category == "l" and footing_category(tag) == "wall":
+            group = by_key["omitted"]
             group["count"] += 1
             assignments[tag["id"]] = group
             continue

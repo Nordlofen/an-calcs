@@ -1213,8 +1213,13 @@ plan.farggruppering = {"enabled": True, "categories": ["sultyp", "t", "b", "V"]}
 ```
 
 Sultyp kombineras med övriga valbara färgparametrar. De tre kategorierna delar
-samma tolv ColorBrewer-färger innan mönster börjar användas. Referensbadgen
-följer referensobjektets aktuella färg och mönster. Widgetarna använder samma
+samma tolv ColorBrewer-färger innan mönster börjar användas.
+Vid valet **Längd bᵧ** används och redovisas måttet endast för pelarsulor och
+väggsulor med pelarsulemodell. Väggsulor grupperas efter övriga valda parametrar;
+om endast bᵧ är valt får de vit bakgrund och ingen rad i färglegenden.
+Beräkningsindata påverkas inte.
+
+Referensbadgen följer referensobjektets aktuella färg och mönster. Widgetarna använder samma
 layout i notebook, HTML och PDF; text, ramar och mönster behålls som vektorer.
 
 För att prova utvecklingsgrenen efter att den pushats:

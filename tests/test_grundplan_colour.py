@@ -162,10 +162,10 @@ class TestGrundplanColour(unittest.TestCase):
         pad = self.add(lang=0, b=1.8, l=2.1, t=.3)
         only_h = self.add(endast_h_stabilitet=True, b=1.8)
         missing = self.add(t=None)
-        for category, expected in (("t", (.25, .3)), ("b", (.6, 1.8)), ("l", (1., 2.1))):
+        for category, expected in (("t", (.25, .3)), ("b", (.6, 1.8)), ("l", (None, 2.1))):
             settings = validate_settings({"category": category})
             data = group_data(self.plan.taggar, settings)
-            self.assertEqual(tuple(data["assignments"][tag]["value"] for tag in (wall, pad)), expected)
+            self.assertEqual(tuple(data["assignments"][tag].get("value") for tag in (wall, pad)), expected)
             self.assertNotIn(only_h, data["assignments"])
             self.assertNotIn("na", [group["key"] for group in data["groups"]])
         data = group_data(self.plan.taggar, validate_settings({}))
@@ -365,6 +365,25 @@ class TestGrundplanColour(unittest.TestCase):
         for caption in ("Tjocklek t", "Bredd b", "t 0,3 m", "0,6 m", "0,8 m"):
             self.assertIn(caption, text)
         self.assertIn('"secondary": "b"', self.plan._html_bytes().decode())
+
+    def test_length_groups_only_distinguish_pad_calculation_models(self):
+        tags = [{"id": "wall1", "footing_type": "vaggsula", "values": {"lang": 1, "t": .25, "b": 1.4, "l": 1}},
+                {"id": "wall2", "footing_type": "vaggsula", "values": {"lang": 1, "t": .25, "b": 1.4, "l": 2}},
+                {"id": "modeled1", "footing_type": "vaggsula", "values": {"lang": 0, "t": .25, "b": 1.4, "l": 1.3}},
+                {"id": "modeled2", "footing_type": "vaggsula", "values": {"lang": 0, "t": .25, "b": 1.4, "l": 1.6}},
+                {"id": "pad", "footing_type": "pelarsula", "values": {"lang": 0, "t": .25, "b": 1.4, "l": 1.3}}]
+        before = copy.deepcopy(tags)
+        for categories in (["sultyp", "t", "b", "l"], ["t", "b", "l"], ["l"]):
+            data = group_data(tags, validate_settings({"categories": categories}))
+            assignments = data["assignments"]
+            self.assertEqual(assignments["wall1"]["key"], assignments["wall2"]["key"])
+            self.assertNotEqual(assignments["modeled1"]["key"], assignments["modeled2"]["key"])
+            self.assertEqual(assignments["wall1"]["count"], 2)
+            if categories == ["l"]:
+                self.assertEqual(assignments["wall1"]["background"], "#ffffff")
+                self.assertIsNone(assignments["wall1"]["style_index"])
+                self.assertEqual(assignments["modeled1"]["style_index"], 0)
+        self.assertEqual(tags, before)
 
     def test_toggle_and_save_restore_preserve_settings_without_changing_engineering_results(self):
         self.add(b=.7)

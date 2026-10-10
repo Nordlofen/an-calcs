@@ -57,7 +57,7 @@ const colourStyleScope = settings => selectedColourCategories(settings).join("+"
   + (selectedColourCategories(settings).includes("V") ? ":" + settings.phase : "");
 function decorateColourGroups(groups, settings) {
   const saved = settings.styles?.[colourStyleScope(settings)] || {};
-  let active = groups.filter(group => group.count && group.kind !== "special");
+  let active = groups.filter(group => group.count && !["special", "omitted"].includes(group.kind));
   const mapping = {};
   let start = 0;
   while (active.length) {
@@ -77,7 +77,8 @@ function decorateColourGroups(groups, settings) {
   }
   for (const group of groups) {
     let index = null, color;
-    if (group.kind === "special") color = settings.colors[group.key] || "#d5dde1";
+    if (group.kind === "omitted") color = "#ffffff";
+    else if (group.kind === "special") color = settings.colors[group.key] || "#d5dde1";
     else {
       index = mapping[group.key] ?? null;
       color = settings.colors[group.key] || (index === null ? "#d5dde1" : colourPalette(index));
@@ -135,7 +136,10 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       }
     }
   } else {
-    const values = [...new Set(tags.filter(tag => !tag.values.endast_h_stabilitet && finite(tag.values[category]))
+    if (category === "l" && tags.some(tag => footingCategory(tag) === "wall"))
+      byKey.set("omitted", make("l:wall", {label: "", kind: "omitted", unit: ""}));
+    const values = [...new Set(tags.filter(tag => !tag.values.endast_h_stabilitet && finite(tag.values[category])
+      && (category !== "l" || footingCategory(tag) !== "wall"))
       .map(tag => tag.values[category]))].sort((a, b) => a - b);
     for (const value of values) {
       const key = category + ":" + colourNumberKey(value);
@@ -152,6 +156,10 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       const insulated = !values.endast_h_stabilitet && values.isolering === true;
       const direction = (values.glid_x ? "x" : "") + (values.glid_y ? "y" : "");
       const group = byKey.get(insulated ? "1" : direction || "0");
+      group.count++; assignments.set(tag.id, group); continue;
+    }
+    if (category === "l" && footingCategory(tag) === "wall") {
+      const group = byKey.get("omitted");
       group.count++; assignments.set(tag.id, group); continue;
     }
     const value = values[category === "V" ? {brott: "F_vy", bruk: "F_vy_bruk", EQU: "V_Ed_EQU"}[phase] : category];
@@ -2001,7 +2009,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   }
   function colourGroupCaption(group) {
-    if (group.kind === "combination") return group.parts.map((part, index) => colourPartCaption(group, index)).join(" · ");
+    if (group.kind === "omitted") return "";
+    if (group.kind === "combination") return group.parts.map((part, index) => colourPartCaption(group, index)).filter(Boolean).join(" · ");
     if (group.label) return group.label;
     if (group.kind === "geometry") return precise(group.value) + " m";
     return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
@@ -2009,6 +2018,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function colourPartCaption(group, index) {
     const part = group.parts[index], category = group.categories[index];
+    if (part.kind === "omitted") return "";
     const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || (category === "V" && part.kind === "special" ? "V " : "");
     return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
   }
@@ -2051,7 +2061,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       : categories[0] === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
-    for (const group of data.groups.filter(group => !hasV || (group.parts?.find(part => ["pad", "wall"].includes(part.kind))?.kind ?? group.kind) === kind || group.kind === "special" || group.parts?.some(part => part.kind === "special"))) {
+    for (const group of data.groups.filter(group => group.kind !== "omitted").filter(group => !hasV || (group.parts?.find(part => ["pad", "wall"].includes(part.kind))?.kind ?? group.kind) === kind || group.kind === "special" || group.parts?.some(part => part.kind === "special"))) {
       const row = node("label", "gp-colour-chip");
       const input = node("input"); input.type = "color"; input.value = group.color;
       input.setAttribute("aria-label", "Färg för " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : ""));
@@ -2068,7 +2078,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         : categories[0] === "isolering" ? "Isolering och glidmotstånd"
         : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : categories[0] === "sultyp" ? "" : " [m]")));
     let previousKind = null, previousFooting = null;
-    for (const group of data.groups.filter(group => group.count > 0)) {
+    for (const group of data.groups.filter(group => group.count > 0 && group.kind !== "omitted")) {
       const typePart = group.parts?.find(part => part.kind === "footing_type") || (group.kind === "footing_type" ? group : null);
       if (typePart && typePart.category !== previousFooting) {
         previousFooting = typePart.category;
@@ -2083,13 +2093,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
       paintGroupPattern(swatch, group, true);
       let caption = mathText("span", "", group.kind === "combination" && typePart
-        ? group.parts.flatMap((part, i) => group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).join(" · ")
+        ? group.parts.flatMap((part, i) => group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).filter(Boolean).join(" · ")
         : colourGroupCaption(group));
       if (group.kind === "combination" && hasV) {
         const index = group.categories.indexOf("V");
         caption = node("span", "gp-colour-legend-label"); row.dataset.multiline = "true";
         caption.append(mathText("span", "gp-colour-legend-details", group.parts.flatMap((part, i) =>
-          i === index || group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).join(" · ")),
+          i === index || group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).filter(Boolean).join(" · ")),
         mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
       }
       row.append(swatch, caption, node("span", "gp-colour-group-count", String(group.count)));
