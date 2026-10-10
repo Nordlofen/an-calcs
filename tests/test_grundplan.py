@@ -153,7 +153,7 @@ class TestGrundplan(unittest.TestCase):
         invalid = [None, "10", 0, -1, float("nan"), float("inf"), True]
         candidates = [{**valid, "length_m": length} for length in invalid]
         candidates += [[], {}, {**valid, "start": None}, {**valid, "end": valid["start"]},
-                       {**valid, "end": {"x": 1.1, "y": .2}},
+                       {**valid, "end": {"x": 12, "y": .2}},
                        {**valid, "end": {"x": False, "y": .2}},
                        {**valid, "end": {"x": .6, "y": float("nan")}}]
         for value in candidates:
@@ -379,7 +379,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 22)
+        self.assertEqual(loaded._document()["version"], 23)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
@@ -750,7 +750,8 @@ class TestGrundplan(unittest.TestCase):
         self.assertEqual((self.plan.taggar, self.plan.resultat, self.plan.glidning), (tags, results, gliding))
         self.assertIsNone(self.plan.kalibrering)
         self.assertEqual(self.plan.background["name"], replacement.name)
-        self.assertEqual((self.plan.background["width"], self.plan.background["height"]), (1200, 500))
+        self.assertEqual((self.plan.background["width"], self.plan.background["height"]), (800, 600))
+        self.assertEqual((self.plan.background["source_width"], self.plan.background["source_height"]), (1200, 500))
         self.assertEqual(self.plan._source, replacement.read_bytes())
         restored = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "updated.json"))
         self.addCleanup(restored.close)

@@ -24,6 +24,7 @@ from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
 from .grundplan_types import footing_type, infer_type, validate_model
 from .grundplan_placement import object_key, validate_objects
+from .grundplan_objects import drawing_layout, object_layout, scale_value, reorder
 from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds, valid_coordinate, placement_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
@@ -260,7 +261,7 @@ def _calibration(value, background):
         if not isinstance(point, dict):
             raise ValueError("Kalibreringen måste innehålla två punkter.")
         coords = {axis: _number(point.get(axis), "Kalibreringspunkt") for axis in ("x", "y")}
-        if any(not 0 <= coord <= 1 for coord in coords.values()):
+        if any(not valid_coordinate(coord, axis, COORDINATE_BOUNDS) for axis, coord in coords.items()):
             raise ValueError("Kalibreringspunkten ligger utanför ritningen.")
         points.append(coords)
     length = _number(value.get("length_m"), "Referensmått")
@@ -311,12 +312,14 @@ def _render_source(data, filename, page=1, *, fallback_page=False):
             img = Image.new("RGBA", rgba.size, "white")
             img.alpha_composite(rgba)
             img = img.convert("RGB")
+        width, height = img.width * .75, img.height * .75
         img.thumbnail((2800, 2800))
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     return {
         "url": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii"),
         "width": img.width,
+        "width_pt": width, "height_pt": height,
         "height": img.height,
         "name": Path(filename).name,
         "page": page,
@@ -501,6 +504,9 @@ class Grundplan(anywidget.AnyWidget):
         self._text_objects = []
         self._placement_locks = {}
         self._canvas_bounds = dict(DEFAULT_BOUNDS)
+        self._drawing_layout = drawing_layout({}, {})
+        self._drawing_preview = None
+        self._object_layout = {"scales": {}, "order": []}
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -596,6 +602,7 @@ class Grundplan(anywidget.AnyWidget):
         return choices
 
     def _publish(self):
+        self._object_layout = object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True)
         # Never accept client state as calculation evidence.
         if self._colour["enabled"]:
             self._colour = remember_styles(self._tags, self._colour)
@@ -617,6 +624,8 @@ class Grundplan(anywidget.AnyWidget):
             "text_objects": self.textobjekt,
             "placement_locks": self.placeringslas,
             "canvas_bounds": self.ritningsram,
+            "drawing_layout": self.ritningsunderlag,
+            "object_layout": self.objektlayout,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -626,6 +635,8 @@ class Grundplan(anywidget.AnyWidget):
         # Validate/render first; a failed replacement must leave the project intact.
         rendered = _render_source(data, filename, self._initial_page if page is None else page,
                                   fallback_page=page is None and bool(self.background))
+        previous_page = self.background.get("page")
+        layout = drawing_layout(self._drawing_layout if self.background else {}, rendered)
         placements = self._gliding["placements"].get(str(self.background.get("page")), {})
         self._gliding["placements"] = {str(rendered["page"]): placements} if placements else {}
         for tag in self._tags:
@@ -633,10 +644,14 @@ class Grundplan(anywidget.AnyWidget):
         self._placement_locks = {
             object_key(updated): updated for item in self._placement_locks.values()
             for updated in [{**item, "page": rendered["page"]} if item["type"] == "overlay" else item]}
+        self._drawing_preview = None
         self._source = bytes(data)
         self._filename = Path(filename).name
         self._calibration = None
-        self.background = rendered
+        self._drawing_layout = layout
+        self._object_layout = {"scales": {key.replace(f"overlay:{previous_page}:", f"overlay:{rendered['page']}:", 1): value for key, value in self._object_layout["scales"].items()},
+                               "order": [key.replace(f"overlay:{previous_page}:", f"overlay:{rendered['page']}:", 1) for key in self._object_layout["order"]]}
+        self.background = self._drawing_background(rendered, layout)
         self._initial_page = rendered["page"]
 
     def importera_ritning(self, fil, *, sida=None):
@@ -881,6 +896,63 @@ class Grundplan(anywidget.AnyWidget):
             tag.update(coords)
         self._publish()
 
+    @staticmethod
+    def _drawing_background(rendered, layout):
+        if not rendered:
+            return {}
+        return {**rendered, "source_width": rendered.get("source_width", rendered["width"]),
+                "source_height": rendered.get("source_height", rendered["height"]),
+                "width": layout["canvas_width"], "height": layout["canvas_height"]}
+
+    @property
+    def ritningsunderlag(self):
+        """Underlagets placering/skala i arbetsytans fasta koordinatsystem."""
+        return copy.deepcopy(self._drawing_layout)
+
+    @ritningsunderlag.setter
+    def ritningsunderlag(self, changes):
+        if not self.background:
+            raise ValueError("Öppna en ritning först.")
+        if not isinstance(changes, dict) or set(changes) - {"x", "y", "scale"}:
+            raise ValueError("Ange x, y och/eller scale för ritningsunderlaget.")
+        layout = drawing_layout({**self._drawing_layout, **changes}, self.background)
+        if layout["scale"] != self._drawing_layout["scale"]:
+            self._calibration = None
+        self._drawing_layout = layout
+        self._publish()
+
+    @property
+    def objektlayout(self):
+        return object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True)
+
+    def lagerordning(self, objekt, operation):
+        """Flytta markerade objekt ett steg eller längst fram/bak; RU ligger alltid under."""
+        objects = validate_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
+        layout = self.objektlayout
+        layout["order"] = reorder(layout["order"], [object_key(item) for item in objects], operation)
+        self._object_layout = layout
+        self._publish()
+
+    def transformera_objekt(self, objekt):
+        """Spara position och visuell skala atomärt, utan att ändra beräkningsindata."""
+        if not isinstance(objekt, list) or any(not isinstance(item, dict) or "scale" not in item for item in objekt):
+            raise ValueError("Ange objekt med x, y och scale.")
+        scales = [scale_value(item["scale"]) for item in objekt]
+        objects = validate_objects([{k: v for k, v in item.items() if k != "scale"} for item in objekt],
+                                   self._tags, self._text_objects, self.background.get("page"),
+                                   coordinates=True, coordinate_bounds=COORDINATE_BOUNDS)
+        for item in objects:
+            self._assert_placement_unlocked(item)
+            bounds = placement_bounds(self._canvas_bounds, self._placement_target(item))
+            if any(not valid_coordinate(item[axis], axis, bounds) for axis in ("x", "y")):
+                raise ValueError("Objektets position ska ligga inom ritningsytan.")
+        layout = self.objektlayout
+        for item, scale in zip(objects, scales):
+            self._placement_target(item, create=True).update({axis: item[axis] for axis in ("x", "y")})
+            layout["scales"][object_key(item)] = scale
+        self._object_layout = layout
+        self._publish()
+
     @property
     def ritningsram(self):
         """Synliga sidgränser, relativt originalritningen; negativa värden ger marginal."""
@@ -895,12 +967,12 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def placeringslas(self):
-        """Låsta etiketter/widgets; lås påverkar inte indata, storlek eller beräkningar."""
+        """Låsta etiketter/widgets; lås skyddar placering och storlek, inte indata."""
         return [copy.deepcopy(self._placement_locks[key]) for key in sorted(self._placement_locks)]
 
     def _assert_placement_unlocked(self, item):
         if object_key(item) in self._placement_locks:
-            raise ValueError("Placeringen är låst. Lås upp objektet före förflyttning.")
+            raise ValueError("Placeringen är låst. Lås upp objektet före förflyttning eller skalning.")
 
     def las_placering(self, objekt, *, last=True):
         """Lås eller lås upp markerade etiketter och widgets i en gemensam begäran."""
@@ -919,7 +991,7 @@ class Grundplan(anywidget.AnyWidget):
         for axis in ("x", "y"):
             if axis in changes and changes[axis] != before.get(axis) and not valid_coordinate(changes[axis], axis, placement_bounds(self._canvas_bounds, before)):
                 raise ValueError("Widgetens placering ska vara inom ritningsytan.")
-        if any(axis in changes and changes[axis] != before.get(axis) for axis in ("x", "y")):
+        if any(axis in changes and changes[axis] != before.get(axis) for axis in ("x", "y", "size", "width")):
             self._assert_placement_unlocked({"type": "overlay", "kind": kind,
                                             "page": self.background.get("page") if page is None else page})
 
@@ -1261,7 +1333,13 @@ class Grundplan(anywidget.AnyWidget):
 
     @etikettstorlek.setter
     def etikettstorlek(self, value):
-        self._label_size = _label_size(value)
+        value = _label_size(value)
+        layout = self.objektlayout
+        for key in self._placement_locks:
+            if key.startswith("tag:"):
+                layout["scales"][key] = scale_value(layout["scales"].get(key, 1) * self._label_size / value)
+        self._object_layout = layout
+        self._label_size = value
         self._publish()
 
     def _set_heading(self, title, subtitle):
@@ -1307,7 +1385,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 22,
+            "version": 23,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1323,6 +1401,8 @@ class Grundplan(anywidget.AnyWidget):
             "text_objects": self.textobjekt,
             "placement_locks": self.placeringslas,
             "canvas_bounds": self.ritningsram,
+            "drawing_layout": self.ritningsunderlag,
+            "object_layout": self.objektlayout,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -1385,7 +1465,8 @@ class Grundplan(anywidget.AnyWidget):
         return render_pdf(self._source, self.taggar, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
-                          text_objects=self._text_objects, canvas_bounds=self._canvas_bounds)
+                          text_objects=self._text_objects, canvas_bounds=self._canvas_bounds,
+                          drawing_layout=self._drawing_layout, object_layout=self._object_layout)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1414,7 +1495,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Öppna en ritning först.")
         from .grundplan_html import render_html
 
-        pages = [_render_source(self._source, self._filename, self.background["page"])]
+        pages = [self._drawing_background(_render_source(self._source, self._filename, self.background["page"]), self._drawing_layout)]
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
@@ -1425,7 +1506,7 @@ class Grundplan(anywidget.AnyWidget):
                       "comment_widget": self.kommentarwidget,
                       "reference_widget": self.referens, "reference_data": self.referensgrupper,
                       "text_objects": self.textobjekt, "placement_locks": self.placeringslas,
-                      "canvas_bounds": self.ritningsram},
+                      "canvas_bounds": self.ritningsram, "drawing_layout": self.ritningsunderlag, "object_layout": self.objektlayout},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1473,8 +1554,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 23):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–22.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 24):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–23.")
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
@@ -1484,6 +1565,8 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Sida måste vara ett positivt heltal.")
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
+        source_layout = drawing_layout(document.get("drawing_layout", {}) if document["version"] >= 23 else {}, rendered)
+        rendered = self._drawing_background(rendered, source_layout)
         calibration = _calibration(document.get("calibration"), rendered)
         colour = validate_colour(document.get("colour_grouping", {}), coordinate_bounds=COORDINATE_BOUNDS)
         table_view = _table_view(document.get("table_view", {}))
@@ -1556,13 +1639,17 @@ class Grundplan(anywidget.AnyWidget):
             valid_tags.append(tag)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
                                  drawing["page"], allow_empty=True)
+        objects_layout = object_layout(document.get("object_layout", {}) if document["version"] >= 23 else {}, valid_tags, text_objects, drawing["page"] if source else None)
         # Replace the current project only after the entire input is validated.
+        self._drawing_preview = None
         self._source = source
         self._filename = Path(drawing["name"]).name
         self._title = title
         self._subtitle = subtitle
         self._label_size = label_size
         self._canvas_bounds = canvas_bounds
+        self._drawing_layout = source_layout
+        self._object_layout = objects_layout
         self._calibration = calibration
         self._gliding = gliding
         self._colour = colour
@@ -1610,6 +1697,29 @@ class Grundplan(anywidget.AnyWidget):
                 self.flytta_flera(content["positions"])
             elif action == "move_objects":
                 self.flytta_objekt(content["objects"])
+            elif action == "transform_objects":
+                self.transformera_objekt(content["objects"])
+            elif action == "object_order":
+                self.lagerordning(content["objects"], content["operation"])
+            elif action == "drawing_layout":
+                self.ritningsunderlag = content["layout"]
+            elif action == "drawing_commit":
+                preview = self._drawing_preview
+                if content.get("token") is not None and (not preview or content["token"] != preview["token"]):
+                    raise ValueError("Ritningsunderlaget har ändrats. Öppna redigeringsläget igen.")
+                base = preview["layout"] if content.get("token") else self._drawing_layout
+                if not isinstance(content["layout"], dict) or set(content["layout"]) != {"x", "y", "scale"}:
+                    raise ValueError("Ange underlagets position och skala.")
+                layout = drawing_layout({**base, **content["layout"]}, preview["background"] if content.get("token") else self.background)
+                if content.get("token"):
+                    self._set_source(preview["source"], preview["name"], preview["page"])
+                elif layout["scale"] != self._drawing_layout["scale"]:
+                    self._calibration = None
+                self._drawing_layout = layout
+                self._publish()
+            elif action == "drawing_cancel":
+                if self._drawing_preview and self._drawing_preview["token"] == content.get("token"):
+                    self._drawing_preview = None
             elif action == "canvas_bounds":
                 self.ritningsram = content["bounds"]
             elif action == "placement_lock":
@@ -1686,9 +1796,19 @@ class Grundplan(anywidget.AnyWidget):
                 self.glidning = {"placements": placements}
             elif action == "drawing":
                 updated = bool(self._source)
-                self._set_source(bytes(buffers[0]), content["name"])
-                self._publish()
-                reply.update(updated=updated, page=self.background["page"])
+                if content.get("draft"):
+                    source = bytes(buffers[0])
+                    rendered = _render_source(source, content["name"], self._initial_page, fallback_page=bool(self.background))
+                    layout = drawing_layout(self._drawing_layout if self.background else {}, rendered)
+                    preview = {"token": uuid.uuid4().hex, "source": source, "name": content["name"],
+                               "page": rendered["page"], "layout": layout,
+                               "background": self._drawing_background(rendered, layout)}
+                    self._drawing_preview = preview
+                    reply["drawing_preview"] = {key: copy.deepcopy(preview[key]) for key in ("token", "background", "layout", "name")}
+                else:
+                    self._set_source(bytes(buffers[0]), content["name"])
+                    self._publish()
+                    reply.update(updated=updated, page=self.background["page"])
             elif action == "open":
                 self._load_document(bytes(buffers[0]))
             elif action == "save_choices":

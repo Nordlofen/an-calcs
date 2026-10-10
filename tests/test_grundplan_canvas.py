@@ -60,7 +60,7 @@ class TestCanvas(unittest.TestCase):
         self.plan.kommentarwidget = {'enabled': True}
         self.plan.uppdatera_text(text, text='Finns kvar')
         self.plan.uppdatera(self.ident, indata={'kommentar': 'Finns kvar'})
-        saved = self.plan._document(); self.assertEqual(saved['version'], 22)
+        saved = self.plan._document(); self.assertEqual(saved['version'], 23)
         self.plan._load_document(json.dumps(saved).encode()); self.assertEqual(self.plan._document(), saved)
         self.assertEqual(self.plan._tag(new)['x'], 1.1)
         self.plan.ritningsram = self.bounds
@@ -137,6 +137,38 @@ class TestCanvas(unittest.TestCase):
             self.assertEqual(bitmap.getextrema(), ((221, 221), (238, 238), (255, 255)),
                              'Restoring the frame must not fit hidden objects back onto the exported page')
         self.assertEqual(self.plan._document(), before)
+
+    def test_scaled_moved_rotated_and_replaced_vector_underlays_keep_fixed_canvas(self):
+        source = self.root / 'underlay.pdf'
+        canvas = Canvas(str(source), pagesize=(500, 700))
+        canvas.setFillColorRGB(0, 1, 0); canvas.rect(95, 195, 10, 10, fill=1, stroke=0)
+        canvas.showPage(); canvas.save()
+        for rotation, xy in ((0, (50, 450)), (90, (100, 50)), (180, (350, 100)), (270, (450, 350))):
+            with self.subTest(rotation=rotation):
+                writer = PdfWriter(); page = writer.add_page(PdfReader(source).pages[0])
+                page.cropbox = RectangleObject((50, 100, 450, 650)); page.rotate(rotation)
+                path = self.root / f'underlay-{rotation}.pdf'; writer.write(path)
+                plan = Grundplan(path); self.addCleanup(plan.close)
+                w, h = (400, 550) if rotation in (0, 180) else (550, 400)
+                plan.ritningsram = {'left': -.2, 'top': .1, 'right': 1.1, 'bottom': 1.2}
+                plan.ritningsunderlag = {'x': .1, 'y': .2, 'scale': .65}
+                def check(point):
+                    pdf = plan._pdf_bytes(); page = PdfReader(io.BytesIO(pdf)).pages[0]
+                    self.assertAlmostEqual(float(page.mediabox.width), w * 1.3)
+                    self.assertAlmostEqual(float(page.mediabox.height), h * 1.1)
+                    self.assertFalse(page.images, 'The transformed PDF drawing remains vector content')
+                    with pdfium.PdfDocument(pdf) as document:
+                        bitmap = document[0].render(scale=1).to_pil().convert('RGB')
+                        pixel = (round(point[0] * .65 + .3 * w), round(point[1] * .65 + .1 * h))
+                        self.assertEqual(bitmap.getpixel(pixel), (0, 255, 0))
+                        self.assertEqual(bitmap.getpixel((2, 2)), (255, 255, 255))
+                check(xy)
+                replacement = self.root / 'replacement.pdf'
+                canvas = Canvas(str(replacement), pagesize=(1000, 600))
+                canvas.setFillColorRGB(0, 1, 0); canvas.rect(95, 195, 10, 10, fill=1, stroke=0)
+                canvas.showPage(); canvas.save()
+                plan.importera_ritning(replacement)
+                check((100, 400))
 
     def test_group_movement_can_bring_hidden_margin_objects_back_towards_the_visible_frame(self):
         self.plan.ritningsram = self.bounds

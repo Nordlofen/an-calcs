@@ -222,7 +222,7 @@ const drawingDistance = (start, end, background) => Math.hypot(
 export function validateCalibration(value, background) {
   if (value == null) return null;
   if (!background?.url) throw new Error("Öppna en ritning före kalibrering.");
-  const validPoint = point => point && [point.x, point.y].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1);
+  const validPoint = point => point && [point.x, point.y].every(n => typeof n === "number" && Number.isFinite(n) && n >= -10 && n <= 11);
   if (!validPoint(value.start) || !validPoint(value.end) || typeof value.length_m !== "number"
     || !Number.isFinite(value.length_m) || value.length_m <= 0) throw new Error("Ange två punkter och ett positivt referensmått.");
   const distance = drawingDistance(value.start, value.end, background);
@@ -505,6 +505,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   let headingDraft = null;
   let cropDraft = null, canvasPending = null;
+  let drawingDraft = null, drawingPreview = null, drawingPending = false, objectsBusy = false;
+  const scaleDrafts = new Map();
   const canvasBounds = () => cropDraft || canvasPending || state().canvas_bounds || CANVAS_DEFAULTS;
   let leaderEdit = null, leaderNode = null, leaderPlacement = null;
   const leaderDrafts = new Map();
@@ -545,7 +547,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   const state = () => model.get("state") || { tags: [] };
   const loadImport = () => state().load_import;
-  const background = () => model.get("background") || {};
+  const background = () => drawingPreview?.background || model.get("background") || {};
+  const drawingLayout = () => drawingDraft || state().drawing_layout || {x: 0, y: 0, scale: 1};
   const current = () => state().tags.find((tag) => tag.id === active);
   const number = (value, digits = 2) => new Intl.NumberFormat("sv-SE", {
     maximumFractionDigits: digits,
@@ -628,7 +631,27 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const loadsInput = node("input");
   loadsInput.type = "file"; loadsInput.accept = ".json"; loadsInput.hidden = true;
   loadsInput.setAttribute("aria-label", "Lasteffektfil");
-  const loadDrawing = button("Importera/Uppdatera ritning", () => fileInput.click());
+  const loadDrawing = button("Redigera ritningsunderlag", beginDrawingEdit);
+  const drawingBar = node("section", "gp-drawing-bar"); drawingBar.hidden = true;
+  drawingBar.setAttribute("aria-label", "Redigera ritningsunderlag");
+  const drawingUpdate = button("Uppdatera ritningsunderlag", () => fileInput.click());
+  const drawingScaleLabel = node("label", "gp-drawing-scale", "Skala ");
+  const drawingScaleInput = node("input"); drawingScaleInput.type = "number";
+  drawingScaleInput.min = "10"; drawingScaleInput.max = "1000"; drawingScaleInput.step = "any";
+  drawingScaleInput.required = true;
+  drawingScaleInput.setAttribute("aria-label", "Ritningsunderlagets skala i procent");
+  drawingScaleInput.addEventListener("input", () => {
+    const scale = Number(drawingScaleInput.value) / 100;
+    const valid = drawingScaleInput.value !== "" && Number.isFinite(scale) && scale >= .1 && scale <= 10;
+    drawingScaleInput.setCustomValidity(valid ? "" : "Ange 10–1000 procent.");
+    if (drawingDraft && valid) {drawingDraft = {...drawingDraft, scale}; showCanvas();}
+    else drawingApply.disabled = true;
+  });
+  drawingScaleLabel.append(drawingScaleInput, node("span", "", "%"));
+  const drawingApply = button("Klar", () => finishDrawingEdit(true), "gp-primary");
+  const drawingCancel = button("Avbryt", () => finishDrawingEdit(false));
+  drawingBar.append(drawingUpdate, drawingScaleLabel, drawingApply, drawingCancel,
+    node("span", "gp-field-note", "Dra underlaget eller dess hörn. Skalning och uppdatering kräver ny måttkalibrering."));
   const loadProject = button("Öppna projekt", () => {
     if (!state().tags.length || window.confirm("Ersätt projektet? Spara först om du vill behålla dina ändringar.")) {
       projectInput.click();
@@ -894,7 +917,22 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const lockMany = button("Lås placering", () => setPlacementLock(true));
   const unlockMany = button("Lås upp", () => setPlacementLock(false));
   selectionBar.append(selectionCount);
-  if (!readOnly) selectionBar.append(editMany, lockMany, unlockMany);
+  const objectScaleLabel = node("label", "gp-object-scale", "Skala urval ");
+  const objectScaleInput = node("input"); objectScaleInput.type = "number";
+  objectScaleInput.value = "100"; objectScaleInput.min = "10"; objectScaleInput.max = "1000";
+  objectScaleInput.setAttribute("aria-label", "Skala markerade objekt i procent");
+  objectScaleInput.title = "Relativt urvalets nuvarande storlek. Låsta objekt behåller sin storlek och placering.";
+  const objectScaleApply = button("Skala", () => {
+    const factor = Number(objectScaleInput.value) / 100;
+    if (!Number.isFinite(factor) || factor < .1 || factor > 10) {showMessage("Ange 10–1000 procent.", true); return;}
+    const starts = selectedTransformStarts(), frame = objectSelectionFrame(starts);
+    if (!frame) return;
+    scaleObjects(starts, frame, factor); saveObjectTransforms(starts);
+  });
+  objectScaleLabel.append(objectScaleInput, node("span", "", "%"));
+  const orderButtons = [ ["Flytta fram", "forward"], ["Flytta bak", "backward"], ["Längst fram", "front"], ["Längst bak", "back"] ]
+    .map(([label, operation]) => button(label, () => changeOrder(operation)));
+  if (!readOnly) selectionBar.append(editMany, lockMany, unlockMany, objectScaleLabel, objectScaleApply, ...orderButtons);
   selectionBar.append(clearMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
@@ -973,7 +1011,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       cancelDrag(); closeDialog(); closeBulk(); setMode("pan");
       textAddBusy = true; showTextObjects();
       // Place each object in the visible part of the drawing, then let it be dragged.
-      const rect = picture.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
+      const rect = sheet.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
       const x = Math.max(canvasBounds().left, Math.min(canvasBounds().right - .05, (Math.max(bounds.left, rect.left + canvasBounds().left * rect.width) + 35 - rect.left) / rect.width));
       const y = Math.max(canvasBounds().top, Math.min(canvasBounds().bottom - .05, (Math.max(bounds.top, rect.top + canvasBounds().top * rect.height) + (kind === "heading" ? 35 : 85) - rect.top) / rect.height));
       // Copy the visible heading, including any typing awaiting a kernel reply.
@@ -1190,6 +1228,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
     cropFrame.append(handle);
   }
+  const drawingFrame = node("div", "gp-drawing-frame"); drawingFrame.hidden = true;
+  for (const corner of ["top-left", "top-right", "bottom-left", "bottom-right"]) {
+    const handle = button("", () => {}, "gp-drawing-handle gp-crop-" + corner);
+    handle.dataset.corner = corner;
+    handle.setAttribute("aria-label", "Skala ritningsunderlag från " + corner);
+    drawingFrame.append(handle);
+  }
+  const objectFrame = node("div", "gp-object-frame"); objectFrame.hidden = true;
+  const objectHandle = button("", () => {}, "gp-object-handle");
+  objectHandle.setAttribute("aria-label", "Skala markerade objekt"); objectFrame.append(objectHandle);
   const sheet = node("div", "gp-sheet");
   const picture = node("img", "gp-picture");
   picture.alt = "Grundläggningsritning";
@@ -1334,7 +1382,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend, referenceLegend);
   sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
   paper.append(sheet);
-  viewport.append(paper, selectionBox, measurementOverlay, cropFrame);
+  viewport.append(paper, selectionBox, measurementOverlay, cropFrame, drawingFrame, objectFrame);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
     node("p", "", "Öppna en PDF eller bild. Placera sedan en tagg vid varje sula du vill beräkna."),
@@ -1472,7 +1520,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     legend.append(item);
   }
   const help = node("p", "gp-help",
-    "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Shift + klick eller Shift + vänsterdrag markerar etiketter och widgets tillsammans. Dra en markerad etikett eller widgetrubrik för gemensam förflyttning. Lås placering skyddar urvalet; dragning på låsta objekt panorerar ritningen. Klicka på en etikett för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
+    "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Klick markerar ett objekt; Shift + klick eller Shift + vänsterdrag markerar flera etiketter och widgets. Dra en markerad etikett eller widgetrubrik för gemensam förflyttning. Urvalet kan skalas, låsas och flyttas fram eller bak. Lås placering skyddar position och storlek; dragning på låsta objekt panorerar utan att ändra markeringen. Klicka på en etikett för indata och Kopiera sula. Redigera ritningsunderlag används för att flytta, skala eller uppdatera underlaget.");
   const tableSection = node("section", "gp-table-section");
   const tableHeader = node("header", "gp-table-heading");
   const tableCount = node("span", "gp-table-count");
@@ -1606,7 +1654,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   workspace.append(heading, toolbar);
   if (!readOnly) workspace.append(colourControls);
-  workspace.append(measurementBar, cropBar);
+  workspace.append(measurementBar, cropBar, drawingBar);
   if (!readOnly) workspace.append(importBar);
   workspace.append(selectionBar);
   if (!readOnly) workspace.append(savePanel, projectFile, argumentsFallback);
@@ -1645,9 +1693,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     try {
       const buffer = await file.arrayBuffer();
       if (disposed) return;
-      command(action, { name: file.name }, [buffer], (reply) => {
+      command(action, { name: file.name, ...(action === "drawing" && drawingDraft ? {draft: true} : {}) }, [buffer], (reply) => {
         if (action === "drawing") {
           drawingBusy = false;
+          if (reply.ok && reply.drawing_preview && drawingDraft) {
+            drawingPreview = reply.drawing_preview;
+            drawingDraft = {...drawingPreview.layout, x: drawingDraft.x, y: drawingDraft.y, scale: drawingDraft.scale};
+            update(); showMessage(file.name + " förhandsvisas. Klar sparar; Avbryt behåller det tidigare underlaget.");
+            return;
+          }
           if (reply.ok) {
             measurePoints = []; measureCursor = null; calibrationDraft = null;
             if (measuring()) setMode(loadImport() && !loadImport().paused ? "import" : "pan");
@@ -1700,6 +1754,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           sketchStates.clear();
           areaPhases.clear();
           headingDraft = null; cropDraft = canvasPending = null;
+          drawingDraft = drawingPreview = null; scaleDrafts.clear();
           slidingDraft = null; overlaySelected = null; selectedOverlays.clear(); lockDrafts.clear();
           colourDraft = null; colourEditType = null; colourError.textContent = "";
           tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null; referenceWidgetDraft = null;
@@ -1724,6 +1779,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
     if (cropDraft) finishCrop(false);
+    if (drawingDraft) finishDrawingEdit(false);
     leaderPlacement = null; leaderEdit = leaderNode = null;
     viewport.classList.remove("gp-placing-leader");
     renderLeaders();
@@ -1753,9 +1809,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       : "Dra i ritningen för att panorera. Shift + vänsterdrag markerar för flerredigering. Välj Väggsula eller Pelarsula för att placera en ny sula.");
   }
   function measurementPoint(event) {
-    const rect = picture.getBoundingClientRect();
+    const rect = sheet.getBoundingClientRect();
     const point = {x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height};
-    const bounds = leaderPlacement || leaderEdit || drag?.leader ? canvasBounds() : CANVAS_DEFAULTS;
+    const bounds = canvasBounds();
     return Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= bounds.left && point.x <= bounds.right
       && point.y >= bounds.top && point.y <= bounds.bottom ? point : null;
   }
@@ -1771,7 +1827,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (mode === "calibrate" && measurePoints.length === 2) referenceInput.focus({preventScroll: true});
   }
   function showMeasurement() {
-    measureTool.disabled = !background().url || calibrationBusy || bulkBusy || importBusy || drawingBusy || deleteBusy;
+    measureTool.disabled = !background().url || !!drawingDraft || drawingPending || !!cropDraft || !!canvasPending || calibrationBusy || bulkBusy || importBusy || drawingBusy || deleteBusy;
     measureTool.classList.toggle("gp-selected", measuring());
     measureTool.setAttribute("aria-pressed", String(measuring()));
     root.classList.toggle("gp-measuring", measuring());
@@ -1785,7 +1841,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     measurementOutput.textContent = mode === "measure" && end && measurePoints[0] && calibration()
       ? new Intl.NumberFormat("sv-SE", {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(measuredDistance(measurePoints[0], end, background(), calibration())) + " m" : "";
     measurementHint.textContent = mode === "calibrate"
-      ? measurePoints.length === 2 ? "Ange det kända avståndet mellan punkterna." : "Kalibrering: klicka på " + (measurePoints.length ? "slutpunkten" : "startpunkten") + " för ett känt mått."
+      ? measurePoints.length === 2 ? "Ange det kända avståndet mellan punkterna." : "Kalibrering krävs: klicka på " + (measurePoints.length ? "slutpunkten" : "startpunkten") + " för ett känt mått."
       : measurePoints.length === 2 ? "Klicka för att börja en ny mätning."
         : "Mätning: klicka på " + (measurePoints.length ? "slutpunkten" : "startpunkten") + ".";
     if (measuring()) showMessage(measurementHint.textContent + " Dra för att panorera. Shift + scroll zoomar. Escape avslutar.");
@@ -1795,7 +1851,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     measurementOverlay.hidden = !measuring() || !measurePoints.length;
     measurementSvg.replaceChildren();
     if (measurementOverlay.hidden) return;
-    const viewRect = viewport.getBoundingClientRect(), rect = picture.getBoundingClientRect();
+    const viewRect = viewport.getBoundingClientRect(), rect = sheet.getBoundingClientRect();
     measurementSvg.setAttribute("viewBox", `0 0 ${viewRect.width} ${viewRect.height}`);
     const position = point => ({x: rect.left - viewRect.left + point.x * rect.width, y: rect.top - viewRect.top + point.y * rect.height});
     const start = position(measurePoints[0]), endPoint = measurePoints[1] || measureCursor;
@@ -1859,6 +1915,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     sizeInput.value = value;
     sizeText.textContent = value + "%";
     root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
+    for (const marker of markers.children) marker.style.setProperty("--gp-tag-scale", String(labelScale(marker.dataset.tagId, value) * zoom));
     refreshGroupPatterns();
     renderLeaders();
   }
@@ -1866,13 +1923,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function leaderBox(id) {
     const marker = [...markers.children].find(element => element.dataset.tagId === id);
     if (!marker) return null;
-    const image = picture.getBoundingClientRect(), box = marker.getBoundingClientRect();
+    const image = sheet.getBoundingClientRect(), box = marker.getBoundingClientRect();
     if (!image.width || !image.height) return null;
     return {x: (box.left - image.left) / image.width, y: (box.top - image.top) / image.height,
       width: box.width / image.width, height: box.height / image.height};
   }
   function saveLeader(id, value) {
-    if (readOnly || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
+    if (readOnly || placementLocked({type: "tag", id}) || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
     leaderDrafts.set(id, value); renderLeaders(); showLeaderChoice();
     command("leader", {id, leader: value}, [], reply => {
       if (leaderDrafts.get(id) === value) leaderDrafts.delete(id);
@@ -1899,7 +1956,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       : "Dra från etikettens ram till önskad pilspets för att rita banan. Ett klick på ritningen skapar en enkel spline. Escape avbryter.");
   }
   function beginLeaderEdit(id) {
-    if (readOnly || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
+    if (readOnly || placementLocked({type: "tag", id}) || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
     setMode("pan"); closeDialog(); closeBulk();
     leaderEdit = id; leaderNode = null; renderLeaders();
     viewport.focus({preventScroll: true});
@@ -1924,12 +1981,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const bg = background(); if (!bg.width || !bg.height) return;
     const painted = new Set();
     for (const svg of [leaderSvg, leaderHandles]) svg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
-    const size = (sizeDraft ?? state().label_size ?? 100) / 100;
     const pixel = point => ({x: point.x * bg.width, y: point.y * bg.height});
     for (const tag of state().tags.filter(tag => tag.page === bg.page)) {
       const value = leaderFor(tag), box = leaderBox(tag.id);
       if (!value?.enabled || !box) continue;
       painted.add(tag.id);
+      const size = labelScale(tag.id);
       let elements = leaderElements.get(tag.id);
       if (!elements) {
         const group = svgNode("g", {}), clipId = "gp-leader-tip-" + view + "-" + ++leaderClipSequence,
@@ -1950,8 +2007,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           });
           group.append(hit);
         }
-        elements = {group, path, arrow, hit, clearance}; leaderElements.set(tag.id, elements); leaderSvg.append(group);
+        const layer = svgNode("svg", {class: "gp-object-leader", viewBox: `0 0 ${bg.width} ${bg.height}`});
+        layer.append(group); sheet.append(layer);
+        elements = {layer, group, path, arrow, hit, clearance}; leaderElements.set(tag.id, elements);
       }
+      elements.layer.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
+      elements.layer.style.zIndex = String(objectZ({type: "tag", id: tag.id}));
       const vertices = leaderVertices(value, leaderEndpoint(value.attachment, box));
       const {anchor, direction, clip, curves} = leaderTip(vertices, bg.width, bg.height, size);
       let d = `M ${anchor.x} ${anchor.y}`;
@@ -1966,8 +2027,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       elements.arrow.setAttribute("d", `M ${left.x} ${left.y} L ${anchor.x} ${anchor.y} L ${right.x} ${right.y}`);
       elements.arrow.setAttribute("stroke-width", size);
       const inactive = drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv;
-      if (elements.hit) elements.hit.style.display = inactive ? "none" : "";
-      if (readOnly || inactive) continue;
+      if (elements.hit) elements.hit.style.display = inactive || placementLocked({type: "tag", id: tag.id}) ? "none" : "";
+      if (readOnly || inactive || placementLocked({type: "tag", id: tag.id})) continue;
       elements.hit.setAttribute("d", d);
       elements.hit.setAttribute("stroke-width", Math.max(10 / zoom, size));
       elements.hit.setAttribute("aria-label", "Redigera hänvisningslinje för " + tag.label);
@@ -1996,7 +2057,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       vertices.forEach((vertex, index) => handle(vertex, index, "node"));
     }
     for (const [id, elements] of leaderElements) if (!painted.has(id)) {
-      elements.group.remove(); leaderElements.delete(id);
+      elements.layer.remove(); leaderElements.delete(id);
     }
     if (leaderPlacement && !readOnly) {
       const box = leaderBox(leaderPlacement.id);
@@ -2009,7 +2070,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (leaderPlacement.stroke?.length) {
           const d = leaderPlacement.stroke.map((p, i) => {const q = pixel(p); return `${i ? "L" : "M"} ${q.x} ${q.y}`;}).join(" ");
           leaderHandles.append(svgNode("path", {class: "gp-leader-preview", d, fill: "none", stroke: "#14695e",
-            "stroke-width": size, "stroke-linecap": "round", "stroke-linejoin": "round"}));
+            "stroke-width": labelScale(leaderPlacement.id), "stroke-linecap": "round", "stroke-linejoin": "round"}));
         }
       }
     }
@@ -2282,7 +2343,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function bindOverlayKeys(element, kind, resize) {
     element.addEventListener("keydown", event => {
-      if (readOnly) return;
+      if (readOnly || placementLocked(overlayObject(kind))) return;
       const p = {...overlayPosition(kind)}, step = event.shiftKey ? 20 : 5;
       if (resize && ["+", "=", "-"].includes(event.key)) {
         p.size = overlaySize(kind, p.size + (event.key === "-" ? -step : step));
@@ -2304,7 +2365,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       [commentHeader, "comments", false], [commentResize, "comments", true],
       [referenceHeader, "reference", false], [referenceResize, "reference", true]]) bindOverlayKeys(element, kind, resize);
   function showTextObjects() {
-    for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || importBusy || deleteBusy;
+    for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || !!drawingDraft || drawingPending || importBusy || deleteBusy;
     const objects = state().text_objects || [];
     for (const [id, entry] of textElements) if (!objects.some(item => item.id === id)) {
       entry.element.remove(); textElements.delete(id); textDrafts.delete(id);
@@ -2388,33 +2449,36 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const p = overlayPosition(kind);
       element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend
         : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : kind === "reference" ? !referenceWidget().enabled : !sliding().enabled) || !background().url;
+      element.style.zIndex = String(objectZ(overlayObject(kind)) + 1);
+      const visualScale = objectScale(overlayObject(kind));
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && (selectedOverlays.has(kind) || overlaySelected === kind));
       element.classList.toggle("gp-placement-locked", !readOnly && placementLocked(overlayObject(kind)));
       if (kind === "symbol") {
-        element.style.width = element.style.height = p.size * zoom + "px";
-        axesResize.hidden = readOnly || overlaySelected !== "symbol";
+        element.style.width = element.style.height = p.size * zoom * visualScale + "px";
+        axesResize.hidden = readOnly || placementLocked(overlayObject(kind)) || overlaySelected !== "symbol";
       } else {
-        const scale = zoom * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
+        const scale = zoom * visualScale * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
         const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : kind === "reference" ? referenceResize : legendResize;
-        resize.hidden = readOnly || overlaySelected !== kind;
+        resize.hidden = readOnly || placementLocked(overlayObject(kind)) || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";
       }
     }
     for (const [id, entry] of textElements) {
       const kind = "text:" + id, p = overlayPosition(kind), selected = !readOnly && overlaySelected === kind;
-      const scale = zoom * p.size / 20;
+      const scale = zoom * p.size / 20 * objectScale(overlayObject(kind));
       entry.element.hidden = !background().url;
       entry.element.style.left = p.x * 100 + "%"; entry.element.style.top = p.y * 100 + "%";
+      entry.element.style.zIndex = String(objectZ(overlayObject(kind)) + 1);
       entry.element.style.transform = "scale(" + scale + ")";
       entry.element.classList.toggle("gp-overlay-selected", !readOnly && (selectedOverlays.has(kind) || overlaySelected === kind));
       entry.element.classList.toggle("gp-placement-locked", !readOnly && placementLocked(overlayObject(kind)));
       if (!selected) entry.editing = false;
       entry.text.hidden = entry.editing;
-      entry.resize.hidden = !selected || entry.editing;
+      entry.resize.hidden = !selected || entry.editing || placementLocked(overlayObject(kind));
       entry.resize.style.transform = "scale(" + 1 / scale + ")";
       if (!readOnly) {
         for (const field of [entry.editor, entry.subtitleEditor].filter(Boolean)) {
@@ -2429,6 +2493,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         entry.tools.style.top = -29 / scale + "px";
       }
     }
+    showObjectFrame();
   }
   function showSliding() {
     const settings = sliding();
@@ -2506,11 +2571,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     sheet.style.left = -bounds.left * w + "px";
     sheet.style.top = -bounds.top * h + "px";
+    const ru = drawingLayout();
+    picture.style.position = "absolute"; picture.style.zIndex = "0";
+    picture.style.left = (ru.x || 0) * w + "px"; picture.style.top = (ru.y || 0) * h + "px";
+    picture.style.width = (bg.source_width || bg.width || 0) * (ru.scale || 1) * zoom + "px";
+    picture.style.height = (bg.source_height || bg.height || 0) * (ru.scale || 1) * zoom + "px";
+    drawingFrame.hidden = drawingBar.hidden = !drawingDraft;
+    root.classList.toggle("gp-editing-drawing", !!drawingDraft);
+    if (drawingDraft) {
+      drawingFrame.style.left = panX + (ru.x || 0) * w + "px";
+      drawingFrame.style.top = panY + (ru.y || 0) * h + "px";
+      drawingFrame.style.width = picture.style.width; drawingFrame.style.height = picture.style.height;
+      drawingScaleInput.value = String(Math.round(ru.scale * 10000) / 100);
+    }
+    drawingApply.disabled = drawingBusy || drawingPending || !bg.url || !drawingScaleInput.validity.valid; drawingCancel.disabled = drawingBusy || drawingPending;
+    drawingUpdate.disabled = drawingBusy || drawingPending;
     paper.hidden = !bg.url;
     root.classList.toggle("gp-cropping", !!cropDraft);
     cropBar.hidden = cropFrame.hidden = !cropDraft;
-    cropTool.disabled = readOnly || !bg.url || !!cropDraft || !!canvasPending || drawingBusy || importBusy || bulkBusy || calibrationBusy;
-    measureTool.disabled = !!cropDraft || !!canvasPending;
+    cropTool.disabled = readOnly || !!drawingDraft || drawingPending || !bg.url || !!cropDraft || !!canvasPending || drawingBusy || importBusy || bulkBusy || calibrationBusy;
+    measureTool.disabled = !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
     if (cropDraft) cropSize.textContent = "Bredd " + number((bounds.right - bounds.left) * 100, 1) + " % · Höjd " + number((bounds.bottom - bounds.top) * 100, 1) + " %";
   }
   function adjustCrop(edge, before, dx, dy) {
@@ -2541,6 +2621,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showCanvas();
     renderMeasurement();
     renderLeaders();
+    showObjectFrame();
   }
   function fit() {
     const bg = background();
@@ -2572,13 +2653,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (bulkBusy || deleteBusy) return;
     closeBulk();
     leaderEdit = leaderNode = null;
-    if (!readOnly) { selected.clear(); selectedOverlays.clear(); overlaySelected = null;
+    if (!readOnly) { selected.clear(); selected.add(tag.id); selectedOverlays.clear(); overlaySelected = null;
       tableAnchor = null; bulkSignature = ""; renderSlidingGeometry(); showSelection(); }
     active = tag.id;
     formId = null;
     update();
     const rect = board.getBoundingClientRect();
-    const imageRect = picture.getBoundingClientRect();
+    const imageRect = sheet.getBoundingClientRect();
     const left = imageRect.left - rect.left + tag.x * imageRect.width + 25;
     const top = imageRect.top - rect.top + tag.y * imageRect.height - 20;
     placeDialog(left, top);
@@ -2610,7 +2691,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       dot.setAttribute("fill", "currentColor"); icon.append(dot);
     }
     bubble.append(icon);
-    bubble.addEventListener("click", event => {event.stopPropagation(); openComment(tag);});
+    bubble.addEventListener("click", event => {event.stopPropagation(); if (!event.detail || pickedTarget(event).closest(".gp-tag-comment") === bubble) openComment(tag);});
     bubble.addEventListener("keydown", event => {
       event.stopPropagation();
       if (["Enter", " "].includes(event.key)) {event.preventDefault(); openComment(tag);}
@@ -2701,6 +2782,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         }
       }, "gp-tag gp-tag-" + color);
       marker.dataset.tagId = tag.id;
+      const object = {type: "tag", id: tag.id};
+      marker.style.zIndex = String(objectZ(object) + 1);
+      marker.style.setProperty("--gp-tag-scale", String(labelScale(tag.id) * zoom));
       const group = grouped?.get(tag.id);
       if (group) {
         marker.style.setProperty("--gp-tag-bg", group.background);
@@ -3209,6 +3293,141 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
     ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   const loadTypeFields = new Set(["L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+  function beginDrawingEdit() {
+    if (readOnly || drawingBusy || drawingPending || importBusy || bulkBusy || calibrationBusy) return;
+    cancelDrag(); setMode("pan"); closeDialog(); closeBulk();
+    selected.clear(); selectedOverlays.clear(); overlaySelected = null;
+    drawingDraft = {...(state().drawing_layout || {x: 0, y: 0, scale: 1})};
+    drawingScaleInput.setCustomValidity("");
+    drawingPreview = null; update();
+    showMessage("Redigera ritningsunderlag: dra för att flytta, använd hörnen eller Skala. Klar sparar; Avbryt återställer.");
+  }
+  function finishDrawingEdit(apply) {
+    if (!drawingDraft || drawingBusy || drawingPending) return;
+    if (apply && !drawingScaleInput.reportValidity()) return;
+    cancelDrag();
+    const layout = {x: drawingDraft.x, y: drawingDraft.y, scale: drawingDraft.scale}, preview = drawingPreview;
+    if (apply && !background().url) return;
+    if (!apply) {
+      if (preview) command("drawing_cancel", {token: preview.token});
+      drawingDraft = drawingPreview = null; update(); fit();
+      showMessage("Redigeringen avbröts. Underlag och måttkalibrering behålls."); return;
+    }
+    const recalibrate = !!preview || layout.scale !== (state().drawing_layout?.scale ?? 1);
+    drawingPending = true; update();
+    command("drawing_commit", {layout, ...(preview ? {token: preview.token} : {})}, [], reply => {
+      drawingPending = false;
+      if (reply.ok) {
+        drawingDraft = drawingPreview = null;
+        if (recalibrate) {measurePoints = []; measureCursor = null; calibrationDraft = null;}
+        update();
+        showMessage(recalibrate ? "Ritningsunderlaget sparat. Ny måttkalibrering krävs." : "Ritningsunderlagets placering sparad. Måttkalibreringen behålls.");
+      } else {update(); showMessage(reply.error, true);}
+    });
+  }
+  function objectScale(object) {return scaleDrafts.get(placementKey(object)) ?? state().object_layout?.scales?.[placementKey(object)] ?? 1;}
+  function labelScale(id, value = sizeDraft ?? state().label_size ?? 100) {
+    const object = {type: "tag", id};
+    return (placementLocked(object) ? state().label_size ?? 100 : value) / 100 * objectScale(object);
+  }
+  function allObjectKeys() {
+    return [...state().tags.filter(t => t.page === background().page).map(t => "tag:" + t.id),
+      ...["symbol", "legend", "colour", "insulation", "comments", "reference", ...state().text_objects?.map(t => "text:" + t.id) || []].map(kind => placementKey(overlayObject(kind)))];
+  }
+  function objectOrder() {
+    const keys = allObjectKeys(), order = state().object_layout?.order || [];
+    return [...order.filter(k => keys.includes(k)), ...keys.filter(k => !order.includes(k))];
+  }
+  function objectZ(object) {return 10 + Math.max(0, objectOrder().indexOf(placementKey(object))) * 2;}
+  function changeOrder(operation) {
+    const objects = selectionObjects(); if (!objects.length || objectsBusy) return;
+    objectsBusy = true; showSelection();
+    command("object_order", {objects, operation}, [], reply => {
+      objectsBusy = false; renderMarkers(); renderSlidingGeometry(); showSelection();
+      if (reply.ok) showMessage("Lagerordningen uppdaterad."); else showMessage(reply.error, true);
+    });
+  }
+  function objectElement(object) {
+    return object.type === "tag" ? [...markers.children].find(e => e.dataset.tagId === object.id)
+      : visibleOverlays().find(e => e.dataset.kind === object.kind);
+  }
+  function selectedTransformStarts() {
+    return new Map(selectionObjects().filter(o => !placementLocked(o)).map(object => {
+      const position = object.type === "tag" ? positions.get(object.id) || state().tags.find(t => t.id === object.id) : overlayPosition(object.kind);
+      return [placementKey(object), {object, position: {x: position.x, y: position.y}, scale: objectScale(object)}];
+    }));
+  }
+  function objectSelectionFrame(starts) {
+    const rect = sheet.getBoundingClientRect(), boxes = [...starts.values()].map(({object}) => objectElement(object)?.getBoundingClientRect()).filter(Boolean);
+    if (!boxes.length || !rect.width) return null;
+    const left = Math.min(...boxes.map(b => b.left)), top = Math.min(...boxes.map(b => b.top)),
+      right = Math.max(...boxes.map(b => b.left + b.width)), bottom = Math.max(...boxes.map(b => b.top + b.height));
+    return {x: (left - rect.left) / rect.width, y: (top - rect.top) / rect.height,
+      left, top, width: right - left, height: bottom - top};
+  }
+  function showObjectFrame() {
+    const starts = selectedTransformStarts(), frame = objectSelectionFrame(starts);
+    objectFrame.hidden = readOnly || !!drawingDraft || !!cropDraft || measuring() || objectsBusy || !frame;
+    if (objectFrame.hidden) return;
+    const rect = viewport.getBoundingClientRect();
+    objectFrame.style.left = frame.left - rect.left + "px"; objectFrame.style.top = frame.top - rect.top + "px";
+    objectFrame.style.width = frame.width + "px"; objectFrame.style.height = frame.height + "px";
+  }
+  function scaleObjects(starts, frame, factor) {
+    if (!starts.size || !frame) return;
+    const values = [...starts.values()], bounds = canvasBounds();
+    let low = Math.max(...values.map(v => .1 / v.scale)), high = Math.min(...values.map(v => 10 / v.scale));
+    // Keep every anchor inside the existing canvas envelope, preserving group geometry.
+    for (const {position} of values) for (const [axis, a, b] of [["x", bounds.left, bounds.right], ["y", bounds.top, bounds.bottom]]) {
+      const delta = position[axis] - frame[axis];
+      if (delta > 0) {
+        low = Math.max(low, (Math.min(a, position[axis]) - frame[axis]) / delta);
+        high = Math.min(high, (Math.max(b, position[axis]) - frame[axis]) / delta);
+      }
+    }
+    const f = Math.max(low, Math.min(high, factor));
+    for (const {object, position, scale} of values) {
+      const p = {x: frame.x + (position.x - frame.x) * f, y: frame.y + (position.y - frame.y) * f};
+      scaleDrafts.set(placementKey(object), scale * f);
+      if (object.type === "tag") positions.set(object.id, p);
+      else overlayPositions.set(object.page + ":" + object.kind, {...overlayPosition(object.kind), ...p});
+    }
+    renderMarkers(); renderSlidingGeometry(); showObjectFrame();
+  }
+  function saveObjectTransforms(starts) {
+    if (!starts.size || objectsBusy) return;
+    const objects = [...starts.values()].map(({object}) => {
+      const p = object.type === "tag" ? positions.get(object.id) : overlayPositions.get(object.page + ":" + object.kind);
+      return {...object, x: p.x, y: p.y, scale: objectScale(object)};
+    });
+    objectsBusy = true; showSelection();
+    command("transform_objects", {objects}, [], reply => {
+      for (const {object} of starts.values()) {
+        scaleDrafts.delete(placementKey(object));
+        if (object.type === "tag") positions.delete(object.id);
+        else overlayPositions.delete(object.page + ":" + object.kind);
+      }
+      objectsBusy = false; renderMarkers(); renderSlidingGeometry(); showSelection();
+      if (reply.ok) showMessage(objects.length + " objekt skalade."); else showMessage(reply.error, true);
+    });
+  }
+  function pickedTarget(event) {
+    // Native hit testing respects clipping and each object's stacking order.
+    if (event.target.closest(".gp-leader-handle") || event.target.closest(".gp-leader-hit")) return event.target;
+    if (!document.elementsFromPoint) return event.target;
+    const candidates = [], seen = new Set();
+    for (const element of document.elementsFromPoint(event.clientX, event.clientY)) {
+      const target = element.closest(".gp-tag") || element.closest(".gp-sliding-overlay");
+      if (!target || target.closest(".an-grundplan") !== root || target.hidden || seen.has(target)) continue;
+      seen.add(target);
+      const object = target.dataset.tagId ? {type: "tag", id: target.dataset.tagId} : overlayObject(target.dataset.kind);
+      candidates.push({target, element, object});
+    }
+    candidates.sort((a, b) => Number(placementLocked(a.object)) - Number(placementLocked(b.object)) || objectZ(b.object) - objectZ(a.object));
+    if (!candidates.length) return event.target;
+    const winner = candidates[0];
+    return event.target.closest(".gp-tag") === winner.target || event.target.closest(".gp-sliding-overlay") === winner.target ? event.target : winner.element;
+  }
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
   function overlayObject(kind) { return {type: "overlay", kind, page: background().page}; }
   function placementKey(object) {
@@ -3241,7 +3460,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (readOnly) return;
     // A pointer gesture already handled selection on pointerup. Keyboard clicks
     // still select here; body clicks are handled by their enclosing widget.
-    if (event?.detail && overlayClickHandled === kind) {overlayClickHandled = null; return;}
+    if (event?.detail && overlayClickHandled) {overlayClickHandled = null; return;}
     chooseOverlay(kind, !!(event?.shiftKey || event?.ctrlKey || event?.metaKey));
   }
   function selectOverlayBody(kind, event) {
@@ -3323,6 +3542,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     editMany.disabled = bulkBusy || !selected.size; clearMany.disabled = bulkBusy;
     lockMany.disabled = bulkBusy || locked === objects.length;
     unlockMany.disabled = bulkBusy || !locked;
+    objectScaleInput.disabled = objectScaleApply.disabled = bulkBusy || objectsBusy || locked === objects.length;
+    for (const b of orderButtons) b.disabled = bulkBusy || objectsBusy || drawingPending;
+    showObjectFrame();
     syncTableSelection();
   }
   function toggleTag(tag) {
@@ -4020,17 +4242,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const storage = data.storage;
     showStorage(storage);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
-    loadDrawing.disabled = drawingBusy || importBusy || bulkBusy || calibrationBusy || deleteBusy;
-    loadDrawing.title = "Ersätt PDF eller bild och behåll sulor, indata och relativa placeringar. Mätverktyget behöver kalibreras om.";
-    saveProject.disabled = saving || !!cropDraft || !!canvasPending;
-    exportJson.disabled = !bg.url;
-    for (const entry of exports) entry.button.disabled = entry.busy || !bg.url || !!cropDraft || !!canvasPending;
+    loadDrawing.disabled = drawingBusy || drawingPending || !!drawingDraft || !!cropDraft || !!canvasPending || importBusy || bulkBusy || calibrationBusy || deleteBusy;
+    loadDrawing.title = "Flytta, skala eller uppdatera ritningsunderlaget i ett separat redigeringsläge.";
+    const editingDrawing = !!drawingDraft || drawingPending || drawingBusy;
+    loadProject.disabled = editingDrawing;
+    sizeInput.disabled = editingDrawing;
+    saveProject.disabled = saving || !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
+    exportJson.disabled = !bg.url || editingDrawing;
+    for (const entry of exports) entry.button.disabled = entry.busy || !bg.url || !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
-    for (const b of modes.values()) b.disabled = !bg.url || drawingBusy || !!cropDraft || !!canvasPending;
+    for (const b of modes.values()) b.disabled = !bg.url || drawingBusy || !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
     showSelection();
     showLoadImport();
+    if (mode === "measure" && !calibration()) {
+      measurePoints = []; measureCursor = null; mode = "calibrate";
+    }
     if (bg.url !== lastBackground) {
       cancelDrag();
       cropDraft = canvasPending = null; showCanvas();
@@ -4073,6 +4301,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const kind of selectedOverlays) if (!visibleKinds.has(kind)) selectedOverlays.delete(kind);
     if (overlaySelected && !visibleKinds.has(overlaySelected)) overlaySelected = null;
     showSelection();
+    if (editingDrawing) for (const b of [loadEffects, deleteAll, slidingToggle, colourToggle,
+      insulationWidgetToggle, commentWidgetToggle, referenceToggle]) b.disabled = true;
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -4124,6 +4354,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const previous = drag;
     drag = null;
     selectionBox.hidden = true;
+    if (previous?.drawing && drawingDraft) {drawingDraft = previous.beforeDrawing; showCanvas();}
+    if (previous?.objectScaling) for (const {object} of previous.objectPositions.values()) scaleDrafts.delete(placementKey(object));
     if (previous?.crop && cropDraft) {cropDraft = previous.beforeCrop; showCanvas();}
     if (previous?.box) {
       selected.clear();
@@ -4162,7 +4394,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (previous?.id) renderMarkers();
   }
   viewport.addEventListener("pointerdown", (event) => {
-    if (![0, 2].includes(event.button) || drag || drawingBusy || deleteBusy || !background().url) return;
+    if (![0, 2].includes(event.button) || drag || drawingBusy || drawingPending || objectsBusy || deleteBusy || !background().url) return;
     if (event.button === 2) {
       event.preventDefault();
       viewport.focus({preventScroll: true});
@@ -4170,6 +4402,24 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
+    }
+    if (drawingDraft) {
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      drawingScaleInput.setCustomValidity("");
+      const corner = event.target.closest(".gp-drawing-handle")?.dataset.corner;
+      const inside = !!event.target.closest(".gp-drawing-frame");
+      const rect = picture.getBoundingClientRect();
+      drag = {drawing: inside, drawingCorner: corner, beforeDrawing: {...drawingDraft},
+        width: rect.width, height: rect.height, pan: !inside,
+        x: event.clientX, y: event.clientY, left: panX, top: panY, moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId); return;
+    }
+    if (event.target.closest(".gp-object-handle") && !readOnly) {
+      const starts = selectedTransformStarts(), frame = objectSelectionFrame(starts); if (!frame) return;
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      drag = {objectScaling: true, objectPositions: starts, frame, x: event.clientX, y: event.clientY,
+        moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId); return;
     }
     if (cropDraft || canvasPending) {
       event.preventDefault(); viewport.focus({preventScroll: true});
@@ -4194,11 +4444,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (drawing) {leaderPlacement.stroke = [endpoint]; leaderPlacement.drawingAttachment = attachment;}
       viewport.setPointerCapture(event.pointerId); renderLeaders(); return;
     }
-    if (event.target.closest(".gp-tag-comment")) return;
-    if (event.target.closest(".gp-annotation-editor") || event.target.closest(".gp-annotation-tools")) return;
+    const hitTarget = pickedTarget(event);
+    // The original DOM target can be a locked widget above the winning label.
+    // Its later native click must not override selection handled on pointerup.
+    if (event.target.closest(".gp-sliding-overlay")) overlayClickHandled = true;
+    if (hitTarget.closest(".gp-tag-comment")) return;
+    if (hitTarget.closest(".gp-annotation-editor") || hitTarget.closest(".gp-annotation-tools")) return;
     if (bulkBusy) return;
     if (!readOnly && !measuring() && !importBusy) {
-      const handle = event.target.closest(".gp-leader-handle"), hit = event.target.closest(".gp-leader-hit");
+      const handle = hitTarget.closest(".gp-leader-handle"), hit = hitTarget.closest(".gp-leader-hit");
       if (handle || hit) {
         event.preventDefault(); viewport.focus({preventScroll: true});
         const id = (handle || hit).dataset.tagId, tag = state().tags.find(tag => tag.id === id);
@@ -4219,20 +4473,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       viewport.setPointerCapture(event.pointerId);
       return;
     }
-    const overlay = event.target.closest(".gp-sliding-overlay");
-    if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
+    const overlay = hitTarget.closest(".gp-sliding-overlay");
+    if (importBusy && (overlay || hitTarget.closest(".gp-tag"))) return;
     if (overlay) {
-      const resize = !!event.target.closest(".gp-overlay-resize") || event.target === axesResize;
+      const resize = !!hitTarget.closest(".gp-overlay-resize") || hitTarget === axesResize;
       const select = !!(event.shiftKey || event.ctrlKey || event.metaKey), kind = overlay.dataset.kind;
-      if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize && !select && !placementLocked(overlayObject(kind)))) return;
+      if (readOnly) return;
       event.preventDefault();
       setMode("pan");
       overlayClickHandled = kind;
-      if (!select) chooseOverlay(kind);
-      renderSlidingGeometry();
       const rect = overlay.getBoundingClientRect();
-      const objectPositions = resize || select ? new Map() : movementStarts(overlayObject(kind));
-      drag = {overlay: kind, page: background().page, resize, select,
+      const objectPositions = resize || select || !hitTarget.closest(".gp-sliding-handle") ? new Map() : movementStarts(overlayObject(kind));
+      drag = {overlay: kind, page: background().page, resize: resize && !placementLocked(overlayObject(kind)), select,
+        box: select, beforeSelection: new Set(selected), beforeOverlays: new Set(selectedOverlays),
         objectPositions, placementPan: !resize && !select && !objectPositions.size,
         left: panX, top: panY,
         width: rect.width, height: rect.height,
@@ -4241,11 +4494,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       viewport.setPointerCapture(event.pointerId);
       return;
     }
-    overlaySelected = null;
-    renderSlidingGeometry();
-    const marker = event.target.closest(".gp-tag");
+    const marker = hitTarget.closest(".gp-tag");
     const tag = marker && state().tags.find((t) => t.id === marker.dataset.tagId);
-    if (!tag && event.target.closest("button")) return;
+    if (!tag && hitTarget.closest("button")) return;
     event.preventDefault();
     viewport.focus({preventScroll: true});
     if (!marker && !leaderPlacement && leaderEdit) {leaderEdit = leaderNode = null; renderLeaders();}
@@ -4255,7 +4506,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       moved: false, pointerId: event.pointerId, id: tag?.id,
       objectPositions, placementPan: !!tag && !select && !readOnly && !objectPositions.size,
       placementBlocked: importBusy,
-      box: !tag && (event.shiftKey || event.ctrlKey || event.metaKey),
+      box: !!(event.shiftKey || event.ctrlKey || event.metaKey),
       beforeSelection: new Set(selected),
       beforeOverlays: new Set(selectedOverlays),
       select };
@@ -4267,7 +4518,28 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
-    if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (Math.hypot(dx, dy) > 5) drag.moved = true;
+    if (drag.drawing) {
+      if (!drag.moved) return;
+      const before = drag.beforeDrawing;
+      if (drag.drawingCorner) {
+        const sx = drag.drawingCorner.includes("left") ? -1 : 1, sy = drag.drawingCorner.includes("top") ? -1 : 1;
+        const ratio = Math.max(.1 / before.scale, Math.min(10 / before.scale,
+          1 + (sx * dx * drag.width + sy * dy * drag.height) / (drag.width ** 2 + drag.height ** 2)));
+        const scale = before.scale * ratio;
+        drawingDraft = {...before, scale,
+          x: Math.max(-10, Math.min(11, before.x + (sx < 0 ? drag.width * (1 - ratio) / (background().width * zoom) : 0))),
+          y: Math.max(-10, Math.min(11, before.y + (sy < 0 ? drag.height * (1 - ratio) / (background().height * zoom) : 0)))};
+      } else drawingDraft = {...before,
+        x: Math.max(-10, Math.min(11, before.x + dx / (background().width * zoom))),
+        y: Math.max(-10, Math.min(11, before.y + dy / (background().height * zoom)))};
+      showCanvas(); return;
+    }
+    if (drag.objectScaling) {
+      if (drag.moved) scaleObjects(drag.objectPositions, drag.frame,
+        1 + (dx * drag.frame.width + dy * drag.frame.height) / (drag.frame.width ** 2 + drag.frame.height ** 2));
+      return;
+    }
     if (drag.crop) {
       adjustCrop(drag.crop, drag.beforeCrop, dx / (background().width * zoom), dy / (background().height * zoom)); return;
     }
@@ -4304,7 +4576,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
       return;
     }
-    if (drag.select) return;
+    if (drag.select && !drag.box) return;
     if (drag.moved) {
       if (drag.box) {
         viewport.classList.add("gp-selecting");
@@ -4315,7 +4587,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         panX = drag.left + dx; panY = drag.top + dy; placeSheet();
         viewport.classList.add("gp-panning");
       } else if (!drag.resize && drag.objectPositions?.size) {
-        const rect = picture.getBoundingClientRect();
+        const rect = sheet.getBoundingClientRect();
         moveObjects(drag.objectPositions, dx / rect.width, dy / rect.height);
         viewport.classList.add("gp-dragging-tag"); closeDialog();
       } else if (drag.overlay) {
@@ -4326,7 +4598,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           p.size = overlaySize(drag.overlay, p.size + delta);
         }
         else {
-          const rect = picture.getBoundingClientRect();
+          const rect = sheet.getBoundingClientRect();
           p.x = Math.max(0, Math.min(1, p.x + dx / rect.width));
           p.y = Math.max(0, Math.min(1, p.y + dy / rect.height));
         }
@@ -4347,7 +4619,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
     const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
-      objectPositions, placementPan, resize, crop,
+      objectPositions, placementPan, resize, crop, drawing, objectScaling,
       stroke, leaderClick, attachment } = drag;
     drag = null;
     selectionBox.hidden = true;
@@ -4355,7 +4627,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
-    if (pan || crop) return;
+    if (pan || crop || drawing) return;
+    if (objectScaling) {if (moved) saveObjectTransforms(objectPositions); return;}
     if (stroke && leaderPlacement) {
       const point = measurementPoint(event); if (point) leaderPlacement.stroke.push(point);
       const bg = background(), value = point && moved && leaderFromStroke(leaderPlacement.stroke, attachment, bg.width, bg.height, zoom);
@@ -4379,15 +4652,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (moved) {
         if (selected.size !== beforeSelection.size || [...selected].some(id => !beforeSelection.has(id))) bulkSignature = "";
         setMode("pan"); showSelection(); renderMarkers();
+        return;
       }
-      return;
+      if (!id && !overlay) return;
     }
     if (overlay) {
       if (select) {if (!moved) chooseOverlay(overlay, true); return;}
       if (moved && !placementPan) {
         if (resize) saveOverlayPosition(overlay, page, overlayPositions.get(page + ":" + overlay));
         else saveObjectPositions(objectPositions);
-      }
+      } else if (!moved) chooseOverlay(overlay);
       return;
     }
     if (id) {
@@ -4399,7 +4673,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       return;
     }
     if (readOnly || moved || placementBlocked || mode === "pan") return;
-    const rect = picture.getBoundingClientRect();
+    const rect = sheet.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
     const bounds = canvasBounds();
@@ -4511,6 +4785,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         leaderNode = null; saveLeader(tag.id, next); viewport.focus({preventScroll: true});
       }
       return;
+    }
+    if (event.key === "Escape" && drawingDraft) {
+      event.preventDefault(); if (!drawingBusy) finishDrawingEdit(false); return;
     }
     if (event.key === "Escape" && cropDraft) {
       event.preventDefault(); finishCrop(false); return;

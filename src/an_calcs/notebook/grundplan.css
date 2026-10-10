@@ -410,3 +410,16 @@
 .an-grundplan .gp-type-confirmation select { margin-right: 6px; }
 
 .an-grundplan .gp-reference-range { font-size: 9px; white-space: nowrap; margin-top: -3px; }
+/* The drawing has an explicit edit mode; other objects share one stacking plane. */
+.an-grundplan .gp-drawing-bar { margin: 0 16px 12px; padding: 10px 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; background: #eef7f5; border: 1px solid #9fbbbf; border-radius: 8px; }
+.an-grundplan .gp-drawing-scale, .an-grundplan .gp-object-scale { display: inline-flex; align-items: center; gap: 5px; }
+.an-grundplan .gp-drawing-scale input, .an-grundplan .gp-object-scale input { width: 70px; }
+.an-grundplan .gp-drawing-frame { position: absolute; border: 2px dashed #14695e; cursor: move; z-index: 100002; touch-action: none; }
+.an-grundplan .gp-drawing-handle, .an-grundplan .gp-object-handle { position: absolute; padding: 0; width: 16px; height: 16px; border: 2px solid #14695e; border-radius: 3px; background: white; transform: translate(-50%, -50%); pointer-events: auto; }
+.an-grundplan .gp-object-frame { position: absolute; border: 1px dashed #258879; pointer-events: none; z-index: 100001; }
+.an-grundplan .gp-object-handle { left: 100%; top: 100%; cursor: nwse-resize; }
+.an-grundplan.gp-editing-drawing .gp-tag, .an-grundplan.gp-editing-drawing .gp-sliding-overlay,
+.an-grundplan.gp-editing-drawing .gp-leader-hit, .an-grundplan.gp-editing-drawing .gp-leader-handle { pointer-events: none; }
+.an-grundplan .gp-object-leader { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.an-grundplan .gp-leader-handles { z-index: 100000; }
+.an-grundplan .gp-selection-box { z-index: 100003; }

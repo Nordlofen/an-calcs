@@ -61,7 +61,7 @@ class TestPlacement(unittest.TestCase):
             self.plan.flytta_objekt([first, {**self.objects[1], "x": .5, "y": .6}])
         self.assertEqual(self.plan._document(), before)
 
-    def test_locks_block_all_position_paths_but_allow_inputs_text_and_size(self):
+    def test_locks_block_position_and_size_but_allow_inputs_and_text(self):
         self.plan.las_placering(self.objects)
         actions = [lambda: self.plan.uppdatera(self.ident, x=.5),
                    lambda: self.plan.flytta_flera([{"id": self.ident, "x": .5, "y": .6}]),
@@ -77,8 +77,14 @@ class TestPlacement(unittest.TestCase):
                 action()
             self.assertEqual(self.plan._document(), before)
         self.plan.uppdatera(self.ident, indata={"F_vy": 120, "kommentar": "Kommentar"})
-        self.plan.uppdatera_text(self.text, text="Ny rubrik", size=24)
-        self.plan.referens = {"size": 600, "enabled": True}
+        self.plan.uppdatera_text(self.text, text="Ny rubrik")
+        self.plan.referens = {"enabled": True}
+        with self.assertRaisesRegex(ValueError, "låst"):
+            self.plan.uppdatera_text(self.text, size=24)
+        with self.assertRaisesRegex(ValueError, "låst"):
+            self.plan.uppdatera_text(self.text, width=600)
+        with self.assertRaisesRegex(ValueError, "låst"):
+            self.plan.referens = {"size": 600}
         self.assertEqual(self.plan.placeringslas, self.plan.state["placement_locks"])
         self.plan.las_placering(self.objects, last=False)
         self.plan.flytta_objekt([{**item, "x": .5, "y": .6} for item in self.objects])
@@ -87,7 +93,7 @@ class TestPlacement(unittest.TestCase):
     def test_save_open_migration_and_invalid_saved_locks_are_atomic(self):
         self.plan.las_placering(self.objects)
         document = self.plan._document()
-        self.assertEqual(document["version"], 22)
+        self.assertEqual(document["version"], 23)
         loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "project.json"))
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.placeringslas, self.plan.placeringslas)

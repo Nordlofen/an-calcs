@@ -935,14 +935,36 @@ En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
 1 000 taggar. Visningsbilden begränsas till 2 800 pixlar längs längsta sidan
 för minnesanvändningens skull; originalfilen bevaras i projektet.
 
-**Importera/Uppdatera ritning** väljer en ny PDF eller bild även när sulor
-redan finns. Sulor, indata, resultat, rubriker och placeringar behålls;
-etiketter och glidningssymboler ligger kvar på samma relativa bildkoordinater.
-Kontrollera placeringen om den nya ritningens utsnitt eller marginaler ändrats.
-Mätverktygets kalibrering återställs och behöver anges på nytt. Den tidigare
-PDF-sidan används om den finns i den nya filen, annars sida 1. En ogiltig fil
-lämnar projektet orört. Den nya ritningen följer med sparning och export.
-Från Python: `plan.importera_ritning("grundplan_rev_B.pdf")`.
+## Redigera ritningsunderlag
+
+**Redigera ritningsunderlag** öppnar ett eget läge där underlaget kan flyttas
+med dragning och skalas proportionellt med hörnhandtagen eller fältet **Skala**.
+Underlaget ligger alltid längst bak. Det kan inte markeras eller ändras i
+vanligt läge, ingår inte i gemensamma urval och påverkas inte av lagerknapparna.
+Dragning på underlaget i vanligt läge panorerar vyn.
+
+**Uppdatera ritningsunderlag** finns inne i redigeringsläget och väljer en ny
+PDF eller bild. Samma flöde används för första inläsningen. Filen förhandsvisas
+innan den sparas. **Klar** sparar fil, placering och skala; **Avbryt** eller
+Escape återställer tidigare underlag och kalibrering. En ogiltig fil lämnar
+projektet orört. Den tidigare PDF-sidan används om den finns, annars sida 1.
+
+Arbetsytans koordinatgrund behålls även när den nya PDF-sidan är större eller
+mindre. Sulor, etiketter, widgets, rubriker, leaders och beräkningsresultat ligger
+kvar. Underlaget behåller sin placering och skala och kan passas in separat.
+**Beskär** ändrar arbetsytans gränser; redigering av underlaget ändrar bara
+bilden inom arbetsytan. PDF och HTML använder samma sparade placeringar.
+
+Skalning eller filbyte som sparas med Klar ogiltigförklarar måttkalibreringen.
+**Mät** kräver därefter ny kalibrering och visar inga äldre mätvärden. Enbart
+förflyttning, zoomning, panorering och beskärning behåller kalibreringen.
+Sulornas beräkningsmått påverkas aldrig av presentationens skalning.
+
+```python
+plan.ritningsunderlag = {"x": .1, "y": -.05, "scale": .8}
+# scale = 1 motsvarar 100 %. Skaländringen återställer kalibreringen.
+plan.importera_ritning("grundplan_rev_B.pdf")  # Direkt filbyte från Python.
+```
 
 ## Beskär ritningsytan
 
@@ -962,7 +984,7 @@ beräknas; det styrs fortsatt av Aktiv/Inaktiv.
 Etiketter, widgets, rubriker och datum kan placeras i tillagda marginaler.
 Ramen sparas med projektet och används av Anpassa, PDF-export och HTML-export.
 PDF-exporten behåller originalets vektorer. Vid byte av ritning behålls ramen
-relativt den nya originalsidans mått, precis som objektens placeringar.
+och arbetsytans koordinatmått; de följer inte den nya PDF-sidans storlek.
 
 ```python
 # Lägg till 20 % marginal till vänster och 10 % nedtill.
@@ -970,7 +992,7 @@ plan.ritningsram = {"left": -.2, "top": 0, "right": 1, "bottom": 1.1}
 plan.ritningsram  # En kopia av den sparade ramen.
 ```
 
-Koordinaterna utgår alltid från originalritningens övre vänstra hörn:
+Koordinaterna utgår från den fasta arbetsytans ursprungliga övre vänstra hörn:
 originalramen är left/top = 0 och right/bottom = 1. Objekt i en tillagd
 marginal kan därför ha negativa koordinater eller koordinater över 1.
 Ramen tillåter bredd och höjd mellan 5 och 1000 % av originalet.
@@ -985,7 +1007,7 @@ minimerade etiketter ovanpå. Filen får originalritningens namn med tillägget
 plan.exportera_pdf("grundplan_med_etiketter.pdf")
 ```
 
-Med originalramen bevaras PDF-originalets sidformat, beskärning och rotation,
+Med originalramen och oförändrat underlag bevaras PDF-originalets sidformat, beskärning och rotation,
 liksom dess vektorritning och text. En ram ändrad med **Beskär** ger i stället
 den valda sidstorleken, med originalritningen och texten kvar som vektorer. För en importerad bild skapas en PDF-sida i samma
 proportioner, med bildens fulla upplösning och 96 dpi som grund för sidstorleken.
@@ -1121,11 +1143,12 @@ plan.taggar       # Kopior av taggar, indata och sammanfattningar.
 plan.resultat     # Aktuella details per tagg-id.
 ```
 
-Positionerna `x` och `y` ligger mellan 0 och 1 med origo i bildens övre vänstra
-hörn. De är relativa bildkoordinater, inte meter eller projektkoordinater.
+Positionerna `x` och `y` använder arbetsytans fasta koordinatgrund med origo
+i det ursprungliga övre vänstra hörnet. Originalramen är 0–1; tillagda marginaler
+tillåter negativa koordinater och värden över 1. Koordinaterna är inte meter.
+Underlagets egen placering och skala påverkar inte övriga objekt.
 Sulans mått och lastfördelning hämtas inte automatiskt från ritningen.
-Denna första version placerar punktmarkeringar vid sulorna; linjemarkering,
-skalinställning och automatisk identifiering av stomlinjer ingår inte.
+Automatisk identifiering av stomlinjer ingår inte.
 
 Widgeten måste vara ansluten till en aktiv Pythonkernel för att skapa
 taggar, ändra indata, spara och beräkna. Resultat-HTML fungerar utan kernel
@@ -1238,10 +1261,11 @@ Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
 objekt utanför referensgrupperna. I äldre projekt används modell, littera och
 importinformation för att härleda sultyp. När ursprunget är osäkert måste det
 bekräftas i objektets indataruta; beräkningsindata och resultat behålls.
-Projektformat 22 sparar ritningsramen och placeringslås. Versionerna 1–21
+Projektformat 23 sparar underlagets transform, fast koordinatgrund, individuella
+objektskalor och lagerordning samt ritningsramen och placeringslås. Versionerna 1–22
 kan fortfarande öppnas och använder originalramen när en ram saknas.
 Projekt före format 21 börjar utan placeringslås. Äldre programversioner
-kan inte öppna format 22.
+kan inte öppna format 23.
 
 ### Gemensam placering och placeringslås
 
@@ -1252,11 +1276,38 @@ Alla flyttbara objekt får samma förskjutning, även vid ritningens kanter.
 Piltangenterna på en markerad widget flyttar också det gemensamma urvalet.
 
 Markeringens knappar **Lås placering** och **Lås upp** gäller hela urvalet.
-Låsta objekt kan fortfarande markeras, redigeras och ändra storlek. Dragning
-på ett låst objekt panorerar ritningen; i ett blandat urval står låsta objekt
+Låsta objekt kan fortfarande markeras och deras indata/text redigeras, men
+position och storlek skyddas. Dragning på ett låst objekt panorerar ritningen
+utan att ändra markeringen; i ett blandat urval står låsta objekt
 kvar medan de upplåsta flyttas. Låsen sparas med projektet och påverkar inte
 beräkningar eller PDF-utseendet. **Avmarkera** eller **Escape** tömmer urvalet.
 Knappen **Ändra markerade** gäller endast urvalets sulors indata.
+
+Ett vanligt klick markerar ett objekt. Shift + klick lägger till eller tar bort
+objektet och Shift + drag ritar urvalsram även när gesten börjar över ett objekt.
+Markering från klick avgörs vid musknappens släpp; rörelse över fem skärmpixlar
+räknas som dragning. Vid överlapp väljs översta olåsta objektet. Om alla är låsta
+väljs översta låsta objektet endast vid ett klick.
+
+**Skala urval** anger en faktor relativt nuvarande storlek (150 % ger 1,5 gånger
+storleken). Urvalets hörnhandtag skalar objekt och deras inbördes placeringar
+från en gemensam ram. Låsta objekt står kvar. Etiketternas anslutningar följer
+storleksändringen och spline-linjens tjocklek/pilhuvud följer etikettens skala.
+Det vanliga reglaget Etikettstorlek ändrar bara upplåsta etiketter.
+
+**Flytta fram/bak** flyttar urvalet ett lagersteg. **Längst fram/bak** flyttar
+urvalet till respektive ände, med inbördes lagerordning behållen. Ritningsunderlaget
+ligger alltid under alla dessa objekt. Skalor och lagerordning sparas i projekt,
+PDF och HTML och ändrar inga sulmått eller beräkningsresultat.
+
+```python
+objekt = [{"type": "tag", "id": tagg_id},
+          {"type": "overlay", "kind": "reference", "page": 1}]
+plan.las_placering(objekt, last=True)
+plan.las_placering(objekt, last=False)
+plan.lagerordning(objekt, "front")  # forward, backward, front eller back.
+plan.transformera_objekt([{**objekt[0], "x": .2, "y": .3, "scale": 1.5}])
+```
 
 ```python
 plan.referens = {"enabled": True, "x": .05, "y": .2, "size": 500}
@@ -1277,7 +1328,7 @@ layout i notebook, HTML och PDF; text, ramar och mönster behålls som vektorer.
 För att prova utvecklingsgrenen efter att den pushats:
 
 ```sh
-uv pip install --upgrade --reinstall-package an-calcs "an-calcs[notebook] @ git+https://github.com/Nordlofen/an-calcs.git@codex/referens"
+uv pip install --reinstall-package an-calcs "an-calcs[notebook] @ git+https://github.com/Nordlofen/an-calcs.git@codex/referens"
 ```
 
 Starta om notebookens kernel efter installation. Testa på en kopia av

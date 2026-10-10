@@ -91,8 +91,8 @@ class Element {
   getBoundingClientRect() {
     if (this.className.split(" ").includes("gp-tag")) {
       const sheet = this.parent.parent;
-      const picture = sheet.children.find(e => e.tag === "img").getBoundingClientRect();
-      const scale = Number(this.closest(".an-grundplan").style["--gp-tag-scale"] || 1);
+      const picture = sheet.getBoundingClientRect();
+      const scale = Number(this.style["--gp-tag-scale"] || this.closest(".an-grundplan").style["--gp-tag-scale"] || 1);
       return {left: picture.left + parseFloat(this.style.left) / 100 * picture.width - 10 * scale,
         top: picture.top + parseFloat(this.style.top) / 100 * picture.height - 10 * scale,
         width: 160 * scale, height: 60 * scale};
@@ -106,8 +106,11 @@ class Element {
       return {left: 0, top: 0, width: 300 * scale, height: 220 * scale};
     }
     if (this.className === "gp-paper") return {left: parseFloat(this.style.left) || 0, top: parseFloat(this.style.top) || 0, width: parseFloat(this.style.width), height: parseFloat(this.style.height)};
-    if (this.tag === "img") return { left: (parseFloat(this.parent.style.left) || 0) + (parseFloat(this.parent.parent.style.left) || 0), top: (parseFloat(this.parent.style.top) || 0) + (parseFloat(this.parent.parent.style.top) || 0),
-      width: parseFloat(this.parent.style.width), height: parseFloat(this.parent.style.height) };
+    if (this.className === "gp-sheet") return {left: (parseFloat(this.style.left) || 0) + (parseFloat(this.parent.style.left) || 0), top: (parseFloat(this.style.top) || 0) + (parseFloat(this.parent.style.top) || 0), width: parseFloat(this.style.width), height: parseFloat(this.style.height)};
+    if (this.tag === "img") {
+      const rect = this.parent.getBoundingClientRect();
+      return {left: rect.left + (parseFloat(this.style.left) || 0), top: rect.top + (parseFloat(this.style.top) || 0), width: parseFloat(this.style.width) || rect.width, height: parseFloat(this.style.height) || rect.height};
+    }
     if (["gp-workspace", "gp-table-section"].some(name => this.className.split(" ").includes(name))) {
       const workspace = this.className.includes("gp-workspace");
       const content = this.children.find(child => child.className === (workspace ? "gp-board" : "gp-table-scroll"));
@@ -267,8 +270,7 @@ test('locked members stay in place when other members move and locked keyboard n
   assert.equal(ui.sent.at(-1), request);
   ui.select(ui.comments.children[0]); ui.comments.children[0].click();
   ui.comments.children.at(-1).dispatch('keydown', {key: '+'});
-  assert.equal(ui.sent.at(-1).action, 'comment_placement');
-  near(ui.sent.at(-1).position.x, .5); assert.equal(ui.sent.at(-1).position.size, 415);
+  assert.equal(ui.sent.at(-1), request, 'Locked widgets cannot be resized with keyboard shortcuts');
 });
 
 test('marquee can select widgets with labels, and Escape clears the whole mixed selection', t => {
@@ -611,7 +613,7 @@ test("calibrated lengths use the drawing aspect ratio and survive render resolut
     assert.throws(() => validateCalibration({...calibration, length_m: length}, bg));
   }
   assert.throws(() => validateCalibration({...calibration, end: calibration.start}, bg));
-  assert.throws(() => validateCalibration({...calibration, end: {x: 2, y: .2}}, bg));
+  assert.throws(() => validateCalibration({...calibration, end: {x: 12, y: .2}}, bg));
 });
 
 test("measurement calibrates from two clicks, accepts decimal comma and displays exactly one decimal", t => {
@@ -737,8 +739,8 @@ test("drawing update keeps selection, unfinished input text, dialog sections and
   const ui = setup(t);
   ui.marker().click(); ui.field("b").value = "0,"; ui.field("b").dispatch("input");
   const section = ui.byClass("gp-group"); section.open = false; section.dispatch("toggle");
-  ui.byText("Minimera").click(); ui.marker().dispatch("click", {shiftKey: true});
-  const button = ui.byText("Importera/Uppdatera ritning"), original = structuredClone(ui.tag), point = ui.position();
+  ui.byText("Minimera").click(); ui.byText("Avmarkera").click(); ui.marker().dispatch("click", {shiftKey: true});
+  const button = ui.byText("Redigera ritningsunderlag"), original = structuredClone(ui.tag), point = ui.position();
   assert.equal(button.disabled, false, "Existing footings allow replacing the drawing");
   const input = ui.find(e => e.getAttribute("aria-label") === "Ritningsfil"), buffer = new ArrayBuffer(4);
   input.files = [{name: "revision_b.png", size: 4, arrayBuffer: async () => buffer}];
@@ -766,7 +768,7 @@ test("failed drawing update leaves draft and selection editable and allows anoth
   input.files = [{name: "bad.png", size: 4, arrayBuffer: async () => new ArrayBuffer(4)}];
   await input.listeners.get("change")[0]();
   ui.ack(ui.sent.at(-1), {ok: false, error: "Ogiltig ritning"});
-  assert.equal(ui.byText("Importera/Uppdatera ritning").disabled, false);
+  assert.equal(ui.byText("Redigera ritningsunderlag").disabled, false);
   assert.equal(ui.field("b").value, "0,");
   assert.equal(ui.byClass("gp-status").textContent, "Ogiltig ritning");
   assert.equal(ui.byClass("gp-dialog").hidden, false);
@@ -1036,7 +1038,7 @@ function bulkFixture(ui, pad = false) {
   const field = name => ui.find(e => e.name === "bulk_" + name);
   const choose = name => ui.find(e => e.getAttribute("aria-label") === "Ändra " + name);
   const select = () => {
-    ui.byText("Minimera").click();
+    ui.byText("Minimera").click(); ui.byText("Avmarkera").click();
     marker("tag1").dispatch("click", {shiftKey: true}); marker("tag2").dispatch("click", {shiftKey: true});
     ui.byText("Ändra markerade").click();
   };
@@ -1719,9 +1721,9 @@ for (const entry of ["Shift-click", "marquee", "table"]) {
       assert.equal(ui.label().value, "VS2");
       assert.equal(ui.field("b").value, "2");
       assert.equal(ui.field("F_vy").value, "200");
-      assert.deepEqual(selectedIds(ui), [], "Ordinary editing never toggles a multi-selection");
-      assert.equal(ui.byClass("gp-selection-bar").hidden, true);
-      assert.equal(bulk.marker("tag2").getAttribute("aria-pressed"), "false");
+      assert.deepEqual(selectedIds(ui), ["tag2"], "Ordinary click replaces the group with the clicked object");
+      assert.equal(ui.byClass("gp-selection-bar").hidden, false);
+      assert.equal(bulk.marker("tag2").getAttribute("aria-pressed"), "true");
       assert.deepEqual(ui.data.state, original); assert.equal(ui.sent.length, 0);
       ui.field("b").value = "1,8"; ui.field("b").dispatch("input");
       assert.equal(ui.sent.at(-1).id, "tag2", "The opened form edits this footing only");
@@ -1740,7 +1742,7 @@ test("Shift pointer clicks toggle selection without dragging or opening single f
   ui.viewport.dispatch("pointerdown", {target: bulk.marker("tag2"), shiftKey: true, clientX: 300, clientY: 300});
   ui.move(500, 500); ui.finish(500, 500);
   assert.equal(ui.sent.length, 0, "Dragging with a selection modifier cannot move a footing");
-  assert.equal(ui.byClass("gp-selection-count").textContent, "2 markerade");
+  assert.equal(ui.byClass("gp-selection-count").textContent, "0 markerade", "Shift-drag from an object performs marquee selection");
   bulk.marker("tag1").dispatch("click", {shiftKey: true});
   assert.equal(ui.byClass("gp-selection-count").textContent, "1 markerade");
   ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
@@ -2067,7 +2069,8 @@ test("global symbol drag and proportional corner resize use drawing zoom and sur
   assert.equal(first.action, "sliding_placement");
   assert.equal(first.kind, "symbol");
   near(first.position.x, .16); near(first.position.y, .65);
-  assert.equal(handle.hidden, false);
+  assert.equal(handle.hidden, true, "Drag does not select an object");
+  ui.byClass("gp-axis-symbol").click(); assert.equal(handle.hidden, false);
   ui.start(handle); ui.move(350, 350); ui.finish(350, 350);
   const second = ui.sent.at(-1);
   assert.equal(second.position.size, 200);
@@ -2447,7 +2450,7 @@ test("standalone result labels open read-only values and remember expanded secti
   ui.tag.summary.b = 1.8;
   const original = structuredClone(ui.snapshot);
   ui.tag.values.isolerprodukt = "EPS ÅÄÖ <script>literal</script>";
-  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Importera/Uppdatera ritning", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
+  const forbidden = ["Beräkna", "Kopiera sula", "Ta bort", "Redigera ritningsunderlag", "Öppna projekt", "Spara projekt", "Kopiera projekt + key", "Exportera JSON", "+ Väggsula", "+ Pelarsula", "Exportera PDF", "Exportera HTML"];
   assert.ok(ui.elements().every(element => !forbidden.includes(element.textContent)));
   ui.marker().click();
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1,8 m · bᵧ 2,4 m · t 1 m");
@@ -3812,7 +3815,7 @@ test("insulation widget toggle retains placement and drag, resize and cancel lea
   ui.start(header); ui.move(380, 360); ui.finish(380, 360);
   let request = ui.sent.at(-1);
   assert.equal(request.action, "insulation_placement"); near(request.position.x, .75); near(request.position.y, .65); accept(request);
-  assert.equal(resize.hidden, false);
+  assert.equal(resize.hidden, true); header.click(); assert.equal(resize.hidden, false);
   widget.clientWidth = 300; widget.clientHeight = 160;
   ui.start(resize); ui.move(450, 380); ui.finish(450, 380);
   request = ui.sent.at(-1); near(request.position.size, 450); accept(request);
@@ -4412,7 +4415,7 @@ test('comments toggle preserves placement, proportional resize and cancelling a 
   ui.start(header); ui.move(380, 360); ui.finish(380, 360);
   let request = ui.sent.at(-1);
   assert.equal(request.action, 'comment_placement'); near(request.position.x, .18); near(request.position.y, .65); accept(request);
-  assert.equal(resize.hidden, false);
+  assert.equal(resize.hidden, true); header.click(); assert.equal(resize.hidden, false);
   ui.start(resize); ui.move(505, 390); ui.finish(505, 390);
   request = ui.sent.at(-1); near(request.position.size, 615); accept(request);
   assert.equal(widget.style.transform, 'scale(1.5)');
@@ -4627,4 +4630,150 @@ test('marquee ignores fully cropped labels even when their old coordinates lie u
   ui.move(marker.left + marker.width + 5, marker.top + marker.height + 5);
   ui.finish(marker.left + marker.width + 5, marker.top + marker.height + 5);
   assert.doesNotMatch(ui.marker().className, /gp-tag-selected/);
+});
+
+test('Locked pointer drag never selects or deselects; stationary click selects on release', t => {
+  const ui = setup(t); referenceFixture(ui);
+  ui.data.state.placement_locks = [{type:'tag', id:'tag1'}]; ui.changed();
+  const marker = ui.marker(), ref = ui.byClass('gp-reference-widget');
+  ref.children[0].click(); const before = ui.byClass('gp-selection-count').textContent;
+  ui.start(marker, 300, 300);
+  assert.equal(ui.byClass('gp-selection-count').textContent, before);
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'false');
+  const left = parseFloat(ui.byClass('gp-paper').style.left);
+  ui.move(360, 320); ui.finish(360, 320);
+  near(parseFloat(ui.byClass('gp-paper').style.left), left + 60);
+  assert.equal(ui.byClass('gp-selection-count').textContent, before); assert.equal(ui.sent.length, 0);
+  ui.start(ui.marker(), 300, 300); ui.move(302, 302);
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'false');
+  ui.finish(302, 302);
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'true');
+  assert.equal(ui.byClass('gp-selection-count').textContent, '1 markerade · 1 låsta');
+});
+
+test('Native overlap picking passes through locked objects and follows persisted layer order', t => {
+  const ui = setup(t); referenceFixture(ui);
+  const reference = ui.byClass('gp-reference-widget');
+  ui.data.state.object_layout = {scales:{}, order:['tag:tag1','overlay:1:reference']};
+  ui.data.state.placement_locks = [{type:'overlay',kind:'reference',page:1}]; ui.changed();
+  document.elementsFromPoint = () => [reference, ui.marker()];
+  ui.start(reference, 300, 300); ui.finish(300, 300);
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'true', 'Unlocked label wins behind a locked widget');
+  ui.data.state.placement_locks = []; ui.changed();
+  ui.start(ui.marker(), 300, 300); ui.finish(300, 300);
+  assert.equal(ui.byClass('gp-selection-count').title, 'reference', 'Top unlocked widget wins');
+  ui.data.state.object_layout.order.reverse(); ui.changed();
+  ui.start(reference, 300, 300); ui.finish(300, 300);
+  assert.equal(ui.marker().getAttribute('aria-pressed'), 'true', 'Reordering changes the winning hit target');
+  delete document.elementsFromPoint;
+});
+
+test('Mixed scaling preserves engineering values and locked members; cancelling restores drafts', t => {
+  const ui = mixedPlacement(t), original = structuredClone(ui.data.state.tags);
+  ui.data.state.placement_locks = [{type:'overlay',kind:'comments',page:1}]; ui.changed();
+  ui.find(e=>e.getAttribute('aria-label')==='Skala markerade objekt i procent').value = '150';
+  ui.byText('Skala').click(); const command = ui.sent.at(-1);
+  assert.equal(command.action, 'transform_objects'); assert.equal(command.objects.length, 2);
+  assert.ok(command.objects.every(o=>o.scale===1.5));
+  assert.deepEqual(ui.data.state.tags, original);
+  assert.deepEqual(ui.xy(ui.comments), [.5,.5]);
+  ui.data.state.object_layout = {scales:Object.fromEntries(command.objects.map(o=>[o.type==='tag'?'tag:'+o.id:'overlay:'+o.page+':'+o.kind,o.scale])),order:[]};
+  for(const o of command.objects) if(o.type==='tag')Object.assign(ui.tag,{x:o.x,y:o.y});else Object.assign(ui.data.state.reference_widget,{x:o.x,y:o.y});
+  ui.changed();ui.ack(command);
+  const position=ui.position(), size=ui.marker().style['--gp-tag-scale'];
+  const handle=ui.find(e=>e.getAttribute('aria-label')==='Skala markerade objekt');
+  ui.start(handle,300,300);ui.move(390,340);ui.viewport.dispatch('pointercancel');
+  assert.deepEqual(ui.position(),position);assert.equal(ui.marker().style['--gp-tag-scale'],size);
+  assert.equal(ui.sent.length,1);
+});
+
+test('Layer commands target the same mixed selection and exclude the underlay', t => {
+  const ui=mixedPlacement(t);
+  for(const [label,operation] of [['Flytta fram','forward'],['Flytta bak','backward'],['Längst fram','front'],['Längst bak','back']]){
+    ui.byText(label).click();const command=ui.sent.at(-1);
+    assert.equal(command.action,'object_order');assert.equal(command.operation,operation);
+    assert.equal(command.objects.length,3);assert.ok(command.objects.every(o=>o.type!=='drawing'));
+    ui.ack(command);
+  }
+});
+
+test('Underlay editing alone moves or scales the image; Cancel preserves calibration and object coordinates',t=>{
+  const ui=setup(t);ui.data.state.calibration={start:{x:.1,y:.2},end:{x:.6,y:.2},length_m:10};ui.changed();
+  const original=structuredClone(ui.data.state),image=ui.byClass('gp-picture'),point=ui.position();
+  ui.byText('Redigera ritningsunderlag').click();
+  assert.equal(ui.byClass('gp-drawing-bar').hidden,false);assert.equal(ui.byText('Mät').disabled,true);
+  ui.start(ui.byClass('gp-drawing-frame'),300,300);ui.move(380,360);ui.finish(380,360);
+  near(parseFloat(image.style.left),80);near(parseFloat(image.style.top),60);
+  const scale=ui.find(e=>e.getAttribute('aria-label')==='Ritningsunderlagets skala i procent');scale.value='150';scale.dispatch('input');
+  near(parseFloat(image.style.width),1200);assert.deepEqual(ui.position(),point);assert.equal(ui.sent.length,0);
+  ui.byClass('gp-drawing-bar').children[3].click();
+  assert.deepEqual(ui.data.state,original);near(parseFloat(image.style.width),800);near(parseFloat(image.style.left),0);
+  assert.equal(ui.byClass('gp-drawing-bar').hidden,true);
+});
+
+test('Underlay scale commit invalidates measurements; move commit keeps calibration',t=>{
+  const ui=setup(t),calibration={start:{x:.1,y:.2},end:{x:.6,y:.2},length_m:10};
+  ui.data.state.calibration=calibration;ui.changed();
+  ui.byText('Redigera ritningsunderlag').click();
+  const scale=ui.find(e=>e.getAttribute('aria-label')==='Ritningsunderlagets skala i procent');scale.value='80';scale.dispatch('input');
+  ui.byClass('gp-drawing-bar').children[2].click();const command=ui.sent.at(-1);
+  assert.equal(command.action,'drawing_commit');assert.equal(command.layout.scale,.8);
+  ui.data.state.drawing_layout=command.layout;ui.data.state.calibration=null;ui.changed();ui.ack(command);
+  assert.match(ui.byClass('gp-status').textContent,/Ny måttkalibrering krävs/);
+  ui.byText('Mät').click();assert.match(ui.byClass('gp-measurement-hint').textContent,/Kalibrering krävs/);
+  ui.byClass('an-grundplan').dispatch('keydown',{key:'Escape'});
+  ui.data.state.calibration=calibration;ui.changed();ui.byText('Redigera ritningsunderlag').click();
+  ui.start(ui.byClass('gp-drawing-frame'),300,300);ui.move(340,320);ui.finish(340,320);
+  ui.byClass('gp-drawing-bar').children[2].click();const move=ui.sent.at(-1);
+  ui.data.state.drawing_layout=move.layout;ui.changed();ui.ack(move);
+  assert.deepEqual(ui.data.state.calibration,calibration);assert.match(ui.byClass('gp-status').textContent,/behålls/);
+});
+
+test('Replacement drawing is only a preview until Klar and can be cancelled',async t=>{
+  const ui=setup(t),original=structuredClone(ui.data.state);
+  ui.byText('Redigera ritningsunderlag').click();ui.byText('Uppdatera ritningsunderlag').click();
+  const input=ui.find(e=>e.getAttribute('aria-label')==='Ritningsfil');
+  input.files=[{name:'large.png',size:4,arrayBuffer:async()=>new ArrayBuffer(4)}];await input.listeners.get('change')[0]();
+  const request=ui.sent.at(-1);assert.equal(request.draft,true);
+  ui.ack(request,{drawing_preview:{token:'draft',name:'large.png',background:{...ui.data.background,url:'data:new',source_width:1200,source_height:900},layout:{x:0,y:0,scale:1,canvas_width:800,canvas_height:600}}});
+  assert.equal(ui.byClass('gp-picture').src,'data:new');assert.deepEqual(ui.data.state,original);near(parseFloat(ui.byClass('gp-sheet').style.width),800);
+  ui.byClass('gp-drawing-bar').children[3].click();assert.equal(ui.sent.at(-1).action,'drawing_cancel');
+  assert.equal(ui.byClass('gp-picture').src,'data:test');assert.deepEqual(ui.data.state,original);
+});
+
+test('Global label slider previews preserve the size of locked labels and their leaders', t=>{
+  const ui=setup(t);
+  ui.data.state.placement_locks=[{type:'tag',id:'tag1'}];ui.changed();
+  const before=ui.marker().style['--gp-tag-scale'];
+  const slider=ui.find(e=>e.getAttribute('aria-label')==='Etikettstorlek i procent');
+  slider.value='180';slider.dispatch('input');
+  assert.equal(ui.marker().style['--gp-tag-scale'],before);
+  ui.data.state.placement_locks=[];ui.changed();
+  near(Number(ui.marker().style['--gp-tag-scale']),Number(before)*1.8);
+});
+
+test('Native click on a locked widget cannot override the underlying label selected on pointerup',t=>{
+  const ui=setup(t);referenceFixture(ui);
+  ui.data.state.placement_locks=[{type:'overlay',kind:'reference',page:1}];ui.changed();
+  const widget=ui.byClass('gp-reference-widget');
+  document.elementsFromPoint=()=>[widget,ui.marker()];
+  ui.start(widget,300,300);ui.finish(300,300);
+  widget.dispatch('click',{detail:1,clientX:300,clientY:300});
+  assert.equal(ui.marker().getAttribute('aria-pressed'),'true');
+  assert.equal(ui.byClass('gp-selection-count').title,ui.tag.label);
+  delete document.elementsFromPoint;
+});
+
+test('Underlay mode guards unrelated edits and rejects an empty or invalid scale',t=>{
+  const ui=setup(t);ui.byText('Redigera ritningsunderlag').click();
+  for(const label of ['Öppna projekt','Importera/Uppdatera lasteffekt','Radera samtliga sulor','Referens','Färggruppering'])
+    assert.equal(ui.byText(label).disabled,true,label);
+  const scale=ui.find(e=>e.getAttribute('aria-label')==='Ritningsunderlagets skala i procent');
+  const apply=ui.byClass('gp-drawing-bar').children[2];
+  for(const value of ['', '0', '1100']){
+    scale.value=value;scale.dispatch('input');assert.equal(apply.disabled,true);
+    apply.click();assert.equal(ui.sent.length,0);
+  }
+  scale.value='83.5';scale.dispatch('input');assert.equal(apply.disabled,false);
+  apply.click();assert.equal(ui.sent.at(-1).layout.scale,.835);
 });

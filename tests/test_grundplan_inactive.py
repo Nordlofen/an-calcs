@@ -111,7 +111,7 @@ class TestInactiveFootings(unittest.TestCase):
         ident = self.add(inaktiv=True, kommentar="Sparad kommentar")
         path = self.plan.spara(self.root / "project.json")
         document = json.loads(path.read_text())
-        self.assertEqual(document["version"], 22)
+        self.assertEqual(document["version"], 23)
         with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Calculator called")):
             loaded = Grundplan.oppna(path)
             self.addCleanup(loaded.close)
