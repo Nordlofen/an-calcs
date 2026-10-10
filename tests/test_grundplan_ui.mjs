@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 class Element {
+  get tagName() { return this.tag.toUpperCase(); }
   constructor(tag) {
     this.tag = tag;
     this.children = [];
@@ -193,6 +194,85 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
+
+test('undo and redo icon buttons follow kernel history, pending commands and acknowledgements', t => {
+  const ui = setup(t), undo = ui.byClass('gp-undo'), redo = ui.byClass('gp-redo');
+  assert.equal(undo.disabled, true); assert.equal(redo.disabled, true);
+  assert.equal(undo.textContent, ''); assert.equal(undo.children[0].tag, 'svg');
+  ui.data.state.history = {undo: 'Flytta 5 objekt', redo: null, undo_count: 1, redo_count: 0}; ui.changed();
+  assert.equal(undo.disabled, false); assert.match(undo.getAttribute('aria-description'), /Flytta 5 objekt/);
+  undo.click(); const request = ui.sent.at(-1); assert.equal(request.action, 'undo');
+  assert.equal(undo.disabled, true); assert.equal(redo.disabled, true);
+  ui.data.state.history = {undo: null, redo: 'Flytta 5 objekt', undo_count: 0, redo_count: 1}; ui.changed();
+  assert.equal(redo.disabled, true, 'A second action waits for the first acknowledgment');
+  ui.ack(request, {description: 'Flytta 5 objekt'});
+  assert.equal(redo.disabled, false); assert.equal(document.activeElement, ui.viewport);
+  redo.click(); assert.equal(ui.sent.at(-1).action, 'redo');
+});
+
+for (const modifiers of [{metaKey: true}, {ctrlKey: true}]) test(`undo keyboard shortcut respects native text editing (${Object.keys(modifiers)[0]})`, t => {
+  const ui = setup(t), root = ui.byClass('an-grundplan');
+  ui.data.state.history = {undo: 'Ändra VS1', redo: 'Flytta VS1'}; ui.changed();
+  let prevented = false;
+  ui.marker().click(); const field = ui.field('F_vy'); field.focus();
+  root.dispatch('keydown', {key: 'z', target: field, ...modifiers, preventDefault() {prevented = true;}});
+  assert.equal(prevented, false); assert.equal(ui.sent.length, 0);
+  root.dispatch('keydown', {key: 'z', target: ui.viewport, ...modifiers, preventDefault() {prevented = true;}});
+  assert.equal(prevented, true); assert.equal(ui.sent.at(-1).action, 'undo');
+  ui.ack(ui.sent.at(-1), {description: 'Ändra VS1'});
+  root.dispatch('keydown', {key: 'Z', shiftKey: true, target: ui.viewport, ...modifiers});
+  assert.equal(ui.sent.at(-1).action, 'redo');
+});
+
+test('Ctrl+Y does redo, while pending edits and an active underlay preview block history commands', t => {
+  const ui = setup(t), root = ui.byClass('an-grundplan');
+  ui.data.state.history = {undo: 'Flytta VS1', redo: 'Skala VS1'}; ui.changed();
+  ui.marker().click(); ui.field('F_vy').value = '150'; ui.field('F_vy').dispatch('input');
+  const edit = ui.sent.at(-1);
+  root.dispatch('keydown', {key: 'y', ctrlKey: true, target: ui.viewport}); assert.equal(ui.sent.at(-1), edit);
+  ui.ack(edit); root.dispatch('keydown', {key: 'y', ctrlKey: true, target: ui.viewport});
+  assert.equal(ui.sent.at(-1).action, 'redo'); ui.ack(ui.sent.at(-1), {description: 'Skala VS1'});
+  ui.byText('Redigera ritningsunderlag').click();
+  const count = ui.sent.length;
+  root.dispatch('keydown', {key: 'z', metaKey: true, target: ui.viewport}); assert.equal(ui.sent.length, count);
+  assert.equal(ui.byClass('gp-undo').disabled, true);
+});
+
+test('consecutive typing coalesces within a focused field and a focus boundary starts another step', t => {
+  const ui = setup(t), root = ui.byClass('an-grundplan'); ui.marker().click();
+  const field = ui.field('F_vy'); field.focus(); root.dispatch('focusin', {target: field});
+  field.value = '120'; field.dispatch('input'); const first = ui.sent.at(-1);
+  field.value = '130'; field.dispatch('input'); const second = ui.sent.at(-1);
+  assert.ok(first.history_group); assert.equal(first.history_group, second.history_group);
+  root.dispatch('focusout', {target: field}); root.dispatch('focusin', {target: field});
+  field.value = '140'; field.dispatch('input'); assert.notEqual(ui.sent.at(-1).history_group, first.history_group);
+});
+
+test('history tooltips wait 600 ms, restart on pointer movement and show the current action', t => {
+  const ui = setup(t), tasks = new Map(); let sequence = 0;
+  const originalSet = globalThis.setTimeout, originalClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => {tasks.set(++sequence, {fn, ms}); return sequence;};
+  globalThis.clearTimeout = id => tasks.delete(id);
+  t.after(() => {globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;});
+  ui.data.state.history = {undo: 'Flytta 5 objekt', redo: null}; ui.changed();
+  const control = ui.byClass('gp-history-control'), tooltip = ui.byClass('gp-history-tooltip');
+  control.dispatch('pointerenter'); const first = sequence;
+  assert.equal(tasks.get(first).ms, 600); assert.equal(tooltip.hidden, true);
+  control.dispatch('pointermove'); assert.equal(tasks.has(first), false);
+  tasks.get(sequence).fn(); assert.equal(tooltip.hidden, false); assert.match(tooltip.textContent, /Ångra: Flytta 5 objekt/);
+  ui.data.state.history.undo = 'Radera VS.22'; ui.changed(); assert.match(tooltip.textContent, /Radera VS.22/);
+  control.dispatch('pointerleave'); assert.equal(tooltip.hidden, true);
+  ui.data.state.history.undo = null; ui.changed(); control.dispatch('pointerenter'); tasks.get(sequence).fn();
+  assert.match(tooltip.textContent, /Inget att ångra/);
+});
+
+test('exported read-only views have no project history controls or shortcut interception', t => {
+  const ui = setup(t, {readOnly: true});
+  assert.equal(ui.elements().some(e => e.className.includes('gp-history-button')), false);
+  let prevented = false;
+  ui.byClass('an-grundplan').dispatch('keydown', {key: 'z', ctrlKey: true, target: ui.viewport, preventDefault() {prevented = true;}});
+  assert.equal(prevented, false); assert.equal(ui.sent.length, 0);
+});
 
 function mixedPlacement(t) {
   const ui = setup(t); referenceFixture(ui);

@@ -97,6 +97,41 @@ plan_2
 Sökvägar avser kernelns filsystem och arbetsmapp. PDF-sidor numreras från 1.
 PNG, JPEG, WebP, TIFF (första bildrutan) och BMP stöds också.
 
+## Ångra och gör om
+
+De två runda pilsymbolerna först i verktygsraden är **Ångra** och **Gör om**.
+En grå knapp betyder att det saknas ett steg att återställa. Håll muspekaren
+stilla över knappen i 0,6 sekunder för att se nästa handling och dess
+kortkommando, exempelvis **Ångra: Flytta 5 objekt · ⌘Z**.
+
+- **Cmd + Z** på Mac eller **Ctrl + Z** på Windows/Linux ångrar.
+- **Cmd + Shift + Z** respektive **Ctrl + Shift + Z** gör om.
+- **Ctrl + Y** fungerar också för att göra om.
+
+Kortkommandona gäller när fokus finns i Grundplan. I ett text- eller talfält
+används fältets vanliga textångring. Flera ändringar i samma fält under en
+sammanhängande redigering samlas till ett projektsteg. Klicka på pilsymbolen
+eller flytta fokus till ritningsytan för att ångra hela steget.
+
+Historiken omfattar sulor och deras indata/kommentarer, splines, etiketter,
+widgets, rubriker/datum, skalning, placeringslås, lagerordning, färggruppering,
+ritningsram och måttkalibrering. En avslutad dragning eller gruppflytt är ett
+steg. Ändrad etikettstorlek registreras när reglaget släpps. Panorering, zoom
+och markering lägger inte till steg.
+
+När indata återställs uppdateras beräkningarna. En raderad sula återfår sin
+identitet, kommentar, spline och övriga inställningar. Ångrad skalning eller
+uppdatering av ritningsunderlaget återställer även den tidigare kalibreringen.
+Avsluta först en pågående förhandsvisning med **Klar** eller **Avbryt**.
+
+Upp till 100 steg behålls i den aktuella sessionen. En ny ändring efter
+**Ångra** tar bort stegen i **Gör om**. Att spara behåller historiken;
+**Öppna projekt** och kernelomstart börjar med tom historik. Historiken ingår
+inte i projektfilen, och sparat/exporterat innehåll motsvarar alltid det
+aktuella återställda läget. Ändringar genom Python-API:t börjar också med en
+ny historik. `plan.angra()` och `plan.gor_om()` kan användas för att återställa
+registrerade handlingar från gränssnittet.
+
 ## Arbeta i planvyn
 
 1. Öppna en ritning. Varje Grundplan gäller en enda ritningssida.

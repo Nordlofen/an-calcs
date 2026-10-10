@@ -34,6 +34,7 @@ from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
                                DEFAULT_SETTINGS, DEFAULT_PLACEMENT, contribution, project_results, validate_settings)
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
+from .grundplan_history import History, history_command
 
 
 _ASSETS = Path(__file__).parent
@@ -507,6 +508,7 @@ class Grundplan(anywidget.AnyWidget):
         self._drawing_layout = drawing_layout({}, {})
         self._drawing_preview = None
         self._object_layout = {"scales": {}, "order": []}
+        self._history = History()
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -606,7 +608,9 @@ class Grundplan(anywidget.AnyWidget):
         # Never accept client state as calculation evidence.
         if self._colour["enabled"]:
             self._colour = remember_styles(self._tags, self._colour)
-        self.state = {
+        self._history.observe(self)
+        state = {
+            "history": self._history.state,
             "title": self._title,
             "subtitle": self._subtitle,
             "tags": self.taggar,
@@ -630,6 +634,10 @@ class Grundplan(anywidget.AnyWidget):
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
         }
+        if self._history.in_command:
+            self._history.pending_state = state
+        else:
+            self.state = state
 
     def _set_source(self, data, filename, page=None):
         # Validate/render first; a failed replacement must leave the project intact.
@@ -1667,12 +1675,35 @@ class Grundplan(anywidget.AnyWidget):
         self._initial_page = drawing["page"]
         self._publish()
 
+    def _restore_history_calculations(self, before):
+        for tag in self._tags:
+            previous = before.get("tag:" + tag["id"])
+            if previous is None or any(value != previous["values"].get(name)
+                    for name, value in tag["values"].items() if name not in _TEXT_NAMES and name not in SLIDING_NAMES):
+                self._refresh_tag(tag)
+        self._drawing_preview = None
+        if self._load_import:
+            self._load_import["paused"] = True
+
+    def angra(self):
+        """Ångra senaste UI-handlingen i denna session; återställ beräkningar vid behov."""
+        return self._history.apply(self)
+
+    def gor_om(self):
+        """Gör om den senast ångrade UI-handlingen."""
+        return self._history.apply(self, redo=True)
+
+    @history_command
     def _on_message(self, widget, content, buffers):
         """UI commands; imported files arrive as bytes, save paths are explicit input."""
         reply = {"request": content.get("request"), "view": content.get("view")}
         try:
             action = content["action"]
-            if action == "add":
+            if action == "undo":
+                reply["description"] = self.angra()
+            elif action == "redo":
+                reply["description"] = self.gor_om()
+            elif action == "add":
                 reply["id"] = self.lagg_till(content["x"], content["y"], typ=content["kind"])
             elif action == "copy":
                 reply["id"] = self.kopiera(
@@ -1820,8 +1851,7 @@ class Grundplan(anywidget.AnyWidget):
                     if not self._save_as(content["key"], content.get("state_file"), overwrite=content.get("overwrite") is True):
                         reply.update(ok=False, conflict=True,
                                      error="Det finns redan ett projekt med denna key i filen. Ersätt det sparade projektet?")
-                        self.send(reply)
-                        return
+                        return reply
                     reply.update(saved_file=str(self._state_file), storage=self._storage())
                 elif self._key is not None:
                     reply["saved_file"] = str(self.spara())
@@ -1833,16 +1863,16 @@ class Grundplan(anywidget.AnyWidget):
                 data = self._pdf_bytes()
                 reply.update(ok=True, filename=Path(self._filename).stem + "_med_etiketter.pdf")
                 self.send(reply, buffers=[data])
-                return
+                return None
             elif action == "export_html":
                 data = self._html_bytes()
                 reply.update(ok=True, filename=Path(self._filename).stem + "_resultat.html")
                 self.send(reply, buffers=[data])
-                return
+                return None
             else:
                 raise ValueError("Okänt kommando.")
             reply["ok"] = True
         except Exception as exc:
             # Exceptions in widget callbacks otherwise disappear in kernel logs.
             reply.update(ok=False, error=str(exc) or type(exc).__name__)
-        self.send(reply)
+        return reply

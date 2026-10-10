@@ -504,6 +504,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null, dialogAnchor = null;
   let headingDraft = null;
+  let historyBusy = false, historyEditGroup = null, historyGroupSequence = 0;
   let cropDraft = null, canvasPending = null;
   let drawingDraft = null, drawingPreview = null, drawingPending = false, objectsBusy = false;
   const scaleDrafts = new Map();
@@ -565,9 +566,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   };
   function command(action, payload = {}, buffers = [], onDone) {
     if (readOnly && !["label_size", "calibration", "export_pdf", "table_view", "layout"].includes(action)) return;
+    if (historyBusy && !["undo", "redo"].includes(action)) return;
     const request = ++sequence;
+    const field = document.activeElement;
+    const typing = field?.closest?.(".an-grundplan") === root && (field.tagName?.toLowerCase() === "textarea"
+      || field.tagName?.toLowerCase() === "input" && !["checkbox", "radio", "range", "file", "button"].includes(field.type));
+    const coalesce = typing && (["heading", "sliding", "colour_grouping"].includes(action)
+      || action === "update" && !("x" in payload || "y" in payload)
+      || action === "text_update" && !["x", "y", "size", "width"].some(key => key in payload.changes)
+      || action === "bulk_update" && field.closest(".gp-table-section"));
+    if (coalesce) {
+      const key = action + ":" + (payload.id || payload.ids?.join(",") || "");
+      if (!historyEditGroup || historyEditGroup.field !== field || historyEditGroup.key !== key)
+        historyEditGroup = {field, key, token: view + ":" + ++historyGroupSequence};
+    } else historyEditGroup = null;
     pending.set(request, onDone);
-    model.send({ action, ...payload, request, view }, undefined, buffers);
+    showHistory();
+    model.send({ action, ...payload, ...(coalesce ? {history_group: historyEditGroup.token} : {}), request, view }, undefined, buffers);
   }
   const heading = node("header", "gp-heading");
   const headingText = node("div", "gp-heading-text");
@@ -619,6 +634,82 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const total = node("span", "gp-count");
   heading.append(headingText, total);
   const toolbar = node("div", "gp-toolbar");
+  const historyControls = node("span", "gp-history-controls");
+  const historyTooltip = node("span", "gp-history-tooltip");
+  historyTooltip.id = "gp-history-tooltip-" + view;
+  historyTooltip.setAttribute("role", "tooltip"); historyTooltip.hidden = true;
+  let historyTooltipTimer = null, historyHover = null;
+  const macKeys = /mac|iphone|ipad/i.test(globalThis.navigator?.platform || "");
+  const historyButtons = new Map();
+  function hideHistoryTooltip() {
+    clearTimeout(historyTooltipTimer); historyTooltipTimer = null;
+    historyTooltip.hidden = true;
+    for (const b of historyButtons.values()) b.removeAttribute("aria-describedby");
+  }
+  function historyCaption(action) {
+    const label = action === "undo" ? "Ångra" : "Gör om", description = state().history?.[action];
+    const shortcut = macKeys ? action === "undo" ? "⌘Z" : "⇧⌘Z" : action === "undo" ? "Ctrl+Z" : "Ctrl+Shift+Z / Ctrl+Y";
+    return (description ? label + ": " + description : action === "undo" ? "Inget att ångra" : "Inget att göra om") + " · " + shortcut;
+  }
+  function showHistory() {
+    for (const [action, b] of historyButtons) {
+      b.disabled = !state().history?.[action] || historyBusy || !!pending.size || !!drawingDraft || !!cropDraft
+        || !!canvasPending || !!leaderPlacement || !!panelDrag;
+      b.setAttribute("aria-description", historyCaption(action));
+    }
+    if (historyHover && !historyTooltip.hidden) historyTooltip.textContent = historyCaption(historyHover);
+  }
+  function scheduleHistoryTooltip(action, control) {
+    hideHistoryTooltip(); historyHover = action;
+    historyTooltipTimer = setTimeout(() => {
+      if (disposed || historyHover !== action) return;
+      const rect = control.getBoundingClientRect();
+      historyTooltip.textContent = historyCaption(action);
+      historyTooltip.style.left = Math.max(8, rect.left) + "px";
+      historyTooltip.style.top = rect.top + rect.height + 7 + "px";
+      historyTooltip.hidden = false;
+      historyButtons.get(action).setAttribute("aria-describedby", historyTooltip.id);
+    }, 600);
+  }
+  function runHistory(action) {
+    if (readOnly || historyBusy || pending.size || drawingDraft || cropDraft || canvasPending || leaderPlacement) return;
+    if (drag || panelDrag) {cancelDrag(); endPanelDrag(); showHistory(); return;}
+    if (!state().history?.[action]) return;
+    hideHistoryTooltip(); historyEditGroup = null; historyBusy = true;
+    cancelDrag(); closeDialog(); closeBulk(); setMode("pan"); copySource = null;
+    for (const values of [dirty, drafts, edits, slidingDirty, positions, pendingPositions, overlayPositions,
+      pendingOverlayPositions, leaderDrafts, lockDrafts, scaleDrafts, textDrafts]) values.clear();
+    leaderEdit = leaderNode = null;
+    headingDraft = sizeDraft = slidingDraft = colourDraft = colourEditType = layoutDraft = calibrationDraft = null;
+    insulationWidgetDraft = commentWidgetDraft = referenceWidgetDraft = null;
+    formId = null; bulkSignature = "";
+    command(action, {}, [], reply => {
+      historyBusy = false;
+      update(); viewport.focus({preventScroll: true});
+      showMessage(reply.ok ? (action === "undo" ? "Ångrat: " : "Gjort om: ") + reply.description : reply.error, !reply.ok);
+    });
+  }
+  for (const [action, label] of [["undo", "Ångra"], ["redo", "Gör om"]]) {
+    const control = node("span", "gp-history-control"), b = button("", () => runHistory(action), "gp-history-button gp-" + action);
+    b.setAttribute("aria-label", label);
+    b.setAttribute("aria-keyshortcuts", action === "undo" ? "Meta+Z Control+Z" : "Meta+Shift+Z Control+Shift+Z Control+Y");
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24"); icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M9 4 4 9 9 14 M4 9h10a6 6 0 0 1 0 12h-3");
+    if (action === "redo") path.setAttribute("transform", "translate(24 0) scale(-1 1)");
+    icon.append(path); b.append(icon); control.append(b); historyControls.append(control); historyButtons.set(action, b);
+    for (const event of ["pointerenter", "pointermove", "focusin"])
+      control.addEventListener(event, () => scheduleHistoryTooltip(action, control));
+    for (const event of ["pointerleave", "focusout", "pointerdown"])
+      control.addEventListener(event, () => {historyHover = null; hideHistoryTooltip();});
+  }
+  if (!readOnly) {toolbar.append(historyControls, node("span", "gp-separator")); root.append(historyTooltip);}
+  root.addEventListener("focusin", () => {historyEditGroup = null;});
+  root.addEventListener("focusout", () => {historyEditGroup = null;});
+  root.addEventListener("pointerdown", hideHistoryTooltip, true);
+  root.addEventListener("wheel", hideHistoryTooltip, true);
+  document.addEventListener("scroll", hideHistoryTooltip, true);
   const fileInput = node("input");
   fileInput.type = "file";
   fileInput.accept = ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp";
@@ -4333,6 +4424,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSelection();
     if (editingDrawing) for (const b of [loadEffects, deleteAll, slidingToggle, colourToggle,
       insulationWidgetToggle, commentWidgetToggle, referenceToggle]) b.disabled = true;
+    showHistory();
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -4807,6 +4899,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   root.addEventListener("keydown", (event) => {
     event.stopPropagation();
+    hideHistoryTooltip();
+    const key = String(event.key).toLowerCase();
+    if (!readOnly && (event.metaKey || event.ctrlKey) && !event.altKey
+        && (key === "z" || key === "y" && event.ctrlKey && !event.metaKey)) {
+      const field = event.target.closest("input") || event.target.closest("textarea");
+      if (event.target.isContentEditable || field && !["checkbox", "radio", "range", "file", "button"].includes(field.type)) return;
+      event.preventDefault();
+      runHistory(key === "y" || event.shiftKey ? "redo" : "undo");
+      return;
+    }
     if (!readOnly && leaderEdit && ["Delete", "Backspace"].includes(event.key)
         && !["input", "textarea", "select"].some(selector => event.target.closest(selector))) {
       event.preventDefault();
@@ -4845,8 +4947,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const onDone = pending.get(reply.request);
     pending.delete(reply.request);
     onDone?.(reply, buffers);
+    showHistory();
   }
   const resizeObserver = new ResizeObserver(() => {
+    hideHistoryTooltip();
     showLayout();
     resizeSubtitle();
     renderMeasurement();
@@ -4870,11 +4974,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   update();
   return () => {
     disposed = true;
+    historyHover = null; hideHistoryTooltip();
     endPanelDrag();
     document.removeEventListener("pointerdown", outsideDown, true);
     document.removeEventListener("pointermove", outsideMove, true);
     document.removeEventListener("pointerup", outsideUp, true);
     document.removeEventListener("pointercancel", outsideCancel, true);
+    document.removeEventListener("scroll", hideHistoryTooltip, true);
     resizeObserver.disconnect();
     leaderResizeObserver.disconnect();
     patternObserver.disconnect();
