@@ -188,6 +188,140 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} is close to ${expected}`); }
 
+function mixedPlacement(t) {
+  const ui = setup(t); referenceFixture(ui);
+  ui.data.state.comment_widget = {enabled: true, x: .5, y: .5, size: 410}; ui.changed();
+  const reference = ui.byClass('gp-reference-widget'), comments = ui.byClass('gp-comment-widget');
+  const select = element => {
+    ui.start(element, 300, 300, {shiftKey: true}); ui.finish(300, 300);
+    element.dispatch('click', {detail: 1, shiftKey: true});
+  };
+  select(reference.children[0]); select(comments.children[0]); select(ui.marker());
+  const xy = element => [parseFloat(element.style.left) / 100, parseFloat(element.style.top) / 100];
+  const accept = request => {
+    for (const item of request.objects) {
+      if (item.type === 'tag') Object.assign(ui.tag, {x: item.x, y: item.y});
+      else Object.assign(ui.data.state[item.kind === 'reference' ? 'reference_widget' : 'comment_widget'], {x: item.x, y: item.y});
+    }
+    ui.changed(); ui.ack(request);
+  };
+  return {...ui, reference, comments, select, xy, accept};
+}
+
+test('Shift selects widgets and labels together and a header drag moves them in one atomic request', t => {
+  const ui = mixedPlacement(t), before = structuredClone(ui.data.state);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '3 markerade');
+  assert.match(ui.reference.className, /gp-overlay-selected/); assert.match(ui.comments.className, /gp-overlay-selected/);
+  ui.start(ui.reference.children[0]); ui.move(380, 360); ui.finish(380, 360);
+  const request = ui.sent.at(-1); assert.equal(request.action, 'move_objects'); assert.equal(request.objects.length, 3);
+  assert.deepEqual(ui.position(), [.4, .5]); near(ui.xy(ui.reference)[0], .18); near(ui.xy(ui.comments)[0], .6);
+  assert.deepEqual(ui.data.state, before, 'Preview cannot change engineering inputs or persisted state');
+  ui.accept(request);
+  assert.equal(ui.data.state.reference_widget.size, 410); assert.equal(ui.data.state.comment_widget.size, 410);
+});
+
+test('mixed movement clamps one delta at the drawing edge and cancellation restores every object', t => {
+  const ui = mixedPlacement(t);
+  ui.start(); ui.move(2300, 2300);
+  near(ui.xy(ui.comments)[0], 1); near(ui.xy(ui.reference)[0], .58); near(ui.position()[0], .8);
+  ui.viewport.dispatch('pointercancel');
+  assert.deepEqual(ui.position(), [.3, .4]); assert.deepEqual(ui.xy(ui.reference), [.08, .2]);
+  assert.deepEqual(ui.xy(ui.comments), [.5, .5]); assert.equal(ui.sent.length, 0);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '3 markerade');
+});
+
+test('mixed movement survives delayed replies and rejected moves roll back labels and widgets together', t => {
+  const ui = mixedPlacement(t);
+  ui.drag(80, 60); const first = ui.sent.at(-1);
+  ui.drag(80, 60); const second = ui.sent.at(-1);
+  ui.accept(first); near(ui.xy(ui.reference)[0], .28); near(ui.position()[0], .5);
+  ui.accept(second); near(ui.xy(ui.comments)[0], .7);
+  ui.drag(80, 60); ui.ack(ui.sent.at(-1), {ok: false, error: 'Avvisad'});
+  near(ui.xy(ui.reference)[0], .28); near(ui.position()[0], .5); near(ui.xy(ui.comments)[0], .7);
+});
+
+test('a shared placement lock acts immediately, pans over locked objects and unlocks them together', t => {
+  const ui = mixedPlacement(t), before = structuredClone(ui.tag);
+  ui.byText('Lås placering').click(); const lock = ui.sent.at(-1);
+  assert.equal(lock.action, 'placement_lock'); assert.equal(lock.objects.length, 3); assert.equal(lock.locked, true);
+  assert.match(ui.reference.className, /gp-placement-locked/); assert.match(ui.marker().className, /gp-placement-locked/);
+  const sheet = ui.byClass('gp-sheet'), left = parseFloat(sheet.style.left);
+  ui.drag(80, 60); near(parseFloat(sheet.style.left), left + 80);
+  ui.start(ui.reference.children[0]); ui.move(380, 360); ui.finish(380, 360);
+  assert.equal(ui.sent.length, 1); assert.deepEqual(ui.position(), [.3, .4]); assert.deepEqual(ui.xy(ui.reference), [.08, .2]);
+  ui.data.state.placement_locks = lock.objects; ui.changed(); ui.ack(lock);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '3 markerade · 3 låsta');
+  ui.byText('Lås upp').click(); const unlock = ui.sent.at(-1); assert.equal(unlock.locked, false);
+  ui.drag(80, 60); assert.equal(ui.sent.at(-1).action, 'move_objects');
+  assert.deepEqual(ui.tag, before, 'Locks and movement cannot edit calculations');
+});
+
+test('locked members stay in place when other members move and locked keyboard nudges are ignored', t => {
+  const ui = mixedPlacement(t);
+  ui.data.state.placement_locks = [{type: 'overlay', kind: 'comments', page: 1}]; ui.changed();
+  ui.drag(80, 60); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'move_objects'); assert.equal(request.objects.length, 2);
+  assert.deepEqual(ui.xy(ui.comments), [.5, .5]);
+  ui.comments.children[0].dispatch('keydown', {key: 'ArrowRight'});
+  assert.equal(ui.sent.at(-1), request);
+  ui.select(ui.comments.children[0]); ui.comments.children[0].click();
+  ui.comments.children.at(-1).dispatch('keydown', {key: '+'});
+  assert.equal(ui.sent.at(-1).action, 'comment_placement');
+  near(ui.sent.at(-1).position.x, .5); assert.equal(ui.sent.at(-1).position.size, 415);
+});
+
+test('marquee can select widgets with labels, and Escape clears the whole mixed selection', t => {
+  const ui = mixedPlacement(t); ui.byText('Avmarkera').click();
+  ui.reference.getBoundingClientRect = () => ({left: 40, top: 40, width: 100, height: 100});
+  ui.comments.getBoundingClientRect = () => ({left: 500, top: 400, width: 100, height: 100});
+  ui.start(ui.byClass('gp-picture'), 20, 20, {shiftKey: true}); ui.move(420, 350); ui.finish(420, 350);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '2 markerade');
+  assert.match(ui.reference.className, /gp-overlay-selected/); assert.doesNotMatch(ui.comments.className, /gp-overlay-selected/);
+  ui.byClass('an-grundplan').dispatch('keydown', {key: 'Escape'});
+  assert.equal(ui.byClass('gp-selection-bar').hidden, true); assert.doesNotMatch(ui.reference.className, /gp-overlay-selected/);
+});
+
+test('heading and date widgets join mixed movement and locking without editing their text', t => {
+  const ui = mixedPlacement(t);
+  ui.data.state.text_objects = [{id: 'date', kind: 'date', text: '26/10/10', subtitle: '', x: .7, y: .1, size: 18}];
+  ui.changed(); const text = ui.byClass('gp-annotation-text'); ui.select(text);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '4 markerade');
+  ui.drag(80, 60); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'move_objects'); assert.equal(request.objects.length, 4);
+  const item = request.objects.find(item => item.kind === 'text:date'); near(item.x, .8); near(item.y, .2);
+  assert.equal(ui.data.state.text_objects[0].text, '26/10/10');
+  ui.byText('Lås placering').click();
+  assert.ok(ui.sent.at(-1).objects.some(item => item.kind === 'text:date'));
+});
+
+test('keyboard nudges on a selected widget move the whole mixed selection', t => {
+  const ui = mixedPlacement(t);
+  ui.reference.children[0].dispatch('keydown', {key: 'ArrowRight', shiftKey: true});
+  const request = ui.sent.at(-1); assert.equal(request.action, 'move_objects'); assert.equal(request.objects.length, 3);
+  near(ui.position()[0], .3 + 20 / 800); near(ui.xy(ui.reference)[0], .08 + 20 / 800);
+  near(ui.xy(ui.comments)[0], .5 + 20 / 800);
+});
+
+test('a delayed lock reply cannot restore a lock after a newer unlock and rejection restores saved locks', t => {
+  const ui = mixedPlacement(t);
+  ui.byText('Lås placering').click(); const lock = ui.sent.at(-1);
+  ui.byText('Lås upp').click(); const unlock = ui.sent.at(-1);
+  ui.data.state.placement_locks = lock.objects; ui.changed(); ui.ack(lock);
+  assert.doesNotMatch(ui.reference.className, /gp-placement-locked/);
+  ui.ack(unlock, {ok: false, error: 'Upplåsningen avvisades'});
+  assert.match(ui.reference.className, /gp-placement-locked/);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '3 markerade · 3 låsta');
+});
+
+test('Shift selecting a widget includes the label whose input dialog is open', t => {
+  const ui = setup(t); referenceFixture(ui); ui.marker().click();
+  assert.equal(ui.byClass('gp-dialog').hidden, false);
+  ui.start(ui.byClass('gp-reference-widget').children[0], 300, 300, {shiftKey: true}); ui.finish(300, 300);
+  assert.equal(ui.byClass('gp-dialog').hidden, true);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '2 markerade');
+  assert.match(ui.marker().className, /gp-multi-selected/);
+});
+
 const sampleLeader = () => ({enabled: true, attachment: {side: "left", offset: .5},
   nodes: [{x: .1, y: .7, in: {x: 0, y: 0}, out: {x: .1, y: .03}},
     {x: .2, y: .5, in: {x: -.05, y: .1}, out: {x: .05, y: -.1}}], end_handle: {x: -.08, y: 0}});

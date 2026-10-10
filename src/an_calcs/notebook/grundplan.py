@@ -23,13 +23,14 @@ from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
 from .grundplan_types import footing_type, infer_type, validate_model
+from .grundplan_placement import object_key, validate_objects
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
-                               DEFAULT_SETTINGS, contribution, project_results, validate_settings)
+                               DEFAULT_SETTINGS, DEFAULT_PLACEMENT, contribution, project_results, validate_settings)
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 
 
@@ -496,6 +497,7 @@ class Grundplan(anywidget.AnyWidget):
         self._comment_widget = copy.deepcopy(_COMMENT_WIDGET_DEFAULTS)
         self._reference_widget = copy.deepcopy(DEFAULT_REFERENCE)
         self._text_objects = []
+        self._placement_locks = {}
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -610,6 +612,7 @@ class Grundplan(anywidget.AnyWidget):
             "reference_widget": self.referens,
             "reference_data": self.referensgrupper,
             "text_objects": self.textobjekt,
+            "placement_locks": self.placeringslas,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -623,6 +626,9 @@ class Grundplan(anywidget.AnyWidget):
         self._gliding["placements"] = {str(rendered["page"]): placements} if placements else {}
         for tag in self._tags:
             tag["page"] = rendered["page"]
+        self._placement_locks = {
+            object_key(updated): updated for item in self._placement_locks.values()
+            for updated in [{**item, "page": rendered["page"]} if item["type"] == "overlay" else item]}
         self._source = bytes(data)
         self._filename = Path(filename).name
         self._calibration = None
@@ -834,6 +840,8 @@ class Grundplan(anywidget.AnyWidget):
                 raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras; avmarkera Inaktiv för att ändra littera.")
         for name, value in (("x", x), ("y", y)):
             if value is not None:
+                if value != tag[name]:
+                    self._assert_placement_unlocked({"type": "tag", "id": tagg})
                 if not 0 <= _number(value, name) <= 1:
                     raise ValueError(f"{name} måste ligga mellan 0 och 1.")
                 updated[name] = value
@@ -860,12 +868,65 @@ class Grundplan(anywidget.AnyWidget):
                 raise ValueError("Etiketternas id måste vara unika.")
             ids.add(ident)
             tag = self._tag(ident)
+            self._assert_placement_unlocked({"type": "tag", "id": ident})
             coords = {axis: _number(position[axis], axis) for axis in ("x", "y")}
             if any(not 0 <= value <= 1 for value in coords.values()):
                 raise ValueError("Etiketternas positioner måste ligga inom ritningen.")
             validated.append((tag, coords))
         for tag, coords in validated:
             tag.update(coords)
+        self._publish()
+
+    @property
+    def placeringslas(self):
+        """Låsta etiketter/widgets; lås påverkar inte indata, storlek eller beräkningar."""
+        return [copy.deepcopy(self._placement_locks[key]) for key in sorted(self._placement_locks)]
+
+    def _assert_placement_unlocked(self, item):
+        if object_key(item) in self._placement_locks:
+            raise ValueError("Placeringen är låst. Lås upp objektet före förflyttning.")
+
+    def las_placering(self, objekt, *, last=True):
+        """Lås eller lås upp markerade etiketter och widgets i en gemensam begäran."""
+        if type(last) is not bool:
+            raise ValueError("last måste vara True eller False.")
+        objects = validate_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
+        for item in objects:
+            key = object_key(item)
+            if last:
+                self._placement_locks[key] = item
+            else:
+                self._placement_locks.pop(key, None)
+        self._publish()
+
+    def _guard_overlay_position(self, kind, before, changes, page=None):
+        if any(axis in changes and changes[axis] != before.get(axis) for axis in ("x", "y")):
+            self._assert_placement_unlocked({"type": "overlay", "kind": kind,
+                                            "page": self.background.get("page") if page is None else page})
+
+    def flytta_objekt(self, placeringar):
+        """Flytta etiketter och widgets atomärt utan att beräkna om någon sula."""
+        objects = validate_objects(placeringar, self._tags, self._text_objects,
+                                   self.background.get("page"), coordinates=True)
+        for item in objects:
+            self._assert_placement_unlocked(item)
+        for item in objects:
+            coords = {axis: item[axis] for axis in ("x", "y")}
+            if item["type"] == "tag":
+                self._tag(item["id"]).update(coords)
+                continue
+            kind = item["kind"]
+            if kind.startswith("text:"):
+                next(text for text in self._text_objects if text["id"] == kind[5:]).update(coords)
+            elif kind == "colour":
+                self._colour["legend"].update(coords)
+            elif kind in {"insulation", "comments", "reference"}:
+                target = {"insulation": self._insulation_widget, "comments": self._comment_widget,
+                          "reference": self._reference_widget}[kind]
+                target.update(coords)
+            else:
+                placements = self._gliding["placements"].setdefault(str(item["page"]), {})
+                placements.setdefault(kind, copy.deepcopy(DEFAULT_PLACEMENT[kind])).update(coords)
         self._publish()
 
     def hanvisningslinje(self, tagg, linje):
@@ -968,12 +1029,14 @@ class Grundplan(anywidget.AnyWidget):
         self._tag(tagg)
         self._tags = [tag for tag in self._tags if tag["id"] != tagg]
         self._details.pop(tagg, None)
+        self._placement_locks.pop("tag:" + tagg, None)
         self._publish()
 
     def ta_bort_samtliga(self):
         """Radera alla sulor och avbryt eventuell placeringskö."""
         count = len(self._tags)
         self._tags.clear()
+        self._placement_locks = {key: item for key, item in self._placement_locks.items() if item["type"] != "tag"}
         self._details.clear()
         self._load_import = None
         self._publish()
@@ -997,6 +1060,11 @@ class Grundplan(anywidget.AnyWidget):
         settings = validate_settings({**self._gliding, **changes}, self.background.get("page_count"))
         for page in settings["placements"]:
             self._view_page(int(page))
+        for page in self._gliding["placements"].keys() | settings["placements"].keys():
+            for kind in ("symbol", "legend"):
+                before = self._gliding["placements"].get(page, {}).get(kind, DEFAULT_PLACEMENT[kind])
+                position = settings["placements"].get(page, {}).get(kind, DEFAULT_PLACEMENT[kind])
+                self._guard_overlay_position(kind, before, position, int(page))
         self._gliding = settings
         self._publish()
 
@@ -1020,7 +1088,9 @@ class Grundplan(anywidget.AnyWidget):
         for name in ("bounds", "colors", "styles", "legend"):
             if name in changes and isinstance(changes[name], dict):
                 settings[name] = {**self._colour[name], **changes[name]}
-        self._colour = validate_colour(settings)
+        settings = validate_colour(settings)
+        self._guard_overlay_position("colour", self._colour["legend"], settings["legend"])
+        self._colour = settings
         self._publish()
 
     @property
@@ -1067,6 +1137,7 @@ class Grundplan(anywidget.AnyWidget):
     def isoleringswidget(self, changes):
         if not isinstance(changes, dict):
             raise ValueError("Isoleringswidget anges som en dict.")
+        self._guard_overlay_position("insulation", self._insulation_widget, changes)
         self._insulation_widget = _insulation_widget({**self._insulation_widget, **changes})
         self._publish()
 
@@ -1079,6 +1150,7 @@ class Grundplan(anywidget.AnyWidget):
     def kommentarwidget(self, changes):
         if not isinstance(changes, dict):
             raise ValueError("Kommentarwidget anges som en dict.")
+        self._guard_overlay_position("comments", self._comment_widget, changes)
         self._comment_widget = _comment_widget({**self._comment_widget, **changes})
         self._publish()
 
@@ -1091,6 +1163,7 @@ class Grundplan(anywidget.AnyWidget):
     def referens(self, changes):
         if not isinstance(changes, dict):
             raise ValueError("Referens anges som en dict.")
+        self._guard_overlay_position("reference", self._reference_widget, changes)
         self._reference_widget = validate_reference({**self._reference_widget, **changes})
         self._publish()
 
@@ -1143,6 +1216,8 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Ändra text, subtitle, x, y, size eller width för textobjektet.")
         if not any(item["id"] == ident for item in self._text_objects):
             raise ValueError("Textobjektet finns inte.")
+        before = next(item for item in self._text_objects if item["id"] == ident)
+        self._guard_overlay_position("text:" + ident, before, changes)
         self._text_objects = validate_text_objects([
             {**item, **changes} if item["id"] == ident else item for item in self._text_objects])
         self._publish()
@@ -1151,6 +1226,7 @@ class Grundplan(anywidget.AnyWidget):
         if not any(item["id"] == ident for item in self._text_objects):
             raise ValueError("Textobjektet finns inte.")
         self._text_objects = [item for item in self._text_objects if item["id"] != ident]
+        self._placement_locks.pop(f"overlay:{self.background['page']}:text:{ident}", None)
         self._publish()
 
     @property
@@ -1206,7 +1282,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 20,
+            "version": 21,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1220,6 +1296,7 @@ class Grundplan(anywidget.AnyWidget):
             "comment_widget": self.kommentarwidget,
             "reference_widget": self.referens,
             "text_objects": self.textobjekt,
+            "placement_locks": self.placeringslas,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -1321,7 +1398,7 @@ class Grundplan(anywidget.AnyWidget):
                       "insulation_widget": self.isoleringswidget,
                       "comment_widget": self.kommentarwidget,
                       "reference_widget": self.referens, "reference_data": self.referensgrupper,
-                      "text_objects": self.textobjekt},
+                      "text_objects": self.textobjekt, "placement_locks": self.placeringslas},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1369,8 +1446,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 21):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–20.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 22):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–21.")
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1449,6 +1526,8 @@ class Grundplan(anywidget.AnyWidget):
             except (ValueError, ArithmeticError) as exc:
                 tag.update(status="error", error=str(exc))
             valid_tags.append(tag)
+        locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
+                                 drawing["page"], allow_empty=True)
         # Replace the current project only after the entire input is validated.
         self._source = source
         self._filename = Path(drawing["name"]).name
@@ -1464,6 +1543,7 @@ class Grundplan(anywidget.AnyWidget):
         self._comment_widget = comment_widget
         self._reference_widget = reference_widget
         self._text_objects = text_objects
+        self._placement_locks = {object_key(item): item for item in locks}
         self._tags = valid_tags
         self._load_import = None
         self._details = details_by_id
@@ -1499,6 +1579,10 @@ class Grundplan(anywidget.AnyWidget):
                 )
             elif action == "move_tags":
                 self.flytta_flera(content["positions"])
+            elif action == "move_objects":
+                self.flytta_objekt(content["objects"])
+            elif action == "placement_lock":
+                self.las_placering(content["objects"], last=content["locked"])
             elif action == "leader":
                 self.hanvisningslinje(content["id"], content["leader"])
             elif action == "calculate":

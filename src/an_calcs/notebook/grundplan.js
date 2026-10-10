@@ -500,6 +500,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const leaderElements = new Map();
   let leaderClipSequence = 0;
   let slidingDraft = null, overlaySelected = null;
+  const selectedOverlays = new Set(), lockDrafts = new Map();
+  let overlayClickHandled = null;
   let colourDraft = null, colourEditType = null;
   let insulationWidgetDraft = null;
   let commentWidgetDraft = null, referenceWidgetDraft = null;
@@ -875,10 +877,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const editMany = button("Ändra markerade", openBulk, "gp-primary");
   const clearMany = button("Avmarkera", () => {
     if (bulkBusy) return;
-    selected.clear(); tableAnchor = null; bulkSignature = ""; closeBulk(); renderMarkers(); showSelection();
+    selected.clear(); selectedOverlays.clear(); overlaySelected = null;
+    tableAnchor = null; bulkSignature = ""; closeBulk(); renderMarkers(); renderSlidingGeometry(); showSelection();
   });
+  const lockMany = button("Lås placering", () => setPlacementLock(true));
+  const unlockMany = button("Lås upp", () => setPlacementLock(false));
   selectionBar.append(selectionCount);
-  if (!readOnly) selectionBar.append(editMany);
+  if (!readOnly) selectionBar.append(editMany, lockMany, unlockMany);
   selectionBar.append(clearMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
@@ -967,6 +972,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         textAddBusy = false;
         if (reply.ok) overlaySelected = "text:" + reply.id;
         showTextObjects();
+        if (reply.ok) chooseOverlay("text:" + reply.id);
         if (reply.ok) showMessage((kind === "heading" ? "Rubrik och underrubrik kopierade till ritningen." : "Datum tillagt.")
           + " Dra texten för att flytta, dra hörnet för att skala och klicka på Redigera för att ändra texten.");
       });
@@ -1145,7 +1151,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const overlays = node("div", "gp-overlays");
   const axesOverlay = node("div", "gp-sliding-overlay gp-global-axes");
   axesOverlay.dataset.kind = "symbol";
-  const axesButton = button("", () => { overlaySelected = "symbol"; renderSlidingGeometry(); }, "gp-axis-symbol gp-sliding-handle");
+  const axesButton = button("", event => selectOverlayClick("symbol", event), "gp-axis-symbol gp-sliding-handle");
   axesButton.setAttribute("aria-label", "Globalt koordinatsystem: X_g åt höger, Y_g uppåt." + (readOnly ? "" : " Dra för att flytta."));
   const svgNode = (name, attributes, text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -1214,8 +1220,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const slidingLegend = node("section", "gp-sliding-overlay gp-sliding-legend");
   slidingLegend.dataset.kind = "legend";
   slidingLegend.setAttribute("aria-label", "Globala glidningsresultat");
-  const slidingHeader = button("Glidningskontroll", () => {
-    if (!readOnly) { overlaySelected = "legend"; renderSlidingGeometry(); }
+  const slidingHeader = button("Glidningskontroll", event => {
+    selectOverlayClick("legend", event);
   }, "gp-sliding-header gp-sliding-handle");
   slidingHeader.title = readOnly ? "Globala glidningsresultat" : "Dra rubriken för att flytta resultatrutan";
   slidingHeader.setAttribute("aria-label", "Glidningskontroll." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
@@ -1224,66 +1230,56 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const legendResize = button("", () => {}, "gp-overlay-resize gp-legend-resize");
   legendResize.setAttribute("aria-label", "Ändra glidningsrutans storlek. Dra hörnet eller använd plus och minus.");
   legendResize.title = "Dra hörnet för att förstora eller förminska hela rutan proportionellt";
-  slidingLegend.addEventListener("click", () => {
-    if (!readOnly) { overlaySelected = "legend"; renderSlidingGeometry(); }
-  });
+  slidingLegend.addEventListener("click", event => selectOverlayBody("legend", event));
   slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
   const colourLegend = node("section", "gp-sliding-overlay gp-colour-legend");
   colourLegend.dataset.kind = "colour";
   colourLegend.setAttribute("aria-label", "Legend för färggruppering");
-  const colourHeader = button("Färggruppering", () => {
-    if (!readOnly) {overlaySelected = "colour"; renderSlidingGeometry();}
+  const colourHeader = button("Färggruppering", event => {
+    selectOverlayClick("colour", event);
   }, "gp-sliding-header gp-sliding-handle");
   colourHeader.setAttribute("aria-label", "Färggruppering." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
   const colourLegendBody = node("div", "gp-colour-legend-body");
   const colourResize = button("", () => {}, "gp-overlay-resize gp-colour-resize");
   colourResize.setAttribute("aria-label", "Ändra färglegendens storlek. Dra hörnet eller använd plus och minus.");
   colourResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
-  colourLegend.addEventListener("click", () => {
-    if (!readOnly) {overlaySelected = "colour"; renderSlidingGeometry();}
-  });
+  colourLegend.addEventListener("click", event => selectOverlayBody("colour", event));
   colourLegend.append(colourHeader, colourLegendBody, colourResize);
   const insulationLegend = node("section", "gp-sliding-overlay gp-insulation-widget");
   insulationLegend.dataset.kind = "insulation"; insulationLegend.setAttribute("aria-label", "Isolering – sammanställning av sulor");
-  const insulationHeader = button("Isolering", () => {
-    if (!readOnly) {overlaySelected = "insulation"; renderSlidingGeometry();}
+  const insulationHeader = button("Isolering", event => {
+    selectOverlayClick("insulation", event);
   }, "gp-sliding-header gp-sliding-handle");
   insulationHeader.setAttribute("aria-label", "Isolering." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
   const insulationBody = node("div", "gp-insulation-widget-body");
   const insulationResize = button("", () => {}, "gp-overlay-resize gp-insulation-resize");
   insulationResize.setAttribute("aria-label", "Ändra isoleringswidgetens storlek. Dra hörnet eller använd plus och minus.");
   insulationResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
-  insulationLegend.addEventListener("click", () => {
-    if (!readOnly) {overlaySelected = "insulation"; renderSlidingGeometry();}
-  });
+  insulationLegend.addEventListener("click", event => selectOverlayBody("insulation", event));
   insulationLegend.append(insulationHeader, insulationBody, insulationResize);
   const commentLegend = node("section", "gp-sliding-overlay gp-sliding-legend gp-comment-widget");
   commentLegend.dataset.kind = "comments"; commentLegend.setAttribute("aria-label", "Kommentarer – sammanställning av sulor");
-  const commentHeader = button("Kommentarer", () => {
-    if (!readOnly) {overlaySelected = "comments"; renderSlidingGeometry();}
+  const commentHeader = button("Kommentarer", event => {
+    selectOverlayClick("comments", event);
   }, "gp-sliding-header gp-sliding-handle");
   commentHeader.setAttribute("aria-label", "Kommentarer." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
   const commentBody = node("div", "gp-comment-widget-body");
   const commentResize = button("", () => {}, "gp-overlay-resize gp-comment-resize");
   commentResize.setAttribute("aria-label", "Ändra kommentarwidgetens storlek. Dra hörnet eller använd plus och minus.");
   commentResize.title = "Dra hörnet för att förstora eller förminska proportionellt";
-  commentLegend.addEventListener("click", () => {
-    if (!readOnly) {overlaySelected = "comments"; renderSlidingGeometry();}
-  });
+  commentLegend.addEventListener("click", event => selectOverlayBody("comments", event));
   commentLegend.append(commentHeader, commentBody, commentResize);
   const referenceLegend = node("section", "gp-sliding-overlay gp-sliding-legend gp-reference-widget");
   referenceLegend.dataset.kind = "reference";
   referenceLegend.setAttribute("aria-label", "Referens – automatiska grupper för Foundation");
-  const referenceHeader = button("Referens", () => {
-    if (!readOnly) {overlaySelected = "reference"; renderSlidingGeometry();}
+  const referenceHeader = button("Referens", event => {
+    selectOverlayClick("reference", event);
   }, "gp-sliding-header gp-sliding-handle");
   referenceHeader.setAttribute("aria-label", "Referens." + (readOnly ? "" : " Dra för att flytta eller använd piltangenterna."));
   const referenceBody = node("div", "gp-reference-body");
   const referenceResize = button("", () => {}, "gp-overlay-resize");
   referenceResize.setAttribute("aria-label", "Ändra Referensens storlek. Dra hörnet eller använd plus och minus.");
-  referenceLegend.addEventListener("click", () => {
-    if (!readOnly) {overlaySelected = "reference"; renderSlidingGeometry();}
-  });
+  referenceLegend.addEventListener("click", event => selectOverlayBody("reference", event));
   referenceLegend.append(referenceHeader, referenceBody, referenceResize);
   overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend, referenceLegend);
   sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
@@ -1425,7 +1421,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     legend.append(item);
   }
   const help = node("p", "gp-help",
-    "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Shift + vänsterdrag ritar en urvalsruta. Shift + drag eller Shift + klick lägger till omarkerade etiketter och avmarkerar markerade. Dra direkt i en etikett för att flytta den. Klicka för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
+    "Dra i ritningen med vänster eller höger musknapp för att panorera. Shift + scroll zoomar vid muspekaren. Shift + klick eller Shift + vänsterdrag markerar etiketter och widgets tillsammans. Dra en markerad etikett eller widgetrubrik för gemensam förflyttning. Lås placering skyddar urvalet; dragning på låsta objekt panorerar ritningen. Klicka på en etikett för indata och Kopiera sula. Klicka utanför rutan för att minimera. Etiketterna följer ritningens zoom.");
   const tableSection = node("section", "gp-table-section");
   const tableHeader = node("header", "gp-table-heading");
   const tableCount = node("span", "gp-table-count");
@@ -1653,7 +1649,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           sketchStates.clear();
           areaPhases.clear();
           headingDraft = null;
-          slidingDraft = null; overlaySelected = null;
+          slidingDraft = null; overlaySelected = null; selectedOverlays.clear(); lockDrafts.clear();
           colourDraft = null; colourEditType = null; colourError.textContent = "";
           tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null; referenceWidgetDraft = null;
           textDrafts.clear(); textDeleting.clear(); textAddBusy = false;
@@ -2237,8 +2233,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (resize && ["+", "=", "-"].includes(event.key)) {
         p.size = overlaySize(kind, p.size + (event.key === "-" ? -step : step));
       } else if (!resize && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
-        p.x = Math.max(0, Math.min(1, p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0) / background().width));
-        p.y = Math.max(0, Math.min(1, p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) / background().height));
+        event.preventDefault();
+        const starts = movementStarts(overlayObject(kind));
+        moveObjects(starts, (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0) / background().width,
+          (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) / background().height);
+        saveObjectPositions(starts); return;
       } else return;
       event.preventDefault();
       saveOverlayPosition(kind, background().page, p);
@@ -2294,7 +2293,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           element.append(tools, resize);
           Object.assign(entry, {editor, subtitleEditor, tools, remove});
           text.title = "Dra för att flytta. Dubbelklicka eller välj Redigera för att ändra texten.";
-          text.addEventListener("click", () => {overlaySelected = kind; renderSlidingGeometry();});
+          text.addEventListener("click", event => selectOverlayClick(kind, event));
           text.addEventListener("dblclick", () => edit.click());
           for (const field of [editor, subtitleEditor].filter(Boolean)) {
             field.addEventListener("input", () => {
@@ -2337,7 +2336,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : kind === "reference" ? !referenceWidget().enabled : !sliding().enabled) || !background().url;
       element.style.left = p.x * 100 + "%";
       element.style.top = p.y * 100 + "%";
-      element.classList.toggle("gp-overlay-selected", !readOnly && overlaySelected === kind);
+      element.classList.toggle("gp-overlay-selected", !readOnly && (selectedOverlays.has(kind) || overlaySelected === kind));
+      element.classList.toggle("gp-placement-locked", !readOnly && placementLocked(overlayObject(kind)));
       if (kind === "symbol") {
         element.style.width = element.style.height = p.size * zoom + "px";
         axesResize.hidden = readOnly || overlaySelected !== "symbol";
@@ -2356,7 +2356,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       entry.element.hidden = !background().url;
       entry.element.style.left = p.x * 100 + "%"; entry.element.style.top = p.y * 100 + "%";
       entry.element.style.transform = "scale(" + scale + ")";
-      entry.element.classList.toggle("gp-overlay-selected", selected);
+      entry.element.classList.toggle("gp-overlay-selected", !readOnly && (selectedOverlays.has(kind) || overlaySelected === kind));
+      entry.element.classList.toggle("gp-placement-locked", !readOnly && placementLocked(overlayObject(kind)));
       if (!selected) entry.editing = false;
       entry.text.hidden = entry.editing;
       entry.resize.hidden = !selected || entry.editing;
@@ -2475,7 +2476,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (bulkBusy || deleteBusy) return;
     closeBulk();
     leaderEdit = leaderNode = null;
-    if (!readOnly) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); }
+    if (!readOnly) { selected.clear(); selectedOverlays.clear(); overlaySelected = null;
+      tableAnchor = null; bulkSignature = ""; renderSlidingGeometry(); showSelection(); }
     active = tag.id;
     formId = null;
     update();
@@ -2609,13 +2611,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         marker.dataset.colourGroup = group.key;
       } else if (colour().enabled) marker.style.setProperty("--gp-tag-bg", "#ffffff");
       marker.title = readOnly ? "Klicka för indata och resultat · Shift + klick markerar raden i tabellen"
-        : selected.has(tag.id) && selected.size > 1 ? "Dra för att flytta alla " + selected.size + " markerade etiketter tillsammans"
+        : placementLocked({type: "tag", id: tag.id}) ? "Placering låst · dra för att panorera · klicka för indata"
+        : selected.has(tag.id) && selected.size + selectedOverlays.size > 1 ? "Dra för att flytta urvalets upplåsta etiketter och widgets tillsammans"
         : "Dra för att flytta · klicka för indata och kopiering";
       const position = positions.get(tag.id) || tag;
       marker.style.left = position.x * 100 + "%";
       marker.style.top = position.y * 100 + "%";
       marker.classList.toggle("gp-active", active === tag.id);
       marker.classList.toggle("gp-multi-selected", selected.has(tag.id));
+      marker.classList.toggle("gp-placement-locked", !readOnly && placementLocked({type: "tag", id: tag.id}));
       marker.setAttribute("aria-pressed", String(selected.has(tag.id)));
       if (inactive) {
         const heading = node("span", "gp-tag-heading");
@@ -3110,15 +3114,118 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   const loadTypeFields = new Set(["L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function selectionTags() { return state().tags.filter(tag => selected.has(tag.id)); }
+  function overlayObject(kind) { return {type: "overlay", kind, page: background().page}; }
+  function placementKey(object) {
+    return object.type === "tag" ? "tag:" + object.id : "overlay:" + object.page + ":" + object.kind;
+  }
+  function placementLocked(object) {
+    const key = placementKey(object);
+    return lockDrafts.get(key)?.locked ?? (state().placement_locks || []).some(item => placementKey(item) === key);
+  }
+  function visibleOverlays() { return [...overlays.children].filter(element => !element.hidden); }
+  function selectionObjects() {
+    const kinds = new Set(visibleOverlays().map(element => element.dataset.kind));
+    return [...selectionTags().filter(tag => tag.page === background().page).map(tag => ({type: "tag", id: tag.id})),
+      ...[...selectedOverlays].filter(kind => kinds.has(kind)).map(overlayObject)];
+  }
+  function chooseOverlay(kind, toggle = false) {
+    if (readOnly || bulkBusy) return;
+    if (toggle && active) selected.add(active);
+    closeDialog(); closeBulk();
+    if (toggle) {
+      if (selectedOverlays.has(kind)) selectedOverlays.delete(kind); else selectedOverlays.add(kind);
+    } else if (!selectedOverlays.has(kind)) {
+      selected.clear(); selectedOverlays.clear(); selectedOverlays.add(kind);
+    }
+    overlaySelected = selectedOverlays.has(kind) ? kind : null;
+    bulkSignature = ""; tableAnchor = null;
+    renderMarkers(); renderSlidingGeometry(); showSelection();
+  }
+  function selectOverlayClick(kind, event) {
+    if (readOnly) return;
+    // A pointer gesture already handled selection on pointerup. Keyboard clicks
+    // still select here; body clicks are handled by their enclosing widget.
+    if (event?.detail && overlayClickHandled === kind) {overlayClickHandled = null; return;}
+    chooseOverlay(kind, !!(event?.shiftKey || event?.ctrlKey || event?.metaKey));
+  }
+  function selectOverlayBody(kind, event) {
+    if (event.target.closest(".gp-sliding-handle") || event.target.closest(".gp-overlay-resize")) return;
+    selectOverlayClick(kind, event);
+  }
+  function setPlacementLock(locked) {
+    const objects = selectionObjects();
+    if (readOnly || bulkBusy || !objects.length) return;
+    cancelDrag();
+    const draft = {locked};
+    for (const object of objects) lockDrafts.set(placementKey(object), draft);
+    renderMarkers(); renderSlidingGeometry(); showSelection();
+    command("placement_lock", {objects, locked}, [], reply => {
+      for (const object of objects) if (lockDrafts.get(placementKey(object)) === draft) lockDrafts.delete(placementKey(object));
+      renderMarkers(); renderSlidingGeometry(); showSelection();
+      if (reply.ok) showMessage(objects.length + (locked ? " objekt har låst placering." : " objekt har upplåst placering."));
+    });
+  }
+  function movementStarts(object) {
+    const selectedObject = object.type === "tag" ? selected.has(object.id) : selectedOverlays.has(object.kind);
+    const objects = placementLocked(object) ? [] : selectedObject ? selectionObjects() : [object];
+    return new Map(objects.filter(item => !placementLocked(item)).map(item => {
+      const p = item.type === "tag" ? positions.get(item.id) || state().tags.find(tag => tag.id === item.id) : overlayPosition(item.kind);
+      return [placementKey(item), {object: item, position: {x: p.x, y: p.y}}];
+    }));
+  }
+  function moveObjects(starts, dx, dy) {
+    if (!starts.size) return;
+    const points = [...starts.values()].map(item => item.position);
+    const mx = Math.max(-Math.min(...points.map(p => p.x)), Math.min(1 - Math.max(...points.map(p => p.x)), dx));
+    const my = Math.max(-Math.min(...points.map(p => p.y)), Math.min(1 - Math.max(...points.map(p => p.y)), dy));
+    for (const {object, position} of starts.values()) {
+      const p = {x: position.x + mx, y: position.y + my};
+      if (object.type === "tag") positions.set(object.id, p);
+      else overlayPositions.set(object.page + ":" + object.kind, {...overlayPosition(object.kind), ...p});
+    }
+    renderMarkers(); renderSlidingGeometry();
+  }
+  function saveObjectPositions(starts) {
+    const objects = [...starts.values()].map(({object}) => {
+      const p = object.type === "tag" ? positions.get(object.id) : overlayPositions.get(object.page + ":" + object.kind);
+      return {object, position: p};
+    });
+    if (!objects.length) return;
+    if (objects.length === 1 && objects[0].object.type === "overlay") {
+      const {object, position} = objects[0]; saveOverlayPosition(object.kind, object.page, position); return;
+    }
+    for (const {object, position} of objects) {
+      if (object.type === "tag") pendingPositions.set(object.id, position);
+      else pendingOverlayPositions.set(object.page + ":" + object.kind, position);
+    }
+    const tagsOnly = objects.every(item => item.object.type === "tag");
+    const payload = tagsOnly ? objects.map(({object, position}) => ({id: object.id, ...position}))
+      : objects.map(({object, position}) => ({...object, x: position.x, y: position.y}));
+    command(tagsOnly ? objects.length > 1 ? "move_tags" : "update" : "move_objects",
+      tagsOnly ? objects.length > 1 ? {positions: payload} : payload[0] : {objects: payload}, [], reply => {
+      for (const {object, position} of objects) {
+        const key = object.type === "tag" ? object.id : object.page + ":" + object.kind;
+        const local = object.type === "tag" ? positions : overlayPositions;
+        const pending = object.type === "tag" ? pendingPositions : pendingOverlayPositions;
+        if (pending.get(key) === position) pending.delete(key);
+        if (local.get(key) === position) local.delete(key);
+      }
+      renderMarkers(); renderSlidingGeometry();
+      if (reply.ok) showMessage(objects.length + " markerade objekt flyttade.");
+    });
+  }
   function showSelection() {
     // Keep the canvas at the same screen position while the selection box is drawn.
     if (drag?.box) return;
-    selectionBar.hidden = !selected.size;
-    selectionCount.textContent = selected.size + " markerade";
-    const titles = selectionTags().map(tag => tag.label).join(", ");
+    const objects = selectionObjects(), locked = objects.filter(placementLocked).length;
+    selectionBar.hidden = !objects.length;
+    selectionCount.textContent = objects.length + " markerade" + (locked ? " · " + locked + " låsta" : "");
+    const titles = [...selectionTags().map(tag => tag.label), ...selectedOverlays].join(", ");
     selectionCount.title = titles;
-    selectionBar.setAttribute("aria-label", "Markerade sulor: " + titles);
-    editMany.disabled = clearMany.disabled = bulkBusy;
+    selectionBar.setAttribute("aria-label", "Markerade objekt: " + titles);
+    editMany.disabled = bulkBusy || !selected.size; clearMany.disabled = bulkBusy;
+    lockMany.disabled = bulkBusy || locked === objects.length;
+    unlockMany.disabled = bulkBusy || !locked;
     syncTableSelection();
   }
   function toggleTag(tag) {
@@ -3863,6 +3970,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showLayout();
     showMeasurement();
     showTextObjects();
+    const visibleKinds = new Set(visibleOverlays().map(element => element.dataset.kind));
+    for (const kind of selectedOverlays) if (!visibleKinds.has(kind)) selectedOverlays.delete(kind);
+    if (overlaySelected && !visibleKinds.has(overlaySelected)) overlaySelected = null;
+    showSelection();
   }
   let drag = null;
   function selectionRectangle(event) {
@@ -3894,6 +4005,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     selected.clear();
     for (const id of ids) selected.add(id);
+    const kinds = new Set(drag.beforeOverlays);
+    if (!readOnly && rect.width > 0 && rect.height > 0) for (const element of visibleOverlays()) {
+      const bounds = element.getBoundingClientRect();
+      if (bounds.left < rect.right && bounds.left + bounds.width > rect.left
+        && bounds.top < rect.bottom && bounds.top + bounds.height > rect.top) {
+        const kind = element.dataset.kind;
+        if (kinds.has(kind)) kinds.delete(kind); else kinds.add(kind);
+      }
+    }
+    selectedOverlays.clear(); for (const kind of kinds) selectedOverlays.add(kind);
+    overlaySelected = null; renderSlidingGeometry();
     renderMarkers();
   }
   function cancelDrag() {
@@ -3905,13 +4027,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       for (const id of previous.beforeSelection) {
         if (state().tags.some(tag => tag.id === id && tag.page === background().page)) selected.add(id);
       }
+      selectedOverlays.clear(); for (const kind of previous.beforeOverlays) selectedOverlays.add(kind);
+      renderSlidingGeometry();
       renderMarkers(); showSelection();
-    }
-    if (previous?.id) {
-      for (const id of previous.tagPositions.keys()) {
-        if (pendingPositions.has(id)) positions.set(id, pendingPositions.get(id));
-        else positions.delete(id);
-      }
     }
     if (previous?.leader) {
       if (previous.hadLeaderDraft) leaderDrafts.set(previous.leader, previous.beforeLeader);
@@ -3927,6 +4045,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       else overlayPositions.delete(key);
       renderSlidingGeometry();
     }
+    if (previous?.objectPositions) for (const {object} of previous.objectPositions.values()) {
+      const key = object.type === "tag" ? object.id : object.page + ":" + object.kind;
+      const local = object.type === "tag" ? positions : overlayPositions;
+      const pending = object.type === "tag" ? pendingPositions : pendingOverlayPositions;
+      if (pending.has(key)) local.set(key, pending.get(key)); else local.delete(key);
+    }
+    if (previous?.objectPositions) {renderMarkers(); renderSlidingGeometry();}
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
@@ -3988,15 +4113,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (importBusy && (overlay || event.target.closest(".gp-tag"))) return;
     if (overlay) {
       const resize = !!event.target.closest(".gp-overlay-resize") || event.target === axesResize;
-      if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize)) return;
+      const select = !!(event.shiftKey || event.ctrlKey || event.metaKey), kind = overlay.dataset.kind;
+      if (readOnly || (!event.target.closest(".gp-sliding-handle") && !resize && !select && !placementLocked(overlayObject(kind)))) return;
       event.preventDefault();
       setMode("pan");
-      overlaySelected = overlay.dataset.kind;
+      overlayClickHandled = kind;
+      if (!select) chooseOverlay(kind);
       renderSlidingGeometry();
       const rect = overlay.getBoundingClientRect();
-      drag = {overlay: overlay.dataset.kind, page: background().page, resize,
+      const objectPositions = resize || select ? new Map() : movementStarts(overlayObject(kind));
+      drag = {overlay: kind, page: background().page, resize, select,
+        objectPositions, placementPan: !resize && !select && !objectPositions.size,
+        left: panX, top: panY,
         width: rect.width, height: rect.height,
-        position: {...overlayPosition(overlay.dataset.kind)}, x: event.clientX, y: event.clientY,
+        position: {...overlayPosition(kind)}, x: event.clientX, y: event.clientY,
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
@@ -4010,17 +4140,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.focus({preventScroll: true});
     if (!marker && !leaderPlacement && leaderEdit) {leaderEdit = leaderNode = null; renderLeaders();}
     const select = !!tag && (event.shiftKey || event.ctrlKey || event.metaKey);
-    const movingTags = tag && !select && selected.has(tag.id) && selected.size > 1
-      ? selectionTags().filter(tag => tag.page === background().page) : tag ? [tag] : [];
-    const tagPositions = new Map(movingTags.map(tag => {
-      const p = positions.get(tag.id) || tag;
-      return [tag.id, {x: p.x, y: p.y}];
-    }));
+    const objectPositions = tag && !select && !readOnly ? movementStarts({type: "tag", id: tag.id}) : new Map();
     drag = { x: event.clientX, y: event.clientY, left: panX, top: panY,
-      moved: false, pointerId: event.pointerId, id: tag?.id, tagPositions,
+      moved: false, pointerId: event.pointerId, id: tag?.id,
+      objectPositions, placementPan: !!tag && !select && !readOnly && !objectPositions.size,
       placementBlocked: importBusy,
       box: !tag && (event.shiftKey || event.ctrlKey || event.metaKey),
       beforeSelection: new Set(selected),
+      beforeOverlays: new Set(selectedOverlays),
       select };
     viewport.setPointerCapture(event.pointerId);
   });
@@ -4071,6 +4198,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (active) closeDialog();
         if (!bulkDialog.hidden) closeBulk();
         previewSelection(event);
+      } else if (drag.placementPan) {
+        panX = drag.left + dx; panY = drag.top + dy; placeSheet();
+        viewport.classList.add("gp-panning");
+      } else if (!drag.resize && drag.objectPositions?.size) {
+        const rect = picture.getBoundingClientRect();
+        moveObjects(drag.objectPositions, dx / rect.width, dy / rect.height);
+        viewport.classList.add("gp-dragging-tag"); closeDialog();
       } else if (drag.overlay) {
         const p = {...drag.position};
         if (drag.resize) {
@@ -4087,15 +4221,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         renderSlidingGeometry();
         closeDialog();
       } else if (drag.id) {
-        if (readOnly) return;
-        const rect = picture.getBoundingClientRect();
-        const starts = [...drag.tagPositions.values()];
-        // Clamp one shared delta so reaching a drawing edge cannot distort the group.
-        const moveX = Math.max(-Math.min(...starts.map(p => p.x)), Math.min(1 - Math.max(...starts.map(p => p.x)), dx / rect.width));
-        const moveY = Math.max(-Math.min(...starts.map(p => p.y)), Math.min(1 - Math.max(...starts.map(p => p.y)), dy / rect.height));
-        for (const [id, p] of drag.tagPositions) positions.set(id, {x: p.x + moveX, y: p.y + moveY});
-        viewport.classList.add("gp-dragging-tag");
-        closeDialog();
+        return; // Result views allow selecting labels but cannot move them.
       } else {
         panX = drag.left + dx;
         panY = drag.top + dy;
@@ -4107,7 +4233,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   viewport.addEventListener("pointerup", (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
-    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader, tagPositions,
+    const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
+      objectPositions, placementPan, resize,
       stroke, leaderClick, attachment } = drag;
     drag = null;
     selectionBox.hidden = true;
@@ -4143,27 +4270,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       return;
     }
     if (overlay) {
-      if (moved) saveOverlayPosition(overlay, page, overlayPositions.get(page + ":" + overlay));
+      if (select) {if (!moved) chooseOverlay(overlay, true); return;}
+      if (moved && !placementPan) {
+        if (resize) saveOverlayPosition(overlay, page, overlayPositions.get(page + ":" + overlay));
+        else saveObjectPositions(objectPositions);
+      }
       return;
     }
     if (id) {
       const tag = state().tags.find((t) => t.id === id);
       if (select) { if (!moved && tag) toggleTag(tag); return; }
       if (!moved) { if (tag) openDialog(tag); return; }
-      if (readOnly) return;
-      const movedPositions = new Map([...tagPositions.keys()].map(id => [id, positions.get(id)]));
-      for (const [id, position] of movedPositions) pendingPositions.set(id, position);
-      const multiple = movedPositions.size > 1;
-      const payload = multiple ? {positions: [...movedPositions].map(([id, p]) => ({id, ...p}))} : {id, ...positions.get(id)};
-      command(multiple ? "move_tags" : "update", payload, [], (reply) => {
-        // A delayed response must not roll back a subsequent drag.
-        for (const [id, position] of movedPositions) {
-          if (pendingPositions.get(id) === position) pendingPositions.delete(id);
-          if (positions.get(id) === position) positions.delete(id);
-        }
-        renderMarkers();
-        if (reply.ok) showMessage(multiple ? movedPositions.size + " markerade etiketter flyttade." : (tag?.label || "Etiketten") + " flyttad.");
-      });
+      if (readOnly || placementPan) return;
+      saveObjectPositions(objectPositions);
       return;
     }
     if (readOnly || moved || placementBlocked || mode === "pan") return;
@@ -4285,10 +4404,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      const selecting = !!drag?.box || selected.size > 0;
+      const selecting = !!drag?.box || selected.size > 0 || selectedOverlays.size > 0;
       const wasMeasuring = measuring();
       const wasDrawingLeader = !!leaderPlacement;
-      cancelDrag(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
+      cancelDrag(); selectedOverlays.clear(); overlaySelected = null; renderSlidingGeometry(); closeDialog(); closeBulk();
       if (!bulkBusy) { selected.clear(); tableAnchor = null; bulkSignature = ""; showSelection(); renderMarkers(); }
       setMode("pan"); showMessage(wasDrawingLeader ? "Ritningen av splinen avbröts. Den tidigare linjen behålls."
         : wasMeasuring ? "Mätningen avslutades. Kalibreringen behålls." : selecting && !bulkBusy ? "Markeringen avbröts."

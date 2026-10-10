@@ -1205,8 +1205,23 @@ Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
 objekt utanför referensgrupperna. I äldre projekt används modell, littera och
 importinformation för att härleda sultyp. När ursprunget är osäkert måste det
 bekräftas i objektets indataruta; beräkningsindata och resultat behålls.
-Projektformat 20 sparar sultyp och widgetinställningar. Versionerna 1–19 kan
-fortfarande öppnas, men äldre programversioner kan inte öppna format 20.
+Projektformat 21 sparar även placeringslås. Versionerna 1–20 kan fortfarande
+öppnas och börjar utan lås. Äldre programversioner kan inte öppna format 21.
+
+### Gemensam placering och placeringslås
+
+**Shift + klick** eller **Shift + vänsterdrag** markerar både etiketter och
+widgets (inklusive rubriker, datum och koordinatsymbolen). Dra en markerad
+etikett eller en markerad widgets rubrik för att flytta urvalet tillsammans.
+Alla flyttbara objekt får samma förskjutning, även vid ritningens kanter.
+Piltangenterna på en markerad widget flyttar också det gemensamma urvalet.
+
+Markeringens knappar **Lås placering** och **Lås upp** gäller hela urvalet.
+Låsta objekt kan fortfarande markeras, redigeras och ändra storlek. Dragning
+på ett låst objekt panorerar ritningen; i ett blandat urval står låsta objekt
+kvar medan de upplåsta flyttas. Låsen sparas med projektet och påverkar inte
+beräkningar eller PDF-utseendet. **Avmarkera** eller **Escape** tömmer urvalet.
+Knappen **Ändra markerade** gäller endast urvalets sulors indata.
 
 ```python
 plan.referens = {"enabled": True, "x": .05, "y": .2, "size": 500}

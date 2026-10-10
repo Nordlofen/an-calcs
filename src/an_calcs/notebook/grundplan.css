@@ -136,6 +136,12 @@
 .an-grundplan .gp-sliding-overlay { position: absolute; pointer-events: auto; transform-origin: top left; touch-action: none; }
 .an-grundplan .gp-global-axes { color: #19343d; }
 .an-grundplan .gp-sliding-overlay.gp-overlay-selected { outline: 1px dashed #258879; }
+.an-grundplan .gp-placement-locked, .an-grundplan .gp-placement-locked .gp-sliding-handle { cursor: grab; }
+.an-grundplan .gp-placement-locked.gp-multi-selected::after,
+.an-grundplan .gp-placement-locked.gp-overlay-selected::after {
+  content: "🔒"; position: absolute; right: 5px; top: -18px; font-size: 12px;
+  pointer-events: none; line-height: 16px;
+}
 .an-grundplan .gp-text-annotation { color: var(--gp-ink); width: max-content; max-width: 420px; font-size: 20px; line-height: 1.45; }
 .an-grundplan .gp-annotation-title, .an-grundplan .gp-annotation-subtitle { display: block; }
 .an-grundplan .gp-annotation-text, .an-grundplan button.gp-annotation-text { display: block; max-width: 420px; padding: 4px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; cursor: grab; }
