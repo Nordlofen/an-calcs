@@ -374,7 +374,6 @@
 .an-grundplan .gp-reference-geometry { margin-bottom: 6px !important; }
 .an-grundplan .gp-reference-load { display: grid; grid-template-columns: 65px minmax(0, 1fr); gap: 4px; }
 .an-grundplan .gp-reference-caption { color: var(--gp-muted); margin-top: 6px !important; }
-.an-grundplan .gp-reference-comment { color: var(--gp-muted); margin-top: 4px !important; }
 .an-grundplan .gp-reference-ok { color: #1e8063; }
 .an-grundplan .gp-reference-over { color: #b6443f; }
 .an-grundplan .gp-reference-warning { color: #94691f; font-size: 10px; overflow-wrap: anywhere; }

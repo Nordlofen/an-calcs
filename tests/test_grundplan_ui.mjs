@@ -4311,15 +4311,16 @@ function referenceFixture(ui) {
     utilization: .947, utilization_range: {min: .603, max: .947}, geometry: {t: .25, b: .85, l: 1.3, L_vagg: .5}, unit: 'kN/m',
     loads: {brott: 535.3, bruk: 438.6}, resultants: {brott: 267.65, bruk: 219.3},
     members: [{id: ui.tag.id, label: 'VS.22'}, {id: 'b', label: 'VS.28'}],
-    comments: ['Styrande för VS.22: Isolering · bruk', 'Utan isolering: VS.28']}], excluded: []};
+    comments: ['Styrande för VS.22: Isolering · bruk', 'Utan isolering: VS.28', 'H-stabiliserande: VS.28']}], excluded: []};
   ui.changed();
 }
 
-for (const readOnly of [false, true]) test(`Reference renders geometry, external loads, conversions and automatic comments (readOnly=${readOnly})`, t => {
+for (const readOnly of [false, true]) test(`Reference renders compact geometry, loads and members without extra comments (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly}); referenceFixture(ui);
   const text = elementText(ui.byClass('gp-reference-body'));
   for (const caption of ['VS.22', 'b', '0,85 m', '1,3 m', '535,3 kN/m → 267,65 kN', '438,6 kN/m → 219,3 kN',
-    'Utan isolering: VS.28', 'Styrande för VS.22: Isolering · bruk', 'Foundation', 'Gäller för']) assert.ok(text.includes(caption), caption);
+    'VS.28', 'Foundation', 'Gäller för']) assert.ok(text.includes(caption), caption);
+  for (const caption of ['Styrande för', 'Utan isolering:', 'H-stabiliserande:']) assert.ok(!text.includes(caption), caption);
   assert.equal(ui.byClass('gp-reference-widget').hidden, false);
   assert.equal(ui.byClass('gp-reference-range').textContent, '(60,3–94,7 %)');
   assert.equal(ui.byClass('gp-reference-ident').children[0].style.background, '#ffffff');

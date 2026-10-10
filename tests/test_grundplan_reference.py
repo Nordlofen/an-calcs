@@ -201,8 +201,10 @@ class TestReference(unittest.TestCase):
         page = PdfReader(io.BytesIO(pdf)).pages[0]
         self.assertEqual(list(page.images), [])
         text = page.extract_text()
-        for caption in ("Referens", "VS.22", "Utan isolering: VS.28", "Foundation", "Gäller för", "Linjelast"):
+        for caption in ("Referens", "VS.22", "Foundation", "Gäller för", "Linjelast"):
             self.assertIn(caption, text)
+        self.assertNotIn("Styrande för", text)
+        self.assertNotIn("Utan isolering: VS.28", text)
         with patch.object(self.plan, "_pdf_bytes", return_value=pdf):
             html = self.plan._html_bytes().decode()
         self.assertIn('"reference_data"', html)

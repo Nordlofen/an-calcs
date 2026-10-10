@@ -1187,18 +1187,15 @@ Lasttyp, kortväggsinställning, jorddata, lastplacering och beräkningsfaktorer
 måste också överensstämma. Isolering får skilja inom gruppen.
 
 Varje referensrad redovisar gruppmått, referensobjektets **V_brott/V_bruk**,
-**Punktlast/Linjelast**, gruppmedlemmar och automatisk text. Under referensens U
+**Punktlast/Linjelast** och gruppmedlemmar. Under referensens U
 visas gruppens lägsta–högsta U, exempelvis **(60,3–94,7 %)**. För en väggsula med
 pelarsulemodell och linjelast visas också omräkning till punktlast med L_vägg.
 Lasterna är angivna yttre laster, exklusive tillkommande egentyngd.
 Saknad brukslast visas som ett streck.
 
-Den styrande kontrollen hör uttryckligen till referensobjektet, exempelvis
-**Styrande för VS.22: Isolering · bruk**. Om hela gruppen saknar isolering står
-**Utan isolering**. Vid avvikelse står exempelvis **Utan isolering: VS.28**.
-Oisolerade objekt med valt glidningsbidrag redovisas även som H-stabiliserande.
-De automatiska kommentarerna uppdateras efter ändrade indata och skriver aldrig
-över objektens manuella kommentarsfält. Befintlig Kommentarer-widget finns kvar.
+För en kompakt översikt utelämnar Referens-widgeten extra textrader om styrande
+kontroll, isolering och H-stabilitet. Objektens manuella kommentarsfält och den
+befintliga Kommentarer-widgeten finns kvar.
 
 Inaktiva sulor och sulor med Endast H-stabilitet ingår inte i Referens.
 Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
