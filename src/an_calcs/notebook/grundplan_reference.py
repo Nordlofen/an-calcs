@@ -37,6 +37,17 @@ def _order(tag):
                  for part in re.split(r"(\d+)", tag["label"])) + ((1, tag["id"]),)
 
 
+def _canonical(value):
+    """Give numerically equal ints/floats the same key, without rounding."""
+    if isinstance(value, dict):
+        return {name: _canonical(number) for name, number in value.items()}
+    if isinstance(value, list):
+        return [_canonical(number) for number in value]
+    if type(value) is float and value.is_integer():
+        return int(value)
+    return value
+
+
 def group_data(tags):
     groups, excluded = {}, []
     for tag in sorted(tags, key=_order):
@@ -58,10 +69,10 @@ def group_data(tags):
             continue
         # Separate line and point inputs even when geometry and physical type
         # match. Short-wall assumptions must not inherit the standard 1 m check.
-        key = json.dumps([category, geometry, line_loads(values),
+        key = json.dumps(_canonical([category, geometry, line_loads(values),
                           values.get("L_vagg_minst_1") if category == "wall" else None,
                           values.get("L_vagg") if category == "wall" and not values.get("L_vagg_minst_1", True) else None,
-                          [values.get(name) for name in CONDITIONS]], sort_keys=True, separators=(",", ":"))
+                          [values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
         groups.setdefault(key, {"category": category, "geometry": geometry, "members": []})["members"].append(tag)
     result = []
     for key, group in groups.items():

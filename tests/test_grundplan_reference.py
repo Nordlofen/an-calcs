@@ -74,6 +74,21 @@ class TestReference(unittest.TestCase):
             self.add("VS." + str(i), **values)
         self.assertEqual(len(self.plan.referensgrupper["groups"]), 6)
 
+    def test_equal_integer_and_float_parameters_share_groups_without_rounding(self):
+        from an_calcs.notebook.grundplan_reference import CONDITIONS
+        wall = self.add("VS.7", t=1, b=1)
+        conditions = {name: float(self.plan._tag(wall)["values"][name]) for name in CONDITIONS}
+        same_wall = self.add("VS.8", t=1.0, b=1.0, **conditions)
+        modeled = self.add("VS.11", lang=0, lasttyp=1, t=1, b=1, l=1, L_vagg=1)
+        same_modeled = self.add("VS.12", lang=0, lasttyp=1, t=1.0, b=1.0, l=1.0, L_vagg=1.0, **conditions)
+        before = copy.deepcopy(self.plan.taggar)
+        groups = self.plan.referensgrupper["groups"]
+        self.assertEqual([{member["id"] for member in group["members"]} for group in groups],
+                         [{wall, same_wall}, {modeled, same_modeled}])
+        self.assertEqual(self.plan.taggar, before)
+        self.add("VS.9", t=1.0, b=1.0000000001, **conditions)
+        self.assertEqual(len(self.plan.referensgrupper["groups"]), 3)
+
     def test_three_physical_categories_and_converted_loads_are_distinct(self):
         wall = self.add()
         modeled = self.add("VS.11", lang=0, lasttyp=1, l=1.3, L_vagg=.5, F_vy=535.3, F_vy_bruk=438.6)
