@@ -90,6 +90,8 @@ class Element {
   }
   getBoundingClientRect() {
     if (this.className.split(" ").includes("gp-tag")) {
+      const bounds = this.closest(".an-grundplan").renderedTagBounds;
+      if (bounds) return bounds;
       const sheet = this.parent.parent;
       const picture = sheet.getBoundingClientRect();
       const scale = Number(this.style["--gp-tag-scale"] || this.closest(".an-grundplan").style["--gp-tag-scale"] || 1);
@@ -295,6 +297,78 @@ test('heading and date widgets join mixed movement and locking without editing t
   assert.equal(ui.data.state.text_objects[0].text, '26/10/10');
   ui.byText('Lås placering').click();
   assert.ok(ui.sent.at(-1).objects.some(item => item.kind === 'text:date'));
+});
+
+test('the date lock button locks only the date in a mixed selection and preserves text editing', t => {
+  const ui = mixedPlacement(t);
+  ui.data.state.text_objects = [{id: 'date', kind: 'date', text: '26/10/10', x: .7, y: .1, size: 18}];
+  ui.changed(); const text = ui.byClass('gp-annotation-text'); ui.select(text);
+  const lock = ui.byClass('gp-text-lock'); lock.click();
+  const request = ui.sent.at(-1);
+  assert.deepEqual(request.objects, [{type: 'overlay', page: 1, kind: 'text:date'}]);
+  assert.equal(request.locked, true); assert.equal(lock.getAttribute('aria-label'), 'Lås upp datum');
+  assert.equal(ui.byClass('gp-text-resize').hidden, true);
+  assert.doesNotMatch(ui.marker().className, /gp-placement-locked/);
+  assert.doesNotMatch(ui.reference.className, /gp-placement-locked/);
+  const before = parseFloat(ui.byClass('gp-paper').style.left);
+  ui.start(text); ui.move(350, 330); ui.finish(350, 330);
+  near(parseFloat(ui.byClass('gp-paper').style.left), before + 50);
+  text.dispatch('keydown', {key: 'ArrowRight'});
+  assert.equal(ui.sent.at(-1), request);
+  assert.equal(ui.byClass('gp-selection-count').textContent, '4 markerade · 1 låsta');
+  ui.data.state.placement_locks = request.objects; ui.changed(); ui.ack(request);
+  ui.byClass('gp-annotation-tools').children[0].click();
+  const editor = ui.byClass('gp-annotation-editor'); editor.value = '26/10/11'; editor.dispatch('input');
+  assert.equal(ui.sent.at(-1).action, 'text_update'); assert.equal(ui.sent.at(-1).changes.text, '26/10/11');
+  editor.dispatch('keydown', {key: 'Enter'}); lock.click();
+  assert.equal(ui.sent.at(-1).locked, false); assert.equal(lock.getAttribute('aria-label'), 'Lås datum');
+  text.dispatch('keydown', {key: 'ArrowRight'});
+  assert.equal(ui.sent.at(-1).action, 'move_objects');
+});
+
+for (const readOnly of [false, true]) test(`dialog opens beside the rendered label at either board edge (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly}), dialog = ui.byClass('gp-dialog');
+  // Actual rendered bounds include label scale and zoom, independent of saved x/y.
+  const bounds = {left: 80, top: 180, width: 330, height: 110};
+  ui.byClass('an-grundplan').renderedTagBounds = bounds;
+  ui.marker().click();
+  assert.equal(parseFloat(dialog.style.left), bounds.left + bounds.width + 12);
+  assert.ok(parseFloat(dialog.style.top) + dialog.offsetHeight <= ui.byClass('gp-board').clientHeight - 8);
+  ui.byText('Minimera').click();
+  bounds.left = 660; bounds.width = 100;
+  ui.marker().click();
+  assert.equal(parseFloat(dialog.style.left) + dialog.offsetWidth, bounds.left - 12);
+  assert.equal(ui.sent.length, 0, 'Opening and placing dialogs cannot edit the object');
+});
+
+test('dialog uses vertical room on a narrow board and the sketch stays inline to leave the label visible', t => {
+  const ui = setup(t), board = ui.byClass('gp-board'), dialog = ui.byClass('gp-dialog');
+  board.clientWidth = 560;
+  ui.byClass('an-grundplan').renderedTagBounds = {left: 220, top: 50, width: 100, height: 60};
+  ui.marker().click();
+  assert.equal(parseFloat(dialog.style.top), 122);
+  assert.ok(parseFloat(dialog.style.left) >= 8);
+  assert.ok(parseFloat(dialog.style.left) + dialog.offsetWidth <= board.clientWidth - 8);
+  ui.byText('Minimera').click(); board.clientWidth = 1100;
+  ui.byClass('an-grundplan').renderedTagBounds = {left: 300, top: 180, width: 180, height: 60};
+  ui.marker().click(); ui.byText('Visa definitionsskiss').click();
+  assert.equal(ui.byClass('gp-sketch-panel').parent, ui.byClass('gp-sketch-slot'));
+  assert.equal(parseFloat(dialog.style.left), 492);
+});
+
+test('manual dialog movement overrides automatic placement until the next opening', t => {
+  const ui = setup(t), dialog = ui.byClass('gp-dialog'), header = ui.byClass('gp-dialog-header');
+  ui.byClass('an-grundplan').renderedTagBounds = {left: 80, top: 180, width: 160, height: 60};
+  ui.marker().click();
+  dialog.offsetLeft = parseFloat(dialog.style.left); dialog.offsetTop = parseFloat(dialog.style.top);
+  header.dispatch('pointerdown', {clientX: 300, clientY: 200});
+  header.dispatch('pointermove', {clientX: 200, clientY: 220}); header.dispatch('pointerup');
+  assert.equal(parseFloat(dialog.style.left), 152); assert.equal(parseFloat(dialog.style.top), 180);
+  ui.field('F_vy').value = '150'; ui.field('F_vy').dispatch('input');
+  assert.equal(parseFloat(dialog.style.left), 152);
+  ui.byText('Minimera').click();
+  ui.marker().click();
+  assert.equal(parseFloat(dialog.style.left), 252);
 });
 
 test('keyboard nudges on a selected widget move the whole mixed selection', t => {

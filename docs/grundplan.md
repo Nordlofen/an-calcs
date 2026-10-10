@@ -302,6 +302,11 @@ standardvärdet 1 m och kan ändras. Pelarsulan visas med sina fulla mått
 bₓ × bᵧ. Axlarna är lokala och kopplas inte automatiskt till ritningens riktningar.
 **Visa definitionsskiss** öppnar planvy och två snitt med lastpilar.
 På breda ytor ligger skissen bredvid dialogen, annars inne i den.
+Dialogen och definitionsskissen ligger alltid ovanför ritningsobjekten, oavsett
+deras lagerordning. Dialogen öppnas till höger eller vänster om etiketten när
+det finns plats, med hänsyn till etikettens aktuella skala och zoom. På trängre
+ytor används plats ovanför eller nedanför, annars placeringen med minst överlapp.
+Dialogen kan fortfarande flyttas genom att dra dess rubrik.
 
 | Visad beteckning | Befintligt fältnamn i Python/JSON |
 | --- | --- |
@@ -1276,6 +1281,8 @@ Alla flyttbara objekt får samma förskjutning, även vid ritningens kanter.
 Piltangenterna på en markerad widget flyttar också det gemensamma urvalet.
 
 Markeringens knappar **Lås placering** och **Lås upp** gäller hela urvalet.
+Rubriker och datum har också en egen **Lås placering/Lås upp**-knapp bredvid
+**Redigera** när textobjektet är markerat. Den gäller endast det textobjektet.
 Låsta objekt kan fortfarande markeras och deras indata/text redigeras, men
 position och storlek skyddas. Dragning på ett låst objekt panorerar ritningen
 utan att ändra markeringen; i ett blandat urval står låsta objekt

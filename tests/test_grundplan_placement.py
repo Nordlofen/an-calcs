@@ -120,6 +120,25 @@ class TestPlacement(unittest.TestCase):
         self.plan.importera_ritning(self.path)
         self.assertEqual(len(self.plan.placeringslas), 6)
 
+    def test_date_lock_survives_save_and_blocks_movement_and_size_but_allows_text(self):
+        date = self.plan.lagg_till_datum("26/10/10")
+        obj = {"type": "overlay", "page": 1, "kind": "text:" + date}
+        self.plan.las_placering([obj])
+        before = self.plan._document()
+        for action in (lambda: self.plan.flytta_objekt([{**obj, "x": .5, "y": .6}]),
+                       lambda: self.plan.uppdatera_text(date, size=30)):
+            with self.assertRaisesRegex(ValueError, "låst"):
+                action()
+            self.assertEqual(self.plan._document(), before)
+        self.plan.uppdatera_text(date, text="26/10/11")
+        loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "date.json"))
+        self.addCleanup(loaded.close)
+        self.assertIn(obj, loaded.placeringslas)
+        self.assertEqual(next(t for t in loaded.textobjekt if t["id"] == date)["text"], "26/10/11")
+        loaded.las_placering([obj], last=False)
+        loaded.flytta_objekt([{**obj, "x": .5, "y": .6}])
+        self.assertEqual(next(t for t in loaded.textobjekt if t["id"] == date)["x"], .5)
+
 
 if __name__ == "__main__":
     unittest.main()

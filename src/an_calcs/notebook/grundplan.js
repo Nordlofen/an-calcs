@@ -502,7 +502,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   root.setAttribute("data-lm-suppress-shortcuts", "true");
   const view = Math.random().toString(36).slice(2);
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
-  let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
+  let lastBackground = "", formId = null, copySource = null, sizeDraft = null, dialogAnchor = null;
   let headingDraft = null;
   let cropDraft = null, canvasPending = null;
   let drawingDraft = null, drawingPreview = null, drawingPending = false, objectsBusy = false;
@@ -2397,17 +2397,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           const edit = button("Redigera", () => {
             entry.editing = true; overlaySelected = kind; showTextObjects(); editor.focus({preventScroll:true});
           });
+          const lock = button("Lås placering", () => {
+            const object = overlayObject(kind);
+            setPlacementLock(!placementLocked(object), [object]);
+          }, "gp-text-lock");
           const remove = button("×", () => {
             if (textDeleting.has(item.id)) return;
             textDeleting.add(item.id); remove.disabled = true;
             command("text_delete", {id: item.id}, [], () => {textDeleting.delete(item.id); showTextObjects();});
           });
           remove.setAttribute("aria-label", "Ta bort textobjekt"); remove.title = "Ta bort textobjekt";
-          tools.append(edit, remove); element.append(editor);
+          tools.append(edit, lock, remove); element.append(editor);
           if (subtitleEditor) element.append(subtitleEditor);
           element.append(tools, resize);
-          Object.assign(entry, {editor, subtitleEditor, tools, remove});
-          text.title = "Dra för att flytta. Dubbelklicka eller välj Redigera för att ändra texten.";
+          Object.assign(entry, {editor, subtitleEditor, tools, remove, lock, lockLabel: item.kind === "date" ? "datum" : "rubrik"});
           text.addEventListener("click", event => selectOverlayClick(kind, event));
           text.addEventListener("dblclick", () => edit.click());
           for (const field of [editor, subtitleEditor].filter(Boolean)) {
@@ -2481,6 +2484,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       entry.resize.hidden = !selected || entry.editing || placementLocked(overlayObject(kind));
       entry.resize.style.transform = "scale(" + 1 / scale + ")";
       if (!readOnly) {
+        const locked = placementLocked(overlayObject(kind));
+        entry.lock.textContent = locked ? "Lås upp" : "Lås placering";
+        entry.lock.setAttribute("aria-label", (locked ? "Lås upp " : "Lås ") + entry.lockLabel);
+        entry.lock.setAttribute("aria-pressed", String(locked));
+        entry.lock.title = locked ? "Lås upp position och storlek" : "Lås position och storlek";
+        entry.text.title = (locked ? "Position och storlek är låsta. Dra för att panorera." : "Dra för att flytta.")
+          + " Dubbelklicka eller välj Redigera för att ändra texten.";
         for (const field of [entry.editor, entry.subtitleEditor].filter(Boolean)) {
           field.hidden = !entry.editing;
           if (entry.editing) {
@@ -2644,6 +2654,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     rememberSections(inputSections);
     rememberSections(resultSections);
     active = null;
+    dialogAnchor = null;
     formId = null;
     dialog.hidden = true;
     sketch.hidden = true;
@@ -2656,6 +2667,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!readOnly) { selected.clear(); selected.add(tag.id); selectedOverlays.clear(); overlaySelected = null;
       tableAnchor = null; bulkSignature = ""; renderSlidingGeometry(); showSelection(); }
     active = tag.id;
+    dialogAnchor = tag.id;
     formId = null;
     update();
     const rect = board.getBoundingClientRect();
@@ -2699,15 +2711,34 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return bubble;
   }
   function placeDialog(x, y) {
-    const inline = board.clientWidth < dialog.offsetWidth + 430 + 28;
+    const margin = 8, gap = 12;
+    const boardRect = board.getBoundingClientRect();
+    const labelRect = dialogAnchor && objectElement({type: "tag", id: dialogAnchor})?.getBoundingClientRect();
+    const anchor = labelRect && {left: labelRect.left - boardRect.left, top: labelRect.top - boardRect.top,
+      right: labelRect.left - boardRect.left + labelRect.width, bottom: labelRect.top - boardRect.top + labelRect.height};
+    const clampX = (value, width) => Math.max(margin, Math.min(board.clientWidth - width - margin, value));
+    const clampY = value => Math.max(margin, Math.min(board.clientHeight - dialog.offsetHeight - margin, value));
+    const besideLabel = width => {
+      // Prefer a side, then above/below. On small boards use the least overlap.
+      const candidates = [[anchor.right + gap, anchor.top - 20], [anchor.left - gap - width, anchor.top - 20],
+        [anchor.left, anchor.bottom + gap], [anchor.left, anchor.top - gap - dialog.offsetHeight]]
+        .map(([left, top]) => ({left: clampX(left, width), top: clampY(top)}));
+      const overlap = p => Math.max(0, Math.min(p.left + width, anchor.right + gap) - Math.max(p.left, anchor.left - gap))
+        * Math.max(0, Math.min(p.top + dialog.offsetHeight, anchor.bottom + gap) - Math.max(p.top, anchor.top - gap));
+      const clear = candidates.find(p => overlap(p) === 0);
+      return {position: clear || candidates.reduce((best, p) => overlap(p) < overlap(best) ? p : best), clear: !!clear};
+    };
+    let inline = board.clientWidth < dialog.offsetWidth + 430 + 28;
+    if (anchor && !sketch.hidden && !inline && !besideLabel(dialog.offsetWidth + 442).clear
+        && besideLabel(dialog.offsetWidth).clear) inline = true;
     if (inline !== sketchInline) {
       sketchInline = inline;
       (inline ? sketchSlot : board).append(sketch);
       sketch.classList.toggle("gp-sketch-inline", inline);
     }
     const extra = !sketch.hidden && !inline ? 442 : 0;
-    const left = Math.max(8, Math.min(board.clientWidth - dialog.offsetWidth - extra - 8, x));
-    const top = Math.max(8, Math.min(board.clientHeight - dialog.offsetHeight - 8, y));
+    const {left, top} = anchor ? besideLabel(dialog.offsetWidth + extra).position
+      : {left: clampX(x, dialog.offsetWidth + extra), top: clampY(y)};
     dialog.style.left = left + "px";
     dialog.style.top = top + "px";
     if (!inline) {
@@ -3467,8 +3498,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (event.target.closest(".gp-sliding-handle") || event.target.closest(".gp-overlay-resize")) return;
     selectOverlayClick(kind, event);
   }
-  function setPlacementLock(locked) {
-    const objects = selectionObjects();
+  function setPlacementLock(locked, objects = selectionObjects()) {
     if (readOnly || bulkBusy || !objects.length) return;
     cancelDrag();
     const draft = {locked};
@@ -4759,6 +4789,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     let dialogDrag = null;
     header.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || event.target.closest("button")) return;
+      if (panel === dialog) dialogAnchor = null;
       dialogDrag = { x: event.clientX, y: event.clientY, left: panel.offsetLeft, top: panel.offsetTop };
       header.setPointerCapture(event.pointerId);
     });
