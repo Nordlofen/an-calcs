@@ -2633,8 +2633,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const label = {ok: "Godkänd", over: "Överskriden", off: "Ej vald", incomplete: "Ofullständig"}[status];
       use.append(node("strong", "", status === "incomplete" ? "—"
         : r.utilization == null ? "∞" : compactNumber(r.utilization * 100, 1) + " %"), node("small", "", label));
-      const count = node("td", "gp-sliding-count", waiting ? "—" : String(r.count ?? 0));
-      count.title = (r.contributors || []).map(tag => tag.label).join(", ") || "Inga sulor med positivt bidrag";
+      const contributors = (r.contributors || []).map(tag => tag.label).join(", ");
+      const count = node("td", "gp-sliding-footings");
+      count.append(node("span", "gp-sliding-count", waiting ? "—" : (r.count ?? 0) + " st"));
+      if (!waiting && contributors) count.append(node("div", "gp-sliding-contributors", contributors));
+      count.title = waiting ? "Uppdaterar glidningskontrollen" : contributors || "Inga sulor med positivt bidrag";
       tr.append(use, count); body.append(tr);
       if (!waiting && r.missing?.length) {
         const missing = node("tr"), cell = node("td", "gp-slide-missing", "Kontrollera glidningsindata: " + r.missing.join(", "));

@@ -194,6 +194,8 @@
 .an-grundplan .gp-sliding-table tbody tr { border-top: 1px solid var(--gp-line); }
 .an-grundplan .gp-sliding-value, .an-grundplan .gp-sliding-table small { display: block; margin-top: 3px; white-space: nowrap; }
 .an-grundplan .gp-sliding-value, .an-grundplan .gp-sliding-count { font-weight: 700; }
+.an-grundplan .gp-sliding-footings { width: 90px; }
+.an-grundplan .gp-sliding-contributors { margin-top: 3px; font-size: 9px; font-weight: 400; line-height: 1.45; color: var(--gp-muted); overflow-wrap: anywhere; }
 .an-grundplan .gp-sliding-table small { font-size: 9px; }
 .an-grundplan .gp-slide-ok > th, .an-grundplan .gp-slide-ok > td:nth-last-child(2) { color: #1e8063; }
 .an-grundplan .gp-slide-over > th, .an-grundplan .gp-slide-over > td:nth-last-child(2) { color: #b6443f; }

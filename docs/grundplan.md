@@ -688,6 +688,12 @@ summeras inte automatiskt till dessa globala lasteffekter.
 kontrollerar inte samtidigt verkande horisontalkomponenter eller vridning.
 Lastens absolutvärde jämförs med motståndet i vald riktning.
 
+I widgetens kolumn **Sulor*** visas antalet med **st** och de bidragande
+sulornas littera under antalet, separat för X och Y. Listan bryts över flera
+rader vid behov och följer med i PDF- och HTML-exporten. Endast sulor med
+positivt glidmotstånd ingår i antalet och listan; båda uppdateras automatiskt
+när sulornas indata, littera eller aktiva läge ändras.
+
 Under **Glidning** i respektive sulas indatadialog anges:
 
 - **Bidrar i global X-led/Y-led:** de riktningar där sulans motstånd får räknas med.
