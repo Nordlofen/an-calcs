@@ -1658,8 +1658,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const bxCustomStep = bxSetting("Eget måttsteg [mm]", "step_mm", 100); bxCustomStep.hidden = true;
   bxStepChoice.addEventListener("change", () => {bxCustomStep.hidden = bxStepChoice.value !== "custom"; invalidateAutoBx();});
   autoBxSettings.append(bxStepLabel, bxSetting("Undre U-gräns [%]", "u_min", 70), bxSetting("Övre U-gräns [%]", "u_max", 99),
-    bxCustomStep, bxSetting("Minsta bₓ [m]", "b_min", .2), bxSetting("Största bₓ [m]", "b_max", 5));
+    bxCustomStep, bxSetting("Minsta bₓ [m]", "b_min", .2), bxSetting("Största bₓ [m]", "b_max", 5),
+    bxSetting("Max referensgrupper", "max_reference_groups", ""));
+  autoBxFields.get("max_reference_groups").inputMode = "numeric";
+  autoBxFields.get("max_reference_groups").placeholder = "Obegränsat";
   const autoBxFeedback = node("div", "gp-auto-bx-feedback"); autoBxFeedback.setAttribute("role", "status");
+  const autoBxGroups = node("p", "gp-auto-bx-groups"); autoBxGroups.hidden = true;
+  autoBxGroups.setAttribute("aria-live", "polite");
   const autoBxPreviewButton = button("Förhandsvisa", previewAutoBx);
   const autoBxList = node("div", "gp-auto-bx-list");
   const autoBxSummary = node("p", "gp-field-note"); autoBxSummary.setAttribute("aria-live", "polite");
@@ -1667,8 +1672,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const autoBxFooter = node("div", "gp-dialog-footer gp-auto-bx-footer");
   autoBxFooter.append(autoBxPreviewButton, autoBxApply);
   autoBxForm.append(autoBxCount, autoBxSettings,
-    node("p", "gp-field-note", "Övre U-gränsen är ett krav; undre är ett mål. Endast bredden ändras."),
-    autoBxFeedback, autoBxList, autoBxSummary, autoBxFooter);
+    node("p", "gp-field-note", "Övre U-gränsen är ett krav; undre är ett mål. Endast bredden ändras. Max referensgrupper gäller hela projektet; tomt ger individuell tilldelning."),
+    autoBxFeedback, autoBxGroups, autoBxList, autoBxSummary, autoBxFooter);
   autoBxForm.addEventListener("submit", event => {event.preventDefault(); previewAutoBx();});
   autoBxDialog.append(autoBxHeader, autoBxForm);
   board.append(viewport, empty, zoomBar, dialog, sketch);
@@ -2355,12 +2360,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
         : categories[0] === "isolering" ? "Isolering och glidmotstånd"
         : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : categories[0] === "sultyp" ? "" : " [m]")));
-    let previousKind = null, previousFooting = null;
+    let previousKind = null, previousFooting = null, previousThickness = null;
     for (const group of data.groups.filter(group => group.count > 0 && group.kind !== "omitted")) {
       const typePart = group.parts?.find(part => part.kind === "footing_type") || (group.kind === "footing_type" ? group : null);
       if (typePart && typePart.category !== previousFooting) {
+        const heading = node("strong", "gp-colour-legend-section", typePart.label);
+        if (previousFooting !== null) heading.classList.add("gp-colour-legend-type-start");
         previousFooting = typePart.category;
-        colourLegendBody.append(node("strong", "gp-colour-legend-section", typePart.label));
+        previousThickness = null;
+        colourLegendBody.append(heading);
       }
       if (categories.length === 1 && hasV && group.kind !== previousKind && ["pad", "wall"].includes(group.kind)) {
         colourLegendBody.append(node("strong", "gp-colour-legend-section",
@@ -2368,6 +2376,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
       previousKind = group.kind;
       const row = node("div", "gp-colour-legend-row");
+      const thickness = categories.includes("t") ? group.parts?.[group.categories.indexOf("t")] || group : null;
+      if (thickness) {
+        if (previousThickness !== null && thickness.key !== previousThickness)
+          row.classList.add("gp-colour-legend-thickness-start");
+        previousThickness = thickness.key;
+      }
       const swatch = node("span", "gp-colour-swatch"); swatch.style.background = group.background;
       paintGroupPattern(swatch, group, true);
       let caption = mathText("span", "", group.kind === "combination" && typePart
@@ -3665,11 +3679,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     update();
   }
   function autoBxFingerprint() {
-    return JSON.stringify(selectionTags().map(tag => [tag.id, tag.label, tag.values, inputLocked(tag), tag.footing_type]));
+    return JSON.stringify([[...selected].sort(), state().tags.map(tag =>
+      [tag.id, tag.label, tag.values, inputLocked(tag), tag.footing_type, tag.footing_type_inferred, tag.status, tag.summary])]);
   }
   function invalidateAutoBx() {
     autoBxPreview = null; autoBxBasis = ""; autoBxApply.disabled = true;
     autoBxList.replaceChildren(); autoBxSummary.textContent = ""; autoBxFeedback.textContent = "";
+    autoBxGroups.hidden = true; autoBxGroups.textContent = "";
     autoBxPreviewButton.textContent = "Förhandsvisa";
   }
   function closeAutoBx() {
@@ -3689,7 +3705,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function showAutoBxBusy() {
     autoBxClose.disabled = autoBxPreviewButton.disabled = autoBxBusy;
-    autoBxApply.disabled = autoBxBusy || !autoBxPreview?.changed;
+    autoBxApply.disabled = autoBxBusy || !autoBxPreview?.changed || autoBxPreview?.feasible === false;
     bxStepChoice.disabled = autoBxBusy;
     for (const input of autoBxFields.values()) input.disabled = autoBxBusy;
   }
@@ -3698,7 +3714,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const settings = Object.fromEntries([...autoBxFields].map(([name, input]) => [name,
       input.value.trim() === "" ? null : Number(input.value.trim().replace(",", "."))]));
     if (bxStepChoice.value !== "custom") settings.step_mm = Number(bxStepChoice.value);
-    if (Object.values(settings).some(value => value === null || !Number.isFinite(value))) {
+    if (Object.entries(settings).some(([name, value]) => value === null
+      ? name !== "max_reference_groups" : !Number.isFinite(value))) {
       autoBxFeedback.textContent = "Ange ett tal i varje inställning."; return;
     }
     invalidateAutoBx(); autoBxBasis = autoBxFingerprint();
@@ -3708,7 +3725,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     command("auto_bx_preview", {ids: selectionTags().map(tag => tag.id), settings}, [], reply => {
       autoBxBusy = false;
       if (reply.ok && basis === autoBxFingerprint()) {
-        autoBxPreview = reply.preview; autoBxBasis = basis; autoBxFeedback.textContent = ""; renderAutoBxPreview();
+        autoBxPreview = reply.preview; autoBxBasis = basis; autoBxFeedback.textContent = reply.preview.message || ""; renderAutoBxPreview();
       } else {
         invalidateAutoBx(); autoBxFeedback.textContent = reply.ok ? "Urvalet har ändrats. Förhandsvisa igen." : reply.error;
       }
@@ -3716,6 +3733,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   }
   function renderAutoBxPreview() {
+    const groups = autoBxPreview.reference_groups;
+    autoBxGroups.hidden = !groups;
+    autoBxGroups.textContent = groups ? "Referensgrupper: " + groups.before + " → " + groups.after
+      + (groups.maximum != null ? " · Max " + groups.maximum : "") : "";
     const table = node("table", "gp-auto-bx-table"), head = node("thead"), body = node("tbody"), headings = node("tr");
     for (const text of ["Sula", "b_x [m]", "U [%]"]) {
       const cell = mathText("th", "", text); cell.setAttribute("scope", "col");
@@ -3739,7 +3760,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     autoBxPreviewButton.textContent = "Förhandsvisa igen";
   }
   function applyAutoBx() {
-    if (readOnly || autoBxBusy || !autoBxPreview?.changed || pending.size) return;
+    if (readOnly || autoBxBusy || !autoBxPreview?.changed || autoBxPreview?.feasible === false || pending.size) return;
     if (autoBxBasis !== autoBxFingerprint()) {invalidateAutoBx(); autoBxFeedback.textContent = "Förhandsvisa igen efter ändringen."; return;}
     const preview = autoBxPreview;
     autoBxBusy = true; showAutoBxBusy(); showSelection(); syncTableSelection();

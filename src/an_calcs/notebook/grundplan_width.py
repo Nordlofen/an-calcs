@@ -2,9 +2,12 @@
 
 import math
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from .grundplan_reference import exclusion_reason, group_key, group_keys
+from .grundplan_width_optimizer import optimize
 
 
-DEFAULT_SETTINGS = {"step_mm": 100, "u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5}
+DEFAULT_SETTINGS = {"step_mm": 100, "u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5,
+                    "max_reference_groups": None}
 
 
 def validate_settings(value):
@@ -12,8 +15,13 @@ def validate_settings(value):
         raise ValueError("Ogiltiga inställningar för Auto bₓ.")
     settings = {**DEFAULT_SETTINGS, **value}
     for key, number in settings.items():
+        if key == "max_reference_groups" and number is None:
+            continue
         if type(number) not in (int, float) or not math.isfinite(number):
             raise ValueError("Ange ändliga tal för måttsteg, U-spann och sökbredd.")
+    maximum = settings["max_reference_groups"]
+    if maximum is not None and (maximum != int(maximum) or not 1 <= maximum <= 1000):
+        raise ValueError("Max referensgrupper ska vara ett heltal 1–1 000, eller tomt för individuell tilldelning.")
     if settings["step_mm"] != int(settings["step_mm"]) or not 1 <= settings["step_mm"] <= 10000:
         raise ValueError("Måttsteget ska vara 1–10 000 hela millimeter.")
     if not 0 <= settings["u_min"] <= settings["u_max"] <= 100:
@@ -44,12 +52,14 @@ def utilization(summary):
     return value
 
 
-def propose(tags, settings, calculate):
+def propose(tags, settings, calculate, *, all_tags=None):
     settings = validate_settings(settings)
+    project = tags if all_tags is None else all_tags
     widths = allowed_widths(settings)
     if len(tags) * len(widths) > 50000:
         raise ValueError("Urvalet innehåller för många breddsteg. Välj färre sulor eller ett större måttsteg.")
-    rows, prepared = [], []
+    rows, prepared, joint = [], [], []
+    maximum = settings["max_reference_groups"]
     lower, upper = settings["u_min"] / 100, settings["u_max"] / 100
     for tag in tags:
         values = tag["values"]
@@ -61,6 +71,9 @@ def propose(tags, settings, calculate):
         if reason:
             row["reason"] = reason
             continue
+        if maximum is not None and exclusion_reason(tag):
+            row["reason"] = exclusion_reason(tag)
+            continue
         try:
             _, summary = calculate(values)
             row["u_before"] = utilization(summary)
@@ -68,6 +81,7 @@ def propose(tags, settings, calculate):
             row["reason"] = "Fel i indata: " + str(exc)
             continue
         fallback = chosen = None
+        candidates = []
         # Do not assume monotonic behavior: self-weight and governing checks may
         # change. Prefer the smallest width in the interval; otherwise the first
         # width below the upper limit. The lower limit is a goal, not a rejection.
@@ -79,12 +93,21 @@ def propose(tags, settings, calculate):
             except (ValueError, ArithmeticError):
                 continue
             if u <= upper + 1e-12:
+                if maximum is not None:
+                    candidates.append((width, u, group_key(tag, width=width)))
+                    continue
                 result = (candidate, details, summary, u)
                 if fallback is None:
                     fallback = result
                 if u + 1e-12 >= lower:
                     chosen = result
                     break
+        if maximum is not None:
+            if candidates:
+                joint.append((tag, row, candidates))
+            else:
+                row["reason"] = "Ingen giltig bredd inom sökbredden uppfyller övre U-gränsen."
+            continue
         chosen = chosen or fallback
         if chosen is None:
             row["reason"] = "Ingen giltig bredd inom sökbredden uppfyller övre U-gränsen."
@@ -94,7 +117,39 @@ def propose(tags, settings, calculate):
                    status="unchanged" if candidate["b"] == values["b"] else "changed")
         if row["status"] == "changed":
             prepared.append({"id": tag["id"], "values": candidate, "details": details, "summary": summary})
-    return {"settings": settings, "rows": rows,
+    feasible, message, minimum = True, "", None
+    if maximum is not None:
+        joint.sort(key=lambda item: item[0]["id"])
+        changing_ids = {tag["id"] for tag, _, _ in joint}
+        fixed = group_keys([tag for tag in project if tag["id"] not in changing_ids])
+        choices, minimum = optimize([candidates for _, _, candidates in joint], fixed,
+                                    maximum, settings["step_mm"], lower)
+        feasible = choices is not None
+        if not feasible:
+            message = (f"Max {int(maximum)} referensgrupper kan inte uppfyllas med detta urval, måttsteg och sökbredd. "
+                       f"Minst {minimum} grupper behövs. Inga bredder ändras.")
+            for _, row, _ in joint:
+                row["reason"] = "Max referensgrupper kan inte uppfyllas."
+        else:
+            for (tag, row, candidates), choice in zip(joint, choices):
+                width, _, _ = candidates[choice]
+                candidate = {**tag["values"], "b": width}
+                details, summary = calculate(candidate)
+                u = utilization(summary)
+                if u > upper + 1e-12:
+                    raise ValueError("En föreslagen bredd uppfyller inte övre U-gränsen. Förhandsvisa igen.")
+                row.update(b_after=width, u_after=u, status="unchanged" if width == tag["values"]["b"] else "changed")
+                if row["status"] == "changed":
+                    prepared.append({"id": tag["id"], "values": candidate, "details": details, "summary": summary})
+    replacements = {result["id"]: result for result in prepared}
+    after = [{**tag, **replacements[tag["id"]], "status": "calculated"}
+             if tag["id"] in replacements else tag for tag in project]
+    before_count, after_count = len(group_keys(project)), len(group_keys(after))
+    if feasible and maximum is not None and after_count > maximum:
+        raise ValueError("Förslaget överskrider Max referensgrupper. Inga bredder har ändrats.")
+    return {"settings": settings, "rows": rows, "feasible": feasible, "message": message,
+            "reference_groups": {"before": before_count, "after": after_count, "maximum": maximum,
+                                 **({"minimum": minimum} if minimum is not None else {})},
             "changed": sum(row["status"] == "changed" for row in rows),
             "unchanged": sum(row["status"] == "unchanged" for row in rows),
             "skipped": sum(row["status"] == "skipped" for row in rows)}, prepared

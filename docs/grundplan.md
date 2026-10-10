@@ -1334,8 +1334,10 @@ utan indatalås öppnas med upplåsta indata.
 
 Markera sulor och välj **Auto bₓ**. Välj måttsteg (50, 100, 200, 500,
 1 000 mm eller ett eget helt millimetervärde), undre och övre U-gräns samt
-minsta och största sökbredd. **Förhandsvisa** visar en kompakt lista med
-nuvarande → föreslaget bₓ och U. Inga sulor ändras innan **Tilldela bₓ**.
+minsta och största sökbredd samt valfritt **Max referensgrupper**.
+**Förhandsvisa** visar en kompakt lista med nuvarande → föreslaget bₓ och U,
+samt **Referensgrupper: före → efter** för hela projektet.
+Inga sulor ändras innan **Tilldela bₓ**.
 
 Bredderna är hela multiplar av måttsteget. Varje kandidat beräknas med
 sulans befintliga modell och indata, inklusive egentyngd och alla aktiva
@@ -1343,23 +1345,50 @@ jord- och isoleringskontroller. U avser den högsta utnyttjandegraden; styrande
 kontroll kan ändras med bredden. Minsta giltiga bredd inom U-spannet väljs.
 Övre U-gränsen är ett krav och undre gränsen ett mål: om inget måttsteg
 hamnar i spannet väljs minsta giltiga bredd under övre gränsen, utan särskild
-markering för U under målspannet. Tilldelningen kan både öka och minska bₓ.
+markering för U under målspannet. Detta gäller individuell tilldelning,
+när Max referensgrupper är tomt. Tilldelningen kan både öka och minska bₓ.
+
+Med **Max referensgrupper** (heltal 1–1 000) optimeras bredderna gemensamt.
+Alla föreslagna bredder måste klara övre U-gränsen. Bland kombinationer som
+ryms inom gruppgränsen minimeras sammanlagd bₓ; bland likvärdiga bredder
+minimeras underskridandet av den undre U-gränsen. Undre gränsen är ett mål
+och får aldrig göra en i övrigt möjlig tilldelning omöjlig.
+
+Gruppgränsen avser hela projektets referensgrupper, även andra ritningssidor.
+Omarkerade, låsta och överhoppade sulor behåller sina indata och deras
+befintliga grupper räknas med. Kandidater använder exakt samma gruppnyckel
+som Referens-widgeten: sultyp, relevanta gruppmått, lasttyp och jord-/
+beräkningsförutsättningar. Endast bₓ ändras. Oklara äldre sultyper och sulor
+utan aktuellt giltigt resultat måste bekräftas/beräknas före gemensam optimering.
+
+Om gruppgränsen är omöjlig visas minsta möjliga antal grupper för aktuellt
+urval, måttsteg och sökbredd. Inga bredder föreslås för tilldelning.
+Optimeringen använder SciPy/HiGHS, som följer med `an-calcs[notebook]`.
+Om optimeringen inte slutförs inom 20 sekunder behöver måttsteget ökas eller
+urvalet minskas; ett ofullständigt förslag kan aldrig tilldelas.
 
 Sulor med låsta indata, inaktiva sulor, Endast H och sulor med ogiltiga
 beräkningsindata hoppas över med en förklaring i listan. Om ingen bredd
 klarar övre gränsen inom sökbredden behålls befintlig bredd. Högst 500
 breddsteg per sula och 50 000 steg per förhandsvisning tillåts.
 
-Förhandsvisningen kommer från Python. En tilldelning avvisas om sulornas
-indata, littera, sultyp eller indatalås har ändrats under tiden; förhandsvisa
+Förhandsvisningen kommer från Python. En tilldelning avvisas om projektets
+sulor, indata, littera, sultyp, resultat eller indatalås har ändrats under tiden; förhandsvisa
 då igen. Hela tilldelningen är en ångra-handling. Förhandsvisningen sparas
 inte i projektet.
 
 Python: `plan.las_indata([id1, id2], last=True)` låser indata.
 `plan.forhandsvisa_auto_bx([id1, id2], installningar={"step_mm": 100,
-"u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5})` returnerar ett
+"u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5,
+"max_reference_groups": 8})` returnerar ett
 förslag och en `token`. Tilldela med `plan.tilldela_auto_bx(forslag["token"])`.
 Som andra direkta Python-ändringar skapar dessa anrop ingen UI-historik.
+
+Färggrupperingswidgeten behåller rubriker för sultyper. Mellan sultyperna
+visas en tydligare avdelning och extra luft. När Tjocklek t ingår i
+färggrupperingen visas tunna avdelningslinjer mellan olika tjocklekar inom
+respektive sultyp, även i HTML- och PDF-export. Valet av färg och mönster
+samt gruppmedlemskap påverkas inte av avdelningslinjerna.
 
 ### Gemensam placering och placeringslås
 

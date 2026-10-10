@@ -49,31 +49,50 @@ def _canonical(value):
     return value
 
 
+def group_geometry(tag, *, width=None):
+    """Shared geometry for the widget and Auto b_x, without rounding."""
+    values, category = tag["values"], footing_category(tag)
+    geometry = {"t": values.get("t"), "b": values.get("b") if width is None else width}
+    if category != "wall" or values.get("l") != 1:
+        geometry["l"] = values.get("l")
+    if category == "wall_pad" and line_loads(values):
+        geometry["L_vagg"] = values.get("L_vagg")
+    return geometry
+
+
+def exclusion_reason(tag):
+    values, summary = tag["values"], tag.get("summary") or {}
+    reason = ("Inaktiv" if values.get("inaktiv") else "Endast H-stabilitet" if values.get("endast_h_stabilitet")
+              else "Bekräfta sultyp" if tag.get("footing_type_inferred")
+              else "Saknar aktuellt beräkningsresultat" if tag.get("status") != "calculated"
+              or not _finite(summary.get("utnyttjandegrad")) else None)
+    if not reason and any(not _finite(number) or number <= 0 for number in group_geometry(tag).values()):
+        reason = "Ofullständiga gruppmått"
+    return reason
+
+
+def group_key(tag, *, width=None):
+    values = tag["values"]
+    return json.dumps(_canonical([footing_category(tag), group_geometry(tag, width=width), line_loads(values),
+                      [values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
+
+
+def group_keys(tags):
+    return {group_key(tag) for tag in tags if not exclusion_reason(tag)}
+
+
 def group_data(tags):
     groups, excluded = {}, []
     for tag in sorted(tags, key=_order):
-        values, summary = tag["values"], tag.get("summary") or {}
-        reason = ("Inaktiv" if values.get("inaktiv") else "Endast H-stabilitet" if values.get("endast_h_stabilitet")
-                  else "Bekräfta sultyp" if tag.get("footing_type_inferred")
-                  else "Saknar aktuellt beräkningsresultat" if tag.get("status") != "calculated"
-                  or not _finite(summary.get("utnyttjandegrad")) else None)
-        category = footing_category(tag)
-        geometry = {"t": values.get("t"), "b": values.get("b")}
-        if category != "wall" or values.get("l") != 1:
-            geometry["l"] = values.get("l")
-        if category == "wall_pad" and line_loads(values):
-            geometry["L_vagg"] = values.get("L_vagg")
-        if not reason and any(not _finite(number) or number <= 0 for number in geometry.values()):
-            reason = "Ofullständiga gruppmått"
+        reason = exclusion_reason(tag)
         if reason:
             excluded.append({"id": tag["id"], "label": tag["label"], "reason": reason})
             continue
         # Separate line and point inputs. Ordinary walls may have different
         # local load lengths; bookkeeping never changes their individual checks.
         # Wall-pad models still group by L_vagg through geometry above.
-        key = json.dumps(_canonical([category, geometry, line_loads(values),
-                          [values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
-        groups.setdefault(key, {"category": category, "geometry": geometry, "members": []})["members"].append(tag)
+        key = group_key(tag)
+        groups.setdefault(key, {"category": footing_category(tag), "geometry": group_geometry(tag), "members": []})["members"].append(tag)
     result = []
     for key, group in groups.items():
         members = group.pop("members")

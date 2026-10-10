@@ -1100,26 +1100,27 @@ class Grundplan(anywidget.AnyWidget):
         """Prova tillåtna bredder utan att ändra sulorna. Returnerar en tilldelningstoken."""
         self._auto_bx_preview = None
         tags = self._selected_tags(taggar)
-        report, prepared = propose_widths(tags, {} if installningar is None else installningar, _calculate)
+        report, prepared = propose_widths(tags, {} if installningar is None else installningar, _calculate, all_tags=self._tags)
         token = uuid.uuid4().hex
         self._auto_bx_preview = {"token": token, "prepared": prepared,
-            "report": report, "basis": self._width_basis(tags)}
+            "report": report, "basis": self._width_basis(self._tags)}
         return copy.deepcopy({**report, "token": token})
 
     @staticmethod
     def _width_basis(tags):
         return copy.deepcopy([{name: tag.get(name) for name in
-            ("id", "label", "values", "footing_type", "input_locked")} for tag in tags])
+            ("id", "label", "values", "footing_type", "footing_type_inferred", "input_locked", "status", "summary")} for tag in tags])
 
     def tilldela_auto_bx(self, token):
         """Tilldela endast den fortfarande aktuella, beräknade förhandsvisningen."""
         preview = self._auto_bx_preview
         if not preview or token != preview["token"]:
             raise ValueError("Förhandsvisningen är inte längre aktuell. Förhandsvisa Auto bₓ igen.")
-        tags = self._selected_tags([tag["id"] for tag in preview["basis"]])
-        if self._width_basis(tags) != preview["basis"]:
+        if not preview["report"]["feasible"]:
+            raise ValueError(preview["report"]["message"])
+        if self._width_basis(self._tags) != preview["basis"]:
             self._auto_bx_preview = None
-            raise ValueError("Sulornas indata eller indatalås har ändrats. Förhandsvisa Auto bₓ igen.")
+            raise ValueError("Projektets sulor, indata eller indatalås har ändrats. Förhandsvisa Auto bₓ igen.")
         for result in preview["prepared"]:
             tag = self._tag(result["id"])
             self._assert_input_unlocked(tag)

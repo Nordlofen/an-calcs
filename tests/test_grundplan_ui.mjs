@@ -257,7 +257,7 @@ test('Auto bx previews server proposals, invalidates on setting changes and assi
   assert.equal(ui.byClass('gp-auto-bx-dialog').hidden, false);
   const previewButton = ui.byText('Förhandsvisa'); previewButton.click();
   let request = ui.sent.at(-1); assert.equal(request.action, 'auto_bx_preview');
-  assert.deepEqual(request.settings, {step_mm:100,u_min:70,u_max:99,b_min:.2,b_max:5});
+  assert.deepEqual(request.settings, {step_mm:100,u_min:70,u_max:99,b_min:.2,b_max:5,max_reference_groups:null});
   const preview = {token:'trusted',changed:1,unchanged:0,skipped:0,
     rows:[{id:'tag1',label:'VS1',status:'changed',b_before:1,b_after:.9,u_before:.75,u_after:.86}]};
   ui.ack(request, {preview}); assert.match(elementText(ui.byClass('gp-auto-bx-list')), /VS1/);
@@ -283,6 +283,52 @@ test('Auto bx supports a custom step and invalidates proposals after external in
   assert.equal(ui.byClass('gp-auto-bx-footer').children[1].disabled, true);
   assert.equal(ui.byClass('gp-auto-bx-list').children.length, 0);
   assert.match(ui.byClass('gp-auto-bx-feedback').textContent, /ändrats/);
+});
+
+test('Auto bx sends a group cap, shows whole-project counts and invalidates when the cap changes', t => {
+  const ui = setup(t); ui.byText('Markera samtliga').click();
+  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  const cap = ui.field('auto_bx_max_reference_groups');
+  assert.equal(cap.placeholder, 'Obegränsat');
+  cap.value='6'; cap.dispatch('input'); ui.byText('Förhandsvisa').click();
+  const request=ui.sent.at(-1); assert.equal(request.settings.max_reference_groups,6);
+  ui.ack(request,{preview:{token:'joint',changed:1,unchanged:0,skipped:0,feasible:true,
+    reference_groups:{before:12,after:6,maximum:6},
+    rows:[{id:'tag1',label:'VS1',status:'changed',b_before:1,b_after:1.2,u_before:.75,u_after:.62}]}});
+  assert.equal(ui.byClass('gp-auto-bx-groups').textContent,'Referensgrupper: 12 → 6 · Max 6');
+  assert.equal(ui.byClass('gp-auto-bx-groups').hidden,false);
+  assert.equal(ui.byClass('gp-auto-bx-footer').children[1].disabled,false);
+  cap.value='5'; cap.dispatch('input');
+  assert.equal(ui.byClass('gp-auto-bx-footer').children[1].disabled,true);
+  assert.equal(ui.byClass('gp-auto-bx-groups').hidden,true);
+});
+
+test('Auto bx explains an impossible group cap and cannot assign an infeasible preview', t => {
+  const ui = setup(t); ui.byText('Markera samtliga').click();
+  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.field('auto_bx_max_reference_groups').value='1'; ui.byText('Förhandsvisa').click();
+  const request=ui.sent.at(-1);
+  ui.ack(request,{preview:{token:'impossible',changed:0,unchanged:0,skipped:1,feasible:false,
+    message:'Minst 2 grupper behövs. Inga bredder ändras.', reference_groups:{before:2,after:2,maximum:1,minimum:2},
+    rows:[{id:'tag1',label:'VS1',status:'skipped',reason:'Max referensgrupper kan inte uppfyllas.'}]}});
+  assert.match(ui.byClass('gp-auto-bx-feedback').textContent,/Minst 2/);
+  assert.match(elementText(ui.byClass('gp-auto-bx-list')),/Max referensgrupper/);
+  const apply=ui.byClass('gp-auto-bx-footer').children[1], count=ui.sent.length;
+  assert.equal(apply.disabled,true); apply.click(); assert.equal(ui.sent.length,count);
+});
+
+test('Auto bx invalidates whole-project counts when an unselected footing changes', t => {
+  const ui = setup(t); ui.byText('Markera samtliga').click();
+  ui.data.state.tags.push({...structuredClone(ui.tag),id:'other',label:'VS2'}); ui.changed();
+  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byText('Förhandsvisa').click(); const request=ui.sent.at(-1);
+  assert.deepEqual(request.ids,['tag1']);
+  ui.ack(request,{preview:{token:'stale-project',changed:1,unchanged:0,skipped:0,feasible:true,
+    reference_groups:{before:1,after:2,maximum:null},
+    rows:[{id:'tag1',label:'VS1',status:'changed',b_before:1,b_after:.9,u_before:.75,u_after:.9}]}});
+  ui.data.state.tags[1].values.t=.35; ui.changed();
+  assert.equal(ui.byClass('gp-auto-bx-footer').children[1].disabled,true);
+  assert.equal(ui.byClass('gp-auto-bx-groups').hidden,true);
 });
 
 test('undo and redo icon buttons follow kernel history, pending commands and acknowledgements', t => {
@@ -3744,7 +3790,7 @@ for (const readOnly of [false, true]) test(`five insulation colours follow selec
     assert.equal(ui.byClass("gp-colour-bounds").parent.hidden, true);
   }
   const text = element => element.textContent + element.children.map(text).join("");
-  const rows = () => ui.elements().filter(e => e.className === "gp-colour-legend-row")
+  const rows = () => ui.elements().filter(e => e.className.split(" ").includes("gp-colour-legend-row"))
     .map(row => row.children.slice(1).map(text));
   const captions = ["Med isolering · inget bidrag", "Utan isolering · inget bidrag", "Utan isolering · bidrag i Xg",
     "Utan isolering · bidrag i Yg", "Utan isolering · bidrag i Xg och Yg"];
@@ -3785,7 +3831,7 @@ for (const readOnly of [false, true]) test(`load legends show occupied intervals
   Object.assign(ui.tag.values, {lang: 0, F_vy: 150});
   ui.model.get("state").tags = ui.data.state.tags;
   colourFixture(ui, {category: "V", colors: {"V:brott:pad:2.000000000000e2:4.000000000000e2": "#c8e0d8"}});
-  const rows = () => ui.elements().filter(e => e.className === "gp-colour-legend-row")
+  const rows = () => ui.elements().filter(e => e.className.split(" ").includes("gp-colour-legend-row"))
     .map(row => row.children[1].textContent);
   assert.deepEqual(rows(), ["100 ≤ V < 200"]);
   if (!readOnly) assert.equal(ui.elements().filter(e => e.type === "color").length, 4);
@@ -3958,7 +4004,7 @@ test("two category buttons produce combination colours and allow deselecting eit
   const markers = ui.elements().filter(e => e.className.split(" ").includes("gp-tag"));
   assert.equal(markers[0].dataset.colourGroup, markers[1].dataset.colourGroup);
   assert.equal(new Set(markers.map(e => e.style["--gp-tag-bg"])).size, 3);
-  assert.equal(ui.elements().filter(e => e.className === "gp-colour-legend-row").length, 3);
+  assert.equal(ui.elements().filter(e => e.className.split(" ").includes("gp-colour-legend-row")).length, 3);
   const input = ui.find(e => e.type === "color"); input.value = "#c8e0d8"; input.dispatch("change"); accept(ui.sent.at(-1));
   const saved = structuredClone(ui.data.state.colour_grouping);
   ui.byText("Färggruppering").click(); accept(ui.sent.at(-1));
@@ -3981,6 +4027,31 @@ test("two category buttons produce combination colours and allow deselecting eit
   assert.equal(ui.sent.length, count, 'The last category cannot be deselected');
 });
 
+for (const readOnly of [false, true]) test(`colour legends retain footing headings and divide only changed thicknesses (readOnly=${readOnly})`, t => {
+  const ui = setup(t, {readOnly});
+  Object.assign(ui.tag, {footing_type:'vaggsula'});
+  Object.assign(ui.tag.values, {lang:1,t:.25,b:.8});
+  ui.data.state.tags.push(...[
+    {id:'same-t', values:{b:1}},
+    {id:'thicker', values:{t:.35,b:1}},
+    {id:'wall-pad', values:{lang:0,lasttyp:1,t:.25,b:1,l:1.3}},
+    {id:'pad', footing_type:'pelarsula', values:{lang:0,lasttyp:0,t:.35,b:1,l:1.3}},
+  ].map(item=>({...structuredClone(ui.tag),...item,values:{...ui.tag.values,...item.values}})));
+  const before=structuredClone(ui.data.state.tags);
+  colourFixture(ui,{categories:['sultyp','t','b','l']});
+  const rows=()=>ui.elements().filter(el=>el.className.split(' ').includes('gp-colour-legend-row'));
+  const headings=ui.elements().filter(el=>el.className.split(' ').includes('gp-colour-legend-section'));
+  assert.deepEqual(headings.map(el=>el.textContent),['Väggsula','Väggsula m. beräkningsmodell pelarsula','Pelarsula']);
+  assert.equal(headings.filter(el=>el.className.includes('gp-colour-legend-type-start')).length,2);
+  assert.equal(rows().length,5);
+  assert.deepEqual(rows().map(el=>el.className.includes('gp-colour-legend-thickness-start')),[false,false,true,false,false]);
+  assert.equal(elementText(rows()[0]).includes('by'),false,'Ordinary wall length remains omitted');
+  assert.equal(elementText(rows()[3]).includes('by'),true);
+  assert.deepEqual(ui.data.state.tags,before);
+  ui.data.state.colour_grouping.categories=['sultyp','b']; ui.changed();
+  assert.equal(rows().some(el=>el.className.includes('gp-colour-legend-thickness-start')),false);
+});
+
 for (const readOnly of [false, true]) test(`three parameter grouping splits load intervals onto a second legend line and colours comments (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
   Object.assign(ui.tag.values, {b: .8, t: .25, F_vy: 150, kommentar: 'Samordnas.'});
@@ -3994,7 +4065,7 @@ for (const readOnly of [false, true]) test(`three parameter grouping splits load
   const markers = () => ui.elements().filter(e => e.className.split(' ').includes('gp-tag'));
   assert.equal(markers()[0].dataset.colourGroup, markers()[1].dataset.colourGroup);
   assert.equal(new Set(markers().map(e => e.dataset.colourGroup)).size, 3);
-  const rows = ui.elements().filter(e => e.className === 'gp-colour-legend-row');
+  const rows = ui.elements().filter(e => e.className.split(' ').includes('gp-colour-legend-row'));
   assert.equal(rows.length, 3);
   assert.equal(rows[0].dataset.multiline, 'true');
   assert.match(elementText(rows[0].children[1].children[0]), /t 0,25 m · bx 0,8 m/);
@@ -4002,7 +4073,7 @@ for (const readOnly of [false, true]) test(`three parameter grouping splits load
   assert.equal(ui.byClass('gp-colour-legend-title').textContent, 'Tjocklek t + Bredd bₓ + V · brott');
   assert.equal(ui.byClass('gp-comment-label').style.background, markers()[0].style['--gp-tag-bg']);
   ui.data.state.colour_grouping.phase = 'bruk'; ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === 'gp-colour-legend-row').length, 2);
+  assert.equal(ui.elements().filter(e => e.className.split(' ').includes('gp-colour-legend-row')).length, 2);
   assert.equal(elementText(ui.byClass('gp-colour-legend-load')), 'V Saknar värde');
   assert.deepEqual(ui.data.state.tags, before);
 });
@@ -4761,7 +4832,7 @@ for (const readOnly of [false, true]) test(`Length colour captions apply only to
   const before = structuredClone(ui.data.state.tags);
   for (const categories of [['sultyp', 't', 'b', 'l'], ['sultyp', 't', 'b', 'l', 'V']]) {
     colourFixture(ui, {categories, edit_type: 'wall'}); ui.changed();
-    const rows = ui.elements().filter(e => e.className === 'gp-colour-legend-row');
+    const rows = ui.elements().filter(e => e.className.split(' ').includes('gp-colour-legend-row'));
     assert.equal(rows.length, 3);
     assert.doesNotMatch(elementText(rows[0]), /by/);
     assert.match(elementText(rows[1]), /by 1,3 m/);
@@ -4772,7 +4843,7 @@ for (const readOnly of [false, true]) test(`Length colour captions apply only to
     }
   }
   colourFixture(ui, {categories: ['l']}); ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === 'gp-colour-legend-row').length, 2);
+  assert.equal(ui.elements().filter(e => e.className.split(' ').includes('gp-colour-legend-row')).length, 2);
   assert.equal(ui.marker().style['--gp-tag-bg'], '#ffffff');
   assert.deepEqual(ui.data.state.tags, before);
 });

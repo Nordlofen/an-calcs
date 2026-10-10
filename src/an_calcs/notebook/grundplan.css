@@ -230,6 +230,8 @@
 .an-grundplan .gp-comment-label { position: relative; display: inline-block; padding: 1px 4px; border: 1px solid #9fbbbf; border-radius: 3px; line-height: 1.35; }
 .an-grundplan .gp-colour-legend-title { margin-top: 5px; font-size: 12px; }
 .an-grundplan .gp-colour-legend-section { display: block; font-size: 11px; margin-top: 10px; color: var(--gp-muted); }
+.an-grundplan .gp-colour-legend-type-start { margin-top: 18px; padding-top: 12px; border-top: 1.5px solid #9bb2bc; }
+.an-grundplan .gp-colour-legend-row.gp-colour-legend-thickness-start { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--gp-line); }
 .an-grundplan .gp-colour-legend-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 7px; font-size: 12px; }
 .an-grundplan .gp-colour-swatch { position: relative; height: 21px; border: 1px solid #b9cdd1; border-radius: 4px; }
 .an-grundplan .gp-colour-pattern-sample { width: 26px; flex: none; }
@@ -288,6 +290,7 @@
 .an-grundplan .gp-auto-bx-arrow { display: inline-block; padding: 0 10px; }
 .an-grundplan .gp-auto-bx-table .gp-auto-bx-reason { text-align: left; color: var(--gp-muted); overflow-wrap: anywhere; }
 .an-grundplan .gp-auto-bx-feedback { color: var(--gp-muted); font-size: 12px; }
+.an-grundplan .gp-auto-bx-groups { color: var(--gp-ink); font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
 .an-grundplan .gp-auto-bx-footer { justify-content: flex-end; }
 @media (max-width: 500px) {
   .an-grundplan .gp-auto-bx-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
