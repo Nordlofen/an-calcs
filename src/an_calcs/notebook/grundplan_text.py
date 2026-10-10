@@ -2,6 +2,7 @@
 
 import copy
 import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,7 +11,7 @@ def today_text():
     return datetime.now(ZoneInfo("Europe/Stockholm")).strftime("%y/%m/%d")
 
 
-def validate_text_objects(value):
+def validate_text_objects(value, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(value, list) or len(value) > 100:
         raise ValueError("Ritningen kan innehålla högst 100 textobjekt.")
     ids = set()
@@ -27,7 +28,7 @@ def validate_text_objects(value):
         subtitle = item.get("subtitle", "")
         if not isinstance(subtitle, str) or item["kind"] == "date" and subtitle:
             raise ValueError("Underrubrik ska anges som text för ett rubrikobjekt.")
-        for name, low, high in (("x", 0, 1), ("y", 0, 1), ("size", 10, 144)):
+        for name, low, high in (("x", coordinate_bounds["left"], coordinate_bounds["right"]), ("y", coordinate_bounds["top"], coordinate_bounds["bottom"]), ("size", 10, 144)):
             number = item[name]
             if type(number) not in (int, float) or not math.isfinite(number) or not low <= number <= high:
                 raise ValueError(f"Textobjektets {name} ska vara {low}–{high}.")

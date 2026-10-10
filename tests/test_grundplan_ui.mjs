@@ -105,7 +105,8 @@ class Element {
       const scale = Number(this.style.transform?.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
       return {left: 0, top: 0, width: 300 * scale, height: 220 * scale};
     }
-    if (this.tag === "img") return { left: parseFloat(this.parent.style.left) || 0, top: parseFloat(this.parent.style.top) || 0,
+    if (this.className === "gp-paper") return {left: parseFloat(this.style.left) || 0, top: parseFloat(this.style.top) || 0, width: parseFloat(this.style.width), height: parseFloat(this.style.height)};
+    if (this.tag === "img") return { left: (parseFloat(this.parent.style.left) || 0) + (parseFloat(this.parent.parent.style.left) || 0), top: (parseFloat(this.parent.style.top) || 0) + (parseFloat(this.parent.parent.style.top) || 0),
       width: parseFloat(this.parent.style.width), height: parseFloat(this.parent.style.height) };
     if (["gp-workspace", "gp-table-section"].some(name => this.className.split(" ").includes(name))) {
       const workspace = this.className.includes("gp-workspace");
@@ -118,7 +119,7 @@ class Element {
 }
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
-const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout,
+const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
   leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
@@ -245,7 +246,7 @@ test('a shared placement lock acts immediately, pans over locked objects and unl
   ui.byText('Lås placering').click(); const lock = ui.sent.at(-1);
   assert.equal(lock.action, 'placement_lock'); assert.equal(lock.objects.length, 3); assert.equal(lock.locked, true);
   assert.match(ui.reference.className, /gp-placement-locked/); assert.match(ui.marker().className, /gp-placement-locked/);
-  const sheet = ui.byClass('gp-sheet'), left = parseFloat(sheet.style.left);
+  const sheet = ui.byClass('gp-paper'), left = parseFloat(sheet.style.left);
   ui.drag(80, 60); near(parseFloat(sheet.style.left), left + 80);
   ui.start(ui.reference.children[0]); ui.move(380, 360); ui.finish(380, 360);
   assert.equal(ui.sent.length, 1); assert.deepEqual(ui.position(), [.3, .4]); assert.deepEqual(ui.xy(ui.reference), [.08, .2]);
@@ -577,7 +578,7 @@ test("readonly and PDF views draw saved splines without editable paths, nodes or
 test("PDF mode uses the shared readonly overlays at drawing coordinates and 100% zoom", t => {
   const ui = setup(t, {readOnly: true, pdfMode: true});
   assert.ok(ui.byClass("an-grundplan").className.includes("gp-pdf"));
-  const sheet = ui.byClass("gp-sheet");
+  const sheet = ui.byClass("gp-paper");
   assert.equal(sheet.style.width, "800px"); assert.equal(sheet.style.height, "600px");
   assert.equal(sheet.style.left, "0px"); assert.equal(sheet.style.top, "0px");
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · t 1 m");
@@ -815,7 +816,7 @@ test("placement advances once per acknowledged click, shows types and creates no
 
 test("failed placement, panning and outside clicks do not discard or advance the queue", t => {
   const ui = setup(t); importFixture(ui);
-  const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
+  const sheet = ui.byClass("gp-paper"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
   ui.start(ui.byClass("gp-picture"), 300, 300); ui.move(500, 500); ui.finish(500, 500);
   near(parseFloat(sheet.style.left), left + 200); near(parseFloat(sheet.style.top), top + 200);
   assert.equal(ui.sent.length, 0, "Dragging the background pans instead of placing");
@@ -832,7 +833,7 @@ test("failed placement, panning and outside clicks do not discard or advance the
 test("drawing can pan while placement is awaiting the kernel and pending clicks cannot place another support", t => {
   const ui = setup(t), imported = importFixture(ui);
   ui.place(); const request = ui.sent.at(-1), count = ui.sent.length;
-  const sheet = ui.byClass("gp-sheet"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
+  const sheet = ui.byClass("gp-paper"), left = parseFloat(sheet.style.left), top = parseFloat(sheet.style.top);
   ui.start(ui.byClass("gp-picture"), 450, 450, {button: 2}); ui.move(490, 500);
   near(parseFloat(sheet.style.left), left + 40); near(parseFloat(sheet.style.top), top + 50);
   imported.added(0, request); ui.finish(490, 500, {button: 2});
@@ -1584,7 +1585,7 @@ test("marquee hit testing follows displayed label rectangles after zoom, label s
 for (const target of ["gp-picture", "gp-tag", "gp-global-axes", "gp-sliding-legend"]) {
   test("right drag pans from " + target + " without moving or selecting objects", t => {
     const ui = setup(t); slidingFixture(ui);
-    const before = structuredClone(ui.data.state), sheet = ui.byClass("gp-sheet");
+    const before = structuredClone(ui.data.state), sheet = ui.byClass("gp-paper");
     const initial = [parseFloat(sheet.style.left), parseFloat(sheet.style.top)];
     ui.start(ui.byClass(target), 300, 300, {button: 2}); ui.move(400, 360); ui.finish(400, 360, {button: 2});
     near(parseFloat(sheet.style.left), initial[0] + 100); near(parseFloat(sheet.style.top), initial[1] + 60);
@@ -2467,11 +2468,11 @@ test("standalone result labels open read-only values and remember expanded secti
   const position = ui.position();
   ui.drag(70, 30);
   assert.deepEqual(ui.position(), position, "Dragging cannot edit exported tag positions");
-  const before = ui.byClass("gp-sheet").style.left;
+  const before = ui.byClass("gp-paper").style.left;
   ui.start(ui.byClass("gp-picture"), 100, 100); ui.move(160, 140); ui.finish(160, 140);
-  assert.notEqual(ui.byClass("gp-sheet").style.left, before, "Background still pans");
+  assert.notEqual(ui.byClass("gp-paper").style.left, before, "Background still pans");
   ui.byText("Anpassa").click();
-  assert.equal(ui.byClass("gp-sheet").style.left, before);
+  assert.equal(ui.byClass("gp-paper").style.left, before);
   assert.deepEqual(ui.tag.summary, original.state.tags[0].summary);
 });
 
@@ -2676,7 +2677,7 @@ test("labels follow drawing zoom while the size control persists their base size
   const slider = ui.find(element => element.type === "range");
   assert.equal(slider.min, "20"); assert.equal(slider.max, "180");
   const root = ui.byClass("an-grundplan");
-  const sheet = ui.byClass("gp-sheet");
+  const sheet = ui.byClass("gp-paper");
   const initialWidth = sheet.style.width;
   slider.value = 140; slider.dispatch("input");
   assert.equal(root.style["--gp-tag-scale"], "1.4");
@@ -2740,7 +2741,7 @@ for (const [label, kind] of [["+ Väggsula", "vaggsula"], ["+ Pelarsula", "pelar
 
 test("pan moves a fitted drawing freely and Fit restores the centered full drawing", t => {
   const ui = setup(t);
-  const sheet = ui.byClass("gp-sheet");
+  const sheet = ui.byClass("gp-paper");
   const picture = ui.byClass("gp-picture");
   const initial = { ...picture.getBoundingClientRect() };
   near(initial.left, (ui.viewport.clientWidth - initial.width) / 2);
@@ -3980,7 +3981,7 @@ function resizePanel(ui, kind, dx, dy, finish = true) {
 test("corner drags resize panels independently without engineering updates, pan or closing input", t => {
   const ui = setup(t);
   ui.marker().click(); ui.field("b").value = "0,"; ui.field("b").dispatch("input");
-  const original = structuredClone(ui.tag), sheet = ui.byClass("gp-sheet"), position = {...sheet.style};
+  const original = structuredClone(ui.tag), sheet = ui.byClass("gp-paper"), position = {...sheet.style};
   const sentBefore = ui.sent.length;
   const table = ui.byClass("gp-table-scroll"); table.scrollLeft = 200; table.scrollTop = 150;
   const handle = resizePanel(ui, "board", -180, 140, false);
@@ -4535,4 +4536,95 @@ test('Physical pad cannot choose a wall calculation model in the form or table',
   assert.equal(ui.field('lang').disabled, true);
   assert.equal(ui.field('lang').parent.hidden, true);
   assert.equal(ui.field('table_lang').disabled, true);
+});
+
+test('Beskär previews all four edges and corners without moving objects or changing state', t => {
+  const ui = setup(t), before = structuredClone(ui.data.state), picture = ui.byClass('gp-picture');
+  ui.byText('Beskär').click();
+  assert.equal(ui.byClass('gp-crop-bar').hidden, false);
+  assert.equal(ui.byText('Beskär').disabled, true);
+  assert.equal(ui.byText('Exportera PDF').disabled, true);
+  let original = picture.getBoundingClientRect();
+  for (const [edge, dx, dy] of [['left', -80, 0], ['right', 80, 0], ['top', 0, -60], ['bottom', 0, 60], ['top-left', -40, -30]]) {
+    const handle = ui.byClass('gp-crop-' + edge);
+    ui.start(handle); ui.move(300 + dx, 300 + dy); ui.finish(300 + dx, 300 + dy);
+  }
+  assert.deepEqual(ui.position(), [.3, .4]);
+  assert.deepEqual(picture.getBoundingClientRect(), original, 'Original stays anchored and at the same scale during edge drags');
+  assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, 0);
+  ui.byText('Klar').click(); const message = ui.sent.at(-1);
+  assert.equal(message.action, 'canvas_bounds');
+  near(message.bounds.left, -120/original.width); near(message.bounds.right, 1+80/original.width);
+  near(message.bounds.top, -90/original.height); near(message.bounds.bottom, 1+60/original.height);
+  ui.data.state.canvas_bounds = message.bounds; ui.changed(); ui.ack(message);
+  assert.equal(ui.byClass('gp-crop-bar').hidden, true);
+  assert.deepEqual(ui.position(), [.3, .4]);
+  const paper = ui.byClass('gp-paper').getBoundingClientRect();
+  near(paper.left, (ui.viewport.clientWidth - paper.width)/2); near(paper.top, (ui.viewport.clientHeight - paper.height)/2);
+});
+
+test('Beskär Escape, pointer cancellation, reset and rejected saves retain the saved frame', t => {
+  const ui = setup(t), initial = ui.byClass('gp-picture').getBoundingClientRect();
+  ui.byText('Beskär').click(); const frame = {...ui.byClass('gp-paper').style};
+  ui.start(ui.byClass('gp-crop-left')); ui.move(100, 300); ui.viewport.dispatch('pointercancel');
+  assert.deepEqual({...ui.byClass('gp-paper').style}, frame);
+  ui.start(ui.byClass('gp-crop-right')); ui.move(500, 300); ui.finish(500, 300);
+  ui.byClass('an-grundplan').dispatch('keydown', {key: 'Escape'});
+  assert.equal(ui.sent.length, 0); assert.deepEqual(ui.byClass('gp-picture').getBoundingClientRect(), initial);
+  ui.byText('Beskär').click(); ui.start(ui.byClass('gp-crop-bottom')); ui.move(300, 500); ui.finish(300, 500);
+  ui.byText('Återställ till original').click(); ui.byText('Klar').click();
+  assert.deepEqual(ui.sent.at(-1).bounds, {left: 0, top: 0, right: 1, bottom: 1}); ui.ack(ui.sent.at(-1));
+  ui.byText('Beskär').click(); ui.start(ui.byClass('gp-crop-left')); ui.move(100, 300); ui.finish(100, 300);
+  ui.byText('Klar').click(); ui.ack(ui.sent.at(-1), {ok: false, error: 'Avvisad'});
+  assert.deepEqual(ui.byClass('gp-picture').getBoundingClientRect(), initial);
+});
+
+test('Expanded canvas permits label movement and placement in the added margins and Fit uses that frame', t => {
+  const ui = setup(t); ui.data.state.canvas_bounds = {left: -.5, top: -.2, right: 1.3, bottom: 1.4}; ui.changed();
+  ui.byText('Anpassa').click();
+  const paper = ui.byClass('gp-paper').getBoundingClientRect(), picture = ui.byClass('gp-picture').getBoundingClientRect();
+  near(paper.width, picture.width * 1.8); near(paper.height, picture.height * 1.6);
+  ui.drag(-picture.width * .55, 0); near(ui.sent.at(-1).x, -.25);
+  const target = {x: picture.left - .3 * picture.width, y: picture.top + .3 * picture.height};
+  ui.byText('+ Väggsula').click(); ui.place(target.x, target.y);
+  assert.equal(ui.sent.at(-1).action, 'add'); near(ui.sent.at(-1).x, -.3); near(ui.sent.at(-1).y, .3);
+});
+
+test('Beskär handles support keyboard adjustments, enforce a nonempty frame, and pan without moving labels', t => {
+  const ui = setup(t); ui.byText('Beskär').click();
+  const original = ui.byClass('gp-paper').getBoundingClientRect(), before = structuredClone(ui.tag);
+  ui.byClass('gp-crop-left').dispatch('keydown', {key: 'ArrowLeft', shiftKey: true});
+  assert.ok(ui.byClass('gp-paper').getBoundingClientRect().width > original.width);
+  ui.start(ui.marker()); ui.move(360, 350); ui.finish(360, 350);
+  assert.deepEqual(ui.tag, before); assert.equal(ui.sent.length, 0);
+  ui.start(ui.byClass('gp-crop-right')); ui.move(-10000, 300); ui.finish(-10000, 300);
+  ui.byText('Klar').click(); const bounds = ui.sent.at(-1).bounds;
+  near(bounds.right - bounds.left, .05);
+});
+
+test('PDF and readonly Fit honor saved crop bounds while original coordinates remain unchanged', t => {
+  const ui = setup(t, {readOnly: true, pdfMode: true});
+  ui.data.state.canvas_bounds = {left: -.25, top: .1, right: 1.2, bottom: .9}; ui.changed(); ui.byText('Anpassa').click();
+  const paper = ui.byClass('gp-paper').getBoundingClientRect(), picture = ui.byClass('gp-picture').getBoundingClientRect();
+  near(paper.left, 0); near(paper.top, 0); near(paper.width, 800 * 1.45); near(paper.height, 600 * .8);
+  near(picture.left, 200); near(picture.top, -60); assert.deepEqual(ui.position(), [.3, .4]);
+});
+
+
+test('canvas bounds reject invalid shapes, crossed edges, nonfinite values and oversized pages', () => {
+  const valid = {left: -.2, top: .1, right: 1.2, bottom: 1.1};
+  assert.deepEqual(validateCanvasBounds(valid), valid);
+  for (const value of [null, [], {left: 0}, {...valid, top: true}, {...valid, right: NaN}, {...valid, right: -.3},
+    {...valid, bottom: .101}, {...valid, left: -11}, {...valid, right: 11}, {...valid, unknown: 0}])
+    assert.throws(() => validateCanvasBounds(value));
+  assert.doesNotThrow(() => validateCanvasBounds({left: -.02, top: 0, right: -.02 + .05, bottom: 1}));
+});
+
+test('marquee ignores fully cropped labels even when their old coordinates lie under the selection rectangle', t => {
+  const ui = setup(t); ui.data.state.canvas_bounds = {left: .6, top: 0, right: 1, bottom: 1}; ui.changed();
+  const marker = ui.marker().getBoundingClientRect();
+  ui.start(ui.byClass('gp-picture'), marker.left - 5, marker.top - 5, {shiftKey: true});
+  ui.move(marker.left + marker.width + 5, marker.top + marker.height + 5);
+  ui.finish(marker.left + marker.width + 5, marker.top + marker.height + 5);
+  assert.doesNotMatch(ui.marker().className, /gp-tag-selected/);
 });

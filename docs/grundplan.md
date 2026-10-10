@@ -944,6 +944,37 @@ PDF-sidan används om den finns i den nya filen, annars sida 1. En ogiltig fil
 lämnar projektet orört. Den nya ritningen följer med sparning och export.
 Från Python: `plan.importera_ritning("grundplan_rev_B.pdf")`.
 
+## Beskär ritningsytan
+
+**Beskär** visar en streckad ram med fyra kanter och fyra hörnhandtag. Dra
+valfri kant utåt för mer vit marginal eller inåt för att beskära ytan.
+Hörnhandtagen ändrar två kanter samtidigt. Piltangenter på ett fokuserat
+handtag finjusterar kanten; Shift ger större steg. Ritningen kan fortfarande
+panoreras och zoomas medan ramen justeras. **Anpassa** visar hela ramen.
+
+**Klar** sparar ramen. **Avbryt** eller Escape behåller den tidigare ramen.
+**Återställ till original** återställer förhandsvisningen; tryck sedan Klar.
+Originalritningens skala, sulornas indata, leaders, kalibrering och alla
+objektpositioner behålls. Innehåll utanför ramen döljs och finns kvar i
+projektet. Beskärning ändrar inga beräkningsresultat eller vilka sulor som
+beräknas; det styrs fortsatt av Aktiv/Inaktiv.
+
+Etiketter, widgets, rubriker och datum kan placeras i tillagda marginaler.
+Ramen sparas med projektet och används av Anpassa, PDF-export och HTML-export.
+PDF-exporten behåller originalets vektorer. Vid byte av ritning behålls ramen
+relativt den nya originalsidans mått, precis som objektens placeringar.
+
+```python
+# Lägg till 20 % marginal till vänster och 10 % nedtill.
+plan.ritningsram = {"left": -.2, "top": 0, "right": 1, "bottom": 1.1}
+plan.ritningsram  # En kopia av den sparade ramen.
+```
+
+Koordinaterna utgår alltid från originalritningens övre vänstra hörn:
+originalramen är left/top = 0 och right/bottom = 1. Objekt i en tillagd
+marginal kan därför ha negativa koordinater eller koordinater över 1.
+Ramen tillåter bredd och höjd mellan 5 och 1000 % av originalet.
+
 ## Exportera ritning med etiketter som PDF
 
 Tryck **Exportera PDF** för att ladda ned vyns ritningssida med sulornas
@@ -954,8 +985,9 @@ minimerade etiketter ovanpå. Filen får originalritningens namn med tillägget
 plan.exportera_pdf("grundplan_med_etiketter.pdf")
 ```
 
-PDF-originalets sidformat, beskärning och rotation bevaras, liksom dess
-vektorritning och text. För en importerad bild skapas en PDF-sida i samma
+Med originalramen bevaras PDF-originalets sidformat, beskärning och rotation,
+liksom dess vektorritning och text. En ram ändrad med **Beskär** ger i stället
+den valda sidstorleken, med originalritningen och texten kvar som vektorer. För en importerad bild skapas en PDF-sida i samma
 proportioner, med bildens fulla upplösning och 96 dpi som grund för sidstorleken.
 Export från ett återöppnat JSON-projekt använder den inbäddade ritningen;
 originalfilen behöver inte finnas kvar.
@@ -964,8 +996,9 @@ Etiketterna använder sina sparade positioner och reglaget **Etikettstorlek**.
 Zoom, panorering och öppna dialogrutor påverkar inte exporten. Littera,
 isoleringssymbol och text, utnyttjandegrad, geometrimått, eventuell styrande
 kontroll, ifyllda laster och statusfärg följer med.
-Etiketter nära sidkanten flyttas in så att hela etiketten ryms; mycket breda
-etiketter förminskas vid behov. Etiketterna är fast sidinnehåll som följer
+Med originalramen flyttas etiketter nära sidkanten in så att hela etiketten
+ryms; mycket breda etiketter förminskas vid behov. Med en ändrad ram beskärs
+innehållet på sina sparade positioner, på samma sätt som i ritningsvyn. Etiketterna är fast sidinnehåll som följer
 med vid utskrift, utan popup eller klickfunktion.
 
 Exporten använder de automatiskt uppdaterade resultaten. Felaktiga eller
@@ -1205,8 +1238,10 @@ Sulor utan aktuellt giltigt resultat och oklara äldre sultyper redovisas som
 objekt utanför referensgrupperna. I äldre projekt används modell, littera och
 importinformation för att härleda sultyp. När ursprunget är osäkert måste det
 bekräftas i objektets indataruta; beräkningsindata och resultat behålls.
-Projektformat 21 sparar även placeringslås. Versionerna 1–20 kan fortfarande
-öppnas och börjar utan lås. Äldre programversioner kan inte öppna format 21.
+Projektformat 22 sparar ritningsramen och placeringslås. Versionerna 1–21
+kan fortfarande öppnas och använder originalramen när en ram saknas.
+Projekt före format 21 börjar utan placeringslås. Äldre programversioner
+kan inte öppna format 22.
 
 ### Gemensam placering och placeringslås
 

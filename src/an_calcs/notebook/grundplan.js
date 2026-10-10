@@ -22,6 +22,15 @@ const onlyHColourRestriction = settings => {
 };
 const INSULATION_WIDGET_DEFAULTS = {enabled: false, x: .65, y: .55, size: 300};
 const COMMENT_WIDGET_DEFAULTS = {enabled: false, x: .08, y: .55, size: 410};
+const CANVAS_DEFAULTS = {left: 0, top: 0, right: 1, bottom: 1};
+export function validateCanvasBounds(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 4
+      || Object.keys(value).some(key => !Object.hasOwn(CANVAS_DEFAULTS, key))
+      || Object.values(value).some(v => typeof v !== "number" || !Number.isFinite(v) || v < -10 || v > 11)
+      || [value.right - value.left, value.bottom - value.top].some(size => size < .05 - 1e-10 || size > 10 + 1e-10))
+    throw new Error("Ritningsytans bredd och höjd ska vara 5–1000 % av originalet.");
+  return {...value};
+}
 const LAYOUT_DEFAULTS = {board_height: null, table_height: null, board_width: null, table_width: null};
 const LAYOUT_LIMITS = {board_height: [280, 2400], table_height: [160, 1800], board_width: [320, 4000], table_width: [320, 4000]};
 export function validateLayout(value) {
@@ -495,6 +504,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let sequence = 0, active = null, mode = "pan", zoom = 1, panX = 24, panY = 24, disposed = false;
   let lastBackground = "", formId = null, copySource = null, sizeDraft = null;
   let headingDraft = null;
+  let cropDraft = null, canvasPending = null;
+  const canvasBounds = () => cropDraft || canvasPending || state().canvas_bounds || CANVAS_DEFAULTS;
   let leaderEdit = null, leaderNode = null, leaderPlacement = null;
   const leaderDrafts = new Map();
   const leaderElements = new Map();
@@ -963,8 +974,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       textAddBusy = true; showTextObjects();
       // Place each object in the visible part of the drawing, then let it be dragged.
       const rect = picture.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
-      const x = Math.max(0, Math.min(.9, (Math.max(bounds.left, rect.left) + 35 - rect.left) / rect.width));
-      const y = Math.max(0, Math.min(.9, (Math.max(bounds.top, rect.top) + (kind === "heading" ? 35 : 85) - rect.top) / rect.height));
+      const x = Math.max(canvasBounds().left, Math.min(canvasBounds().right - .05, (Math.max(bounds.left, rect.left + canvasBounds().left * rect.width) + 35 - rect.left) / rect.width));
+      const y = Math.max(canvasBounds().top, Math.min(canvasBounds().bottom - .05, (Math.max(bounds.top, rect.top + canvasBounds().top * rect.height) + (kind === "heading" ? 35 : 85) - rect.top) / rect.height));
       // Copy the visible heading, including any typing awaiting a kernel reply.
       const contents = kind === "heading" ? {text: title.value, subtitle: subtitle.value,
         width: Math.max(80, Math.min(10000, subtitle.clientWidth + 8)), size: overlaySize("text:", 20 / zoom)} : {};
@@ -1097,6 +1108,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   measureTool.title = "Kalibrera med ett känt avstånd och mät mellan två punkter i meter.";
   toolbar.append(measureTool);
+  const cropTool = button("Beskär", () => {
+    if (readOnly || cropDraft || canvasPending || !background().url) return;
+    cancelDrag(); closeDialog(); closeBulk(); setMode("pan");
+    selected.clear(); selectedOverlays.clear(); overlaySelected = null;
+    cropDraft = {...canvasBounds()}; showSelection(); renderMarkers(); renderSlidingGeometry();
+    update(); fit(); viewport.focus({preventScroll: true});
+    showMessage("Dra de fyra kanterna eller hörnen. Utåt ger mer marginal, inåt beskär. Klar sparar ramen; Escape avbryter.");
+  });
+  cropTool.title = "Justera ritningsytans fyra kanter och marginaler.";
+  if (!readOnly) toolbar.append(cropTool);
+  const cropBar = node("section", "gp-crop-bar"); cropBar.hidden = true;
+  cropBar.setAttribute("aria-label", "Beskär ritningsyta");
+  const cropHint = node("span", "gp-crop-hint", "Dra kanter eller hörn för att ändra marginalerna.");
+  const cropSize = node("output", "gp-crop-size");
+  const cropApply = button("Klar", () => finishCrop(true), "gp-primary");
+  const cropCancel = button("Avbryt", () => finishCrop(false));
+  const cropReset = button("Återställ till original", () => {
+    cancelDrag(); cropDraft = {...CANVAS_DEFAULTS}; showCanvas(); fit();
+  });
+  cropBar.append(cropHint, cropSize, cropApply, cropCancel, cropReset);
   const measurementBar = node("section", "gp-measurement-bar");
   measurementBar.hidden = true;
   measurementBar.setAttribute("aria-label", "Mätverktyg");
@@ -1140,6 +1171,25 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   viewport.tabIndex = 0;
   viewport.setAttribute("aria-label", readOnly ? "Grundplan. Klicka på en etikett för indata och resultat. Dra för att panorera. Shift + scroll zoomar."
     : "Grundplan. Dra för att panorera. Shift + scroll zoomar. Shift + vänsterdrag markerar för flerredigering. Klicka på en etikett för indata.");
+  const paper = node("div", "gp-paper");
+  const cropFrame = node("div", "gp-crop-frame"); cropFrame.hidden = true;
+  for (const edge of ["left", "top", "right", "bottom"]) {
+    const hit = node("div", "gp-crop-edge gp-crop-edge-" + edge);
+    hit.dataset.edge = edge; cropFrame.append(hit);
+  }
+  for (const edge of ["left", "top", "right", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]) {
+    const handle = button("", () => {}, "gp-crop-handle gp-crop-" + edge);
+    handle.dataset.edge = edge;
+    handle.setAttribute("aria-label", "Justera " + ({left: "vänster kant", right: "höger kant", top: "övre kant", bottom: "nedre kant",
+      "top-left": "övre vänstra hörnet", "top-right": "övre högra hörnet", "bottom-left": "nedre vänstra hörnet", "bottom-right": "nedre högra hörnet"}[edge]));
+    handle.addEventListener("keydown", event => {
+      if (!cropDraft || !event.key.startsWith("Arrow")) return;
+      event.preventDefault(); event.stopPropagation();
+      adjustCrop(edge, {...cropDraft}, (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0) * (event.shiftKey ? .02 : .002),
+        (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0) * (event.shiftKey ? .02 : .002));
+    });
+    cropFrame.append(handle);
+  }
   const sheet = node("div", "gp-sheet");
   const picture = node("img", "gp-picture");
   picture.alt = "Grundläggningsritning";
@@ -1283,7 +1333,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   referenceLegend.append(referenceHeader, referenceBody, referenceResize);
   overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend, referenceLegend);
   sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
-  viewport.append(sheet, selectionBox, measurementOverlay);
+  paper.append(sheet);
+  viewport.append(paper, selectionBox, measurementOverlay, cropFrame);
   const empty = node("div", "gp-empty");
   empty.append(node("span", "gp-empty-symbol", "＋"), node("h4", "", "Börja med din grundplan"),
     node("p", "", "Öppna en PDF eller bild. Placera sedan en tagg vid varje sula du vill beräkna."),
@@ -1555,7 +1606,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   workspace.append(heading, toolbar);
   if (!readOnly) workspace.append(colourControls);
-  workspace.append(measurementBar);
+  workspace.append(measurementBar, cropBar);
   if (!readOnly) workspace.append(importBar);
   workspace.append(selectionBar);
   if (!readOnly) workspace.append(savePanel, projectFile, argumentsFallback);
@@ -1648,7 +1699,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           sectionStates.clear();
           sketchStates.clear();
           areaPhases.clear();
-          headingDraft = null;
+          headingDraft = null; cropDraft = canvasPending = null;
           slidingDraft = null; overlaySelected = null; selectedOverlays.clear(); lockDrafts.clear();
           colourDraft = null; colourEditType = null; colourError.textContent = "";
           tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null; referenceWidgetDraft = null;
@@ -1672,6 +1723,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
   loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
+    if (cropDraft) finishCrop(false);
     leaderPlacement = null; leaderEdit = leaderNode = null;
     viewport.classList.remove("gp-placing-leader");
     renderLeaders();
@@ -1703,7 +1755,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function measurementPoint(event) {
     const rect = picture.getBoundingClientRect();
     const point = {x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height};
-    return Object.values(point).every(value => Number.isFinite(value) && value >= 0 && value <= 1) ? point : null;
+    const bounds = leaderPlacement || leaderEdit || drag?.leader ? canvasBounds() : CANVAS_DEFAULTS;
+    return Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= bounds.left && point.x <= bounds.right
+      && point.y >= bounds.top && point.y <= bounds.bottom ? point : null;
   }
   function chooseMeasurementPoint(event) {
     const point = measurementPoint(event);
@@ -2442,9 +2496,49 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     zoomText.textContent = Math.round(zoom * 100) + "%";
     renderSlidingGeometry();
   }
+  function showCanvas() {
+    const bg = background(), bounds = canvasBounds(), w = (bg.width || 0) * zoom, h = (bg.height || 0) * zoom;
+    for (const element of [paper, cropFrame]) {
+      element.style.left = panX + bounds.left * w + "px";
+      element.style.top = panY + bounds.top * h + "px";
+      element.style.width = (bounds.right - bounds.left) * w + "px";
+      element.style.height = (bounds.bottom - bounds.top) * h + "px";
+    }
+    sheet.style.left = -bounds.left * w + "px";
+    sheet.style.top = -bounds.top * h + "px";
+    paper.hidden = !bg.url;
+    root.classList.toggle("gp-cropping", !!cropDraft);
+    cropBar.hidden = cropFrame.hidden = !cropDraft;
+    cropTool.disabled = readOnly || !bg.url || !!cropDraft || !!canvasPending || drawingBusy || importBusy || bulkBusy || calibrationBusy;
+    measureTool.disabled = !!cropDraft || !!canvasPending;
+    if (cropDraft) cropSize.textContent = "Bredd " + number((bounds.right - bounds.left) * 100, 1) + " % · Höjd " + number((bounds.bottom - bounds.top) * 100, 1) + " %";
+  }
+  function adjustCrop(edge, before, dx, dy) {
+    const next = {...before};
+    const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
+    if (edge.includes("left")) next.left = clamp(before.left + dx, Math.max(-10, before.right - 10), before.right - .05);
+    if (edge.includes("right")) next.right = clamp(before.right + dx, before.left + .05, Math.min(11, before.left + 10));
+    if (edge.includes("top")) next.top = clamp(before.top + dy, Math.max(-10, before.bottom - 10), before.bottom - .05);
+    if (edge.includes("bottom")) next.bottom = clamp(before.bottom + dy, before.top + .05, Math.min(11, before.top + 10));
+    cropDraft = next; showCanvas();
+  }
+  function finishCrop(apply) {
+    if (!cropDraft) return;
+    cancelDrag();
+    const bounds = validateCanvasBounds(cropDraft); cropDraft = null;
+    if (apply) {
+      canvasPending = bounds; showCanvas();
+      command("canvas_bounds", {bounds}, [], reply => {
+        if (canvasPending !== bounds) return;
+        canvasPending = null; update(); fit();
+        showMessage(reply.ok ? "Ritningsytans ram sparad." : reply.error, !reply.ok);
+      });
+    }
+    update(); fit();
+    if (!apply) showMessage("Beskärningen avbröts. Den sparade ramen behålls.");
+  }
   function placeSheet() {
-    sheet.style.left = panX + "px";
-    sheet.style.top = panY + "px";
+    showCanvas();
     renderMeasurement();
     renderLeaders();
   }
@@ -2453,14 +2547,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!bg.width) return;
     if (pdfMode) {
       setZoom(1);
-      panX = panY = 0;
+      panX = -canvasBounds().left * bg.width;
+      panY = -canvasBounds().top * bg.height;
       placeSheet();
       return;
     }
-    setZoom(Math.min((viewport.clientWidth - 48) / bg.width,
-      (viewport.clientHeight - 48) / bg.height));
-    panX = (viewport.clientWidth - bg.width * zoom) / 2;
-    panY = (viewport.clientHeight - bg.height * zoom) / 2;
+    const bounds = canvasBounds(), margin = cropDraft ? 80 : 48;
+    setZoom(Math.min((viewport.clientWidth - margin) / (bg.width * (bounds.right - bounds.left)),
+      (viewport.clientHeight - margin) / (bg.height * (bounds.bottom - bounds.top))));
+    panX = viewport.clientWidth / 2 - bg.width * zoom * (bounds.left + bounds.right) / 2;
+    panY = viewport.clientHeight / 2 - bg.height * zoom * (bounds.top + bounds.bottom) / 2;
     placeSheet();
   }
   function closeDialog() {
@@ -3176,8 +3272,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function moveObjects(starts, dx, dy) {
     if (!starts.size) return;
     const points = [...starts.values()].map(item => item.position);
-    const mx = Math.max(-Math.min(...points.map(p => p.x)), Math.min(1 - Math.max(...points.map(p => p.x)), dx));
-    const my = Math.max(-Math.min(...points.map(p => p.y)), Math.min(1 - Math.max(...points.map(p => p.y)), dy));
+    const bounds = canvasBounds();
+    const mx = Math.max(Math.min(0, bounds.left - Math.min(...points.map(p => p.x))), Math.min(Math.max(0, bounds.right - Math.max(...points.map(p => p.x))), dx));
+    const my = Math.max(Math.min(0, bounds.top - Math.min(...points.map(p => p.y))), Math.min(Math.max(0, bounds.bottom - Math.max(...points.map(p => p.y))), dy));
     for (const {object, position} of starts.values()) {
       const p = {x: position.x + mx, y: position.y + my};
       if (object.type === "tag") positions.set(object.id, p);
@@ -3918,23 +4015,25 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     showLayout();
     showHeading();
+    showCanvas();
     showLabelSize(sizeDraft ?? data.label_size ?? 100);
     const storage = data.storage;
     showStorage(storage);
     total.textContent = data.tags.length + (data.tags.length === 1 ? " sula" : " sulor");
     loadDrawing.disabled = drawingBusy || importBusy || bulkBusy || calibrationBusy || deleteBusy;
     loadDrawing.title = "Ersätt PDF eller bild och behåll sulor, indata och relativa placeringar. Mätverktyget behöver kalibreras om.";
-    saveProject.disabled = saving;
+    saveProject.disabled = saving || !!cropDraft || !!canvasPending;
     exportJson.disabled = !bg.url;
-    for (const entry of exports) entry.button.disabled = entry.busy || !bg.url;
+    for (const entry of exports) entry.button.disabled = entry.busy || !bg.url || !!cropDraft || !!canvasPending;
     empty.hidden = !!bg.url;
     sheet.hidden = !bg.url;
     zoomBar.hidden = !bg.url;
-    for (const b of modes.values()) b.disabled = !bg.url || drawingBusy;
+    for (const b of modes.values()) b.disabled = !bg.url || drawingBusy || !!cropDraft || !!canvasPending;
     showSelection();
     showLoadImport();
     if (bg.url !== lastBackground) {
       cancelDrag();
+      cropDraft = canvasPending = null; showCanvas();
       measurePoints = []; measureCursor = null; calibrationDraft = null;
       lastBackground = bg.url;
       if (bg.url) picture.src = bg.url;
@@ -3988,6 +4087,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function previewSelection(event) {
     const rect = selectionRectangle(event);
+    const pageBox = paper.getBoundingClientRect();
+    const intersects = bounds => Math.max(bounds.left, rect.left, pageBox.left)
+      < Math.min(bounds.left + bounds.width, rect.right, pageBox.left + pageBox.width)
+      && Math.max(bounds.top, rect.top, pageBox.top)
+      < Math.min(bounds.top + bounds.height, rect.bottom, pageBox.top + pageBox.height);
     selectionBox.hidden = false;
     selectionBox.style.left = rect.localLeft + "px";
     selectionBox.style.top = rect.localTop + "px";
@@ -3997,8 +4101,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const ids = new Set(drag.beforeSelection);
     if (rect.width > 0 && rect.height > 0) for (const marker of markers.children) {
       const bounds = marker.getBoundingClientRect();
-      if (bounds.left < rect.right && bounds.left + bounds.width > rect.left
-        && bounds.top < rect.bottom && bounds.top + bounds.height > rect.top) {
+      if (intersects(bounds)) {
         const id = marker.dataset.tagId;
         if (ids.has(id)) ids.delete(id); else ids.add(id);
       }
@@ -4008,8 +4111,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const kinds = new Set(drag.beforeOverlays);
     if (!readOnly && rect.width > 0 && rect.height > 0) for (const element of visibleOverlays()) {
       const bounds = element.getBoundingClientRect();
-      if (bounds.left < rect.right && bounds.left + bounds.width > rect.left
-        && bounds.top < rect.bottom && bounds.top + bounds.height > rect.top) {
+      if (intersects(bounds)) {
         const kind = element.dataset.kind;
         if (kinds.has(kind)) kinds.delete(kind); else kinds.add(kind);
       }
@@ -4022,6 +4124,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const previous = drag;
     drag = null;
     selectionBox.hidden = true;
+    if (previous?.crop && cropDraft) {cropDraft = previous.beforeCrop; showCanvas();}
     if (previous?.box) {
       selected.clear();
       for (const id of previous.beforeSelection) {
@@ -4067,6 +4170,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
+    }
+    if (cropDraft || canvasPending) {
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      const edge = cropDraft && (event.target.closest(".gp-crop-handle") || event.target.closest(".gp-crop-edge"))?.dataset.edge;
+      drag = {crop: edge, beforeCrop: cropDraft && {...cropDraft}, pan: !edge,
+        x: event.clientX, y: event.clientY, left: panX, top: panY, moved: false, pointerId: event.pointerId};
+      viewport.setPointerCapture(event.pointerId); return;
     }
     if (leaderPlacement && !readOnly && !importBusy && !bulkBusy) {
       const box = leaderBox(leaderPlacement.id), point = measurementPoint(event); if (!box || !point) return;
@@ -4158,6 +4268,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.crop) {
+      adjustCrop(drag.crop, drag.beforeCrop, dx / (background().width * zoom), dy / (background().height * zoom)); return;
+    }
     if (drag.stroke) {
       const point = measurementPoint(event); if (!point || !leaderPlacement) return;
       const previous = leaderPlacement.stroke.at(-1), bg = background();
@@ -4234,7 +4347,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.box && drag.moved) previewSelection(event);
     const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
-      objectPositions, placementPan, resize,
+      objectPositions, placementPan, resize, crop,
       stroke, leaderClick, attachment } = drag;
     drag = null;
     selectionBox.hidden = true;
@@ -4242,7 +4355,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
-    if (pan) return;
+    if (pan || crop) return;
     if (stroke && leaderPlacement) {
       const point = measurementPoint(event); if (point) leaderPlacement.stroke.push(point);
       const bg = background(), value = point && moved && leaderFromStroke(leaderPlacement.stroke, attachment, bg.width, bg.height, zoom);
@@ -4289,7 +4402,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const rect = picture.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    const bounds = canvasBounds();
+    if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return;
     if (mode === "import") {
       const queue = loadImport();
       if (!queue || queue.paused || importBusy) return;
@@ -4397,6 +4511,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         leaderNode = null; saveLeader(tag.id, next); viewport.focus({preventScroll: true});
       }
       return;
+    }
+    if (event.key === "Escape" && cropDraft) {
+      event.preventDefault(); finishCrop(false); return;
     }
     if (event.key === "Escape" && !savePanel.hidden) {
       if (!saving) { savePanel.hidden = true; saveProject.focus(); }

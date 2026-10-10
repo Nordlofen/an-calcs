@@ -11,6 +11,7 @@ from reportlab.pdfgen.canvas import Canvas
 from .grundplan_labels import LOAD_GROUPS
 from .grundplan_loads import load_resultants
 from .grundplan_sliding import contribution, project_results, DEFAULT_SETTINGS
+from .grundplan_canvas import DEFAULT_BOUNDS, validate_bounds
 
 
 def _page_geometry(page):
@@ -42,13 +43,15 @@ def _page_geometry(page):
 
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None):
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None):
     """Merge the shared HTML/CSS vector overlay onto the original drawing."""
     from .grundplan_pdf_browser import render_overlay
     from .grundplan_reference import group_data as reference_groups
 
     if not source:
         raise ValueError("Öppna en ritning först.")
+    bounds = validate_bounds(DEFAULT_BOUNDS if canvas_bounds is None else canvas_bounds)
+    cropped = bounds != DEFAULT_BOUNDS
     tags = [tag for tag in tags if tag["page"] == page_number]
     writer = PdfWriter()
     settings = sliding or DEFAULT_SETTINGS
@@ -81,6 +84,20 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         canvas.save()
         page = writer.add_page(PdfReader(stream).pages[0])
         preview_size, transform = preview.size, Transformation()
+    if cropped:
+        # Source PDF coordinates -> visible, unrotated page -> cropped page.
+        # Keep the original vectors and annotations; never render the drawing.
+        a, b, c, d, e, f = transform.ctm
+        determinant = a * d - b * c
+        inverse = (d / determinant, -b / determinant, -c / determinant, a / determinant,
+                   (c * f - d * e) / determinant - bounds["left"] * width,
+                   (b * e - a * f) / determinant + (bounds["bottom"] - 1) * height)
+        original = page
+        crop_writer = PdfWriter()
+        page = crop_writer.add_blank_page(width=width * (bounds["right"] - bounds["left"]),
+                                          height=height * (bounds["bottom"] - bounds["top"]))
+        page.merge_transformed_page(original, Transformation(inverse), over=True, expand=False)
+        writer = crop_writer
     if (tags or settings["enabled"] or colour_grouping and colour_grouping["enabled"]
             or insulation_widget and insulation_widget["enabled"]
             or comment_widget and comment_widget["enabled"]
@@ -97,11 +114,14 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                               "sliding": settings, "sliding_result": project_results(tags, settings),
                               "colour_grouping": colour_grouping, "insulation_widget": insulation_widget,
                               "comment_widget": comment_widget, "reference_widget": reference_widget,
-                              "reference_data": reference_groups(tags), "text_objects": text_objects or []}}
+                              "reference_data": reference_groups(tags), "text_objects": text_objects or [],
+                              "canvas_bounds": bounds}}
         overlay = PdfReader(io.BytesIO(render_overlay(snapshot))).pages[0]
-        sx, sy = width / float(overlay.mediabox.width), height / float(overlay.mediabox.height)
+        sx = width * (bounds["right"] - bounds["left"]) / float(overlay.mediabox.width)
+        sy = height * (bounds["bottom"] - bounds["top"]) / float(overlay.mediabox.height)
         a, b, c, d, e, f = transform.ctm
-        page.merge_transformed_page(overlay, Transformation((sx * a, sx * b, sy * c, sy * d, e, f)),
+        matrix = (sx, 0, 0, sy, 0, 0) if cropped else (sx * a, sx * b, sy * c, sy * d, e, f)
+        page.merge_transformed_page(overlay, Transformation(matrix),
                                     over=True, expand=False)
     writer.add_metadata({"/Title": title, "/Creator": "an-calcs Grundplan"})
     output = io.BytesIO()

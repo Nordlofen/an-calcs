@@ -24,6 +24,7 @@ from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
 from .grundplan_types import footing_type, infer_type, validate_model
 from .grundplan_placement import object_key, validate_objects
+from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds, valid_coordinate, placement_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
@@ -162,28 +163,28 @@ def _layout(value):
     return result
 
 
-def _insulation_widget(value):
+def _insulation_widget(value, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(value, dict) or set(value) - set(_INSULATION_WIDGET_DEFAULTS):
         raise ValueError("Ogiltiga inställningar för isoleringswidgeten.")
     result = {**_INSULATION_WIDGET_DEFAULTS, **value}
     if type(result["enabled"]) is not bool:
         raise ValueError("enabled måste vara True eller False.")
     for axis in ("x", "y"):
-        if not 0 <= _number(result[axis], axis) <= 1:
+        if not valid_coordinate(result[axis], axis, coordinate_bounds):
             raise ValueError("Widgetens placering ska vara inom ritningen.")
     if not 150 <= _number(result["size"], "size") <= 900:
         raise ValueError("Widgetens storlek ska vara 150–900.")
     return copy.deepcopy(result)
 
 
-def _comment_widget(value):
+def _comment_widget(value, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(value, dict) or set(value) - set(_COMMENT_WIDGET_DEFAULTS):
         raise ValueError("Ogiltiga inställningar för kommentarwidgeten.")
     result = {**_COMMENT_WIDGET_DEFAULTS, **value}
     if type(result["enabled"]) is not bool:
         raise ValueError("enabled måste vara True eller False.")
     for axis in ("x", "y"):
-        if not 0 <= _number(result[axis], axis) <= 1:
+        if not valid_coordinate(result[axis], axis, coordinate_bounds):
             raise ValueError("Widgetens placering ska vara inom ritningen.")
     if not 205 <= _number(result["size"], "size") <= 1230:
         raise ValueError("Widgetens storlek ska vara 205–1230.")
@@ -451,8 +452,9 @@ class Grundplan(anywidget.AnyWidget):
         plan = Grundplan("Hus A")  # Återställ lokalt sparat projekt med denna key.
         plan
 
-    Koordinater för taggar är relativa bildkoordinater (0–1), med origo uppe
-    till vänster. Mått och laster anges manuellt. Varje väggsula beräknas per
+    Koordinater för taggar är relativa originalritningen, med origo uppe
+    till vänster. Originalramen är 0–1; tillagda marginaler kan ligga utanför.
+    Mått och laster anges manuellt. Varje väggsula beräknas per
     meter; ritningslängden används inte för att fördela en total last.
     """
 
@@ -498,6 +500,7 @@ class Grundplan(anywidget.AnyWidget):
         self._reference_widget = copy.deepcopy(DEFAULT_REFERENCE)
         self._text_objects = []
         self._placement_locks = {}
+        self._canvas_bounds = dict(DEFAULT_BOUNDS)
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -613,6 +616,7 @@ class Grundplan(anywidget.AnyWidget):
             "reference_data": self.referensgrupper,
             "text_objects": self.textobjekt,
             "placement_locks": self.placeringslas,
+            "canvas_bounds": self.ritningsram,
             "calculator_version": _CALCULATOR_VERSION,
             "storage": self._storage(),
             "load_import": self.lasteffekt_import,
@@ -669,8 +673,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(self._tags) >= _MAX_TAGS:
             raise ValueError(f"Projektet får innehålla högst {_MAX_TAGS} taggar.")
         for name, value in (("x", x), ("y", y)):
-            if not 0 <= _number(value, name) <= 1:
-                raise ValueError(f"{name} måste ligga mellan 0 och 1.")
+            if not valid_coordinate(value, name, placement_bounds(self._canvas_bounds)):
+                raise ValueError(f"{name} måste ligga inom ritningsytan.")
         if typ not in ("vaggsula", "pelarsula"):
             raise ValueError("Typ måste vara vaggsula eller pelarsula.")
         page = self._view_page(sida)
@@ -842,8 +846,8 @@ class Grundplan(anywidget.AnyWidget):
             if value is not None:
                 if value != tag[name]:
                     self._assert_placement_unlocked({"type": "tag", "id": tagg})
-                if not 0 <= _number(value, name) <= 1:
-                    raise ValueError(f"{name} måste ligga mellan 0 och 1.")
+                if not valid_coordinate(value, name, placement_bounds(self._canvas_bounds, tag)):
+                    raise ValueError(f"{name} måste ligga inom ritningsytan.")
                 updated[name] = value
         changed = any(updated["values"][name] != value for name, value in tag["values"].items()
                       if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
@@ -870,11 +874,23 @@ class Grundplan(anywidget.AnyWidget):
             tag = self._tag(ident)
             self._assert_placement_unlocked({"type": "tag", "id": ident})
             coords = {axis: _number(position[axis], axis) for axis in ("x", "y")}
-            if any(not 0 <= value <= 1 for value in coords.values()):
+            if any(not valid_coordinate(value, axis, placement_bounds(self._canvas_bounds, tag)) for axis, value in coords.items()):
                 raise ValueError("Etiketternas positioner måste ligga inom ritningen.")
             validated.append((tag, coords))
         for tag, coords in validated:
             tag.update(coords)
+        self._publish()
+
+    @property
+    def ritningsram(self):
+        """Synliga sidgränser, relativt originalritningen; negativa värden ger marginal."""
+        return dict(self._canvas_bounds)
+
+    @ritningsram.setter
+    def ritningsram(self, bounds):
+        if not self.background:
+            raise ValueError("Öppna en ritning först.")
+        self._canvas_bounds = validate_bounds(bounds)
         self._publish()
 
     @property
@@ -900,33 +916,40 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     def _guard_overlay_position(self, kind, before, changes, page=None):
+        for axis in ("x", "y"):
+            if axis in changes and changes[axis] != before.get(axis) and not valid_coordinate(changes[axis], axis, placement_bounds(self._canvas_bounds, before)):
+                raise ValueError("Widgetens placering ska vara inom ritningsytan.")
         if any(axis in changes and changes[axis] != before.get(axis) for axis in ("x", "y")):
             self._assert_placement_unlocked({"type": "overlay", "kind": kind,
                                             "page": self.background.get("page") if page is None else page})
 
+    def _placement_target(self, item, *, create=False):
+        if item["type"] == "tag":
+            return self._tag(item["id"])
+        kind = item["kind"]
+        if kind.startswith("text:"):
+            return next(text for text in self._text_objects if text["id"] == kind[5:])
+        if kind == "colour":
+            return self._colour["legend"]
+        if kind in {"insulation", "comments", "reference"}:
+            return {"insulation": self._insulation_widget, "comments": self._comment_widget,
+                    "reference": self._reference_widget}[kind]
+        if create:
+            placements = self._gliding["placements"].setdefault(str(item["page"]), {})
+            return placements.setdefault(kind, copy.deepcopy(DEFAULT_PLACEMENT[kind]))
+        return self._gliding["placements"].get(str(item["page"]), {}).get(kind, DEFAULT_PLACEMENT[kind])
+
     def flytta_objekt(self, placeringar):
         """Flytta etiketter och widgets atomärt utan att beräkna om någon sula."""
         objects = validate_objects(placeringar, self._tags, self._text_objects,
-                                   self.background.get("page"), coordinates=True)
+                                   self.background.get("page"), coordinates=True, coordinate_bounds=COORDINATE_BOUNDS)
         for item in objects:
             self._assert_placement_unlocked(item)
+            bounds = placement_bounds(self._canvas_bounds, self._placement_target(item))
+            if any(not valid_coordinate(item[axis], axis, bounds) for axis in ("x", "y")):
+                raise ValueError("Objektets position ska ligga inom ritningsytan.")
         for item in objects:
-            coords = {axis: item[axis] for axis in ("x", "y")}
-            if item["type"] == "tag":
-                self._tag(item["id"]).update(coords)
-                continue
-            kind = item["kind"]
-            if kind.startswith("text:"):
-                next(text for text in self._text_objects if text["id"] == kind[5:]).update(coords)
-            elif kind == "colour":
-                self._colour["legend"].update(coords)
-            elif kind in {"insulation", "comments", "reference"}:
-                target = {"insulation": self._insulation_widget, "comments": self._comment_widget,
-                          "reference": self._reference_widget}[kind]
-                target.update(coords)
-            else:
-                placements = self._gliding["placements"].setdefault(str(item["page"]), {})
-                placements.setdefault(kind, copy.deepcopy(DEFAULT_PLACEMENT[kind])).update(coords)
+            self._placement_target(item, create=True).update({axis: item[axis] for axis in ("x", "y")})
         self._publish()
 
     def hanvisningslinje(self, tagg, linje):
@@ -934,7 +957,7 @@ class Grundplan(anywidget.AnyWidget):
         tag = self._tag(tagg)
         if tag["values"]["inaktiv"]:
             raise ValueError("Sulan är inaktiv. Avmarkera Inaktiv för att ändra hänvisningslinjen.")
-        tag["leader"] = validate_leader(linje)
+        tag["leader"] = validate_leader(linje, coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
 
     def _refresh_tag(self, tag):
@@ -1057,7 +1080,7 @@ class Grundplan(anywidget.AnyWidget):
     def glidning(self, changes):
         if not isinstance(changes, dict):
             raise ValueError("Glidning anges som en dict med inställningar.")
-        settings = validate_settings({**self._gliding, **changes}, self.background.get("page_count"))
+        settings = validate_settings({**self._gliding, **changes}, self.background.get("page_count"), coordinate_bounds=COORDINATE_BOUNDS)
         for page in settings["placements"]:
             self._view_page(int(page))
         for page in self._gliding["placements"].keys() | settings["placements"].keys():
@@ -1088,7 +1111,7 @@ class Grundplan(anywidget.AnyWidget):
         for name in ("bounds", "colors", "styles", "legend"):
             if name in changes and isinstance(changes[name], dict):
                 settings[name] = {**self._colour[name], **changes[name]}
-        settings = validate_colour(settings)
+        settings = validate_colour(settings, coordinate_bounds=COORDINATE_BOUNDS)
         self._guard_overlay_position("colour", self._colour["legend"], settings["legend"])
         self._colour = settings
         self._publish()
@@ -1138,7 +1161,7 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(changes, dict):
             raise ValueError("Isoleringswidget anges som en dict.")
         self._guard_overlay_position("insulation", self._insulation_widget, changes)
-        self._insulation_widget = _insulation_widget({**self._insulation_widget, **changes})
+        self._insulation_widget = _insulation_widget({**self._insulation_widget, **changes}, coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
 
     @property
@@ -1151,7 +1174,7 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(changes, dict):
             raise ValueError("Kommentarwidget anges som en dict.")
         self._guard_overlay_position("comments", self._comment_widget, changes)
-        self._comment_widget = _comment_widget({**self._comment_widget, **changes})
+        self._comment_widget = _comment_widget({**self._comment_widget, **changes}, coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
 
     @property
@@ -1164,7 +1187,7 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(changes, dict):
             raise ValueError("Referens anges som en dict.")
         self._guard_overlay_position("reference", self._reference_widget, changes)
-        self._reference_widget = validate_reference({**self._reference_widget, **changes})
+        self._reference_widget = validate_reference({**self._reference_widget, **changes}, coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
 
     @property
@@ -1196,9 +1219,11 @@ class Grundplan(anywidget.AnyWidget):
     def _add_text(self, kind, text, x, y, size, subtitle="", width=420):
         if not self._source:
             raise ValueError("Importera en ritning först.")
+        if any(not valid_coordinate(v, axis, placement_bounds(self._canvas_bounds)) for axis, v in (("x", x), ("y", y))):
+            raise ValueError("Textobjektets placering ska vara inom ritningsytan.")
         ident = uuid.uuid4().hex
         self._text_objects = validate_text_objects([*self._text_objects,
-            {"id": ident, "kind": kind, "text": text, "subtitle": subtitle, "x": x, "y": y, "size": size, "width": width}])
+            {"id": ident, "kind": kind, "text": text, "subtitle": subtitle, "x": x, "y": y, "size": size, "width": width}], coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
         return ident
 
@@ -1219,7 +1244,7 @@ class Grundplan(anywidget.AnyWidget):
         before = next(item for item in self._text_objects if item["id"] == ident)
         self._guard_overlay_position("text:" + ident, before, changes)
         self._text_objects = validate_text_objects([
-            {**item, **changes} if item["id"] == ident else item for item in self._text_objects])
+            {**item, **changes} if item["id"] == ident else item for item in self._text_objects], coordinate_bounds=COORDINATE_BOUNDS)
         self._publish()
 
     def ta_bort_text(self, ident):
@@ -1282,7 +1307,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 21,
+            "version": 22,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1297,6 +1322,7 @@ class Grundplan(anywidget.AnyWidget):
             "reference_widget": self.referens,
             "text_objects": self.textobjekt,
             "placement_locks": self.placeringslas,
+            "canvas_bounds": self.ritningsram,
             "drawing": {
                 "name": self._filename,
                 "data": base64.b64encode(self._source).decode("ascii"),
@@ -1359,7 +1385,7 @@ class Grundplan(anywidget.AnyWidget):
         return render_pdf(self._source, self.taggar, self._label_size, self._title, self._gliding,
                           page_number=self.background["page"], colour_grouping=self._colour,
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
-                          text_objects=self._text_objects)
+                          text_objects=self._text_objects, canvas_bounds=self._canvas_bounds)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1398,7 +1424,8 @@ class Grundplan(anywidget.AnyWidget):
                       "insulation_widget": self.isoleringswidget,
                       "comment_widget": self.kommentarwidget,
                       "reference_widget": self.referens, "reference_data": self.referensgrupper,
-                      "text_objects": self.textobjekt, "placement_locks": self.placeringslas},
+                      "text_objects": self.textobjekt, "placement_locks": self.placeringslas,
+                      "canvas_bounds": self.ritningsram},
             "schema": {"fields": copy.deepcopy(_FIELDS), "load_groups": copy.deepcopy(LOAD_GROUPS)},
             "pages": pages,
             "page": self.background.get("page", 1),
@@ -1446,8 +1473,9 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 22):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–21.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 23):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–22.")
+        canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
         subtitle = _heading_text(document.get("subtitle", _DEFAULT_SUBTITLE), "Underrubrik", max_length=None)
@@ -1457,14 +1485,14 @@ class Grundplan(anywidget.AnyWidget):
         source = base64.b64decode(drawing["data"], validate=True)
         rendered = _render_source(source, drawing["name"], drawing["page"]) if source else {}
         calibration = _calibration(document.get("calibration"), rendered)
-        colour = validate_colour(document.get("colour_grouping", {}))
+        colour = validate_colour(document.get("colour_grouping", {}), coordinate_bounds=COORDINATE_BOUNDS)
         table_view = _table_view(document.get("table_view", {}))
         layout = _layout(document.get("layout", {}))
-        insulation_widget = _insulation_widget(document.get("insulation_widget", {}))
-        comment_widget = _comment_widget(document.get("comment_widget", {}))
-        reference_widget = validate_reference(document.get("reference_widget", {}))
-        text_objects = validate_text_objects(document.get("text_objects", []))
-        gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0))
+        insulation_widget = _insulation_widget(document.get("insulation_widget", {}), coordinate_bounds=COORDINATE_BOUNDS)
+        comment_widget = _comment_widget(document.get("comment_widget", {}), coordinate_bounds=COORDINATE_BOUNDS)
+        reference_widget = validate_reference(document.get("reference_widget", {}), coordinate_bounds=COORDINATE_BOUNDS)
+        text_objects = validate_text_objects(document.get("text_objects", []), coordinate_bounds=COORDINATE_BOUNDS)
+        gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0), coordinate_bounds=COORDINATE_BOUNDS)
         if any(int(page) != rendered.get("page") for page in gliding["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
         tags = document["tags"]
@@ -1480,7 +1508,7 @@ class Grundplan(anywidget.AnyWidget):
             if page != rendered.get("page"):
                 raise ValueError("Projektet har sulor på flera ritningssidor. Använd ett separat projekt per sida.")
             for name in ("x", "y"):
-                if not 0 <= _number(saved[name], name) <= 1:
+                if not valid_coordinate(saved[name], name, COORDINATE_BOUNDS):
                     raise ValueError("Taggens position ligger utanför ritningen.")
             saved_values = saved["values"]
             if isinstance(saved_values, dict) and "lasttyp" not in saved_values and "imported_length" in saved:
@@ -1513,7 +1541,7 @@ class Grundplan(anywidget.AnyWidget):
             if inferred:
                 tag["footing_type_inferred"] = True
             if "leader" in saved:
-                tag["leader"] = validate_leader(saved["leader"])
+                tag["leader"] = validate_leader(saved["leader"], coordinate_bounds=COORDINATE_BOUNDS)
             if "imported_length" in saved:
                 length = _number(saved["imported_length"], "Importerad linjestödslängd")
                 if length <= 0:
@@ -1534,6 +1562,7 @@ class Grundplan(anywidget.AnyWidget):
         self._title = title
         self._subtitle = subtitle
         self._label_size = label_size
+        self._canvas_bounds = canvas_bounds
         self._calibration = calibration
         self._gliding = gliding
         self._colour = colour
@@ -1581,6 +1610,8 @@ class Grundplan(anywidget.AnyWidget):
                 self.flytta_flera(content["positions"])
             elif action == "move_objects":
                 self.flytta_objekt(content["objects"])
+            elif action == "canvas_bounds":
+                self.ritningsram = content["bounds"]
             elif action == "placement_lock":
                 self.las_placering(content["objects"], last=content["locked"])
             elif action == "leader":

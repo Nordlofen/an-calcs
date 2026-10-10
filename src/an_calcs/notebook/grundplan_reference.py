@@ -3,6 +3,7 @@
 import copy
 import json
 import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 import re
 
 from .grundplan_loads import line_loads, load_resultants
@@ -15,13 +16,13 @@ CONDITIONS = ("d", "e_b_plac", "e_l_plac", "c_prime", "c_uk", "gamma", "gamma_pr
               "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd")
 
 
-def validate_settings(value):
+def validate_settings(value, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(value, dict) or set(value) - set(DEFAULT_SETTINGS):
         raise ValueError("Ogiltiga inställningar för Referens.")
     result = {**DEFAULT_SETTINGS, **value}
     if type(result["enabled"]) is not bool:
         raise ValueError("enabled måste vara True eller False.")
-    for name, low, high in (("x", 0, 1), ("y", 0, 1), ("size", 205, 1230)):
+    for name, low, high in (("x", coordinate_bounds["left"], coordinate_bounds["right"]), ("y", coordinate_bounds["top"], coordinate_bounds["bottom"]), ("size", 205, 1230)):
         number = result[name]
         if type(number) not in (int, float) or not math.isfinite(number) or not low <= number <= high:
             raise ValueError("Referensens placering ska vara inom ritningen och storleken 205–1230.")

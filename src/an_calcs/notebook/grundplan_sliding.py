@@ -7,6 +7,7 @@ this module does not distribute horizontal forces or combine X and Y.
 
 import copy
 import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 from .grundplan_loads import line_loads
 
 
@@ -32,7 +33,7 @@ def _finite(value):
             and math.isfinite(value))
 
 
-def validate_settings(settings, page_count=None):
+def validate_settings(settings, page_count=None, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(settings, dict) or set(settings) - set(DEFAULT_SETTINGS):
         raise ValueError("Ogiltiga inställningar för glidningskontroll.")
     result = {**copy.deepcopy(DEFAULT_SETTINGS), **copy.deepcopy(settings)}
@@ -57,8 +58,8 @@ def validate_settings(settings, page_count=None):
             if not isinstance(position, dict) or set(position) != {"x", "y", "size"}:
                 raise ValueError("Ogiltig glidningsplacering.")
             for axis in ("x", "y"):
-                if not _finite(position[axis]) or not 0 <= position[axis] <= 1:
-                    raise ValueError("Glidningsplacering måste ligga på ritningen (0–1).")
+                if not valid_coordinate(position[axis], axis, coordinate_bounds):
+                    raise ValueError("Glidningsplaceringen har ogiltiga ritningskoordinater.")
             low, high = (50, 600) if kind == "symbol" else (205, 1230)
             if not _finite(position["size"]) or not low <= position["size"] <= high:
                 caption = "Koordinatsymbolens" if kind == "symbol" else "Glidningsrutans"

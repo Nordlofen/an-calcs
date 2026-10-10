@@ -1,7 +1,7 @@
 """Shared placement identities for labels and drawing widgets."""
 
 import copy
-import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 
 WIDGET_KINDS = {"symbol", "legend", "colour", "insulation", "comments", "reference"}
 
@@ -10,7 +10,7 @@ def object_key(item):
     return "tag:" + item["id"] if item["type"] == "tag" else f"overlay:{item['page']}:{item['kind']}"
 
 
-def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_empty=False):
+def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_empty=False, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(objects, list) or not (0 if allow_empty else 1) <= len(objects) <= 1106:
         raise ValueError("Ange etiketter eller widgets på ritningen.")
     tag_ids = {tag["id"] for tag in tags if tag["page"] == page}
@@ -41,6 +41,6 @@ def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_emp
         if coordinates:
             for axis in ("x", "y"):
                 value = item[axis]
-                if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
-                    raise ValueError("Objektens positioner måste ligga inom ritningen (0–1).")
+                if not valid_coordinate(value, axis, coordinate_bounds):
+                    raise ValueError("Objektens positioner har ogiltiga ritningskoordinater.")
     return copy.deepcopy(objects)

@@ -72,7 +72,30 @@
 .an-grundplan .gp-size-label output { min-width: 32px; font-variant-numeric: tabular-nums; }
 .an-grundplan .gp-board { position: relative; height: 680px; border-block: 1px solid var(--gp-line); overflow: hidden; }
 .an-grundplan .gp-viewport { position: relative; height: 100%; overflow: hidden; background: #eaf0f0; touch-action: none; user-select: none; }
-.an-grundplan .gp-sheet { position: absolute; background: white; box-shadow: 0 3px 16px #18333b14; }
+.an-grundplan .gp-paper { position: absolute; background: white; box-shadow: 0 3px 16px #18333b14; overflow: hidden; }
+.an-grundplan .gp-sheet { position: absolute; }
+.an-grundplan.gp-cropping .gp-paper { overflow: visible; }
+.an-grundplan.gp-cropping .gp-tag, .an-grundplan.gp-cropping .gp-sliding-overlay,
+.an-grundplan.gp-cropping .gp-leader-hit, .an-grundplan.gp-cropping .gp-leader-handle { pointer-events: none; }
+.an-grundplan .gp-crop-bar { margin: 0 16px 12px; padding: 10px 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; background: #eef7f5; border: 1px solid #9fbbbf; border-radius: 8px; }
+.an-grundplan .gp-crop-size { margin-right: auto; color: var(--gp-muted); }
+.an-grundplan .gp-crop-frame { position: absolute; border: 2px dashed #14695e; pointer-events: none; z-index: 8; }
+.an-grundplan .gp-crop-edge { position: absolute; pointer-events: auto; }
+.an-grundplan .gp-crop-edge-left, .an-grundplan .gp-crop-edge-right { top: 0; width: 12px; height: 100%; cursor: ew-resize; }
+.an-grundplan .gp-crop-edge-top, .an-grundplan .gp-crop-edge-bottom { left: 0; height: 12px; width: 100%; cursor: ns-resize; }
+.an-grundplan .gp-crop-edge-left { left: -6px; }
+.an-grundplan .gp-crop-edge-right { right: -6px; }
+.an-grundplan .gp-crop-edge-top { top: -6px; }
+.an-grundplan .gp-crop-edge-bottom { bottom: -6px; }
+.an-grundplan button.gp-crop-handle { position: absolute; padding: 0; border: 2px solid #14695e; border-radius: 3px; background: white; pointer-events: auto; width: 16px; height: 16px; transform: translate(-50%, -50%); }
+.an-grundplan .gp-crop-left { left: 0; top: 50%; cursor: ew-resize; }
+.an-grundplan .gp-crop-right { left: 100%; top: 50%; cursor: ew-resize; }
+.an-grundplan .gp-crop-top { left: 50%; top: 0; cursor: ns-resize; }
+.an-grundplan .gp-crop-bottom { left: 50%; top: 100%; cursor: ns-resize; }
+.an-grundplan .gp-crop-top-left { left: 0; top: 0; cursor: nwse-resize; }
+.an-grundplan .gp-crop-top-right { left: 100%; top: 0; cursor: nesw-resize; }
+.an-grundplan .gp-crop-bottom-left { left: 0; top: 100%; cursor: nesw-resize; }
+.an-grundplan .gp-crop-bottom-right { left: 100%; top: 100%; cursor: nwse-resize; }
 .an-grundplan .gp-picture { width: 100%; height: 100%; max-width: none; display: block; user-select: none; }
 .an-grundplan .gp-markers { position: absolute; inset: 0; pointer-events: none; }
 .an-grundplan .gp-leaders, .an-grundplan .gp-leader-handles { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }

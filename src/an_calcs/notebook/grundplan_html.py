@@ -3,6 +3,7 @@
 import html
 import json
 from pathlib import Path
+from .grundplan_canvas import DEFAULT_BOUNDS, validate_bounds
 
 
 _ASSETS = Path(__file__).parent
@@ -20,7 +21,10 @@ def render_html(snapshot, *, pdf_mode=False):
     title = html.escape(str(snapshot["state"]["title"]))
     pdf_css = pdf_script = ""
     if pdf_mode:
+        bounds = validate_bounds(snapshot["state"].get("canvas_bounds", DEFAULT_BOUNDS))
         width, height = snapshot["pages"][0]["width"], snapshot["pages"][0]["height"]
+        width *= bounds["right"] - bounds["left"]
+        height *= bounds["bottom"] - bounds["top"]
         pdf_css = f'''
 @page {{ size: {width}px {height}px; margin: 0; }}
 html, body, #grundplan {{ margin: 0; padding: 0; width: {width}px; height: {height}px; min-height: 0; background: transparent; }}
@@ -30,7 +34,7 @@ html, body, #grundplan {{ margin: 0; padding: 0; width: {width}px; height: {heig
 .gp-pdf .gp-workspace > :not(.gp-board), .gp-pdf .gp-table-section,
 .gp-pdf .gp-board > :not(.gp-viewport) {{ display: none !important; }}
 .gp-pdf .gp-board {{ width: {width}px; height: {height}px !important; border: 0; }}
-.gp-pdf .gp-viewport, .gp-pdf .gp-sheet {{ background: transparent; box-shadow: none; }}
+.gp-pdf .gp-viewport, .gp-pdf .gp-paper, .gp-pdf .gp-sheet {{ background: transparent; box-shadow: none; }}
 .gp-pdf .gp-picture {{ visibility: hidden; }}
 '''
         # The same DOM handles wrapping, math indices and font metrics. Fit only
@@ -38,7 +42,9 @@ html, body, #grundplan {{ margin: 0; padding: 0; width: {width}px; height: {heig
         pdf_script = '''
 await document.fonts.ready;
 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-const sheet = document.querySelector(".gp-sheet"), pageBox = sheet.getBoundingClientRect();
+const sheet = document.querySelector(".gp-sheet"), pageBox = document.querySelector(".gp-paper").getBoundingClientRect();
+const bounds = snapshot.state.canvas_bounds;
+const customBounds = bounds && (bounds.left !== 0 || bounds.top !== 0 || bounds.right !== 1 || bounds.bottom !== 1);
 function paintBox(element) {
   if (!element.classList.contains("gp-text-annotation")) return element.getBoundingClientRect();
   // A wide heading container does not make its short text wider or smaller.
@@ -54,7 +60,12 @@ function paintBox(element) {
   return {left, top, right, bottom, width: right - left, height: bottom - top};
 }
 for (const element of sheet.querySelectorAll(".gp-tag, .gp-sliding-overlay")) {
+  // A deliberate crop clips objects in place, including ones outside the frame.
+  if (customBounds) break;
   if (element.hidden) continue;
+  // Objects saved in an added margin stay clipped when the original frame
+  // is restored; the legacy edge fitting applies only to original anchors.
+  if ([parseFloat(element.style.left), parseFloat(element.style.top)].some(value => value < 0 || value > 100)) continue;
   const box = paintBox(element);
   const fit = Math.min(1, pageBox.width / box.width, pageBox.height / box.height);
   if (fit < 1) element.style.transform += " scale(" + fit + ")";

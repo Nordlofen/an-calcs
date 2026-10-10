@@ -1,9 +1,10 @@
 """Validated drawing annotations; leaders never alter calculation inputs."""
 
 import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 
 
-def validate_leader(value):
+def validate_leader(value, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(value, dict) or set(value) != {"enabled", "attachment", "nodes", "end_handle"}:
         raise ValueError("Ogiltig hänvisningslinje.")
     if not isinstance(value["enabled"], bool):
@@ -30,7 +31,7 @@ def validate_leader(value):
     for node in nodes:
         if not isinstance(node, dict) or set(node) != {"x", "y", "in", "out"}:
             raise ValueError("Ogiltig nod i hänvisningslinjen.")
-        valid.append({"x": number(node["x"], 0, 1), "y": number(node["y"], 0, 1),
+        valid.append({"x": number(node["x"], coordinate_bounds["left"], coordinate_bounds["right"]), "y": number(node["y"], coordinate_bounds["top"], coordinate_bounds["bottom"]),
                       "in": point(node["in"]), "out": point(node["out"])})
     return {"enabled": value["enabled"],
             "attachment": {"side": attachment["side"], "offset": number(attachment["offset"], 0, 1)},

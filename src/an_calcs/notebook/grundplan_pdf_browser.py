@@ -3,20 +3,25 @@
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 import io
+import math
 from pathlib import Path
 
 from pypdf import PdfReader
 
 from .grundplan_html import render_html
+from .grundplan_canvas import DEFAULT_BOUNDS, validate_bounds
 
 
 def render_overlay(snapshot):
     background = snapshot["pages"][0]
     document = render_html(snapshot, pdf_mode=True).decode("utf-8")
+    bounds = validate_bounds(snapshot["state"].get("canvas_bounds", DEFAULT_BOUNDS))
+    width = background["width"] * (bounds["right"] - bounds["left"])
+    height = background["height"] * (bounds["bottom"] - bounds["top"])
     # A Jupyter kernel already has an asyncio loop. Run the synchronous browser
     # renderer in its own worker, also closing it before the request finishes.
     with ThreadPoolExecutor(max_workers=1) as executor:
-        return executor.submit(_render, document, background["width"], background["height"]).result()
+        return executor.submit(_render, document, width, height).result()
 
 
 @lru_cache(maxsize=8)
@@ -39,7 +44,7 @@ def _render(document, width, height):
             raise RuntimeError("PDF-export behöver Chromium, Google Chrome eller Microsoft Edge. "
                                "Installera Chromium med: python -m playwright install chromium")
         try:
-            context = browser.new_context(viewport={"width": width, "height": height}, locale="sv-SE",
+            context = browser.new_context(viewport={"width": math.ceil(width), "height": math.ceil(height)}, locale="sv-SE",
                                           service_workers="block")
             # No network, user profile, drawing file or external fonts are loaded.
             context.route("**/*", lambda route: route.abort())

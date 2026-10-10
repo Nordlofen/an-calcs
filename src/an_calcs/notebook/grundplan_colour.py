@@ -3,6 +3,7 @@
 import copy
 import json
 import math
+from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 import re
 from bisect import bisect_right
 from .grundplan_loads import line_loads
@@ -33,7 +34,7 @@ def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def validate_settings(settings):
+def validate_settings(settings, *, coordinate_bounds=DEFAULT_BOUNDS):
     if not isinstance(settings, dict) or set(settings) - set(DEFAULT_SETTINGS):
         raise ValueError("Ogiltiga inställningar för färggruppering.")
     result = {**copy.deepcopy(DEFAULT_SETTINGS), **copy.deepcopy(settings)}
@@ -84,7 +85,7 @@ def validate_settings(settings):
         raise ValueError("Ogiltiga sparade gruppmarkeringar.")
     legend = result["legend"]
     if (not isinstance(legend, dict) or set(legend) != {"x", "y", "size"}
-            or any(not _finite(legend[axis]) or not 0 <= legend[axis] <= 1 for axis in ("x", "y"))
+            or any(not valid_coordinate(legend[axis], axis, coordinate_bounds) for axis in ("x", "y"))
             or not _finite(legend["size"]) or not 150 <= legend["size"] <= 900):
         raise ValueError("Legendens placering ska vara inom ritningen och storleken 150–900.")
     return result

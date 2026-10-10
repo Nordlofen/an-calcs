@@ -171,7 +171,7 @@ class TestTableAndComments(unittest.TestCase):
 
     def test_insulation_widget_invalid_settings_and_commands_are_atomic(self):
         before = self.plan._document()
-        for settings in ({"enabled": 1}, {"size": 0}, {"x": -1}, {"y": 1.2}, {"size": float("nan")}, {"unknown": 1}):
+        for settings in ({"enabled": 1}, {"size": 0}, {"x": -11}, {"y": 12}, {"size": float("nan")}, {"unknown": 1}):
             with self.assertRaises(ValueError):
                 self.plan.isoleringswidget = settings
             self.assertEqual(self.plan._document(), before)
@@ -221,7 +221,7 @@ class TestTableAndComments(unittest.TestCase):
 
     def test_comment_widget_validation_commands_and_legacy_defaults(self):
         before = self.plan._document()
-        for settings in ({"enabled": 1}, {"size": 0}, {"x": -1}, {"y": 1.2}, {"size": float("nan")}, {"unknown": 1}):
+        for settings in ({"enabled": 1}, {"size": 0}, {"x": -11}, {"y": 12}, {"size": float("nan")}, {"unknown": 1}):
             with self.assertRaises(ValueError):
                 self.plan.kommentarwidget = settings
             self.assertEqual(self.plan._document(), before)
