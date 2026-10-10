@@ -201,7 +201,7 @@ class TestReference(unittest.TestCase):
         page = PdfReader(io.BytesIO(pdf)).pages[0]
         self.assertEqual(list(page.images), [])
         text = page.extract_text()
-        for caption in ("Referens", "VS.22", "Foundation", "Gäller för", "Linjelast"):
+        for caption in ("Referens", "VS.22", "Foundation", "Gäller för", "Linjelast", "(2 st)"):
             self.assertIn(caption, text)
         self.assertNotIn("Styrande för", text)
         self.assertNotIn("Utan isolering: VS.28", text)

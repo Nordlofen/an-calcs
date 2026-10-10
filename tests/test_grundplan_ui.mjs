@@ -4323,8 +4323,11 @@ for (const readOnly of [false, true]) test(`Reference renders compact geometry, 
   for (const caption of ['Styrande för', 'Utan isolering:', 'H-stabiliserande:']) assert.ok(!text.includes(caption), caption);
   assert.equal(ui.byClass('gp-reference-widget').hidden, false);
   assert.equal(ui.byClass('gp-reference-range').textContent, '(60,3–94,7 %)');
+  assert.equal(ui.byClass('gp-reference-members').textContent, 'VS.22, VS.28 (2 st)');
   assert.equal(ui.byClass('gp-reference-ident').children[0].style.background, '#ffffff');
   assert.equal(ui.sent.length, 0, 'Rendering never writes user comments or inputs');
+  ui.data.state.reference_data.groups[0].members.pop(); ui.changed();
+  assert.equal(ui.byClass('gp-reference-members').textContent, 'VS.22 (1 st)');
 });
 
 test('Reference toggle, dragging, keyboard movement and scaling persist independently of calculations', t => {

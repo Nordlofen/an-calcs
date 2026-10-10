@@ -2181,7 +2181,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         info.append(line);
       }
       info.append(node("p", "gp-reference-caption", "Gäller för"),
-        node("p", "gp-reference-members", group.members.map(member => member.label).join(", ")));
+        node("p", "gp-reference-members", group.members.map(member => member.label).join(", ") + " (" + group.members.length + " st)"));
       row.append(ident, info); referenceBody.append(row);
     }
     if (!data.groups.length) referenceBody.append(node("p", "gp-sliding-note", "Inga beräknade sulor att referera till."));

@@ -1187,7 +1187,8 @@ Lasttyp, kortväggsinställning, jorddata, lastplacering och beräkningsfaktorer
 måste också överensstämma. Isolering får skilja inom gruppen.
 
 Varje referensrad redovisar gruppmått, referensobjektets **V_brott/V_bruk**,
-**Punktlast/Linjelast** och gruppmedlemmar. Under referensens U
+**Punktlast/Linjelast** och gruppmedlemmar med totalt antal objekt, exempelvis
+**VS.22, VS.28 (2 st)**. Under referensens U
 visas gruppens lägsta–högsta U, exempelvis **(60,3–94,7 %)**. För en väggsula med
 pelarsulemodell och linjelast visas också omräkning till punktlast med L_vägg.
 Lasterna är angivna yttre laster, exklusive tillkommande egentyngd.
