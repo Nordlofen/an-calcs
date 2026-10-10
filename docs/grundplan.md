@@ -1183,8 +1183,10 @@ nya valet **Sultyp** i färggrupperingen skiljer mellan:
 Referens grupperar väggsulor efter **t och bₓ** (samt eget bᵧ när det används).
 Väggsulor med pelarsulemodell grupperas dessutom efter **bᵧ och L_vägg** när
 laster anges som linjelast. Rena pelarsulor grupperas efter **t, bₓ och bᵧ**.
-Lasttyp, kortväggsinställning, jorddata, lastplacering och beräkningsfaktorer
-måste också överensstämma. Isolering får skilja inom gruppen.
+Lasttyp, jorddata, lastplacering och beräkningsfaktorer måste också överensstämma.
+För vanliga väggsulor får **L_vägg och Minst 1 m** skilja inom referensgruppen;
+varje sula behåller sin egen längd för beräkning av lastresultanter och U.
+Isolering får också skilja inom gruppen.
 
 Varje referensrad redovisar gruppmått, referensobjektets **V_brott/V_bruk**,
 **Punktlast/Linjelast** och gruppmedlemmar med totalt antal objekt, exempelvis

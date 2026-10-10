@@ -70,9 +70,37 @@ class TestReference(unittest.TestCase):
         self.add("VS.1")
         self.add("VS.2", F_vy=150)
         for i, values in enumerate(({"t": .3}, {"b": 1.5}, {"phi_k": 33},
-                                     {"l_override": True, "l": 2}, {"L_vagg_minst_1": False, "L_vagg": .7}), 3):
+                                     {"l_override": True, "l": 2}), 3):
             self.add("VS." + str(i), **values)
-        self.assertEqual(len(self.plan.referensgrupper["groups"]), 6)
+        self.assertEqual(len(self.plan.referensgrupper["groups"]), 5)
+
+    def test_short_and_standard_walls_share_references_without_changing_local_results(self):
+        from an_calcs.notebook.grundplan_loads import load_resultants
+        pairs = []
+        for t, b, labels, lengths in (
+                (.25, 1.2, ("VS.32", "VS.34"), (.7, 2.5)),
+                (.25, 1.6, ("VS.35", "VS.64"), (.8, 3.0)),
+                (.35, 1.9, ("VS.40", "VS.61"), (.9, 9.2)),
+                (.35, 1.4, ("VS.53", "VS.75"), (1.8, .9))):
+            pair = [self.add(label, t=t, b=b, L_vagg=length,
+                             L_vagg_minst_1=length >= 1, F_vy=100 + i * 50)
+                    for i, (label, length) in enumerate(zip(labels, lengths))]
+            pairs.append(pair)
+            for i, (ident, length) in enumerate(zip(pair, lengths)):
+                self.assertAlmostEqual(load_resultants(self.plan._tag(ident)["values"])["brott"],
+                                       (100 + i * 50) * min(length, 1))
+        before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
+        self.plan.referens = {"enabled": True}
+        groups = self.plan.referensgrupper["groups"]
+        self.assertEqual(len(groups), 4)
+        for pair in pairs:
+            group = next(group for group in groups if group["members"][0]["id"] in pair)
+            self.assertEqual({member["id"] for member in group["members"]}, set(pair))
+            reference = max(pair, key=lambda ident: self.plan._tag(ident)["summary"]["utnyttjandegrad"])
+            self.assertEqual(group["reference_id"], reference)
+            self.assertEqual(group["resultants"], load_resultants(self.plan._tag(reference)["values"]))
+            self.assertEqual(set(group["geometry"]), {"t", "b"})
+        self.assertEqual((self.plan.taggar, self.plan.resultat), before)
 
     def test_equal_integer_and_float_parameters_share_groups_without_rounding(self):
         from an_calcs.notebook.grundplan_reference import CONDITIONS

@@ -67,11 +67,10 @@ def group_data(tags):
         if reason:
             excluded.append({"id": tag["id"], "label": tag["label"], "reason": reason})
             continue
-        # Separate line and point inputs even when geometry and physical type
-        # match. Short-wall assumptions must not inherit the standard 1 m check.
+        # Separate line and point inputs. Ordinary walls may have different
+        # local load lengths; bookkeeping never changes their individual checks.
+        # Wall-pad models still group by L_vagg through geometry above.
         key = json.dumps(_canonical([category, geometry, line_loads(values),
-                          values.get("L_vagg_minst_1") if category == "wall" else None,
-                          values.get("L_vagg") if category == "wall" and not values.get("L_vagg_minst_1", True) else None,
                           [values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
         groups.setdefault(key, {"category": category, "geometry": geometry, "members": []})["members"].append(tag)
     result = []
