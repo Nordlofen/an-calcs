@@ -923,6 +923,14 @@ och ersätter inte vyn med innehållet i det sparade projektet. Om en annan
 destination redan innehåller samma key måste ersättningen bekräftas.
 Vid skrivfel behålls den tidigare sparplatsen och den gamla filen.
 
+Papperskorgen bredvid **Fall (key)** har tooltip **Ta bort sparat fall**.
+Välj ett befintligt fall och bekräfta raderingen. Hela det sparade fallet tas
+bort ur projektfilen och fallistan uppdateras. Övriga fall i filen behålls.
+Om det öppna fallet tas bort övergår arbetsvyn till osparat läge med ritning,
+sulor och redigeringshistorik kvar. Ange ett nytt fallnamn när du sparar igen.
+Radering av sparade fall ingår inte i arbetsvyns **Ångra/Gör om**.
+Om det sista fallet tas bort behålls projektfilen med en tom fallista.
+
 Knappen **Kopiera projekt + key** använder det faktiska Python-argumentet
 `state_file=` trots fältnamnet **Projekt** i gränssnittet. Citattecken och
 bakstreck i filnamn och keys hanteras som Python-text. Relativa sökvägar

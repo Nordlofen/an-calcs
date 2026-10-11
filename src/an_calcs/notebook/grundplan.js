@@ -808,7 +808,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   savePanel.setAttribute("aria-label", "Spara projekt");
   const saveFields = node("div", "gp-save-fields");
   const saveInputs = {};
-  let saveChoices = [], saveGeneration = 0;
+  let saveChoices = [], saveGeneration = 0, saving = false;
   const projectChoice = node("select"), keyChoice = node("select");
   projectChoice.setAttribute("aria-label", "Välj projekt");
   keyChoice.setAttribute("aria-label", "Välj sparat fall");
@@ -828,6 +828,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     keyChoice.hidden = !choice?.keys.length;
     keyChoice.value = choice?.keys.includes(saveInputs.key.value) ? saveInputs.key.value : "";
     saveInputs.key.hidden = !!keyChoice.value;
+    updateDeleteCase();
   }
   projectChoice.addEventListener("change", () => {
     const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
@@ -839,8 +840,41 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   keyChoice.addEventListener("change", () => {
     saveInputs.key.value = keyChoice.value;
     saveInputs.key.hidden = !!keyChoice.value;
+    updateDeleteCase();
     if (!keyChoice.value) saveInputs.key.focus();
   });
+  const deleteCase = button("", () => {
+    const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
+    if (saving || !choice?.keys.includes(keyChoice.value)) return;
+    const settings = {state_file: choice.state_file, key: keyChoice.value};
+    if (!window.confirm("Ta bort det sparade fallet ‘" + settings.key + "’ i " + choice.name
+      + "?\n\nDetta tar bort hela det sparade fallet. Arbetsvyn ligger kvar.")) return;
+    saveError.textContent = "";
+    setSaveBusy(true);
+    command("delete_saved_case", {...settings, confirmed: true}, [], reply => {
+      setSaveBusy(false);
+      if (!reply.ok) {saveError.textContent = reply.error; return;}
+      showStorage(reply.storage);
+      choice.keys = reply.keys;
+      saveInputs.key.value = "";
+      showKeyChoices(choice);
+      saveInputs.key.focus();
+      showMessage("Det sparade fallet ‘" + settings.key + "’ har tagits bort."
+        + (reply.detached ? " Arbetsvyn är nu osparad." : ""));
+    });
+  }, "gp-delete-case");
+  deleteCase.setAttribute("aria-label", "Ta bort sparat fall");
+  deleteCase.title = "Ta bort sparat fall";
+  const deleteCaseIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  deleteCaseIcon.setAttribute("viewBox", "0 0 24 24");
+  deleteCaseIcon.setAttribute("aria-hidden", "true");
+  const deleteCasePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  deleteCasePath.setAttribute("d", "M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7");
+  deleteCaseIcon.append(deleteCasePath); deleteCase.append(deleteCaseIcon);
+  function updateDeleteCase() {
+    const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
+    deleteCase.disabled = saving || !choice?.keys.includes(keyChoice.value);
+  }
   for (const [name, caption, placeholder] of [
     ["state_file", "Projekt", "Ange projektnamn"], ["key", "Fall (key)", "Ange fallnamn"],
   ]) {
@@ -852,7 +886,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     input.setAttribute("aria-label", name === "state_file" ? "Projektfil" : "key");
     input.placeholder = placeholder;
     saveInputs[name] = input;
-    label.append(name === "state_file" ? projectChoice : keyChoice, input);
+    if (name === "key") {
+      const row = node("div", "gp-save-case-row");
+      row.append(keyChoice, input, deleteCase); label.append(row);
+    } else label.append(projectChoice, input);
     saveFields.append(label);
     input.addEventListener("keydown", event => {
       if (event.key === "Enter") { event.preventDefault(); saveSettings(); }
@@ -860,16 +897,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (name === "key") input.addEventListener("input", () => {
       const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
       keyChoice.value = choice?.keys.includes(input.value) ? input.value : "";
+      updateDeleteCase();
     });
   }
   fillChoices(projectChoice, [], "Nytt projekt…");
   fillChoices(keyChoice, [], "Nytt fall…");
   keyChoice.hidden = true;
+  updateDeleteCase();
   const saveError = node("p", "gp-save-error");
   const saveActions = node("div", "gp-save-actions");
-  let saving = false;
   const cancelSave = button("Avbryt", () => { savePanel.hidden = true; saveProject.focus(); });
   const confirmSave = button("Spara", () => saveSettings(), "gp-primary");
+  function setSaveBusy(busy) {
+    saving = busy;
+    for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = busy;
+    saveProject.disabled = busy;
+    updateDeleteCase();
+  }
   function saveSettings(overwrite = false, settings) {
     if (saving) return;
     settings ||= {state_file: saveInputs.state_file.value.trim(), key: saveInputs.key.value.trim()};
@@ -881,15 +925,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         return;
       }
     }
-    saving = true;
+    setSaveBusy(true);
     confirmSave.textContent = "Sparar…";
-    for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = true;
-    saveProject.disabled = true;
     command("save", {...settings, overwrite}, [], reply => {
-      saving = false;
+      setSaveBusy(false);
       confirmSave.textContent = "Spara";
-      for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = false;
-      saveProject.disabled = false;
       if (!reply.ok) {
         saveError.textContent = reply.error;
         if (reply.conflict && window.confirm(reply.error)) saveSettings(true, settings);
@@ -911,6 +951,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     saveInputs.state_file.hidden = false;
     fillChoices(projectChoice, [], "Nytt projekt…");
     keyChoice.hidden = true;
+    updateDeleteCase();
     saveError.textContent = "";
     savePanel.hidden = false;
     saveInputs.state_file.focus();

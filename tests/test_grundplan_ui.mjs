@@ -2662,6 +2662,99 @@ test("save dialog requires project and key, offers existing files and retains fa
   assert.equal(ui.byText("Kopiera projekt + key").disabled, false);
 });
 
+test("saved-case trash confirms the selected case, refreshes choices and leaves the working view unsaved", t => {
+  const ui = setup(t);
+  const storage = {key: "Hus A", state_file: "projekt.json", name: "projekt.json", path: "/notebooks/projekt.json",
+    arguments: "state_file='projekt.json', key='Hus A'"};
+  ui.data.state.storage = storage; ui.changed();
+  const original = structuredClone(ui.tag);
+  ui.byText("Spara projekt").click();
+  const trash = ui.byClass("gp-delete-case");
+  assert.equal(trash.disabled, true, "No deletion until the saved-case list has loaded");
+  ui.ack(ui.sent.at(-1), {choices: [{...storage, keys: ["Hus A", "Hus B"]}]});
+  assert.equal(trash.disabled, false);
+  assert.equal(trash.title, "Ta bort sparat fall");
+  assert.equal(trash.getAttribute("aria-label"), "Ta bort sparat fall");
+  const before = ui.sent.length;
+  let confirmation;
+  window.confirm = text => {confirmation = text; return false;};
+  trash.click();
+  assert.ok(confirmation.includes("‘Hus A’ i projekt.json"));
+  assert.equal(ui.sent.length, before, "Cancelling confirmation never sends a delete request");
+  window.confirm = () => true;
+  trash.click();
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "delete_saved_case");
+  assert.equal(request.state_file, "projekt.json");
+  assert.equal(request.key, "Hus A");
+  assert.equal(request.confirmed, true);
+  assert.equal(trash.disabled, true);
+  assert.equal(ui.byText("Spara").disabled, true);
+  assert.equal(ui.find(el => el.textContent === "Avbryt" && el.closest(".gp-save-panel")).disabled, true);
+  ui.changed(); trash.click(); ui.byText("Spara").click();
+  assert.equal(ui.sent.at(-1), request, "Busy guards prevent duplicate delete/save operations");
+  ui.data.state.storage = null; ui.changed();
+  ui.ack(request, {keys: ["Hus B"], storage: null, detached: true});
+  const chooser = ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall");
+  assert.deepEqual(chooser.children.map(option => option.value), ["", "Hus B"]);
+  assert.equal(chooser.value, "");
+  const key = ui.find(el => el.getAttribute("aria-label") === "key");
+  assert.equal(key.hidden, false); assert.equal(key.value, "");
+  assert.equal(document.activeElement, key);
+  assert.equal(trash.disabled, true);
+  assert.equal(ui.byText("Kopiera projekt + key").disabled, true);
+  assert.ok(ui.byClass("gp-status").textContent.includes("Arbetsvyn är nu osparad"));
+  assert.deepEqual(ui.tag, original);
+  key.value = "Nytt fall";
+  ui.byText("Spara").click();
+  assert.equal(ui.sent.at(-1).key, "Nytt fall");
+  assert.equal(ui.sent.at(-1).state_file, "projekt.json");
+});
+
+test("saved-case delete errors retain selection and storage, with retry for another saved case", t => {
+  const ui = setup(t);
+  const storage = {key: "A", state_file: "projekt.json", name: "projekt.json", path: "/notebooks/projekt.json", arguments: "key='A'"};
+  ui.data.state.storage = storage; ui.changed();
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{...storage, keys: ["A", "B"]}]});
+  const chooser = ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall");
+  chooser.value = "B"; chooser.dispatch("change");
+  const trash = ui.byClass("gp-delete-case");
+  trash.click();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Skrivfel"});
+  assert.equal(ui.byClass("gp-save-panel").hidden, false);
+  assert.equal(ui.byClass("gp-save-error").textContent, "Skrivfel");
+  assert.equal(chooser.value, "B");
+  assert.equal(trash.disabled, false);
+  assert.ok(ui.byClass("gp-project-file").textContent.includes("Fall: A"));
+  assert.equal(ui.byText("Kopiera projekt + key").disabled, false);
+  trash.click();
+  assert.equal(ui.sent.at(-1).key, "B");
+  ui.ack(ui.sent.at(-1), {keys: ["A"], storage, detached: false});
+  assert.equal(ui.byClass("gp-save-error").textContent, "");
+  assert.ok(!ui.byClass("gp-status").textContent.includes("osparad"));
+  assert.ok(ui.byClass("gp-project-file").textContent.includes("Fall: A"));
+  chooser.value = "A"; chooser.dispatch("change");
+  assert.equal(trash.disabled, false);
+  chooser.value = ""; chooser.dispatch("change");
+  assert.equal(trash.disabled, true, "New case has no stored data to delete");
+});
+
+test("deleting the last saved case keeps its project selected and exposes the new-case input", t => {
+  const ui = setup(t);
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{name: "projekt.json", state_file: "projekt.json", keys: ["A"]}]});
+  const project = ui.find(el => el.getAttribute("aria-label") === "Välj projekt");
+  project.value = "projekt.json"; project.dispatch("change");
+  ui.byClass("gp-delete-case").click();
+  ui.ack(ui.sent.at(-1), {keys: [], storage: null, detached: false});
+  assert.equal(project.value, "projekt.json");
+  assert.equal(ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall").hidden, true);
+  assert.equal(ui.find(el => el.getAttribute("aria-label") === "key").hidden, false);
+  assert.equal(ui.byClass("gp-delete-case").disabled, true);
+  assert.equal(ui.byText("Spara").disabled, false);
+});
+
 test("save destination collisions require confirmation and copying has a selectable fallback", async t => {
   const ui = setup(t);
   ui.byText("Spara projekt").click();

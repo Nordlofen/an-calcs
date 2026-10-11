@@ -65,6 +65,10 @@
 .an-grundplan .gp-save-fields label { display: flex; flex: 1 1 210px; flex-direction: column; gap: 5px; }
 .an-grundplan .gp-save-fields input { width: 100%; }
 .an-grundplan .gp-save-fields select { width: 100%; padding: 6px 7px; border: 1px solid #b8c9cd; border-radius: 4px; background: #fff; }
+.an-grundplan .gp-save-case-row { display: flex; align-items: center; gap: 7px; }
+.an-grundplan .gp-save-case-row select, .an-grundplan .gp-save-case-row input { flex: 1; min-width: 0; }
+.an-grundplan button.gp-delete-case { display: grid; place-items: center; flex: 0 0 34px; height: 34px; padding: 6px; color: #a63c34; }
+.an-grundplan .gp-delete-case svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .an-grundplan .gp-save-note { margin-top: 10px; color: var(--gp-muted); font-size: 11px; }
 .an-grundplan .gp-save-error { color: #a63c34; margin-top: 6px; overflow-wrap: anywhere; }
 .an-grundplan .gp-save-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }

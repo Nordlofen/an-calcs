@@ -137,6 +137,108 @@ class TestGrundplanState(unittest.TestCase):
         self.assertEqual(by_file["hus_c.json"]["keys"], ["C"])
         self.assertNotIn("projects", by_file["hus_c.json"], "Choice metadata omits drawings and calculation inputs")
 
+    def test_delete_open_case_preserves_working_document_and_history_but_unbinds_storage(self):
+        plan = self.plan(self.drawing, key="Hus A", state_file=self.store)
+        ident = plan.lagg_till(.2, .3, littera="VS.1")
+        plan.spara()
+        other = self.plan(self.drawing, key="Hus B", state_file=self.store)
+        other.titel = "Behåll B"
+        other.spara()
+        saved_b = json.loads(self.store.read_text())["projects"]["Hus B"]
+        self.command(plan, action="update", id=ident, values={"F_vy": 120})
+        before, history = plan._document(), plan.state["history"]
+        with patch("os.getcwd", return_value=str(self.folder)):
+            reply = self.command(plan, action="delete_saved_case", key="Hus A",
+                                 state_file="projects", confirmed=True)
+        self.assertTrue(reply["ok"])
+        self.assertTrue(reply["detached"])
+        self.assertEqual(reply["keys"], ["Hus B"])
+        self.assertIsNone(reply["storage"])
+        self.assertEqual(json.loads(self.store.read_text())["projects"], {"Hus B": saved_b})
+        self.assertEqual(plan._document(), before, "Unsaved edits and drawing remain in the working view")
+        self.assertEqual(plan.state["history"], history)
+        self.assertEqual((plan.key, plan.state_file, plan._state_file_argument), (None, None, None))
+        self.assertIsNone(plan.state["storage"])
+        plan.angra()
+        self.assertIsNone(plan.key, "Working-view Undo must not restore a deleted storage binding")
+        plan.gor_om()
+        self.assertEqual(plan._document(), before)
+        with self.assertRaisesRegex(ValueError, "key"):
+            plan.spara()
+        self.assertEqual(set(json.loads(self.store.read_text())["projects"]), {"Hus B"})
+
+    def test_deleting_another_case_or_same_key_in_another_file_keeps_current_binding(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        self.plan(self.drawing, key="B", state_file=self.store).spara()
+        alternate = self.folder / "alternate.json"
+        self.plan(self.drawing, key="A", state_file=alternate).spara()
+        before = plan._document()
+        for key, path in (("B", self.store), ("A", alternate)):
+            reply = self.command(plan, action="delete_saved_case", key=key,
+                                 state_file=str(path), confirmed=True)
+            self.assertTrue(reply["ok"])
+            self.assertFalse(reply["detached"])
+            self.assertEqual(reply["storage"]["key"], "A")
+            self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+            self.assertEqual(plan._document(), before)
+        self.assertEqual(set(json.loads(self.store.read_text())["projects"]), {"A"})
+        self.assertEqual(json.loads(alternate.read_text())["projects"], {})
+
+    def test_last_case_leaves_valid_empty_file_and_working_view_can_save_under_new_key(self):
+        key = "Fall '1' \\ ÅÄÖ"
+        plan = self.plan(self.drawing, key=key, state_file=self.store)
+        ident = plan.lagg_till(.2, .3)
+        plan.spara()
+        reply = self.command(plan, action="delete_saved_case", key=key,
+                             state_file=str(self.store), confirmed=True)
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["keys"], [])
+        self.assertTrue(self.store.exists())
+        self.assertEqual(json.loads(self.store.read_text())["projects"], {})
+        reply = self.command(plan, action="save", key="Nytt fall", state_file=str(self.store))
+        self.assertTrue(reply["ok"])
+        self.assertEqual(set(json.loads(self.store.read_text())["projects"]), {"Nytt fall"})
+        self.assertEqual(self.plan(key="Nytt fall", state_file=self.store).taggar[0]["id"], ident)
+
+    def test_delete_requires_confirmation_and_existing_valid_destination(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        before = self.store.read_bytes()
+        for confirmation in (None, False, 1, "true"):
+            reply = self.command(plan, action="delete_saved_case", key="A",
+                                 state_file=str(self.store), confirmed=confirmation)
+            self.assertFalse(reply["ok"])
+            self.assertEqual(self.store.read_bytes(), before)
+        missing = self.folder / "missing.json"
+        for payload in ({"key": "Absent", "state_file": str(self.store)},
+                        {"key": "A", "state_file": str(missing)},
+                        {"key": None, "state_file": str(self.store)},
+                        {"key": "", "state_file": str(self.store)}, {"key": "A"}):
+            reply = self.command(plan, action="delete_saved_case", confirmed=True, **payload)
+            self.assertFalse(reply["ok"])
+            self.assertEqual(self.store.read_bytes(), before)
+            self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+        self.assertFalse(missing.exists())
+        self.store.write_text("invalid JSON")
+        reply = self.command(plan, action="delete_saved_case", key="A", state_file=str(self.store), confirmed=True)
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.store.read_text(), "invalid JSON")
+        self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+
+    def test_failed_delete_write_preserves_file_binding_and_working_document(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        before = self.store.read_bytes(), plan._document(), plan.state
+        with patch.object(Path, "replace", side_effect=OSError("Skrivfel")):
+            reply = self.command(plan, action="delete_saved_case", key="A",
+                                 state_file=str(self.store), confirmed=True)
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"], "Skrivfel")
+        self.assertEqual((self.store.read_bytes(), plan._document(), plan.state), before)
+        self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+        self.assertEqual(set(self.folder.iterdir()), {self.drawing, self.store})
+
     def test_key_restores_drawing_results_and_metadata_without_original_file(self):
         plan = self.plan(self.drawing, key="Hus A", state_file=self.store)
         ident = plan.lagg_till(.2, .7, littera="VS3", indata={"F_vy": 120})

@@ -582,6 +582,25 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
         return True
 
+    def _delete_saved_case(self, key, state_file, *, confirmed=False):
+        if confirmed is not True:
+            raise ValueError("Bekräfta att det sparade fallet ska tas bort.")
+        if not isinstance(key, str):
+            raise ValueError("Välj ett sparat fall att ta bort.")
+        key, path, _ = _storage_settings(key, state_file)
+        state = self._read_state_file(path)
+        if key not in state["projects"]:
+            raise ValueError("Det sparade fallet finns inte längre i projektfilen.")
+        del state["projects"][key]
+        self._write_json(path, state)
+        detached = (key, path) == (self._key, self._state_file)
+        if detached:
+            # Keep the working document and its history; unbind only after a successful write.
+            self._key = self._state_file = self._state_file_argument = None
+            self._publish()
+        return {"deleted_key": key, "keys": sorted(key for key in state["projects"]
+                if isinstance(key, str) and key), "storage": self._storage(), "detached": detached}
+
     def _save_choices(self):
         folder = Path.cwd().resolve()
         paths = set(folder.glob("*.json"))
@@ -1931,6 +1950,9 @@ class Grundplan(anywidget.AnyWidget):
                 self._load_document(bytes(buffers[0]))
             elif action == "save_choices":
                 reply["choices"] = self._save_choices()
+            elif action == "delete_saved_case":
+                reply.update(self._delete_saved_case(content["key"], content.get("state_file"),
+                                                    confirmed=content.get("confirmed")))
             elif action == "save":
                 if "key" in content or "state_file" in content:
                     if "key" not in content or content["key"] is None:
