@@ -239,6 +239,112 @@ class TestGrundplanState(unittest.TestCase):
         self.assertEqual((plan.key, plan.state_file), ("A", self.store))
         self.assertEqual(set(self.folder.iterdir()), {self.drawing, self.store})
 
+    def test_rename_open_case_preserves_saved_and_unsaved_documents_and_updates_arguments(self):
+        plan = self.plan(self.drawing, key="Hus A", state_file=self.store)
+        ident = plan.lagg_till(.2, .3, littera="VS.1")
+        plan.spara()
+        self.plan(self.drawing, key="Hus B", state_file=self.store).spara()
+        saved = json.loads(self.store.read_text())["projects"]
+        self.command(plan, action="update", id=ident, values={"F_vy": 120})
+        working, history = plan._document(), plan.state["history"]
+        new_key = "Hus 'A' \\ ÅÄÖ"
+        with patch("os.getcwd", return_value=str(self.folder)):
+            reply = self.command(plan, action="rename_saved_case", key="Hus A", state_file="projects",
+                                 new_key="  " + new_key + "  ")
+        self.assertTrue(reply["ok"])
+        self.assertTrue(reply["changed"])
+        self.assertTrue(reply["renamed_current"])
+        self.assertEqual(json.loads(self.store.read_text())["projects"],
+                         {new_key: saved["Hus A"], "Hus B": saved["Hus B"]})
+        self.assertEqual(plan._document(), working, "Renaming must not replace unsaved working edits")
+        self.assertEqual(plan.state["history"], history)
+        self.assertEqual((plan.key, plan.state_file), (new_key, self.store))
+        self.assertEqual(plan.state["storage"], reply["storage"])
+        args = {item.arg: ast.literal_eval(item.value) for item in
+                ast.parse("Grundplan(" + reply["storage"]["arguments"] + ")", mode="eval").body.keywords}
+        self.assertEqual(args, {"key": new_key, "state_file": str(self.store)})
+        restored = self.plan(**args)
+        self.assertEqual(restored._tag(ident)["values"], saved["Hus A"]["tags"][0]["values"])
+        plan.angra()
+        self.assertEqual(plan.key, new_key, "Working-view Undo keeps the renamed storage binding")
+        plan.gor_om()
+        self.assertEqual(plan._document(), working)
+        plan.spara()
+        self.assertEqual(json.loads(self.store.read_text())["projects"][new_key], working)
+        self.assertNotIn("Hus A", json.loads(self.store.read_text())["projects"])
+
+    def test_rename_other_case_and_same_key_in_other_file_preserves_current_binding(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        self.plan(self.drawing, key="B", state_file=self.store).spara()
+        alternate = self.folder / "alternate.json"
+        self.plan(self.drawing, key="A", state_file=alternate).spara()
+        before = plan._document()
+        for key, path in (("B", self.store), ("A", alternate)):
+            saved = json.loads(path.read_text())["projects"][key]
+            reply = self.command(plan, action="rename_saved_case", key=key,
+                                 state_file=str(path), new_key="Nytt namn")
+            self.assertTrue(reply["ok"])
+            self.assertFalse(reply["renamed_current"])
+            self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+            self.assertEqual(reply["storage"]["key"], "A")
+            self.assertEqual(plan._document(), before)
+            projects = json.loads(path.read_text())["projects"]
+            self.assertNotIn(key, projects)
+            self.assertEqual(projects["Nytt namn"], saved)
+
+    def test_rename_rejects_duplicates_invalid_names_and_missing_cases_without_writing(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        self.plan(self.drawing, key="B", state_file=self.store).spara()
+        before = self.store.read_bytes(), plan._document(), plan.state
+        for new_key in ("B", " B ", "", "   ", None, 42, "a" * 201):
+            reply = self.command(plan, action="rename_saved_case", key="A",
+                                 state_file=str(self.store), new_key=new_key)
+            self.assertFalse(reply["ok"])
+            self.assertEqual((self.store.read_bytes(), plan._document(), plan.state), before)
+        missing = self.folder / "missing.json"
+        for payload in ({"key": "Absent", "state_file": str(self.store)},
+                        {"key": "A", "state_file": str(missing)},
+                        {"key": None, "state_file": str(self.store)},
+                        {"key": "A"}):
+            reply = self.command(plan, action="rename_saved_case", new_key="Ny", **payload)
+            self.assertFalse(reply["ok"])
+            self.assertEqual((self.store.read_bytes(), plan._document(), plan.state), before)
+        self.assertFalse(missing.exists())
+        self.store.write_text("invalid JSON")
+        reply = self.command(plan, action="rename_saved_case", key="A", state_file=str(self.store), new_key="Ny")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.store.read_text(), "invalid JSON")
+        self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+
+    def test_rename_to_same_name_is_a_noop_and_preserves_relative_storage_argument(self):
+        with patch("os.getcwd", return_value=str(self.folder)):
+            plan = self.plan(self.drawing, key="A", state_file="projects.json")
+            plan.spara()
+            before = self.store.read_bytes()
+            with patch.object(plan, "_write_json") as write:
+                reply = self.command(plan, action="rename_saved_case", key="A", state_file=str(self.store), new_key=" A ")
+            self.assertTrue(reply["ok"])
+            self.assertFalse(reply["changed"])
+            write.assert_not_called()
+            self.assertEqual(self.store.read_bytes(), before)
+            reply = self.command(plan, action="rename_saved_case", key="A", state_file=str(self.store), new_key="Ny")
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["storage"]["arguments"], "state_file='projects.json', key='Ny'")
+
+    def test_failed_rename_write_preserves_file_binding_and_cleans_temporary_file(self):
+        plan = self.plan(self.drawing, key="A", state_file=self.store)
+        plan.spara()
+        before = self.store.read_bytes(), plan._document(), plan.state
+        with patch.object(Path, "replace", side_effect=OSError("Skrivfel")):
+            reply = self.command(plan, action="rename_saved_case", key="A", state_file=str(self.store), new_key="Ny")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"], "Skrivfel")
+        self.assertEqual((self.store.read_bytes(), plan._document(), plan.state), before)
+        self.assertEqual((plan.key, plan.state_file), ("A", self.store))
+        self.assertEqual(set(self.folder.iterdir()), {self.drawing, self.store})
+
     def test_key_restores_drawing_results_and_metadata_without_original_file(self):
         plan = self.plan(self.drawing, key="Hus A", state_file=self.store)
         ident = plan.lagg_till(.2, .7, littera="VS3", indata={"F_vy": 120})

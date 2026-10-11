@@ -601,6 +601,31 @@ class Grundplan(anywidget.AnyWidget):
         return {"deleted_key": key, "keys": sorted(key for key in state["projects"]
                 if isinstance(key, str) and key), "storage": self._storage(), "detached": detached}
 
+    def _rename_saved_case(self, key, state_file, new_key):
+        if not isinstance(key, str) or not isinstance(new_key, str):
+            raise ValueError("Ange ett fallnamn som text.")
+        key, path, _ = _storage_settings(key, state_file)
+        new_key = _heading_text(new_key.strip(), "Fallnamn")
+        if not new_key:
+            raise ValueError("Fallnamnet får inte vara tomt.")
+        state = self._read_state_file(path)
+        if key not in state["projects"]:
+            raise ValueError("Det sparade fallet finns inte längre i projektfilen.")
+        changed = key != new_key
+        if changed and new_key in state["projects"]:
+            raise ValueError(f"Det finns redan ett sparat fall med namnet ‘{new_key}’ i projektfilen.")
+        if changed:
+            # Rename the saved document, without replacing it with unsaved working edits.
+            state["projects"][new_key] = state["projects"].pop(key)
+            self._write_json(path, state)
+        renamed_current = (key, path) == (self._key, self._state_file)
+        if changed and renamed_current:
+            self._key = new_key
+            self._publish()
+        return {"renamed_key": new_key, "changed": changed, "renamed_current": renamed_current,
+                "keys": sorted(key for key in state["projects"] if isinstance(key, str) and key),
+                "storage": self._storage()}
+
     def _save_choices(self):
         folder = Path.cwd().resolve()
         paths = set(folder.glob("*.json"))
@@ -1953,6 +1978,8 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "delete_saved_case":
                 reply.update(self._delete_saved_case(content["key"], content.get("state_file"),
                                                     confirmed=content.get("confirmed")))
+            elif action == "rename_saved_case":
+                reply.update(self._rename_saved_case(content["key"], content.get("state_file"), content.get("new_key")))
             elif action == "save":
                 if "key" in content or "state_file" in content:
                     if "key" not in content or content["key"] is None:

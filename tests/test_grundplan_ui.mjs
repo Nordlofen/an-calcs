@@ -2755,6 +2755,140 @@ test("deleting the last saved case keeps its project selected and exposes the ne
   assert.equal(ui.byText("Spara").disabled, false);
 });
 
+test("saved-case pencil sits beside trash, prefills the name and supports Escape and Enter", async t => {
+  const ui = setup(t);
+  const storage = {key: "Hus A", state_file: "projekt.json", name: "projekt.json", path: "/notebooks/projekt.json",
+    arguments: "state_file='projekt.json', key='Hus A'"};
+  ui.data.state.storage = storage; ui.changed();
+  ui.byText("Spara projekt").click();
+  const pencil = ui.byClass("gp-rename-case"), trash = ui.byClass("gp-delete-case");
+  assert.equal(pencil.disabled, true);
+  ui.ack(ui.sent.at(-1), {choices: [{...storage, keys: ["Hus A", "Hus B"]}]});
+  assert.equal(pencil.disabled, false);
+  assert.equal(pencil.title, "Byt namn på sparat fall");
+  assert.equal(pencil.getAttribute("aria-label"), "Byt namn på sparat fall");
+  const row = ui.byClass("gp-save-case-row");
+  assert.equal(row.children.at(-2), pencil); assert.equal(row.children.at(-1), trash);
+  const original = structuredClone(ui.tag), before = ui.sent.length;
+  const rename = ui.find(el => el.getAttribute("aria-label") === "Nytt fallnamn");
+  pencil.click();
+  assert.equal(rename.value, "Hus A");
+  assert.equal(document.activeElement, rename);
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, false);
+  assert.equal(trash.disabled, true);
+  assert.equal(ui.byText("Spara").disabled, true);
+  rename.value = "Avbrutet namn"; rename.dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.sent.length, before);
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, true);
+  assert.equal(document.activeElement, pencil);
+  assert.equal(trash.disabled, false);
+  pencil.click(); assert.equal(rename.value, "Hus A");
+  ui.byClass("gp-rename-case-fields").dispatch("keydown", {key: "Escape"});
+  assert.equal(ui.sent.length, before);
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, true);
+  pencil.click();
+  rename.value = "  Hus 'A' ÅÄÖ  "; rename.dispatch("keydown", {key: "Enter"});
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, "rename_saved_case");
+  assert.equal(request.key, "Hus A");
+  assert.equal(request.new_key, "Hus 'A' ÅÄÖ");
+  assert.equal(request.state_file, "projekt.json");
+  assert.equal(rename.disabled, true);
+  assert.equal(ui.byText("Avbryt namnbyte").disabled, true);
+  ui.changed(); rename.dispatch("keydown", {key: "Enter"}); trash.click(); ui.byText("Spara").click();
+  assert.equal(ui.sent.at(-1), request, "Rename/save/delete cannot overlap while writing");
+  const renamed = {...storage, key: request.new_key, arguments: 'state_file="projekt.json", key="Hus \'A\' ÅÄÖ"'};
+  ui.data.state.storage = renamed; ui.changed();
+  ui.ack(request, {renamed_key: renamed.key, keys: [renamed.key, "Hus B"], storage: renamed, changed: true, renamed_current: true});
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, true);
+  assert.equal(ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall").value, renamed.key);
+  assert.equal(ui.find(el => el.getAttribute("aria-label") === "key").hidden, true);
+  assert.ok(ui.byClass("gp-project-file").textContent.includes("Fall: " + renamed.key));
+  assert.equal(trash.disabled, false); assert.equal(ui.byText("Spara").disabled, false);
+  assert.deepEqual(ui.tag, original);
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let copied;
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async text => {copied = text;}}}});
+  t.after(() => {if (oldNavigator) Object.defineProperty(globalThis, "navigator", oldNavigator); else delete globalThis.navigator;});
+  ui.byText("Kopiera projekt + key").click(); await Promise.resolve();
+  assert.equal(copied, renamed.arguments);
+});
+
+test("case renaming rejects blank and duplicate names, keeps failed drafts and allows retry", t => {
+  const ui = setup(t);
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{name: "projekt.json", state_file: "projekt.json", keys: ["A", "B"]}]});
+  const chooser = ui.find(el => el.getAttribute("aria-label") === "Välj projekt");
+  chooser.value = "projekt.json"; chooser.dispatch("change");
+  ui.byClass("gp-rename-case").click();
+  const rename = ui.find(el => el.getAttribute("aria-label") === "Nytt fallnamn"), before = ui.sent.length;
+  for (const invalid of ["", "  ", " B ", "a".repeat(201)]) {
+    rename.value = invalid; ui.byText("Byt namn").click();
+    assert.equal(ui.sent.length, before);
+    assert.ok(ui.byClass("gp-save-error").textContent);
+  }
+  rename.value = "Ny"; rename.dispatch("input");
+  assert.equal(ui.byClass("gp-save-error").textContent, "", "Typing a correction clears the previous name validation message");
+  ui.byText("Byt namn").click();
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Namnet används redan efter en extern ändring"});
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, false);
+  assert.equal(rename.value, "Ny"); assert.equal(rename.disabled, false);
+  assert.equal(ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall").value, "A");
+  assert.equal(chooser.disabled, true, "Failed rename keeps the original target until retry or cancel");
+  assert.ok(ui.byClass("gp-save-error").textContent.includes("extern ändring"));
+  rename.value = "Nytt försök"; ui.byText("Byt namn").click();
+  assert.equal(ui.sent.at(-1).new_key, "Nytt försök");
+  ui.ack(ui.sent.at(-1), {ok: false, error: "Skrivfel"});
+  ui.byText("Avbryt namnbyte").click();
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, true);
+  assert.equal(ui.byClass("gp-save-error").textContent, "");
+  assert.equal(chooser.disabled, false);
+  assert.equal(ui.byText("Spara").disabled, false);
+});
+
+test("renaming another saved case preserves the open binding and selects its new name for saving", t => {
+  const ui = setup(t);
+  const storage = {key: "A", state_file: "projekt.json", name: "projekt.json", path: "/notebooks/projekt.json", arguments: "key='A'"};
+  ui.data.state.storage = storage; ui.changed();
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{...storage, keys: ["A", "B"]}]});
+  const chooser = ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall");
+  chooser.value = "B"; chooser.dispatch("change");
+  ui.byClass("gp-rename-case").click();
+  const rename = ui.find(el => el.getAttribute("aria-label") === "Nytt fallnamn");
+  assert.equal(rename.value, "B");
+  rename.value = "C"; ui.byText("Byt namn").click();
+  ui.ack(ui.sent.at(-1), {renamed_key: "C", keys: ["A", "C"], storage, changed: true, renamed_current: false});
+  assert.equal(chooser.value, "C");
+  assert.deepEqual(chooser.children.map(option => option.value), ["", "A", "C"]);
+  assert.ok(ui.byClass("gp-project-file").textContent.includes("Fall: A"));
+  ui.byText("Spara").click();
+  assert.equal(ui.sent.at(-1).key, "C");
+});
+
+test("closing the save panel cancels a rename draft and new cases disable both case action icons", t => {
+  const ui = setup(t);
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{name: "projekt.json", state_file: "projekt.json", keys: ["A"]}]});
+  const project = ui.find(el => el.getAttribute("aria-label") === "Välj projekt");
+  project.value = "projekt.json"; project.dispatch("change");
+  ui.byClass("gp-rename-case").click();
+  ui.find(el => el.getAttribute("aria-label") === "Nytt fallnamn").value = "Draft";
+  const before = ui.sent.length;
+  ui.find(el => el.textContent === "Avbryt" && el.closest(".gp-save-panel")).click();
+  assert.equal(ui.sent.length, before);
+  assert.equal(ui.byClass("gp-save-panel").hidden, true);
+  assert.equal(ui.byClass("gp-rename-case-fields").hidden, true);
+  ui.byText("Spara projekt").click();
+  ui.ack(ui.sent.at(-1), {choices: [{name: "projekt.json", state_file: "projekt.json", keys: ["A"]}]});
+  assert.equal(ui.byText("Spara").disabled, false);
+  project.value = "projekt.json"; project.dispatch("change");
+  const key = ui.find(el => el.getAttribute("aria-label") === "Välj sparat fall");
+  key.value = ""; key.dispatch("change");
+  assert.equal(ui.byClass("gp-rename-case").disabled, true);
+  assert.equal(ui.byClass("gp-delete-case").disabled, true);
+});
+
 test("save destination collisions require confirmation and copying has a selectable fallback", async t => {
   const ui = setup(t);
   ui.byText("Spara projekt").click();

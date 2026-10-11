@@ -931,6 +931,17 @@ sulor och redigeringshistorik kvar. Ange ett nytt fallnamn när du sparar igen.
 Radering av sparade fall ingår inte i arbetsvyns **Ångra/Gör om**.
 Om det sista fallet tas bort behålls projektfilen med en tom fallista.
 
+Pennknappen bredvid papperskorgen har tooltip **Byt namn på sparat fall**.
+Det nuvarande namnet är förifyllt i ett textfält. **Enter** eller **Byt namn**
+sparar namnbytet; **Escape** eller **Avbryt namnbyte** avbryter. Tomma namn,
+namn över 200 tecken och namn som redan används i samma projektfil stoppas.
+Namnbytet flyttar det befintliga sparade innehållet till den nya nyckeln.
+Om fallet är öppet uppdateras även dess sparplats och kopierbara argument;
+osparade ändringar och arbetsvyns redigeringshistorik ligger kvar.
+Vid skrivfel behålls både det gamla namnet i filen och den aktuella sparplatsen.
+Namnbyten ingår inte i arbetsvyns **Ångra/Gör om**. Notebookens befintliga
+`key=...` behöver uppdateras till det nya namnet inför nästa återöppning.
+
 Knappen **Kopiera projekt + key** använder det faktiska Python-argumentet
 `state_file=` trots fältnamnet **Projekt** i gränssnittet. Citattecken och
 bakstreck i filnamn och keys hanteras som Python-text. Relativa sökvägar

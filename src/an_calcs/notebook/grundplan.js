@@ -808,7 +808,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   savePanel.setAttribute("aria-label", "Spara projekt");
   const saveFields = node("div", "gp-save-fields");
   const saveInputs = {};
-  let saveChoices = [], saveGeneration = 0, saving = false;
+  let saveChoices = [], saveGeneration = 0, saving = false, caseRename = null;
   const projectChoice = node("select"), keyChoice = node("select");
   projectChoice.setAttribute("aria-label", "Välj projekt");
   keyChoice.setAttribute("aria-label", "Välj sparat fall");
@@ -828,7 +828,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     keyChoice.hidden = !choice?.keys.length;
     keyChoice.value = choice?.keys.includes(saveInputs.key.value) ? saveInputs.key.value : "";
     saveInputs.key.hidden = !!keyChoice.value;
-    updateDeleteCase();
+    updateCaseActions();
   }
   projectChoice.addEventListener("change", () => {
     const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
@@ -840,12 +840,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   keyChoice.addEventListener("change", () => {
     saveInputs.key.value = keyChoice.value;
     saveInputs.key.hidden = !!keyChoice.value;
-    updateDeleteCase();
+    updateCaseActions();
     if (!keyChoice.value) saveInputs.key.focus();
   });
   const deleteCase = button("", () => {
     const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
-    if (saving || !choice?.keys.includes(keyChoice.value)) return;
+    if (saving || caseRename || historyBusy || !choice?.keys.includes(keyChoice.value)) return;
     const settings = {state_file: choice.state_file, key: keyChoice.value};
     if (!window.confirm("Ta bort det sparade fallet ‘" + settings.key + "’ i " + choice.name
       + "?\n\nDetta tar bort hela det sparade fallet. Arbetsvyn ligger kvar.")) return;
@@ -871,9 +871,75 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const deleteCasePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
   deleteCasePath.setAttribute("d", "M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7");
   deleteCaseIcon.append(deleteCasePath); deleteCase.append(deleteCaseIcon);
-  function updateDeleteCase() {
+  const renameCase = button("", () => {
     const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
-    deleteCase.disabled = saving || !choice?.keys.includes(keyChoice.value);
+    if (saving || caseRename || historyBusy || !choice?.keys.includes(keyChoice.value)) return;
+    caseRename = {choice, state_file: choice.state_file, key: keyChoice.value};
+    renameInput.value = caseRename.key;
+    saveError.textContent = "";
+    renameFields.hidden = false;
+    setSaveBusy(false);
+    renameInput.focus(); renameInput.select?.();
+  }, "gp-rename-case");
+  renameCase.setAttribute("aria-label", "Byt namn på sparat fall");
+  renameCase.title = "Byt namn på sparat fall";
+  const renameIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  renameIcon.setAttribute("viewBox", "0 0 24 24"); renameIcon.setAttribute("aria-hidden", "true");
+  const renamePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  renamePath.setAttribute("d", "M14 5l5 5 M4 20l5-1L21 7a2.8 2.8 0 0 0-4-4L5 15l-1 5Z");
+  renameIcon.append(renamePath); renameCase.append(renameIcon);
+  const renameFields = node("div", "gp-rename-case-fields");
+  renameFields.hidden = true;
+  const renameInput = node("input");
+  renameInput.type = "text"; renameInput.maxLength = 200;
+  renameInput.setAttribute("aria-label", "Nytt fallnamn");
+  const cancelRename = button("Avbryt namnbyte", () => closeCaseRename());
+  const confirmRename = button("Byt namn", () => renameSavedCase(), "gp-primary");
+  const renameActions = node("div", "gp-rename-case-actions");
+  renameActions.append(cancelRename, confirmRename);
+  renameFields.append(node("span", "gp-field-note", "Nytt fallnamn"), renameInput, renameActions);
+  renameInput.addEventListener("input", () => {if (caseRename && !saving) saveError.textContent = "";});
+  renameInput.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === "Escape") {
+      event.preventDefault(); event.stopPropagation();
+      if (event.key === "Enter") renameSavedCase(); else closeCaseRename();
+    }
+  });
+  renameFields.addEventListener("keydown", event => {
+    if (event.key === "Escape") {event.preventDefault(); event.stopPropagation(); closeCaseRename();}
+  });
+  function closeCaseRename(focus = true) {
+    if (saving) return;
+    caseRename = null; renameFields.hidden = true;
+    saveError.textContent = "";
+    setSaveBusy(false);
+    if (focus) renameCase.focus();
+  }
+  function renameSavedCase() {
+    if (saving || !caseRename || historyBusy) return;
+    const newKey = renameInput.value.trim(), draft = caseRename;
+    saveError.textContent = "";
+    if (!newKey || newKey.length > 200 || newKey !== draft.key && draft.choice.keys.includes(newKey)) {
+      saveError.textContent = !newKey ? "Fallnamnet får inte vara tomt." : newKey.length > 200
+        ? "Fallnamnet får vara högst 200 tecken." : "Det finns redan ett sparat fall med detta namn i projektfilen.";
+      renameInput.focus(); return;
+    }
+    setSaveBusy(true);
+    command("rename_saved_case", {state_file: draft.state_file, key: draft.key, new_key: newKey}, [], reply => {
+      setSaveBusy(false);
+      if (!reply.ok) {saveError.textContent = reply.error; renameInput.focus(); return;}
+      showStorage(reply.storage);
+      draft.choice.keys = reply.keys;
+      saveInputs.key.value = reply.renamed_key;
+      closeCaseRename(false);
+      showKeyChoices(draft.choice);
+      renameCase.focus();
+      showMessage(reply.changed ? "Det sparade fallet ‘" + draft.key + "’ heter nu ‘" + reply.renamed_key + "’." : "Fallnamnet är oförändrat.");
+    });
+  }
+  function updateCaseActions() {
+    const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
+    deleteCase.disabled = renameCase.disabled = saving || !!caseRename || !choice?.keys.includes(keyChoice.value);
   }
   for (const [name, caption, placeholder] of [
     ["state_file", "Projekt", "Ange projektnamn"], ["key", "Fall (key)", "Ange fallnamn"],
@@ -888,7 +954,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     saveInputs[name] = input;
     if (name === "key") {
       const row = node("div", "gp-save-case-row");
-      row.append(keyChoice, input, deleteCase); label.append(row);
+      row.append(keyChoice, input, renameCase, deleteCase); label.append(row, renameFields);
     } else label.append(projectChoice, input);
     saveFields.append(label);
     input.addEventListener("keydown", event => {
@@ -897,25 +963,29 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (name === "key") input.addEventListener("input", () => {
       const choice = saveChoices.find(choice => choice.state_file === projectChoice.value);
       keyChoice.value = choice?.keys.includes(input.value) ? input.value : "";
-      updateDeleteCase();
+      updateCaseActions();
     });
   }
   fillChoices(projectChoice, [], "Nytt projekt…");
   fillChoices(keyChoice, [], "Nytt fall…");
   keyChoice.hidden = true;
-  updateDeleteCase();
+  updateCaseActions();
   const saveError = node("p", "gp-save-error");
   const saveActions = node("div", "gp-save-actions");
-  const cancelSave = button("Avbryt", () => { savePanel.hidden = true; saveProject.focus(); });
+  const cancelSave = button("Avbryt", () => {
+    if (saving) return;
+    closeCaseRename(false); savePanel.hidden = true; saveProject.focus();
+  });
   const confirmSave = button("Spara", () => saveSettings(), "gp-primary");
   function setSaveBusy(busy) {
     saving = busy;
-    for (const element of [confirmSave, cancelSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = busy;
+    for (const element of [confirmSave, projectChoice, keyChoice, ...Object.values(saveInputs)]) element.disabled = busy || !!caseRename;
+    for (const element of [cancelSave, renameInput, cancelRename, confirmRename]) element.disabled = busy;
     saveProject.disabled = busy;
-    updateDeleteCase();
+    updateCaseActions();
   }
   function saveSettings(overwrite = false, settings) {
-    if (saving) return;
+    if (saving || caseRename) return;
     settings ||= {state_file: saveInputs.state_file.value.trim(), key: saveInputs.key.value.trim()};
     saveError.textContent = "";
     for (const name of ["state_file", "key"]) {
@@ -941,6 +1011,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   }
   const saveProject = button("Spara projekt", () => {
+    if (saving) return;
+    closeCaseRename(false);
     const generation = ++saveGeneration;
     const storage = projectStorage;
     saveChoices = [];
@@ -951,7 +1023,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     saveInputs.state_file.hidden = false;
     fillChoices(projectChoice, [], "Nytt projekt…");
     keyChoice.hidden = true;
-    updateDeleteCase();
+    updateCaseActions();
     saveError.textContent = "";
     savePanel.hidden = false;
     saveInputs.state_file.focus();
