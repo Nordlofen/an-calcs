@@ -76,7 +76,9 @@ def baddmodul(px):
         _post("s_m", "s_m", s_m, "m", "total sättning i meter", decimals=6),
     ])
     details["delresultat"]["items"] = extra_results + details["delresultat"]["items"]
-    details["slutresultat"]["items"] = [s_post, _post("k", "k", k, "kN/m^2/m", "bäddmodul", decimals=3)]
+    k_post = _post("k", "k", k, "kN/m^2/m", "bäddmodul", decimals=2)
+    k_post["format"] = "scientific"
+    details["slutresultat"]["items"] = [s_post, k_post]
     details["metodbeskrivning"]["items"].append({
         "rubrik": "Bäddmodul",
         "text": (

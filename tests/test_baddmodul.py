@@ -141,6 +141,19 @@ class TestBaddmodul(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("an_print"), "an-print behövs för integrationstest")
 class TestBaddmodulPresentation(unittest.TestCase):
+    def test_k_redovisas_i_potensform_med_tva_decimaler(self):
+        from an_print import CalcBlock
+
+        details = baddmodul(["26017 - Hus1 TRH1", "PS", 1500, 2.55, 2.93, [0.5], [45], [1.3], 0.1])
+        k = _poster(details, "slutresultat")["k"]
+        self.assertAlmostEqual(k["value"], 81945.514, places=3)
+        cb = CalcBlock(details)
+        cb.SR(etikett=True)
+        self.assertIn(r"8.19 \cdot 10^{4}", cb.latex_sr)
+        self.assertIn("8.19 &middot; 10<sup>4</sup>", cb.html_sr)
+        self.assertIn(r"\mathrm{kN/m}^{2}\mathrm{/m}", cb.latex_sr)
+        self.assertIn("kN/m<sup>2</sup>/m", cb.html_sr)
+
     def test_calcblock_renderar_alla_fem_block(self):
         from an_print import CalcBlock
 

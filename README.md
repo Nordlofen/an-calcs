@@ -125,7 +125,9 @@ och marktrycket `q = F_remsa / A = F / bx`.
 Välj **Indata**, **Delresultat**, **Slutresultat**, **Ekvationer** och
 **Metodbeskrivning** i panelens redovisningsdel. Delresultaten innehåller
 area, marktryck, sättning i meter och bidragen per jordlager. Slutresultaten
-är sättning `s` i mm och bäddmodul `k` i kN/m^2/m.
+är sättning `s` i mm och bäddmodul `k` i kN/m^2/m. Bäddmodulen redovisas
+i tiopotensform med två decimaler i mantissan; det numeriska värdet behåller
+full precision.
 
 Direktanrop följer ordningen:
 
@@ -137,8 +139,8 @@ details = baddmodul([
 ])
 ```
 
-Det ger `s = 5,50 mm` och `k = 20 607,203 kN/m^2/m`. Även vid direktanrop
-använder VS alltid bᵧ = 1 m, oavsett värdet i `px`. Lasten ska vara positiv
+Resultatet redovisas som `s = 5.50 mm` och `k = 2.06 · 10^4 kN/m^2/m`.
+Även vid direktanrop använder VS alltid bᵧ = 1 m, oavsett värdet i `px`. Lasten ska vara positiv
 och färdig; funktionen lägger inte till egentyngd eller lastfaktorer.
 Modellen behåller sättningsfunktionens begränsningar: elastiska lager utan
 konsolideringstid, krypning eller spänningsberoende styvhet.
