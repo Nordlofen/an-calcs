@@ -96,6 +96,59 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Bäddmodul
+
+`baddmodul()` använder `sattning()` för sättning med 2:1-metoden och
+beräknar bäddmodulen som `k = q / s_m`. Resultatet anges i **kN/m^2/m**,
+med oavrundad sättning i meter i beräkningen.
+
+```python
+from an_calcs.geo import baddmodul
+from an_print import Panel
+
+panel = Panel(baddmodul, key="Hus1")
+panel
+```
+
+Panelens standardvärden motsvarar Hus1 i exemplet nedan. Ange last, bₓ,
+bᵧ och jordlager uppifrån och ned. Tabellen innehåller tjocklek i m,
+E-modul i MPa och materialfaktor för varje lager. Fler lager kan läggas till.
+**Beräkningsinställningar** innehåller beräkningsskiktets tjocklek, förvalt 0,1 m.
+
+För **PS** anges total trycklast i kN och båda grundmåtten är redigerbara.
+För **VS** anges linjelast i kN/m och bᵧ visas låst till 1 m. Växla tillbaka
+till PS för att återfå tidigare bᵧ; värdet följer även med sparade fall.
+VS använder sättningsmodellens långsträckta last, med lastspridning endast
+i x-led. Kraften på 1 m-remsan är `F_remsa = F * by`, arean `A = bx * by`
+och marktrycket `q = F_remsa / A = F / bx`.
+
+Välj **Indata**, **Delresultat**, **Slutresultat**, **Ekvationer** och
+**Metodbeskrivning** i panelens redovisningsdel. Delresultaten innehåller
+area, marktryck, sättning i meter och bidragen per jordlager. Slutresultaten
+är sättning `s` i mm och bäddmodul `k` i kN/m^2/m.
+
+Direktanrop följer ordningen:
+
+```python
+# [namn, typ, F, bx, by, dz_lista, Ek_lista, gamma_m_lista, t_skikt]
+details = baddmodul([
+    "Hus1", "PS", 1163, 3.8, 2.7,
+    [0.8, 1.5], [45, 30], [1.3, 1.3], 0.1,
+])
+```
+
+Det ger `s = 5,50 mm` och `k = 20 607,203 kN/m^2/m`. Även vid direktanrop
+använder VS alltid bᵧ = 1 m, oavsett värdet i `px`. Lasten ska vara positiv
+och färdig; funktionen lägger inte till egentyngd eller lastfaktorer.
+Modellen behåller sättningsfunktionens begränsningar: elastiska lager utan
+konsolideringstid, krypning eller spänningsberoende styvhet.
+
+Panelens låsning, dynamiska lastenhet och utfällbara inställningar kräver
+den uppdaterade `an-print`-versionen med stöd för `fixed_if`,
+`presentation_if` och fältgrupper. Vid lokal utveckling används båda
+paketen från samma `an-suite`-checkout; starta om notebookens kernel
+efter uppdatering.
+
 ## Interaktiv grundplan i JupyterLab
 
 `Grundplan` visar en PDF eller bild med klickbara taggar för väggsulor och
