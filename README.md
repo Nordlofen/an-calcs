@@ -80,6 +80,23 @@ Stodda falttyper ar:
 For `table` kan en tabell bygga flera parallella listor till `px`, till exempel
 `dz_lista`, `Ek_lista` och `gamma_m_lista`.
 
+Panelerna använder en gemensam formgivning i `an-print`, med etiketter över
+fälten och kolumner som anpassas till notebookens bredd. Bäddmodul grupperar
+last, grundmått och jordlager. Tvärkraft dymlingsförband har avsnitt för
+förband, anslutna delar, förbindare, placering och kompletterande värden;
+Del 1 och Del 2 visas sida vid sida när utrymmet räcker.
+
+**Beräkningsfall** och **Redovisning** öppnas via respektive rubrik. Där finns
+de tidigare funktionerna för att spara fall och välja metodbeskrivning,
+indata, delresultat, ekvationer och slutresultat. Befintliga `Panel(...)`-anrop
+och sparade fall fungerar med den nya formen. Uppdatera både `an-calcs` och
+`an-print` och starta om notebookens kernel för att använda den.
+
+Grupperingen beskrivs med frivilliga `sections` i schemat: `title`, `fields`,
+`columns` (1–3), `collapsible`, `collapsed` och eventuella underavsnitt i
+`sections`. Ett fält kan ange `span` och en kortare `display_label`. Detta är
+presentationsmetadata; `px` styr fortfarande ordningen för beräkningsindata.
+
 For funktioner med flera befintliga `px`-format kan `panel_schema["px"]`
 beskriva ett separat panelvanligt superset-format, sa lange funktionen sjalv
 kan tolka detta format och fortfarande returnerar `details` enligt

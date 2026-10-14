@@ -180,7 +180,7 @@ class TestBaddmodulPresentation(unittest.TestCase):
                 block["visa"].value = False
             self.assertEqual(panel.to_px(), HUS1)
             self.assertAlmostEqual(_poster(panel.calculate(), "slutresultat")["k"]["value"], 20607.20251039058)
-            settings = panel.widget.children[1].children[-1]
+            settings = panel._sections["Beräkningsinställningar"]
             self.assertIsInstance(settings, widgets.Accordion)
             self.assertEqual(settings.get_title(0), "Beräkningsinställningar")
             self.assertIsNone(settings.selected_index)
@@ -188,7 +188,7 @@ class TestBaddmodulPresentation(unittest.TestCase):
             panel._field_widgets["typ"].value = "VS"
             self.assertTrue(panel._field_widgets["by"].disabled)
             self.assertEqual(panel.to_px()[4], 1)
-            self.assertIn("kN/m", panel._field_rows["F"].children[0].value)
+            self.assertIn("kN/m", panel._field_rows["F"].children[1].value)
             self.assertEqual(_poster(panel.calculate(), "indata")["by"]["value"], 1)
             panel._save_last_values()
             Panel._LAST_VALUES.clear()

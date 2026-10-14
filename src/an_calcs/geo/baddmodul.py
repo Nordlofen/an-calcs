@@ -122,6 +122,7 @@ def baddmodul(px):
 
 _SOIL_FIELD = deepcopy(next(field for field in sattning.panel_schema["fields"] if field["name"] == "jordlager"))
 _SOIL_FIELD["label"] = "Jordlager – uppifrån och ned"
+_SOIL_FIELD["add_label"] = "+ Lägg till jordlager"
 _SOIL_FIELD["default_rows"] = [
     {"dz": 0.8, "Ek": 45.0, "gamma_m": 1.3},
     {"dz": 1.5, "Ek": 30.0, "gamma_m": 1.3},
@@ -131,9 +132,16 @@ baddmodul.panel_schema = {
     "title": "Bäddmodul",
     "px": ["namn", "typ", "F", "bx", "by", "dz_lista", "Ek_lista", "gamma_m_lista", "t_skikt"],
     "groups": {"Beräkningsinställningar": {"collapsed": True}},
+    "sections": [
+        {"fields": ["namn", "typ"], "columns": 3},
+        {"title": "Last och grundmått", "fields": ["F", "bx", "by"], "columns": 3},
+        {"fields": ["jordlager"]},
+        {"title": "Beräkningsinställningar", "fields": ["t_skikt"], "columns": 3,
+         "collapsible": True, "collapsed": True},
+    ],
     "fields": [
         {"name": "namn", "type": "text", "label": "Beräkningsfall", "symbol": "", "default": "Hus1"},
-        {"name": "typ", "type": "choice", "label": "Lasttyp", "symbol": "", "default": "PS", "options": [
+        {"name": "typ", "type": "choice", "label": "Lasttyp", "symbol": "", "default": "PS", "span": 2, "options": [
             {"label": "PS – pelarsula/rektangulär lastyta", "value": "PS"},
             {"label": "VS – väggsula/långsträckt last", "value": "VS"},
         ]},
