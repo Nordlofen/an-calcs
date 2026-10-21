@@ -17,9 +17,22 @@ För lokal utveckling kan du i samma aktiverade miljö köra
 Spara projektet före uppdatering och starta sedan om kerneln. Ladda också
 om hela webbläsarfliken om widgettillägget inte visas; enbart kernelomstart
 laddar inte in ett nytt webbläsartillägg. Gränssnittet använder anywidget;
-PDF renderas lokalt med pypdfium2 och rasterbilder med Pillow. Inga
+PDF visas lokalt som SVG med PyMuPDF; sidmåtten läses med pypdfium2.
+Rasterbilder visas med Pillow. Inga
 ritningar skickas till en extern tjänst. I en fjärransluten Jupytermiljö
 överförs de till den server där kerneln körs.
+
+PDF-underlagets linjer och text behålls som vektorer vid inzoomning. Texten
+visas som vektorkonturer, så den inte kräver lokalt installerade typsnitt.
+Skannade bilder inuti en PDF behåller bildens ursprungliga upplösning.
+SVG-konverteringen använder [PyMuPDF (AGPL eller kommersiell licens)](https://pymupdf.io/licensing),
+som installeras med notebook-tilläggen.
+
+Sparade projekt får vektorvisning automatiskt när de öppnas efter uppdatering.
+Sulornas och etiketternas placeringar, ritningsunderlagets skala/placering och
+måttkalibreringen bevaras. Ingen ny import eller kalibrering behövs för detta
+visningsbyte. Skalning eller byte av själva underlaget kräver däremot fortfarande
+ny måttkalibrering.
 
 ```python
 from an_calcs.notebook import Grundplan
@@ -1099,7 +1112,7 @@ aktuell beräkningskod. Sparade resultat behandlas aldrig som verifierade
 numeriska data. Ofullständiga indata får sparas och visas som fel tills de
 rättas.
 
-Projekt sparas i formatversion 19. Äldre projekt i formatversion 1–18 kan
+Projekt sparas i formatversion 27. Äldre projekt i formatversion 1–26 kan
 öppnas och beräknas också automatiskt; färggruppering är avstängd om den saknas.
 Sulor utan det nya fältet **Inaktiv** är aktiva som tidigare.
 Deras angivna
@@ -1109,8 +1122,10 @@ skickas som `indata` från Python. Projekt i formatversion 1 får isoleringen
 avstängd.
 
 En ritning får vara högst 40 MB och ett projekt högst 60 MB med upp till
-1 000 taggar. Visningsbilden begränsas till 2 800 pixlar längs längsta sidan
-för minnesanvändningens skull; originalfilen bevaras i projektet.
+1 000 taggar. Rasterbilder begränsas till 2 800 pixlar längs längsta sidan
+för minnesanvändningens skull; originalfilen bevaras i projektet. PDF använder
+samma logiska koordinatmått som tidigare, men SVG-visningen har ingen sådan
+pixelgräns för sina vektorer.
 
 ## Redigera ritningsunderlag
 
@@ -1257,8 +1272,9 @@ plan.exportera_html("grundplan_resultat.html")
 
 Öppna filen i en vanlig webbläsare. Den fungerar utan Jupyter, Python eller
 internet; ritningsbilder, indata, resultat och gränssnitt finns i filen.
-Endast vyns valda PDF-sida följer med. Ritningsbilden har samma
-upplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
+Endast vyns valda PDF-sida följer med. PDF-underlaget bäddas in som SVG,
+med samma vektorskärpa som i Jupyter-vyn. Rasterbilder har samma
+visningsupplösning som i Jupyter-vyn (högst 2 800 pixlar längs längsta sidan).
 
 **Exportera PDF** i HTML-vyn laddar ned ritningen med fasta etiketter och
 eventuell glidningslegend. PDF-filen bäddas in när HTML-filen skapas och har

@@ -412,6 +412,9 @@ plan
 ```
 
 **Exportera PDF** laddar ned vyns ritningssida med fasta etiketter.
+PDF-underlaget visas även i gränssnittet och resultat-HTML som SVG, med
+vektorlinjer och textkonturer som förblir skarpa vid inzoomning. Sparade
+placeringar och måttkalibrering bevaras när äldre projekt öppnas.
 Etiketternas positioner, storlek och aktuella status följer med. PDF-originalets
 sidformat och vektorinnehåll bevaras. Etiketter och widgetar använder interfacets
 HTML/CSS och typsnitt, inklusive radbrytningar och skuggor, och exporteras som

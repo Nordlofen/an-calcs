@@ -38,6 +38,7 @@ from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
 from .grundplan_settlement import (validate_profile, evaluate as settlement_result,
                                    validate_display, display_result, tag_display, validate_tag_display)
+from .grundplan_pdf_view import svg_preview
 
 
 _ASSETS = Path(__file__).parent
@@ -277,7 +278,7 @@ def _calibration(value, background):
 
 
 def _render_source(data, filename, page=1, *, fallback_page=False):
-    """Normalisera rasterbilder och rendera en PDF-sida lokalt till PNG."""
+    """Vektorvisa PDF i den befintliga koordinatramen; normalisera rasterbilder."""
     if not data or len(data) > _MAX_FILE_BYTES:
         raise ValueError("Ritningen måste vara mellan 1 byte och 40 MB.")
     if data.startswith(b"%PDF-"):
@@ -296,13 +297,13 @@ def _render_source(data, filename, page=1, *, fallback_page=False):
                 if min(width, height) <= 0:
                     raise ValueError("PDF-sidan har ogiltiga mått.")
                 scale = min(2.0, 2800 / max(width, height))
-                bitmap = pdf_page.render(scale=scale)
-                try:
-                    img = bitmap.to_pil().convert("RGB")
-                finally:
-                    bitmap.close()
+                preview_width, preview_height = math.ceil(width * scale), math.ceil(height * scale)
             finally:
                 pdf_page.close()
+        return {"url": svg_preview(data, page, preview_width, preview_height),
+                "width": preview_width, "height": preview_height,
+                "width_pt": width, "height_pt": height,
+                "name": Path(filename).name, "page": page, "page_count": count}
     else:
         if fallback_page and page > 1:
             page = 1

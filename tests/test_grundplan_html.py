@@ -127,11 +127,15 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(data["schema"]["load_groups"][0]["fields"][0]["symbol"], "V")
         self.assertEqual([page["page"] for page in data["pages"]], [2])
         import base64
+        import xml.etree.ElementTree as ET
         for background in data["pages"]:
             prefix, image = background["url"].split(",", 1)
-            self.assertEqual(prefix, "data:image/png;base64")
-            with Image.open(io.BytesIO(base64.b64decode(image))) as picture:
-                self.assertEqual(picture.size, (background["width"], background["height"]))
+            self.assertEqual(prefix, "data:image/svg+xml;base64")
+            svg = ET.fromstring(base64.b64decode(image))
+            self.assertEqual((svg.get("width"), svg.get("height")),
+                             (f"{background['source_width']}px", f"{background['source_height']}px"))
+            self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}image'),
+                            'An image-only source PDF keeps its embedded image inside the SVG')
         self.assertIn("readOnly: true", page.scripts[1]["text"])
         self.assertEqual((self.source.read_bytes(), self.plan.background, self.plan._document(),
                           self.plan.taggar, self.plan.resultat), original)
