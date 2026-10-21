@@ -158,6 +158,7 @@ class TestBaddmodul(unittest.TestCase):
                 for post in posts:
                     self.assertTrue({"namn", "latex", "value", "unit", "etikett"} <= set(post))
             eq = details["ekvationer"]["items"]
+            self.assertEqual(len(eq), len({item["latex"] for item in eq}))
             self.assertEqual([p["etikett"] for p in eq if "spänningsökning" in p["etikett"]], [f"spänningsökning för {typ}"])
             self.assertNotIn("b_1", str(eq))
             self.assertNotIn("b_2", str(eq))

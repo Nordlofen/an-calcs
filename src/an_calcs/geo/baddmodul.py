@@ -225,22 +225,8 @@ def _baddmodul_med_last(px):
         ),
     })
 
-    # Behåll sättningsmodellens ekvationer, med panelens måttbeteckningar
-    # och uttryckliga enhetsomvandlingar mellan MPa/kPa och m/mm.
-    equations = []
-    inactive = "PS" if typ == "VS" else "VS"
-    for equation in details["ekvationer"]["items"]:
-        if equation["etikett"] == f"spänningsökning för {inactive}":
-            continue
-        latex = equation["latex"].replace("b_1", "b_x").replace("b_2", "b_y")
-        if equation["etikett"] == "töjning i delskikt":
-            latex = r"\epsilon_i = \frac{\Delta\sigma_i}{E_{d,kPa}}"
-        elif equation["etikett"] == "total sättning":
-            latex = r"s_m = \sum s_i"
-        equations.append(_ekvation(latex, equation["etikett"]))
-        if equation["etikett"] == "dimensionerande E-modul":
-            equations.append(_ekvation(r"E_{d,kPa} = 1000 E_d", "E-modul från MPa till kPa"))
-    equations.append(_ekvation(r"s = 1000 s_m", "sättning från meter till millimeter"))
+    # Sättning använder samma måttbeteckningar och enhetsomvandlingar.
+    equations = list(details["ekvationer"]["items"])
     equations.append(_ekvation(r"A = b_x b_y", "grundarea"))
     if typ == "VS":
         equations.extend([

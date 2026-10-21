@@ -113,6 +113,35 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Sättning
+
+`sattning()` använder samma måttbeteckningar och panelgruppering som
+`baddmodul()`: grundbredd bₓ, grundlängd bᵧ, jordlager uppifrån och ned
+och **Beräkningsinställningar** för beräkningsskiktets tjocklek.
+
+```python
+from an_calcs.geo import sattning
+from an_print import Panel
+
+panel = Panel(sattning, key="Sula1")
+panel
+
+# Oförändrad ordning för direktanrop:
+# [typ, t_skikt, dz_lista, Ek_lista, gamma_m_lista, F, bx, by]
+details = sattning(["PS", 0.1, [1, 1], [10, 15], [1, 1], 500, 2, 3])
+```
+
+Lasten anges som resultantlast i kN för pelarsula och linjelast i kN/m för
+väggsula. För väggsula visas bᵧ låst till 1 m; det tidigare redigerbara värdet
+återställs vid byte tillbaka till pelarsula och följer med sparade fall.
+Äldre direktanrop för VS med `by=None` fungerar fortfarande.
+
+Beräkningsmetod, standardvärden och sättningsresultat är oförändrade.
+Slutresultatet redovisas i mm med två decimaler. Ekvationerna visar vald
+spridningsmodell och omvandlingarna MPa → kPa och m → mm.
+De tekniska nycklarna `b1`/`b2` i `details` och panelstate behålls för
+bakåtkompatibilitet; synliga beteckningar är `b_x`/`b_y`.
+
 ## Bäddmodul
 
 `baddmodul()` beräknar grundstyvhet direkt från geometri och jordlager med
