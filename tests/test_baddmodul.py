@@ -15,12 +15,72 @@ from an_calcs.geo import baddmodul, sattning
 
 HUS1 = ["Hus1", "PS", 1163.0, 3.8, 2.7, [0.8, 1.5], [45.0, 30.0], [1.3, 1.3], 0.1]
 
+HUS1_UTAN_LAST = [HUS1[0], HUS1[1], "yta", *HUS1[3:]]
+
 
 def _poster(details, section):
     return {post["namn"]: post for post in details[section]["items"]}
 
 
 class TestBaddmodul(unittest.TestCase):
+    def test_lastfria_styvhetsformer_handraknat(self):
+        # Ed=10000/1,5 kN/m², mittdjup 0,25 m, dz=0,5 m.
+        # PS: K=Ed*2,25*3,25/0,5=97500 kN/m; k=K/6.
+        # VS: K=Ed*2,25/0,5=30000 kN/m/m; k=K/2.
+        for typ, form, name, value, unit in [
+            ("PS", "yta", "k", 16250, "kN/m^2/m"),
+            ("PS", "punkt", "K_punkt", 97500, "kN/m"),
+            ("VS", "yta", "k", 15000, "kN/m^2/m"),
+            ("VS", "linje", "K_linje", 30000, "kN/m/m"),
+        ]:
+            with self.subTest(typ=typ, form=form):
+                px = ["Handkontroll", typ, form, 2, 3, [0.5], [10], [1.5], 0.5]
+                with patch("an_calcs.geo.baddmodul.sattning") as settlement:
+                    details = baddmodul(px)
+                settlement.assert_not_called()  # Inte heller en dold referenslast.
+                sr = _poster(details, "slutresultat")
+                self.assertEqual(list(sr), [name])
+                self.assertAlmostEqual(sr[name]["value"], value)
+                self.assertEqual(sr[name]["unit"], unit)
+                self.assertEqual(sr[name]["format"], "scientific")
+                self.assertEqual(sr[name]["decimals"], 2)
+                for section in ("indata", "delresultat", "slutresultat"):
+                    self.assertFalse({"F", "F_remsa", "q", "s", "s_m"} & _poster(details, section).keys())
+                if typ == "VS":
+                    self.assertEqual(_poster(details, "indata")["by"]["value"], 1)
+                self.assertNotIn("F", str(details["ekvationer"]))
+                json.dumps(details, allow_nan=False)
+
+    def test_lastfri_modell_motsvarar_aldre_flerlagersberakning(self):
+        # Olika moduler, restskikt, tunt lager och båda spridningsmodellerna.
+        for typ in ("PS", "VS"):
+            for step in (0.1, 0.3, 2.0):
+                old = ["Lager", typ, 1357, 2.55, 2.93, [0.07, 0.55, 1.3], [45, 30, 12], [1.3, 1.2, 1.4], step]
+                new = [*old[:2], "yta", *old[3:]]
+                before = _poster(baddmodul(old), "slutresultat")["k"]["value"]
+                after = _poster(baddmodul(new), "slutresultat")["k"]["value"]
+                self.assertTrue(math.isclose(before, after, rel_tol=1e-14))
+                implicit = [*new[:2], *new[3:]]
+                self.assertEqual(baddmodul(implicit), baddmodul(new))
+                scaled = deepcopy(new)
+                scaled[6] = [2 * E for E in scaled[6]]
+                self.assertAlmostEqual(_poster(baddmodul(scaled), "slutresultat")["k"]["value"], 2 * after)
+
+    def test_lastfri_modell_validerar_form_och_indata(self):
+        for typ, form in [("PS", "linje"), ("VS", "punkt"), ("PS", "annat")]:
+            with self.subTest(typ=typ, form=form), self.assertRaisesRegex(ValueError, "tillåter"):
+                baddmodul(["Fel", typ, form, *HUS1[3:]])
+        cases = [(0, None), (1, "XX"), (5, []), (6, [45]), (7, [1.3]), (5, "lager")]
+        for index in (3, 4, 8):
+            cases.extend((index, value) for value in (0, -1, True, None, float("nan"), float("inf")))
+        for index in (5, 6, 7):
+            cases.extend((index, [value, 1]) for value in (0, -1, True, None, float("nan"), float("inf")))
+        for index, value in cases:
+            px = deepcopy(HUS1_UTAN_LAST)
+            px[index] = value
+            with self.subTest(index=index, value=value), self.assertRaises(ValueError):
+                baddmodul(px)
+
     def test_referensfall_fran_notebook(self):
         cases = [
             ("Hus1", 1163.0, [0.8, 1.5], [45.0, 30.0], 5.5006411692012245, 20607.20251039058),
@@ -106,7 +166,7 @@ class TestBaddmodul(unittest.TestCase):
             json.dumps(details, allow_nan=False)
 
     def test_ogiltiga_indata_avvisas_fore_berakning(self):
-        for px in (None, [], HUS1[:-1], HUS1 + [1]):
+        for px in (None, [], HUS1 + [1]):
             with self.subTest(px=px), self.assertRaisesRegex(ValueError, "9 värden"):
                 baddmodul(px)
         cases = [(0, None), (1, "XX"), (1, None), (5, []), (6, []), (7, []),
@@ -134,13 +194,72 @@ class TestBaddmodul(unittest.TestCase):
             else:
                 values[field["name"]] = field["default"]
         px = [values[name] for name in schema["px"]]
-        self.assertEqual(px, HUS1)
+        self.assertEqual(px, HUS1_UTAN_LAST)
         self.assertTrue(math.isfinite(_poster(baddmodul(px), "slutresultat")["k"]["value"]))
         json.dumps(schema, allow_nan=False)
 
 
 @unittest.skipUnless(importlib.util.find_spec("an_print"), "an-print behövs för integrationstest")
 class TestBaddmodulPresentation(unittest.TestCase):
+    def test_lastfria_former_redovisas_med_ratt_enhet_och_potensform(self):
+        from an_print import CalcBlock
+
+        for typ, form, rendered, unit in [
+            ("PS", "yta", r"1.62 \cdot 10^{4}", "kN/m<sup>2</sup>/m"),
+            ("PS", "punkt", r"9.75 \cdot 10^{4}", "kN/m"),
+            ("VS", "yta", r"1.50 \cdot 10^{4}", "kN/m<sup>2</sup>/m"),
+            ("VS", "linje", r"3.00 \cdot 10^{4}", "kN/m/m"),
+        ]:
+            cb = CalcBlock(baddmodul(["Kontroll", typ, form, 2, 3, [0.5], [10], [1.5], 0.5]))
+            for block in ("MB", "ID", "DR", "EKV", "SR"):
+                getattr(cb, block)(visa=False)
+                self.assertTrue(getattr(cb, "latex_" + block.lower()))
+            self.assertIn(rendered, cb.latex_sr)
+            self.assertIn(unit, cb.html_sr)
+
+    @unittest.skipUnless(importlib.util.find_spec("ipywidgets"), "ipywidgets behövs för Panel")
+    def test_aldre_sparade_fall_och_dynamiska_styvhetsval(self):
+        from an_print import Panel
+
+        base = "an_calcs.geo.baddmodul.baddmodul"
+        old = dict(zip(["namn", "typ", "F", "bx", "by", "dz_lista", "Ek_lista", "gamma_m_lista", "t_skikt"], HUS1))
+        for name in ("dz_lista", "Ek_lista", "gamma_m_lista"):
+            old.pop(name)
+        old["jordlager"] = [{"dz": .8, "Ek": 45, "gamma_m": 1.3}, {"dz": 1.5, "Ek": 30, "gamma_m": 1.3}]
+        wall = {**old, "typ": "VS", "F": 77.0, "by": 1.0, "__unfixed_values__": {"by": 4.2}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = pathlib.Path(tmpdir) / "old.json"
+            original = json.dumps({base + ":PS": old, base + ":VS": wall})
+            path.write_text(original)
+            panel = Panel(baddmodul, key="PS", state_file=path)
+            self.assertEqual(path.read_text(), original)  # Läsning migrerar inte filen.
+            self.assertEqual(panel.to_px(), HUS1_UTAN_LAST)
+            self.assertNotIn("F", panel._field_widgets)
+            form = panel._field_widgets["form"]
+            self.assertEqual([v for _, v in form.options], ["yta", "punkt"])
+            form.value = "punkt"
+            panel._save_last_values()
+            self.assertEqual(json.loads(path.read_text())[base + ":PS"]["F"], 1163)
+            panel._case_combo.value = "VS"
+            self.assertEqual(form.value, "yta")
+            self.assertEqual([v for _, v in form.options], ["yta", "linje"])
+            form.value = "linje"
+            panel._save_last_values()
+            self.assertEqual(json.loads(path.read_text())[base + ":VS"]["F"], 77)
+            Panel._LAST_VALUES.clear()
+            Panel._LAST_BY_FUNCTION.clear()
+            loaded = Panel(baddmodul, key="VS", state_file=path)
+            self.assertEqual(loaded._field_widgets["form"].value, "linje")
+            loaded._case_combo.value = "PS"
+            self.assertEqual(loaded._field_widgets["form"].value, "punkt")
+            loaded._case_combo.value = "VS"
+            loaded._field_widgets["typ"].value = "PS"
+            self.assertEqual(loaded._field_widgets["form"].value, "yta")
+            self.assertEqual(loaded._field_widgets["by"].value, 4.2)
+            # Ett nytt fall får ingen påhittad last i state-filen.
+            fresh = Panel(baddmodul, key="Nytt", state_file=path.parent / "new.json")
+            self.assertNotIn("F", fresh._collect_values())
+
     def test_k_redovisas_i_potensform_med_tva_decimaler(self):
         from an_print import CalcBlock
 
@@ -178,7 +297,7 @@ class TestBaddmodulPresentation(unittest.TestCase):
             panel = Panel(baddmodul, key="A", state_file=path)
             for block in panel._block_widgets.values():
                 block["visa"].value = False
-            self.assertEqual(panel.to_px(), HUS1)
+            self.assertEqual(panel.to_px(), HUS1_UTAN_LAST)
             self.assertAlmostEqual(_poster(panel.calculate(), "slutresultat")["k"]["value"], 20607.20251039058)
             settings = panel._sections["Beräkningsinställningar"]
             self.assertIsInstance(settings, widgets.Accordion)
@@ -188,7 +307,7 @@ class TestBaddmodulPresentation(unittest.TestCase):
             panel._field_widgets["typ"].value = "VS"
             self.assertTrue(panel._field_widgets["by"].disabled)
             self.assertEqual(panel.to_px()[4], 1)
-            self.assertIn("kN/m", panel._field_rows["F"].children[1].value)
+            self.assertNotIn("F", panel._field_widgets)
             self.assertEqual(_poster(panel.calculate(), "indata")["by"]["value"], 1)
             panel._save_last_values()
             Panel._LAST_VALUES.clear()
@@ -201,7 +320,6 @@ class TestBaddmodulPresentation(unittest.TestCase):
             self.assertFalse(loaded._field_widgets["by"].disabled)
             loaded._table_widgets["jordlager"].set_rows([{"dz": 0.35, "Ek": 45, "gamma_m": 1.3}])
             loaded._field_widgets["by"].value = 2.7
-            loaded._field_widgets["F"].value = 1597
             self.assertAlmostEqual(_poster(loaded.calculate(), "slutresultat")["k"]["value"], 109878.3817645255)
 
 

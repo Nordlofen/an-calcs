@@ -115,9 +115,10 @@ Foreslagen projektstruktur:
 
 ## Bäddmodul
 
-`baddmodul()` använder `sattning()` för sättning med 2:1-metoden och
-beräknar bäddmodulen som `k = q / s_m`. Resultatet anges i **kN/m^2/m**,
-med oavrundad sättning i meter i beräkningen.
+`baddmodul()` beräknar grundstyvhet direkt från geometri och jordlager med
+2:1-metoden. Modulerna är lastoberoende; någon last eller referenslast behövs
+inte. Funktionen delar skiktindelning med `sattning()` men använder direkt
+summan av delskiktens eftergivlighet, `C`.
 
 ```python
 from an_calcs.geo import baddmodul
@@ -127,46 +128,72 @@ panel = Panel(baddmodul, key="Hus1")
 panel
 ```
 
-Panelens standardvärden motsvarar Hus1 i exemplet nedan. Ange last, bₓ,
-bᵧ och jordlager uppifrån och ned. Tabellen innehåller tjocklek i m,
-E-modul i MPa och materialfaktor för varje lager. Fler lager kan läggas till.
-**Beräkningsinställningar** innehåller beräkningsskiktets tjocklek, förvalt 0,1 m.
+Ange beräkningsmodell, bₓ, bᵧ och jordlager uppifrån och ned. Tabellen
+innehåller tjocklek i m, karakteristisk E-modul i MPa och materialfaktor för
+varje lager. `Ed = Ek / gamma_m`. **Beräkningsinställningar** innehåller
+beräkningsskiktets tjocklek, förvalt 0,1 m.
 
-För **PS** anges total trycklast i kN och båda grundmåtten är redigerbara.
-För **VS** anges linjelast i kN/m och bᵧ visas låst till 1 m. Växla tillbaka
-till PS för att återfå tidigare bᵧ; värdet följer även med sparade fall.
-VS använder sättningsmodellens långsträckta last, med lastspridning endast
-i x-led. Kraften på 1 m-remsan är `F_remsa = F * by`, arean `A = bx * by`
-och marktrycket `q = F_remsa / A = F / bx`.
+Välj redovisningsform i panelen:
 
-Välj **Indata**, **Delresultat**, **Slutresultat**, **Ekvationer** och
-**Metodbeskrivning** i panelens redovisningsdel. Delresultaten innehåller
-area, marktryck, sättning i meter och bidragen per jordlager. Slutresultaten
-är sättning `s` i mm och bäddmodul `k` i kN/m^2/m. Bäddmodulen redovisas
-i tiopotensform med två decimaler i mantissan; det numeriska värdet behåller
-full precision.
+| Modell | Form | Slutresultat | Enhet |
+| --- | --- | --- | --- |
+| PS – pelarsula | `yta` | `k = 1 / (A C)` | kN/m^2/m |
+| PS – pelarsula | `punkt` | `K_punkt = 1 / C = k A` | kN/m |
+| VS – väggsula | `yta` | `k = 1 / (bx C)` | kN/m^2/m |
+| VS – väggsula | `linje` | `K_linje = 1 / C = k bx` | kN/m/m |
 
-Direktanrop följer ordningen:
+För PS är `A = bx * by` och
+`C = sum(dz_i / (Ed_i * (bx + z_i) * (by + z_i)))`.
+För VS är `C = sum(dz_i / (Ed_i * (bx + z_i)))`.
+Här anges Ed i kN/m², dz i m och z_i är delskiktets mittdjup under grundytan.
+VS har spridning endast i x-led; bᵧ är alltid låst till 1 m. Vid byte tillbaka
+till PS återställs det tidigare bᵧ-värdet, även efter sparande och omladdning.
+Ett styvhetsval som inte gäller för den nya modellen återgår till ytstyvhet.
+
+Slutresultatet är vald styvhet, i tiopotensform med två decimaler i mantissan.
+Det numeriska värdet behåller full precision. Delresultaten visar area,
+dimensionerande moduler, skiktantal och eftergivlighet per jordlager.
+Alla fem redovisningsblock kan användas. Den lastfria beräkningen redovisar
+ingen faktisk sättning eller spänningsökning.
+
+Nytt direktanrop:
 
 ```python
-# [namn, typ, F, bx, by, dz_lista, Ek_lista, gamma_m_lista, t_skikt]
+# [namn, typ, form, bx, by, dz_lista, Ek_lista, gamma_m_lista, t_skikt]
 details = baddmodul([
-    "Hus1", "PS", 1163, 3.8, 2.7,
+    "Hus1", "PS", "punkt", 3.8, 2.7,
     [0.8, 1.5], [45, 30], [1.3, 1.3], 0.1,
 ])
 ```
 
-Resultatet redovisas som `s = 5.50 mm` och `k = 2.06 · 10^4 kN/m^2/m`.
-Även vid direktanrop använder VS alltid bᵧ = 1 m, oavsett värdet i `px`. Lasten ska vara positiv
-och färdig; funktionen lägger inte till egentyngd eller lastfaktorer.
-Modellen behåller sättningsfunktionens begränsningar: elastiska lager utan
-konsolideringstid, krypning eller spänningsberoende styvhet.
+Det ger `K_punkt = 2.11 · 10^5 kN/m`. Byt `"punkt"` mot `"yta"` för
+`k = 2.06 · 10^4 kN/m^2/m`. Utelämnas form helt (8 värden) används ytstyvhet.
+`"linje"` tillåts bara för VS och `"punkt"` bara för PS.
 
-Panelens låsning, dynamiska lastenhet och utfällbara inställningar kräver
-den uppdaterade `an-print`-versionen med stöd för `fixed_if`,
-`presentation_if` och fältgrupper. Vid lokal utveckling används båda
-paketen från samma `an-suite`-checkout; starta om notebookens kernel
-efter uppdatering.
+**Bakåtkompatibilitet:** Det äldre formatet med numerisk last på tredje
+plats stöds fortfarande, med samma indata, delresultat, ekvationer och
+slutresultat som tidigare:
+
+```python
+# Äldre format: [namn, typ, F, bx, by, dz_lista, Ek_lista, gamma_m_lista, t_skikt]
+details = baddmodul([
+    "Hus1", "PS", 1163, 3.8, 2.7,
+    [0.8, 1.5], [45, 30], [1.3, 1.3], 0.1,
+])
+# s = 5.50 mm och k = 2.06 · 10^4 kN/m^2/m
+```
+
+Äldre anrop använder fortsatt `sattning()` och positiv last i kN (PS) eller
+kN/m (VS). Sparade panelfall behåller sina nycklar, grundmått, jordlager och
+redovisningsinställningar. De öppnas i den nya lastfria panelen med ytstyvhet
+som standard. Ett äldre sparat `F` bevaras vid omsparande men visas och används
+inte av den nya panelen. Läsning ändrar inte state-filen.
+
+Modellen förutsätter fast geometri och konstanta moduler per lager; den tar
+inte hänsyn till konsolideringstid, krypning eller spänningsberoende styvhet.
+Uppdatera både `an-calcs` och `an-print` och starta om notebookens kernel.
+Panelen använder `options_if` för modellberoende redovisningsval och
+`preserve_state_fields` för att behålla äldre lastvärden.
 
 ## Interaktiv grundplan i JupyterLab
 

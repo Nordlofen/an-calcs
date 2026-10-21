@@ -31,6 +31,16 @@ def _krav_lista_samma_langd(*listor):
         raise ValueError("dz_lista, Ek_lista och gamma_m_lista måste ha samma längd.")
 
 
+def _berakningsskikt(dz, t_skikt, z_top):
+    """Ge mittdjup och tjocklek för samma delskikt i sättning och styvhet."""
+    n_full = int(dz / t_skikt)
+    for i in range(n_full):
+        yield z_top + (i + 0.5) * t_skikt, t_skikt
+    rest = dz - n_full * t_skikt
+    if rest > 1e-12:
+        yield z_top + n_full * t_skikt + 0.5 * rest, rest
+
+
 def _sattningssteg(typ, z_mid, dz_i, Ek, gamma_m, F, b1, b2):
     Ed_MPa = Ek / gamma_m
     Ed_kPa = Ed_MPa * 1000.0
@@ -137,22 +147,7 @@ def sattning(px):
         layer_delta_sigma_dz = 0.0
         layer_antal_delskikt = 0
 
-        n_full = int(dz / t_skikt)
-        rest = dz - n_full * t_skikt
-
-        for i in range(n_full):
-            dz_i = t_skikt
-            z_mid = z_top + (i + 0.5) * t_skikt
-            steg = _sattningssteg(typ, z_mid, dz_i, Ek, gamma_m, F, b1, b2)
-            total_sattning_m += steg["s_i_m"]
-            layer_sattning_m += steg["s_i_m"]
-            layer_delta_sigma_dz += steg["delta_sigma_kPa"] * dz_i
-            layer_antal_delskikt += 1
-            delskikt.append((layer_idx, z_mid, dz_i, Ek, gamma_m, steg))
-
-        if rest > 1e-12:
-            dz_i = rest
-            z_mid = z_top + n_full * t_skikt + 0.5 * rest
+        for z_mid, dz_i in _berakningsskikt(dz, t_skikt, z_top):
             steg = _sattningssteg(typ, z_mid, dz_i, Ek, gamma_m, F, b1, b2)
             total_sattning_m += steg["s_i_m"]
             layer_sattning_m += steg["s_i_m"]
