@@ -7,13 +7,14 @@ const REFERENCE_WIDGET_DEFAULTS = {enabled: false, x: .05, y: .3, size: 410};
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
-const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering"};
+const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering", s: "Sättning s", k: "Bäddmodul k", K: "Stödets styvhet K"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
   .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
 const onlyHColourRestriction = settings => {
   const categories = selectedColourCategories(settings);
   const dimensions = categories.filter(category => ["t", "b", "l"].includes(category));
+  if (categories.some(name => ["s", "k", "K"].includes(name))) return "Endast H: sättning och styvhet beräknas inte för dessa sulor.";
   if (dimensions.length) return "Endast H: avmarkera sulmått (" + dimensions.map(category => ({t: "t", b: "bₓ", l: "bᵧ"})[category]).join(", ")
     + ") för att kunna inkludera dessa sulor.";
   if (categories.includes("V") && settings.phase !== "EQU")
@@ -48,6 +49,7 @@ export function validateLayout(value) {
 const COLOUR_PALETTE = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
   "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"];
 const COLOUR_PATTERNS = ["plain", "bands", "dots", "cross", "horizontal", "vertical"];
+const RESULT_BOUNDS = {s: [2, 5, 10], k: [10000, 20000, 50000], K_point: [10000, 50000, 100000], K_line: [10000, 50000, 100000]};
 const COLOUR_INSULATION_GROUPS = [
   ["1", "Med isolering · inget bidrag"],
   ["0", "Utan isolering · inget bidrag"],
@@ -101,7 +103,8 @@ function decorateColourGroups(groups, settings) {
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
   const includeH = settings.include_only_h === true && !onlyHColourRestriction(settings);
-  tags = tags.filter(tag => !tag.values.inaktiv && (includeH || !tag.values.endast_h_stabilitet));
+  tags = tags.filter(tag => !tag.values.inaktiv && (includeH || !tag.values.endast_h_stabilitet)
+    && categories.filter(name => ["s", "k", "K"].includes(name)).every(name => Number.isFinite(tag.settlement?.[name])));
   if (categories.length > 1) {
     const parts = categories.map(category => colourGroups(tags, {...settings, categories: [category]}));
     const order = parts.map(part => new Map(part.groups.map((group, index) => [group.key, index])));
@@ -134,6 +137,18 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
     for (const [suffix, label] of COLOUR_INSULATION_GROUPS) {
       byKey.set(suffix, make("isolering:" + suffix, {label, kind: "insulation", unit: ""}));
     }
+  } else if (["s", "k", "K"].includes(category)) {
+    for (const kind of category === "K" ? ["K_point", "K_line"] : [category]) {
+      if (category === "K" && !tags.some(tag => (tag.settlement.model === "VS") === (kind === "K_line"))) continue;
+      const bounds = (settings.result_bounds || RESULT_BOUNDS)[kind];
+      for (let i = 0; i <= bounds.length; i++) {
+        const low = i ? bounds[i - 1] : null, high = bounds[i] ?? null;
+        const key = `${kind}:${low == null ? "*" : colourNumberKey(low)}:${high == null ? "*" : colourNumberKey(high)}`;
+        byKey.set(kind + ":" + i, make(key, {kind: "result", result_kind: kind, low, high,
+          symbol: {s: "s", k: "k", K_line: "K_linje", K_point: "K_punkt"}[kind],
+          unit: {s: "mm", k: "kN/m³", K_line: "kN/m²", K_point: "kN/m"}[kind]}));
+      }
+    }
   } else if (category === "V") {
     for (const kind of ["pad", "wall"]) {
       if (!tags.some(tag => lineLoads(tag.values) === (kind === "wall"))) continue;
@@ -157,6 +172,12 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   }
   for (const tag of tags) {
     const values = tag.values;
+    if (["s", "k", "K"].includes(category)) {
+      const kind = category === "K" ? tag.settlement.model === "VS" ? "K_line" : "K_point" : category;
+      const value = tag.settlement[category], bounds = (settings.result_bounds || RESULT_BOUNDS)[kind];
+      const index = bounds.filter(bound => value >= bound).length;
+      const group = byKey.get(kind + ":" + index); group.count++; assignments.set(tag.id, group); continue;
+    }
     if (category === "sultyp") {
       const group = byKey.get(footingCategory(tag));
       group.count++; assignments.set(tag.id, group); continue;
@@ -536,7 +557,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const referenceWidget = () => referenceWidgetDraft || state().reference_widget || REFERENCE_WIDGET_DEFAULTS;
   const positions = new Map(), pendingPositions = new Map();
   const pending = new Map(), dirty = new Set(), inputs = new Map(), edits = new Map(), drafts = new Map();
-  const groupingTags = () => state().tags.filter(tag => !(drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv));
+  const groupingTags = () => state().tags.filter(tag => !(drafts.get(tag.id)?.values.inaktiv ?? tag.values.inaktiv)).map(tag => dirty.has(tag.id) ? {...tag, settlement: {}} : tag);
   const sectionStates = new Map(), inputSections = [], resultSections = [];
   const sketchStates = new Map();
   const areaPhases = new Map();
@@ -1200,6 +1221,140 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     globalInputs.set(axis, {check, input, demand});
   }
   if (!readOnly) toolbar.append(slidingControls);
+  let soilBusy = false, soilEditor = null, projectSoilSignature = "", footingSoilEditor = null, footingSoilSignature = "";
+  const soilPanel = node("section", "gp-soil-panel"); soilPanel.hidden = true;
+  soilPanel.setAttribute("role", "dialog"); soilPanel.setAttribute("aria-label", "Gemensam jordprofil");
+  const soilPanelBody = node("div");
+  const soilClose = button("Stäng jordprofil", () => {if (!soilBusy) {soilPanel.hidden = true; soilToggle.focus();}});
+  soilPanel.append(node("h4", "", "Gemensam jordprofil – sättning och styvhet"), soilPanelBody, soilClose);
+  const soilToggle = button("Jordprofil", () => {
+    if (soilBusy) return;
+    soilPanel.hidden = !soilPanel.hidden;
+    if (!soilPanel.hidden) showProjectSoilEditor();
+  });
+  soilToggle.title = "Gemensamma jordlager för sättning och styvhet. Egen profil kan anges i sulans dialog.";
+  if (!readOnly) toolbar.append(soilToggle);
+  function makeSoilEditor(profile, {own = null, disabled = false, onApply} = {}) {
+    const element = node("div", "gp-soil-editor"), layerInputs = [];
+    const ownCheck = node("input"); ownCheck.type = "checkbox"; ownCheck.checked = own === true;
+    ownCheck.setAttribute("aria-label", "Egen jordprofil");
+    if (own !== null) {
+      const label = node("label", "gp-soil-own"); label.append(ownCheck, node("span", "", "Egen jordprofil"));
+      element.append(label);
+    }
+    element.append(node("p", "gp-field-note", "Jordlager uppifrån och ned, räknat från sulans undersida. Ingen isoleringsdeformation ingår."));
+    const table = node("table", "gp-soil-layers"), head = node("tr"), body = node("tbody");
+    for (const caption of ["Tjocklek [m]", "Eₖ [MPa]", "γₘ", ""]) head.append(node("th", "", caption));
+    const thead = node("thead"); thead.append(head); table.append(thead, body);
+    const enabled = () => !disabled && (own === null || ownCheck.checked);
+    const numeric = value => value == null || String(value).trim() === "" ? NaN : Number(String(value).trim().replace(",", "."));
+    const error = node("p", "gp-soil-error"); error.setAttribute("role", "status");
+    const addLayer = layer => {
+      const row = node("tr"), entry = {row, fields: {}};
+      for (const [key, caption] of [["dz", "Lagertjocklek"], ["Ek", "E-modul"], ["gamma_m", "Materialfaktor"]]) {
+        const input = node("input"); input.type = "text"; input.inputMode = "decimal";
+        input.value = layer?.[key] == null ? "" : String(layer[key]).replace(".", ",");
+        input.setAttribute("aria-label", caption + " jordlager " + (layerInputs.length + 1));
+        input.addEventListener("input", () => {error.textContent = "";});
+        const cell = node("td"); cell.append(input); row.append(cell); entry.fields[key] = input;
+      }
+      const remove = button("×", () => {
+        if (!enabled()) return;
+        layerInputs.splice(layerInputs.indexOf(entry), 1); row.remove(); sync();
+      }, "gp-soil-remove-layer");
+      remove.setAttribute("aria-label", "Ta bort jordlager");
+      const cell = node("td"); cell.append(remove); row.append(cell); entry.remove = remove;
+      layerInputs.push(entry); body.append(row);
+    };
+    for (const layer of profile?.layers || [{}]) addLayer(layer);
+    const add = button("+ Jordlager", () => {if (enabled() && layerInputs.length < 50) {addLayer({}); sync();}});
+    const step = node("input"); step.type = "text"; step.inputMode = "decimal"; step.value = String(profile?.step ?? .1).replace(".", ",");
+    step.setAttribute("aria-label", "Beräkningsskikt [m]");
+    const stepLabel = node("label", "gp-soil-step"); stepLabel.append(node("span", "", "Beräkningsskikt [m]"), step);
+    const actions = node("div", "gp-soil-actions");
+    const apply = button("Tillämpa jordprofil", () => {
+      if (disabled) return;
+      error.textContent = "";
+      let value = null;
+      if (own === null || ownCheck.checked) {
+        value = {step: numeric(step.value), layers: layerInputs.map(entry =>
+          Object.fromEntries(Object.entries(entry.fields).map(([key, input]) => [key, numeric(input.value)])))};
+        if (!value.layers.length || ![value.step, ...value.layers.flatMap(layer => Object.values(layer))].every(v => Number.isFinite(v) && v > 0)) {
+          error.textContent = "Ange positiva tal för skikttjocklek, lagertjocklek, E-modul och materialfaktor."; return;
+        }
+      }
+      onApply?.(value, error);
+    }, "gp-primary");
+    const clear = button("Ta bort projektprofil", () => {if (!disabled) onApply?.(null, error);});
+    clear.hidden = own !== null || !profile;
+    actions.append(apply, clear); element.append(table, add, stepLabel, error, actions);
+    if (readOnly) {actions.hidden = true; add.hidden = true; for (const entry of layerInputs) entry.remove.hidden = true;}
+    function sync() {
+      ownCheck.disabled = disabled || readOnly;
+      for (const [i, entry] of layerInputs.entries()) {
+        for (const [key, input] of Object.entries(entry.fields)) {
+          input.disabled = !enabled() || readOnly;
+          input.setAttribute("aria-label", {dz: "Lagertjocklek", Ek: "E-modul", gamma_m: "Materialfaktor"}[key] + " jordlager " + (i + 1));
+        }
+        entry.remove.disabled = !enabled();
+      }
+      add.disabled = !enabled() || layerInputs.length >= 50;
+      step.disabled = !enabled() || readOnly;
+      apply.disabled = clear.disabled = disabled;
+    }
+    ownCheck.addEventListener("change", sync); sync();
+    return {element, setDisabled(value) {disabled = value; sync();}};
+  }
+  function saveSoilProfile(profile, error, id = null) {
+    if (soilBusy || historyBusy || drawingDraft || drawingPending || cropDraft || canvasPending) return;
+    soilBusy = true; soilClose.disabled = true;
+    soilEditor?.setDisabled(true); footingSoilEditor?.setDisabled(true);
+    command("soil_profile", {profile, ...(id ? {id} : {})}, [], reply => {
+      soilBusy = false; soilClose.disabled = false;
+      if (!reply.ok) {
+        error.textContent = reply.error; soilEditor?.setDisabled(false);
+        footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv || current().values.endast_h_stabilitet));
+      } else {
+        footingSoilSignature = "";
+        if (!soilPanel.hidden) showProjectSoilEditor();
+        showFootingSoilEditor();
+        showMessage("Jordprofilen har uppdaterats. Sättning och styvhet beräknas automatiskt.");
+      }
+      update();
+    });
+  }
+  function showProjectSoilEditor() {
+    projectSoilSignature = JSON.stringify(state().soil_profile);
+    soilEditor = makeSoilEditor(state().soil_profile, {onApply: (profile, error) => saveSoilProfile(profile, error)});
+    soilPanelBody.replaceChildren(soilEditor.element);
+  }
+  const footingSoilBox = node("details", "gp-footing-soil");
+  footingSoilBox.append(node("summary", "", "Sättning och styvhet – jordprofil"));
+  const footingSoilBody = node("div"); footingSoilBox.append(footingSoilBody);
+  function showFootingSoilEditor() {
+    const tag = current();
+    if (!tag) return;
+    const disabled = inputLocked(tag) || tag.values.inaktiv || tag.values.endast_h_stabilitet;
+    const signature = JSON.stringify([tag.id, tag.soil_profile, state().soil_profile, disabled, readOnly]);
+    footingSoilBox.hidden = !!tag.values.inaktiv || !!tag.values.endast_h_stabilitet;
+    if (signature === footingSoilSignature || soilBusy) return;
+    footingSoilSignature = signature;
+    if (readOnly) {
+      const profile = tag.soil_profile || state().soil_profile;
+      footingSoilBox.hidden ||= !profile;
+      footingSoilBody.replaceChildren();
+      if (profile) {
+        footingSoilBody.append(node("p", "gp-result-note", tag.soil_profile ? "Egen jordprofil" : "Projektets jordprofil"));
+        for (const [i, layer] of profile.layers.entries()) footingSoilBody.append(node("p", "gp-result-note",
+          "Lager " + (i + 1) + ": " + precise(layer.dz) + " m · Eₖ " + precise(layer.Ek) + " MPa · γₘ " + precise(layer.gamma_m)));
+        footingSoilBody.append(node("p", "gp-result-note", "Beräkningsskikt " + precise(profile.step) + " m"));
+      }
+      return;
+    }
+    footingSoilEditor = makeSoilEditor(tag.soil_profile || state().soil_profile, {own: !!tag.soil_profile, disabled,
+      onApply: (profile, error) => saveSoilProfile(profile, error, tag.id)});
+    footingSoilBody.replaceChildren(footingSoilEditor.element);
+  }
   const colourToggle = button("Färggruppering", () => setColour({enabled: !colour().enabled}), "gp-colour-toggle");
   colourToggle.title = "Gruppera etiketternas bakgrund efter mått eller vertikallast. Senaste inställningen behålls.";
   if (!readOnly) toolbar.append(colourToggle);
@@ -1335,9 +1490,30 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   colourBounds.addEventListener("change", saveColourBounds);
   colourBounds.addEventListener("keydown", event => {if (event.key === "Enter") {event.preventDefault(); saveColourBounds();}});
   colourBoundsRow.append(colourBoundsLabel, colourError);
+  const resultBoundsBox = node("div", "gp-result-colour-bounds"), resultBoundsInputs = new Map();
+  for (const [key, caption] of [["s", "Sättning s [mm]"], ["k", "Bäddmodul k [kN/m³]"],
+      ["K_point", "Punktstyvhet K [kN/m]"], ["K_line", "Linjestyvhet K [kN/m²]"]]) {
+    const row = node("div", "gp-colour-row"), label = node("label", "gp-colour-bounds");
+    const input = node("input"); input.type = "text"; input.maxLength = 600;
+    input.setAttribute("aria-label", "Intervallgränser " + caption);
+    const error = node("span", "gp-colour-error"); error.setAttribute("role", "status");
+    const save = () => {
+      const raw = input.value.trim(), parts = raw.includes(";") ? raw.split(";").map(v => v.trim().replace(",", ".")) : raw.split(",").map(v => v.trim());
+      const bounds = parts.map(Number);
+      const valid = bounds.length >= 1 && bounds.length <= 20 && parts.every(v => v !== "")
+        && bounds.every((v, i) => Number.isFinite(v) && v > 0 && (!i || v > bounds[i - 1]));
+      error.textContent = valid ? "" : "Ange 1–20 positiva gränser i stigande ordning, separerade med semikolon.";
+      input.setCustomValidity(error.textContent);
+      if (valid) setColour({result_bounds: {[key]: bounds}});
+    };
+    input.addEventListener("change", save);
+    input.addEventListener("keydown", event => {if (event.key === "Enter") {event.preventDefault(); save();}});
+    label.append(node("span", "", caption), input); row.append(label, error); resultBoundsBox.append(row);
+    resultBoundsInputs.set(key, {row, input});
+  }
   const colourHint = node("p", "gp-colour-hint");
   const colourSwatches = node("div", "gp-colour-swatches");
-  colourControls.append(colourCategories, colourLoadOptions, colourBoundsRow, colourOnlyHNote, colourHint, colourSwatches);
+  colourControls.append(colourCategories, colourLoadOptions, colourBoundsRow, resultBoundsBox, colourOnlyHNote, colourHint, colourSwatches);
   const cancelCopy = button("Avbryt kopiering", () => {
     setMode("pan");
     showMessage("Kopieringen avbröts.");
@@ -1722,8 +1898,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   copy.title = "Kopiera alla indata och välj en ny position på ritningen";
   footer.append(remove, copy);
-  if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox);
-  else form.append(labelRow, inputLockRow, leaderSection, basis, sketchToggle, sketchSlot, fieldsBox, results, footer);
+  if (readOnly) form.append(results, basis, sketchToggle, sketchSlot, fieldsBox, footingSoilBox);
+  else form.append(labelRow, inputLockRow, leaderSection, basis, sketchToggle, sketchSlot, fieldsBox, footingSoilBox, results, footer);
   dialog.append(dialogHeader, form);
   const bulkDialog = node("section", "gp-dialog gp-bulk-dialog");
   bulkDialog.hidden = true;
@@ -1936,7 +2112,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return handle;
   }
   workspace.append(heading, toolbar);
-  if (!readOnly) workspace.append(colourControls);
+  if (!readOnly) workspace.append(colourControls, soilPanel);
   workspace.append(measurementBar, cropBar, drawingBar);
   if (!readOnly) workspace.append(importBar);
   workspace.append(selectionBar);
@@ -2394,8 +2570,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (patch.categories) {
       draft.category = patch.categories[0]; draft.secondary = patch.categories[1] || null;
     }
-    for (const name of ["bounds", "colors", "styles", "legend"]) {
-      if (patch[name]) draft[name] = {...colour()[name], ...patch[name]};
+    for (const name of ["bounds", "result_bounds", "colors", "styles", "legend"]) {
+      if (patch[name]) draft[name] = {...(name === "result_bounds" ? RESULT_BOUNDS : {}), ...colour()[name], ...patch[name]};
     }
     colourDraft = draft;
     update();
@@ -2409,6 +2585,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (group.kind === "combination") return group.parts.map((part, index) => colourPartCaption(group, index)).filter(Boolean).join(" · ");
     if (group.label) return group.label;
     if (group.kind === "geometry") return precise(group.value) + " m";
+    if (group.kind === "result") {
+      const value = group.low == null ? group.symbol + " < " + precise(group.high) : group.high == null ? group.symbol + " ≥ " + precise(group.low)
+        : precise(group.low) + " ≤ " + group.symbol + " < " + precise(group.high);
+      return value + " " + group.unit;
+    }
     return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
       : precise(group.low) + " ≤ V < " + precise(group.high);
   }
@@ -2446,6 +2627,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourOnlyHChoice.title = onlyHRestriction || "Inkludera sulor med endast H-stabilitet i färggrupperingen. Gäller Sultyp, Isolering och V · EQU.";
     colourOnlyHNote.textContent = onlyHRestriction;
     colourOnlyHNote.hidden = !onlyHRestriction;
+    for (const [key, {row, input}] of resultBoundsInputs) {
+      row.hidden = !categories.includes(key.startsWith("K_") ? "K" : key);
+      if (document.activeElement !== input && !input.validityMessage)
+        input.value = (settings.result_bounds || RESULT_BOUNDS)[key].map(v => String(v).replace(".", ",")).join("; ");
+    }
     colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
     colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
     if (document.activeElement !== colourBounds && !colourBounds.validityMessage) {
@@ -2454,6 +2640,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourHint.textContent = categories.length > 1 ? categories.length + " valda parametrar. Samma kombination ger samma färg. " + (hasV ? "Linjelaster och punktlaster har separata intervall. " : "") + "Klicka på en färgruta för att välja färg."
       : categories[0] === "V"
       ? "Linjelaster och punktlaster har separata intervall. V är angiven last utan tillägg; EQU innehåller redan egentyngd. Klicka på en färgruta för att välja färg."
+      : ["s", "k", "K"].includes(categories[0]) ? "Färg efter beräknat resultat. Sulor utan underlag visas vita. Egna intervall per storhet och enhet."
       : categories[0] === "isolering" ? "Fem grupper efter isolering och valda bidragsriktningar under Glidning. Isolerade sulor bidrar inte. Klicka på en färgruta för att välja färg."
         : "En färg per unikt värde. Klicka på en färgruta för att välja färg.";
     colourSwatches.replaceChildren();
@@ -2472,7 +2659,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
       categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
         : categories[0] === "isolering" ? "Isolering och glidmotstånd"
-        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : categories[0] === "sultyp" ? "" : " [m]")));
+        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : ["sultyp", "s", "k", "K"].includes(categories[0]) ? "" : " [m]")));
     let previousKind = null, previousFooting = null, previousThickness = null;
     for (const group of data.groups.filter(group => group.count > 0 && group.kind !== "omitted")) {
       const typePart = group.parts?.find(part => part.kind === "footing_type") || (group.kind === "footing_type" ? group : null);
@@ -3088,6 +3275,38 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     return icon;
   }
+  function settlementBlock(tag, compact = false) {
+    const data = tag.settlement;
+    if (!data || tag.values.inaktiv || tag.values.endast_h_stabilitet) return null;
+    const block = node(compact ? "span" : "section", compact ? "gp-tag-settlement" : "gp-settlement-result");
+    block.append(node("strong", "gp-tag-sliding-heading", "Sättning och styvhet"));
+    const grid = node(compact ? "span" : "dl", "gp-settlement-grid");
+    const stale = dirty.has(tag.id);
+    const add = (base, subscript, value, unit, scientific = false, reason = "") => {
+      grid.append(symbolNode({base, subscript}));
+      const output = node("span");
+      if (stale) output.textContent = "Uppdaterar…";
+      else if (!Number.isFinite(value)) {output.textContent = "Ej beräknat"; output.title = reason;}
+      else if (scientific && value !== 0) {
+        const [mantissa, exponent] = value.toExponential(2).split("e");
+        output.append(node("span", "", mantissa.replace(".", ",") + " × 10"), node("sup", "", String(Number(exponent))), node("span", "", " " + unit));
+      } else output.textContent = number(value, 2) + " " + unit;
+      grid.append(output);
+    };
+    add("s", "bruk", data.s, "mm", false, data.settlement_error);
+    add("k", "", data.k, "kN/m³", true, data.stiffness_error);
+    add("K", data.model === "VS" ? "linje" : "punkt", data.K, data.support_unit, true, data.stiffness_error);
+    block.append(grid);
+    if (!compact) {
+      if (Number.isFinite(data.load)) block.append(node("p", "gp-result-note",
+        "Brukslast " + precise(data.external) + " + egentyngd " + precise(data.self_weight) + " = " + precise(data.load) + " " + data.load_unit + "."));
+      if (data.settlement_error || data.stiffness_error) block.append(node("p", "gp-result-note", data.stiffness_error || data.settlement_error));
+      block.append(node("p", "gp-result-note", "2:1-metoden med nominella grundmått. "
+        + (data.profile_source === "own" ? "Egen jordprofil. " : "Projektets jordprofil. ")
+        + "Styvheten är lastoberoende. Isoleringens deformation, krypning och konsolideringstid ingår inte."));
+    }
+    return block;
+  }
   function renderMarkers() {
     leaderResizeObserver.disconnect();
     markers.replaceChildren();
@@ -3174,7 +3393,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const accessibleLoads = [];
       for (const group of model.get("schema").load_groups || []) {
         if (onlyH) continue;
-        if (group.label === "Bruk" && !insulated) continue;
+        if (group.label === "Bruk" && !insulated && !tag.settlement) continue;
         const tokens = [];
         for (const field of group.fields) {
           const raw = values[field.name];
@@ -3224,6 +3443,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         }
         grid.append(data, capacities); section.append(grid); marker.append(section);
       }
+      const settlement = settlementBlock(tag, true);
+      if (settlement) marker.append(settlement);
       markers.append(marker);
       if (group) paintGroupPattern(marker, group);
       if (leaderFor(tag)?.enabled) leaderResizeObserver.observe(marker);
@@ -3237,7 +3458,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
-      "Yttre långtidslaster och direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Värden kan anges även utan isolering; kontrollen används när isolering aktiveras."],
+      "Yttre långtidslaster för sättning och isoleringskontroll samt direkt angivna moment för isoleringskontrollen. Sulans egentyngd tillkommer med faktor 1,0. Värden kan anges även utan isolering; kontrollen används när isolering aktiveras."],
     ["Jord - Allm. Bärighets.", ["c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "d", "delta_h", "beta", "alpha",
       "eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
@@ -4264,7 +4485,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       fieldsBox.append(note);
     }
     for (const [index, [label, names, note]] of groups.entries()) {
-      if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering) continue;
+      if (readOnly && names[0] === "F_vy_bruk" && !tag.values.isolering && !tag.settlement) continue;
       const group = makeSection(tag.id, "input:" + names[0], label, !readOnly && index < 2, inputSections);
       if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
@@ -4486,7 +4707,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const insulationField = name.startsWith("f_d_");
       const ignored = onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name));
       if (readOnly) {
-        entry.row.hidden = ignored || !insulated && (insulationField || name.endsWith("_bruk"));
+        entry.row.hidden = ignored || !insulated && (insulationField || name.endsWith("_bruk") && !current()?.settlement);
         continue;
       }
       entry.input.disabled = ignored || (insulationField && !insulated)
@@ -4634,6 +4855,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       results.append(node("p", "", readOnly ? "Indata ändrade. Inget aktuellt resultat vid exporten." : "Uppdaterar resultat automatiskt…"));
       return;
     }
+    const settlement = settlementBlock(tag);
+    if (settlement) results.append(settlement);
     if (tag.error) {
       results.append(node("p", "gp-error-text", tag.error));
       return;
@@ -4707,12 +4930,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       results.append(mathText("p", "gp-result-note", "Isolering: q_Ed = "
         + (tag.values.lang === 1 && !r.load_conversion ? "V × b_y" : "V") + " / (b_x,eff × b_y,eff). U = q_Ed / f_d. "
         + (tag.values.lang === 1 && !r.load_conversion ? "V avser last per meter vägg. " : "V avser total kraft. ")
-        + "Bruk avser långtidslast; deformation och sättning beräknas inte."));
+        + "Isoleringens deformation och krypning beräknas inte. Jordens sättning redovisas separat när jordprofil finns."));
     }
   }
   function update() {
     const bg = background();
     const data = state();
+    if (!soilPanel.hidden && !soilBusy && projectSoilSignature !== JSON.stringify(data.soil_profile)) showProjectSoilEditor();
     for (const tag of data.tags) if (inputLocked(tag)) {
       drafts.delete(tag.id); dirty.delete(tag.id); slidingDirty.delete(tag.id); edits.delete(tag.id);
     }
@@ -4744,6 +4968,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     loadDrawing.disabled = drawingBusy || drawingPending || !!drawingDraft || !!cropDraft || !!canvasPending || importBusy || bulkBusy || autoBxBusy || inputLockBusy || calibrationBusy || deleteBusy;
     loadDrawing.title = "Flytta, skala eller uppdatera ritningsunderlaget i ett separat redigeringsläge.";
     const editingDrawing = !!drawingDraft || drawingPending || drawingBusy;
+    soilToggle.disabled = soilBusy || editingDrawing || !!cropDraft || !!canvasPending;
     loadProject.disabled = editingDrawing || autoBxBusy || inputLockBusy;
     sizeInput.disabled = editingDrawing;
     saveProject.disabled = saving || !!cropDraft || !!canvasPending || !!drawingDraft || drawingPending;
@@ -4786,6 +5011,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (document.activeElement !== labelInput) labelInput.value = draft?.label ?? tag.label;
       }
       fieldUnits();
+      showFootingSoilEditor();
       showLeaderChoice();
       showResult();
     } else sketch.hidden = true;

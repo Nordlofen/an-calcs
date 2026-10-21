@@ -14,11 +14,15 @@ from .grundplan_types import CATEGORIES as FOOTING_CATEGORIES, footing_category
 PALETTE = ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462",
            "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"]
 PATTERNS = ("plain", "bands", "dots", "cross", "horizontal", "vertical")
+RESULT_BOUNDS = {"s": [2, 5, 10], "k": [10000, 20000, 50000],
+                 "K_point": [10000, 50000, 100000], "K_line": [10000, 50000, 100000]}
 DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categories": None, "phase": "brott", "edit_type": "pad",
                     "show_legend": True, "include_only_h": False,
                     "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
+                    "result_bounds": RESULT_BOUNDS,
                     "colors": {}, "styles": {}, "legend": {"x": .65, "y": .08, "size": 300}}
-CATEGORIES = {"sultyp": "Sultyp", "t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering"}
+CATEGORIES = {"sultyp": "Sultyp", "t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering",
+              "s": "Sättning s", "k": "Bäddmodul k", "K": "Stödets styvhet K"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
 INSULATION_GROUPS = [
@@ -65,9 +69,18 @@ def validate_settings(settings, *, coordinate_bounds=DEFAULT_BOUNDS):
                 or not all(_finite(value) for value in values)
                 or any(a >= b for a, b in zip(values, values[1:]))):
             raise ValueError("Ange 1–20 ändliga intervallgränser i stigande ordning.")
+    result_bounds = result["result_bounds"]
+    if not isinstance(result_bounds, dict) or set(result_bounds) - set(RESULT_BOUNDS):
+        raise ValueError("Okända intervall för sättning/styvhet.")
+    result["result_bounds"] = {**copy.deepcopy(RESULT_BOUNDS), **result_bounds}
+    for values in result["result_bounds"].values():
+        if (not isinstance(values, list) or not 1 <= len(values) <= 20
+                or not all(_finite(value) and value > 0 for value in values)
+                or any(a >= b for a, b in zip(values, values[1:]))):
+            raise ValueError("Ange 1–20 positiva intervallgränser i stigande ordning för sättning/styvhet.")
     colors = result["colors"]
     if (not isinstance(colors, dict) or len(colors) > 5000
-            or any(not isinstance(key, str) or not 1 <= len(key) <= 200
+            or any(not isinstance(key, str) or not 1 <= len(key) <= 1000
                    or not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", value)
                    for key, value in colors.items())):
         raise ValueError("Välj giltiga färger i formatet #RRGGBB.")
@@ -78,7 +91,7 @@ def validate_settings(settings, *, coordinate_bounds=DEFAULT_BOUNDS):
                    or not isinstance(mapping, dict) for scope, mapping in styles.items())):
         raise ValueError("Ogiltiga sparade gruppmarkeringar.")
     if (any(len(mapping) > 5000 for mapping in styles.values())
-            or any(not isinstance(key, str) or not 1 <= len(key) <= 200
+            or any(not isinstance(key, str) or not 1 <= len(key) <= 1000
                    or type(index) is not int or not 0 <= index < 5000
                    for mapping in styles.values() for key, index in mapping.items())
             or any(len(set(mapping.values())) != len(mapping) for mapping in styles.values())):
@@ -177,7 +190,8 @@ def group_data(tags, settings):
     # Filter before combining categories, so excluded footings create no group
     # or palette slot and every remaining footing has an assignment in each part.
     tags = [tag for tag in tags if not tag["values"].get("inaktiv")
-            and (include_h or not tag["values"].get("endast_h_stabilitet"))]
+            and (include_h or not tag["values"].get("endast_h_stabilitet"))
+            and all(_finite(tag.get("settlement", {}).get(name)) for name in categories if name in {"s", "k", "K"})]
     if len(categories) > 1:
         parts = [group_data(tags, {**settings, "categories": [name]}) for name in categories]
         order = [{group["key"]: i for i, group in enumerate(part["groups"])} for part in parts]
@@ -209,6 +223,17 @@ def group_data(tags, settings):
         for suffix, label in INSULATION_GROUPS:
             # Keep the original 1/0 keys for saved insulated/no-contribution colours.
             by_key[suffix] = make("isolering:" + suffix, label=label, kind="insulation", unit="")
+    elif category in {"s", "k", "K"}:
+        for kind in (("K_point", "K_line") if category == "K" else (category,)):
+            if category == "K" and not any((tag["settlement"]["model"] == "VS") == (kind == "K_line") for tag in tags):
+                continue
+            bounds = settings.get("result_bounds", RESULT_BOUNDS)[kind]
+            for index in range(len(bounds) + 1):
+                low, high = bounds[index - 1] if index else None, bounds[index] if index < len(bounds) else None
+                key = f"{kind}:{number_key(low) if low is not None else '*'}:{number_key(high) if high is not None else '*'}"
+                by_key[kind, index] = make(key, kind="result", result_kind=kind, low=low, high=high,
+                    symbol={"s": "s", "k": "k", "K_line": "K_linje", "K_point": "K_punkt"}[kind],
+                    unit={"s": "mm", "k": "kN/m³", "K_line": "kN/m²", "K_point": "kN/m"}[kind])
     elif category == "V":
         for kind in ("pad", "wall"):
             if not any(line_loads(tag["values"]) == (kind == "wall") for tag in tags):
@@ -232,6 +257,13 @@ def group_data(tags, settings):
     special = {}
     for tag in tags:
         values = tag["values"]
+        if category in {"s", "k", "K"}:
+            kind = ("K_line" if tag["settlement"]["model"] == "VS" else "K_point") if category == "K" else category
+            value = tag["settlement"][category]
+            group = by_key[kind, bisect_right(settings.get("result_bounds", RESULT_BOUNDS)[kind], value)]
+            group["count"] += 1
+            assignments[tag["id"]] = group
+            continue
         if category == "sultyp":
             group = by_key[footing_category(tag)]
             group["count"] += 1

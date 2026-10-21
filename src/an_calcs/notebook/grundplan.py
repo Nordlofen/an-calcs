@@ -36,6 +36,7 @@ from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
+from .grundplan_settlement import validate_profile, evaluate as settlement_result
 
 
 _ASSETS = Path(__file__).parent
@@ -511,6 +512,7 @@ class Grundplan(anywidget.AnyWidget):
         self._drawing_preview = None
         self._object_layout = {"scales": {}, "order": []}
         self._history = History()
+        self._soil_profile = None
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -653,13 +655,14 @@ class Grundplan(anywidget.AnyWidget):
         self._object_layout = object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True)
         # Never accept client state as calculation evidence.
         if self._colour["enabled"]:
-            self._colour = remember_styles(self._tags, self._colour)
+            self._colour = remember_styles(self.taggar, self._colour)
         self._history.observe(self)
         state = {
             "history": self._history.state,
             "title": self._title,
             "subtitle": self._subtitle,
             "tags": self.taggar,
+            "soil_profile": self.jordprofil,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
@@ -794,6 +797,9 @@ class Grundplan(anywidget.AnyWidget):
             self._publish()
         if "imported_length" in source:
             self._tag(ident)["imported_length"] = source["imported_length"]
+            self._publish()
+        if source.get("soil_profile") is not None:
+            self._tag(ident)["soil_profile"] = copy.deepcopy(source["soil_profile"])
             self._publish()
         return ident
 
@@ -1265,7 +1271,42 @@ class Grundplan(anywidget.AnyWidget):
     def taggar(self):
         """Kopior av taggar, indata och aktuella resultatsammanfattningar."""
         return [{**copy.deepcopy(tag), "sliding": contribution(tag["values"]),
-                 "load_resultants": load_resultants(tag["values"])} for tag in self._tags]
+                 "load_resultants": load_resultants(tag["values"]),
+                 **self._settlement_data(tag)} for tag in self._tags]
+
+    def _settlement_data(self, tag):
+        profile = tag.get("soil_profile") or self._soil_profile
+        result = settlement_result(tag["values"], profile)
+        return {} if result is None else {"settlement": {**result,
+            "profile_source": "own" if tag.get("soil_profile") is not None else "project"}}
+
+    @property
+    def jordprofil(self):
+        """Gemensam profil för sättning/styvhet; None lämnar äldre projekt oförändrade."""
+        return copy.deepcopy(self._soil_profile)
+
+    @jordprofil.setter
+    def jordprofil(self, profile):
+        self._soil_profile = validate_profile(profile)
+        self._publish()
+
+    def satt_jordprofil(self, tagg, profil=None):
+        """Egen jordprofil för en sula; None återgår till projektets profil."""
+        tag = self._tag(tagg)
+        self._assert_input_unlocked(tag)
+        if tag["values"]["inaktiv"]:
+            raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras.")
+        profile = validate_profile(profil)
+        if profile is None:
+            tag.pop("soil_profile", None)
+        else:
+            tag["soil_profile"] = profile
+        self._publish()
+
+    @property
+    def sattningsresultat(self):
+        """Aktuella sättnings- och styvhetsresultat, oberoende av bärighetskontrollens U."""
+        return {tag["id"]: tag["settlement"] for tag in self.taggar if "settlement" in tag}
 
     @property
     def glidning(self):
@@ -1304,7 +1345,7 @@ class Grundplan(anywidget.AnyWidget):
         settings = {**self._colour, **changes}
         if "categories" not in changes and {"category", "secondary"} & changes.keys():
             settings["categories"] = None
-        for name in ("bounds", "colors", "styles", "legend"):
+        for name in ("bounds", "result_bounds", "colors", "styles", "legend"):
             if name in changes and isinstance(changes[name], dict):
                 settings[name] = {**self._colour[name], **changes[name]}
         settings = validate_colour(settings, coordinate_bounds=COORDINATE_BOUNDS)
@@ -1510,7 +1551,8 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 24,
+            "version": 25,
+            "soil_profile": self.jordprofil,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1538,6 +1580,7 @@ class Grundplan(anywidget.AnyWidget):
                     ("id", "label", "x", "y", "page", "values", "footing_type", "input_locked")},
                  **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
                  **({"leader": copy.deepcopy(tag["leader"])} if "leader" in tag else {}),
+                 **({"soil_profile": copy.deepcopy(tag["soil_profile"])} if tag.get("soil_profile") is not None else {}),
                  **({"footing_type_inferred": True} if tag.get("footing_type_inferred") else {}),
                  "calculated": tag["status"] == "calculated"}
                 for tag in self._tags
@@ -1624,6 +1667,7 @@ class Grundplan(anywidget.AnyWidget):
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
+                      "soil_profile": self.jordprofil,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
@@ -1679,8 +1723,9 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 25):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–24.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 26):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–25.")
+        soil_profile = validate_profile(document.get("soil_profile"))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
@@ -1764,6 +1809,9 @@ class Grundplan(anywidget.AnyWidget):
                 details_by_id[ident] = details
             except (ValueError, ArithmeticError) as exc:
                 tag.update(status="error", error=str(exc))
+            profile = validate_profile(saved.get("soil_profile"))
+            if profile is not None:
+                tag["soil_profile"] = profile
             valid_tags.append(tag)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
                                  drawing["page"], allow_empty=True)
@@ -1789,6 +1837,7 @@ class Grundplan(anywidget.AnyWidget):
         self._text_objects = text_objects
         self._placement_locks = {object_key(item): item for item in locks}
         self._tags = valid_tags
+        self._soil_profile = soil_profile
         self._load_import = None
         self._auto_bx_preview = None
         self._details = details_by_id
@@ -1975,6 +2024,11 @@ class Grundplan(anywidget.AnyWidget):
                 self._load_document(bytes(buffers[0]))
             elif action == "save_choices":
                 reply["choices"] = self._save_choices()
+            elif action == "soil_profile":
+                if content.get("id") is not None:
+                    self.satt_jordprofil(content["id"], content.get("profile"))
+                else:
+                    self.jordprofil = content.get("profile")
             elif action == "delete_saved_case":
                 reply.update(self._delete_saved_case(content["key"], content.get("state_file"),
                                                     confirmed=content.get("confirmed")))

@@ -168,6 +168,77 @@ använder däremot den beräknade vertikallasten inklusive egentyngd. Negativa
 värden bevaras och mycket små laster visas med exponent för att inte avrundas
 till noll. Tomma lastgrupper döljs. Detta gäller även PDF och HTML.
 
+## Sättning och styvhet
+
+Knappen **Jordprofil** öppnar projektets gemensamma jordprofil. Ange jordlager
+uppifrån och ned från sulans undersida: tjocklek **dz [m]**, karakteristisk
+E-modul **Eₖ [MPa]** och materialfaktor **γₘ** för varje lager. Dimensionerande
+modul är Eₖ/γₘ. **+ Jordlager** lägger till en rad och × tar bort en rad.
+**Beräkningsskikt [m]** styr indelningen inom lagren. Tryck
+**Tillämpa jordprofil** för att uppdatera resultaten. Inga jordlager eller
+moduler väljs automatiskt. Profilen får innehålla 1–50 lager och högst
+5 000 beräkningsskikt.
+
+I sulans dialog finns **Sättning och styvhet – jordprofil**. Markera
+**Egen jordprofil**, ändra värdena och tillämpa för att använda avvikande
+jordlager för just den sulan. Avmarkera och tillämpa för att återgå till
+projektprofilen. Kopierade sulor behåller en egen profil. **Lås indata**
+skyddar sulans egna profilval; en ärvd profil fortsätter följa projektets
+profil. Inaktiva sulor och sulor med **Endast H** beräknas inte här.
+
+När profil finns får etiketten och resultatdialogen avsnittet
+**Sättning och styvhet**, med följande resultat:
+
+| Resultat | Enhet |
+| --- | --- |
+| Sättning s_bruk | mm |
+| Bäddmodul k | kN/m³ |
+| Linjestyvhet K_linje, väggsulemodell | kN/m² (= kN/m/m) |
+| Punktstyvhet K_punkt, pelarsulemodell | kN/m |
+
+`sattning()` beräknar jordens sättning med **Brukslasten inklusive sulans
+karakteristiska egentyngd**, med faktor 1,0. Betongens tyngd är 25 kN/m³,
+samma som i befintliga sulberäkningar. VS-modellen använder spridning i x-led
+och last per meter sula; PS-modellen sprider i x- och y-led och använder
+resultantlast. Den valda beräkningsmodellen avgör VS/PS. Linjelaster omräknas
+med samma L_vägg- och fördelningsregler som i bärighetsberäkningen. L_su för
+global glidning påverkar inte denna beräkning.
+
+`baddmodul()` använder sitt lastoberoende format med samma jordprofil och
+nominella grundmått. Bäddmodulen och stödets styvhet visas i potensform med
+två decimaler. Saknas Brukslast kan styvheten ändå beräknas; sättningen visas
+som **Ej beräknat**. Dialogen visar orsaken och den använda Brukslasten med
+egentyngden särredovisad. Moment och excentricitet reducerar inte måtten i
+dessa funktioner. Modellen omfattar inte isoleringens deformation, krypning
+eller konsolideringstid. De nya resultaten ändrar inte bärighetens eller
+isoleringens utnyttjandegrader och styr inte Auto bₓ.
+
+Profildata sparas i projektformat version 25 och kan ångras/göras om.
+Äldre projekt (version 1–24) utan profildata öppnas med befintliga kontroller,
+indata och etiketter; det nya etikettavsnittet visas först när profil finns.
+Resultaten räknas från aktuella data vid återöppning och följer med till PDF
+samt fristående, skrivskyddad HTML.
+
+**Färggruppering** har valen **Sättning s**, **Bäddmodul k** och
+**Stödets styvhet K**. Varje storhet har egna redigerbara intervall;
+punktstyvhet och linjestyvhet har separata intervall och enheter. Valen kan
+kombineras med exempelvis sultyp och tjocklek. Sulor utan beräknat värde för
+vald storhet lämnas vita och skapar ingen extra grupp i legenden. Intervall
+är visuella grupperingsgränser, inte gränsvärden för godkännande.
+
+Från Python:
+
+```python
+plan.jordprofil = {
+    "layers": [{"dz": 0.8, "Ek": 45.0, "gamma_m": 1.3}],
+    "step": 0.1,
+}  # Exempelvärden; ange projektets faktiska jorddata.
+plan.satt_jordprofil(tagg_id, egen_profil)  # Samma struktur som ovan.
+plan.satt_jordprofil(tagg_id, None)  # Återgå till projektprofilen.
+plan.sattningsresultat  # Sammanfattningar per aktivt sul-id.
+plan.jordprofil = None  # Ta bort den gemensamma profilen; egna profiler behålls.
+```
+
 ## Importera lasteffekter
 
 Öppna först ritningen. Tryck **Importera/Uppdatera lasteffekt** och välj en JSON-fil

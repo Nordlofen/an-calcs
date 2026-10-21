@@ -12,7 +12,7 @@ _MISSING = object()
 _FIELDS = ("_source", "_filename", "_initial_page", "background", "_title", "_subtitle",
            "_label_size", "_calibration", "_gliding", "_colour", "_layout",
            "_insulation_widget", "_comment_widget", "_reference_widget", "_text_objects",
-           "_placement_locks", "_canvas_bounds", "_drawing_layout", "_object_layout", "_load_import")
+           "_placement_locks", "_canvas_bounds", "_drawing_layout", "_object_layout", "_load_import", "_soil_profile")
 _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "update",
             "move_tags", "move_objects", "transform_objects", "object_order", "drawing_layout",
             "drawing_commit", "canvas_bounds", "placement_lock", "leader", "calculate",
@@ -21,7 +21,7 @@ _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "up
             "reference_widget", "footing_type", "text_add", "text_update", "text_delete",
             "insulation_placement", "comment_placement", "reference_placement",
             "colour_placement", "sliding_placement", "drawing"}
-_ACTIONS.update({"input_lock", "auto_bx_apply"})
+_ACTIONS.update({"input_lock", "auto_bx_apply", "soil_profile"})
 
 
 def snapshot(plan):
@@ -48,6 +48,8 @@ def description(content, before, after):
     action = content["action"]
     tag = before.get("tag:" + str(content.get("id")), {})
     label = tag.get("label", "sula")
+    if action == "soil_profile":
+        return "Ändra jordprofil för " + label if content.get("id") else "Ändra projektets jordprofil"
     if action in ("add", "copy", "place_import"):
         added = next((v["label"] for k, v in after.items() if k.startswith("tag:") and k not in before), "sula")
         return ("Kopiera " if action == "copy" else "Placera ") + added

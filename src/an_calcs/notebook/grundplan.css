@@ -76,6 +76,22 @@
 .an-grundplan .gp-save-note { margin-top: 10px; color: var(--gp-muted); font-size: 11px; }
 .an-grundplan .gp-save-error { color: #a63c34; margin-top: 6px; overflow-wrap: anywhere; }
 .an-grundplan .gp-save-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.an-grundplan .gp-soil-panel { margin: 0 16px 14px; padding: 14px; border: 1px solid #a2b9ba; border-radius: 8px; background: #f5faf8; }
+.an-grundplan .gp-soil-panel h4 { margin-bottom: 10px; }
+.an-grundplan .gp-soil-editor { max-width: 640px; padding: 8px 0; }
+.an-grundplan .gp-soil-layers { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0; }
+.an-grundplan .gp-soil-layers th { font-size: 11px; text-align: left; color: var(--gp-muted); }
+.an-grundplan .gp-soil-layers td { padding: 3px; }
+.an-grundplan .gp-soil-layers th:last-child { width: 36px; }
+.an-grundplan .gp-soil-layers input, .an-grundplan .gp-soil-step input { width: 100%; min-width: 0; padding: 6px; border: 1px solid var(--gp-line); border-radius: 4px; background: white; }
+.an-grundplan .gp-soil-own, .an-grundplan .gp-soil-step, .an-grundplan .gp-soil-actions { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.an-grundplan .gp-soil-step input { width: 90px; }
+.an-grundplan .gp-soil-error { color: #a63c34; font-size: 12px; }
+.an-grundplan .gp-footing-soil { padding: 10px 0; border-bottom: 1px solid var(--gp-line); }
+.an-grundplan .gp-footing-soil summary { font-weight: 700; cursor: pointer; }
+.an-grundplan .gp-tag-settlement { display: block; border-top: 1px solid #d4e0e1; margin-top: 6px; padding-top: 5px; }
+.an-grundplan .gp-settlement-grid { display: grid; grid-template-columns: max-content max-content; gap: 2px 12px; text-align: left; }
+.an-grundplan .gp-settlement-result { border-bottom: 1px solid var(--gp-line); padding: 10px 0; margin-bottom: 12px; }
 .an-grundplan .gp-copy-arguments { display: block; width: calc(100% - 32px); margin: 0 16px 12px; font-family: monospace; }
 .an-grundplan .gp-copy-storage { font-size: 11px; }
 .an-grundplan .gp-separator { width: 1px; height: 24px; background: var(--gp-line); margin: 0 3px; }

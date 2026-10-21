@@ -5319,3 +5319,90 @@ test('Underlay mode guards unrelated edits and rejects an empty or invalid scale
   scale.value='83.5';scale.dispatch('input');assert.equal(apply.disabled,false);
   apply.click();assert.equal(ui.sent.at(-1).layout.scale,.835);
 });
+
+const settlementProfile = {layers: [{dz: .5, Ek: 10, gamma_m: 1.5}], step: .5};
+const settlementFixture = (ui, changes = {}) => {
+  ui.data.state.soil_profile = structuredClone(settlementProfile);
+  ui.tag.values.F_vy_bruk = 120;
+  ui.tag.settlement = {model: 'VS', s: 4.42, k: 15000, K: 30000, support_unit: 'kN/m²', load_unit: 'kN/m',
+    external: 120, self_weight: 12.5, load: 132.5, profile_source: 'project', settlement_error: '', stiffness_error: '', ...changes};
+  ui.changed();
+};
+
+test('legacy labels have no settlement block, and shared profile validates before sending a single command', t => {
+  const ui = setup(t);
+  assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
+  ui.byText('Jordprofil').click();
+  const field = label => ui.find(el => el.getAttribute('aria-label') === label && el.closest('.gp-soil-panel'));
+  const apply = ui.find(el => el.textContent === 'Tillämpa jordprofil' && el.closest('.gp-soil-panel'));
+  const before = ui.sent.length;
+  apply.click(); assert.equal(ui.sent.length, before);
+  assert.ok(ui.byClass('gp-soil-error').textContent.includes('positiva tal'));
+  for (const [label, value] of [['Lagertjocklek jordlager 1', '0,5'], ['E-modul jordlager 1', '10'],
+    ['Materialfaktor jordlager 1', '1,5'], ['Beräkningsskikt [m]', '0,5']]) field(label).value = value;
+  apply.click(); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'soil_profile'); assert.equal(request.id, undefined);
+  assert.deepEqual(request.profile, settlementProfile);
+  assert.equal(apply.disabled, true);
+  ui.ack(request, {ok: false, error: 'Profilen kunde inte sparas'});
+  assert.equal(field('E-modul jordlager 1').value, '10');
+  assert.equal(apply.disabled, false);
+  assert.ok(ui.byClass('gp-soil-error').textContent.includes('kunde inte sparas'));
+});
+
+for (const readOnly of [false, true]) test('settlement and both stiffness results appear in labels and dialogs (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly}); settlementFixture(ui);
+  const text = elementText(ui.byClass('gp-tag-settlement'));
+  assert.ok(text.includes('Sättning och styvhet'));
+  assert.ok(text.includes('4,42 mm'));
+  assert.ok(elementText(ui.marker()).includes('Bruk'), 'Service actions remain visible when settlement is enabled without insulation');
+  assert.ok(text.includes('kN/m³') && text.includes('kN/m²'));
+  ui.marker().click();
+  assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('Brukslast 120 + egentyngd 12,5 = 132,5 kN/m'));
+  assert.ok(elementText(ui.byClass('gp-footing-soil')).includes('jordprofil'));
+  if (readOnly) assert.ok(ui.elements().filter(el => el.closest('.gp-footing-soil')).every(el => !['input', 'select', 'textarea'].includes(el.tag)));
+  ui.tag.settlement.s = null; ui.tag.settlement.settlement_error = 'Ange Brukslast.'; ui.changed();
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('Ej beräknat'));
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('kN/m³'));
+  ui.tag.values.inaktiv = true; ui.changed();
+  assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
+});
+
+test('individual profile inherits initially, can override, survives rejection, and input locking disables its editor', t => {
+  const ui = setup(t); settlementFixture(ui); ui.marker().click();
+  const own = ui.find(el => el.getAttribute('aria-label') === 'Egen jordprofil' && el.closest('.gp-footing-soil'));
+  const field = label => ui.find(el => el.getAttribute('aria-label') === label && el.closest('.gp-footing-soil'));
+  const apply = () => ui.find(el => el.textContent === 'Tillämpa jordprofil' && el.closest('.gp-footing-soil'));
+  assert.equal(own.checked, false); assert.equal(field('E-modul jordlager 1').disabled, true);
+  own.checked = true; own.dispatch('change');
+  field('E-modul jordlager 1').value = '20'; apply().click();
+  const request = ui.sent.at(-1);
+  assert.equal(request.id, ui.tag.id); assert.equal(request.profile.layers[0].Ek, 20);
+  ui.ack(request, {ok: false, error: 'Skrivfel'});
+  assert.equal(field('E-modul jordlager 1').value, '20');
+  assert.ok(elementText(ui.byClass('gp-footing-soil')).includes('Skrivfel'));
+  own.checked = false; own.dispatch('change'); apply().click();
+  assert.equal(ui.sent.at(-1).profile, null);
+  ui.ack(ui.sent.at(-1));
+  ui.tag.input_locked = true; ui.changed();
+  assert.ok(ui.elements().filter(el => el.closest('.gp-footing-soil') && el.tag === 'input').every(el => el.disabled));
+});
+
+test('settlement colour options use their own intervals and missing results consume no colour group', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.data.state.tags.push({...structuredClone(ui.tag), id: 'missing', settlement: undefined, x: .6});
+  colourFixture(ui, {categories: ['s'], category: 's'});
+  const missing = ui.find(el => el.dataset.tagId === 'missing' && el.className.split(' ').includes('gp-tag'));
+  assert.equal(missing.style['--gp-tag-bg'], '#ffffff');
+  const input = ui.find(el => el.getAttribute('aria-label') === 'Intervallgränser Sättning s [mm]');
+  assert.equal(input.value, '2; 5; 10');
+  input.value = '3; 6; 12'; input.dispatch('change');
+  assert.deepEqual(ui.sent.at(-1).settings.result_bounds.s, [3, 6, 12]);
+  ui.ack(ui.sent.at(-1));
+  const legend = elementText(ui.byClass('gp-colour-legend'));
+  assert.ok(legend.includes('s <') && legend.includes('mm'));
+  assert.ok(!legend.includes('Ej tillämplig') && !legend.includes('Saknar värde'));
+  const groups = colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']});
+  assert.equal(groups.assignments.size, 1);
+  assert.equal(groups.assignments.get(ui.tag.id).unit, 'kN/m²');
+});
