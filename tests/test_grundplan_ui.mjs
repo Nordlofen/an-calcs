@@ -5324,7 +5324,7 @@ const settlementProfile = {layers: [{dz: .5, Ek: 10, gamma_m: 1.5}], step: .5};
 const settlementFixture = (ui, changes = {}) => {
   ui.data.state.soil_profile = structuredClone(settlementProfile);
   ui.tag.values.F_vy_bruk = 120;
-  ui.tag.settlement = {model: 'VS', s: 4.42, k: 15000, K: 30000, support_unit: 'kN/m²', load_unit: 'kN/m',
+  ui.tag.settlement = {model: 'VS', s: 4.42, k: 15000, K: 30000, support_unit: 'kN/m/m', load_unit: 'kN/m',
     external: 120, self_weight: 12.5, load: 132.5, profile_source: 'project', settlement_error: '', stiffness_error: '', ...changes};
   ui.changed();
 };
@@ -5350,22 +5350,83 @@ test('legacy labels have no settlement block, and shared profile validates befor
   assert.ok(ui.byClass('gp-soil-error').textContent.includes('kunde inte sparas'));
 });
 
-for (const readOnly of [false, true]) test('settlement and both stiffness results appear in labels and dialogs (readOnly=' + readOnly + ')', t => {
+for (const readOnly of [false, true]) test('settlement and selected stiffness appear in labels and dialogs (readOnly=' + readOnly + ')', t => {
   const ui = setup(t, {readOnly}); settlementFixture(ui);
   const text = elementText(ui.byClass('gp-tag-settlement'));
   assert.ok(text.includes('Sättning och styvhet'));
   assert.ok(text.includes('4,42 mm'));
   assert.ok(elementText(ui.marker()).includes('Bruk'), 'Service actions remain visible when settlement is enabled without insulation');
-  assert.ok(text.includes('kN/m³') && text.includes('kN/m²'));
+  assert.ok(text.includes('kN/m/m'));
+  assert.ok(!text.includes('kN/m³'));
   ui.marker().click();
   assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('Brukslast 120 + egentyngd 12,5 = 132,5 kN/m'));
   assert.ok(elementText(ui.byClass('gp-footing-soil')).includes('jordprofil'));
   if (readOnly) assert.ok(ui.elements().filter(el => el.closest('.gp-footing-soil')).every(el => !['input', 'select', 'textarea'].includes(el.tag)));
   ui.tag.settlement.s = null; ui.tag.settlement.settlement_error = 'Ange Brukslast.'; ui.changed();
   assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('Ej beräknat'));
-  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('kN/m³'));
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('kN/m/m'));
   ui.tag.values.inaktiv = true; ui.changed();
   assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
+});
+
+test('label visibility is independent of results and rejected display changes roll back', t => {
+  const ui = setup(t); settlementFixture(ui); ui.byText('Jordprofil').click();
+  const checkbox = ui.find(el => el.getAttribute('aria-label') === 'Visa sättning och styvhet på etiketter');
+  const layer = ui.find(el => el.getAttribute('aria-label') === 'E-modul jordlager 1' && el.closest('.gp-soil-panel'));
+  layer.value = '17'; layer.dispatch('input');
+  checkbox.checked = false; checkbox.dispatch('change');
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, 'settlement_display'); assert.deepEqual(request.settings, {show_labels: false});
+  assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
+  assert.equal(layer.value, '17', 'An unsaved soil profile survives presentation changes');
+  ui.marker().click(); assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
+  ui.ack(request, {ok: false, error: 'Kunde inte spara visning'});
+  assert.equal(checkbox.checked, true);
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('4,42 mm'));
+});
+
+for (const readOnly of [false, true]) test('saved hidden label results remain available in the dialog (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly});
+  ui.data.state.settlement_display = {show_labels: false, forms: {wall: 'linje', wall_pad: 'punkt', pad: 'punkt'}};
+  settlementFixture(ui);
+  assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
+  ui.marker().click(); assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
+});
+
+test('each physical footing category offers exactly its supported stiffness forms', t => {
+  const ui = setup(t); settlementFixture(ui); ui.byText('Jordprofil').click();
+  for (const [label, choices, value, key] of [
+    ['Väggsula', ['yta', 'linje'], 'linje', 'wall'],
+    ['Väggsula m. beräkningsmodell pelarsula', ['yta', 'linje', 'punkt'], 'punkt', 'wall_pad'],
+    ['Pelarsula', ['yta', 'punkt'], 'punkt', 'pad']]) {
+    const select = ui.find(el => el.getAttribute('aria-label') === 'Styvhetsform – ' + label);
+    assert.deepEqual(select.children.map(el => el.value), choices); assert.equal(select.value, value);
+    select.value = 'yta'; select.dispatch('change'); const request = ui.sent.at(-1);
+    assert.deepEqual(request.settings, {forms: {[key]: 'yta'}});
+    ui.data.state.settlement_display = {show_labels: true, forms: {wall: 'linje', wall_pad: 'punkt', pad: 'punkt', ...ui.data.state.settlement_display?.forms, [key]: 'yta'}};
+    ui.changed(); ui.ack(request);
+  }
+  assert.ok(elementText(ui.byClass('gp-soil-display-controls')).includes('Ytstyvhet [kN/m²/m]'));
+});
+
+test('selected surface, line and point metadata drive label units and colour intervals', t => {
+  const ui = setup(t);
+  for (const [form, unit, kind, value] of [['yta', 'kN/m²/m', 'K_area', 15000],
+      ['linje', 'kN/m/m', 'K_line', 243750], ['punkt', 'kN/m', 'K_point', 97500]]) {
+    settlementFixture(ui, {model: 'PS', display_form: form, display_value: value, display_unit: unit});
+    const text = elementText(ui.byClass('gp-tag-settlement'));
+    assert.ok(text.includes(unit));
+    const group = colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']}).assignments.get(ui.tag.id);
+    assert.equal(group.result_kind, kind); assert.equal(group.unit, unit);
+  }
+  settlementFixture(ui, {model: 'PS', display_form: 'linje', display_value: null, display_error: 'Ange L_vägg.'});
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('Ej beräknat'));
+  assert.equal(colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']}).assignments.size, 0);
+  colourFixture(ui, {categories: ['K'], category: 'K'});
+  const bounds = ui.find(el => el.getAttribute('aria-label') === 'Intervallgränser Ytstyvhet (vald form) [kN/m²/m]');
+  assert.equal(bounds.value, '10000; 20000; 50000');
+  bounds.value = '15000; 25000'; bounds.dispatch('change');
+  assert.deepEqual(ui.sent.at(-1).settings.result_bounds.K_area, [15000, 25000]);
 });
 
 test('individual profile inherits initially, can override, survives rejection, and input locking disables its editor', t => {
@@ -5404,5 +5465,5 @@ test('settlement colour options use their own intervals and missing results cons
   assert.ok(!legend.includes('Ej tillämplig') && !legend.includes('Saknar värde'));
   const groups = colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']});
   assert.equal(groups.assignments.size, 1);
-  assert.equal(groups.assignments.get(ui.tag.id).unit, 'kN/m²');
+  assert.equal(groups.assignments.get(ui.tag.id).unit, 'kN/m/m');
 });

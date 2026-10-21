@@ -78,6 +78,10 @@
 .an-grundplan .gp-save-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .an-grundplan .gp-soil-panel { margin: 0 16px 14px; padding: 14px; border: 1px solid #a2b9ba; border-radius: 8px; background: #f5faf8; }
 .an-grundplan .gp-soil-panel h4 { margin-bottom: 10px; }
+.an-grundplan .gp-soil-display-controls { max-width: 640px; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px solid var(--gp-line); }
+.an-grundplan .gp-stiffness-form { display: flex; flex-direction: column; gap: 4px; margin: 9px 0; }
+.an-grundplan .gp-stiffness-form span { color: var(--gp-muted); font-size: 12px; }
+.an-grundplan .gp-stiffness-form select { width: 100%; min-width: 0; padding: 6px; border: 1px solid var(--gp-line); border-radius: 4px; background: white; }
 .an-grundplan .gp-soil-editor { max-width: 640px; padding: 8px 0; }
 .an-grundplan .gp-soil-layers { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0; }
 .an-grundplan .gp-soil-layers th { font-size: 11px; text-align: left; color: var(--gp-muted); }

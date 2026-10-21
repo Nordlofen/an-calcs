@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from an_calcs.notebook.grundplan_settlement import evaluate, validate_profile, _evaluate
+from an_calcs.notebook.grundplan_settlement import (evaluate, validate_profile, _evaluate,
+    validate_display, display_result, DEFAULT_DISPLAY, DISPLAY_FORMS, FORM_UNITS)
 from an_calcs.notebook.grundplan_colour import group_data, validate_settings
 
 PROFILE = {'layers': [{'dz': .5, 'Ek': 10, 'gamma_m': 1.5}], 'step': .5}
@@ -89,6 +90,36 @@ class TestSettlementCalculation(unittest.TestCase):
             result['s'] = -1
             self.assertGreater(evaluate(values, profile)['s'], 0)
         self.assertEqual((values, profile), before)
+
+    def test_reporting_forms_are_limited_by_physical_footing_category(self):
+        for kind, allowed in DISPLAY_FORMS.items():
+            for form in ('yta', 'linje', 'punkt'):
+                settings = {'forms': {kind: form}}
+                if form in allowed:
+                    self.assertEqual(validate_display(settings)['forms'][kind], form)
+                else:
+                    with self.assertRaises(ValueError): validate_display(settings)
+        for settings in (None, {'show_labels': 1}, {'forms': []}, {'forms': {'other': 'yta'}}, {'extra': True}):
+            with self.assertRaises(ValueError): validate_display(settings)
+        settings = validate_display({}); settings['forms']['wall'] = 'yta'
+        self.assertEqual(DEFAULT_DISPLAY['forms']['wall'], 'linje')
+
+    def test_reporting_conversion_preserves_ps_model_and_raw_results(self):
+        tag = {'footing_type': 'vaggsula', 'values': self.values(lasttyp=1, L_vagg=.4)}
+        raw = evaluate(tag['values'], PROFILE)
+        for form, expected in [('yta', 16250), ('punkt', 97500), ('linje', 243750)]:
+            result = display_result(raw, tag, validate_display({'forms': {'wall_pad': form}}))
+            self.assertEqual(result['display_value'], expected)
+            self.assertEqual(result['display_unit'], FORM_UNITS[form])
+            self.assertEqual({key: result[key] for key in raw}, raw)
+            self.assertFalse(result['display_error'])
+        # Missing wall length blocks only the selected line result, not PS stiffness.
+        tag['values']['L_vagg'] = None
+        result = display_result(raw, tag, validate_display({'forms': {'wall_pad': 'linje'}}))
+        self.assertIsNone(result['display_value'])
+        self.assertEqual(result['K'], 97500)
+        self.assertEqual(result['s'], raw['s'])
+        self.assertIn('L_vägg', result['display_error'])
 
 
 @unittest.skipUnless(HAS_NOTEBOOK, 'Installera notebookberoenden.')
@@ -186,6 +217,43 @@ class TestSettlementProject(unittest.TestCase):
             with self.assertRaises(ValueError): self.plan._load_document(json.dumps(document).encode())
             self.assertEqual((self.plan._document(), self.plan.taggar), before)
 
+    def test_reporting_choices_persist_undo_and_do_not_change_calculations(self):
+        self.plan.jordprofil = PROFILE
+        before = copy.deepcopy((self.plan._tags, self.plan.resultat, self.plan.glidningsresultat))
+        raw = self.plan.sattningsresultat[self.ident]
+        self.assertTrue(self.command(action='settlement_display', settings={
+            'show_labels': False, 'forms': {'pad': 'yta'}})['ok'])
+        self.assertFalse(self.plan.state['settlement_display']['show_labels'])
+        result = self.plan.sattningsresultat[self.ident]
+        self.assertEqual(result['display_value'], raw['k'])
+        for key in ('s', 'k', 'K', 'load'): self.assertEqual(result[key], raw[key])
+        self.assertEqual((self.plan._tags, self.plan.resultat, self.plan.glidningsresultat), before)
+        self.plan.angra(); self.assertEqual(self.plan.sattningsvisning, DEFAULT_DISPLAY)
+        self.plan.gor_om(); self.assertFalse(self.plan.sattningsvisning['show_labels'])
+        filename = self.plan.spara(self.folder / 'display.json')
+        restored = Grundplan.oppna(filename); self.addCleanup(restored.close)
+        self.assertEqual(restored.sattningsvisning, self.plan.sattningsvisning)
+        self.assertEqual(restored.sattningsresultat, self.plan.sattningsresultat)
+        document = self.plan._document(); document['version'] = 25; document.pop('settlement_display')
+        restored._load_document(json.dumps(document).encode())
+        self.assertEqual(restored.sattningsvisning, DEFAULT_DISPLAY)
+        self.assertEqual(restored.jordprofil, PROFILE)
+
+    def test_invalid_reporting_choices_are_atomic_and_unavailable_line_has_no_colour(self):
+        self.plan.jordprofil = PROFILE
+        before = self.plan._document(), self.plan.taggar
+        self.assertFalse(self.command(action='settlement_display', settings={'forms': {'pad': 'linje'}})['ok'])
+        self.assertEqual((self.plan._document(), self.plan.taggar), before)
+        document = self.plan._document(); document['settlement_display'] = {'show_labels': 'false'}
+        with self.assertRaises(ValueError): self.plan._load_document(json.dumps(document).encode())
+        self.assertEqual((self.plan._document(), self.plan.taggar), before)
+        wall_pad = self.plan.lagg_till(.5, .4, indata={'lang': 0, 'lasttyp': 1, 'L_vagg': None})
+        self.plan.sattningsvisning = {'forms': {'wall_pad': 'linje', 'pad': 'yta'}}
+        data = group_data(self.plan.taggar, validate_settings({'category': 'K'}))
+        self.assertNotIn(wall_pad, data['assignments'])
+        self.assertEqual(data['assignments'][self.ident]['result_kind'], 'K_area')
+        self.assertEqual(data['assignments'][self.ident]['unit'], 'kN/m²/m')
+
     def test_result_colours_intervals_units_missing_data_and_combinations(self):
         self.plan.jordprofil = PROFILE
         wall = self.plan.lagg_till(.6, .3, indata={'b': 2, 't': .25, 'F_vy_bruk': None})
@@ -194,7 +262,7 @@ class TestSettlementProject(unittest.TestCase):
             data = group_data(self.plan.taggar, settings)
             self.assertEqual(len(data['assignments']), 1 if category == 's' else 2)
             if category == 'K':
-                self.assertEqual(data['assignments'][wall]['unit'], 'kN/m²')
+                self.assertEqual(data['assignments'][wall]['unit'], 'kN/m/m')
                 self.assertEqual(data['assignments'][self.ident]['unit'], 'kN/m')
             self.plan.farggruppering = {'enabled': True, 'categories': ['sultyp', 't', category]}
             self.assertTrue(self.plan.farggruppering['styles'])
@@ -204,7 +272,11 @@ class TestSettlementProject(unittest.TestCase):
     def test_python_and_javascript_result_colours_agree(self):
         self.plan.jordprofil = PROFILE
         self.plan.lagg_till(.6, .3, indata={'b': 2, 't': .25, 'F_vy_bruk': None})
-        for categories in (['s'], ['k'], ['K'], ['sultyp', 't', 's', 'k', 'K']):
+        self.plan.lagg_till(.5, .5, indata={'lang': 0, 'lasttyp': 1, 'L_vagg': .4, 'b': 2, 'l': 3})
+        for categories, forms in [(['s'], {}), (['k'], {}), (['K'], {}),
+                (['K'], {'wall': 'yta', 'wall_pad': 'linje'}),
+                (['sultyp', 't', 's', 'k', 'K'], {'wall_pad': 'linje', 'pad': 'yta'})]:
+            self.plan.sattningsvisning = {'forms': forms}
             settings = validate_settings({'categories': categories})
             source = Path(__file__).resolve().parents[1] / 'src/an_calcs/notebook/grundplan.js'
             code = '''import fs from 'node:fs'; const {colourGroups}=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(process.argv[1],'utf8')).toString('base64'));const data=JSON.parse(fs.readFileSync(0,'utf8'));console.log(JSON.stringify(colourGroups(data.tags,data.settings).groups));'''

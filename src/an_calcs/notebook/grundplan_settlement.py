@@ -6,6 +6,43 @@ import math
 
 from an_calcs.geo import sattning, baddmodul
 from .grundplan_loads import bearing_load_length
+from .grundplan_types import footing_category
+
+
+DEFAULT_DISPLAY = {"show_labels": True, "forms": {"wall": "linje", "wall_pad": "punkt", "pad": "punkt"}}
+DISPLAY_FORMS = {"wall": ("yta", "linje"), "wall_pad": ("yta", "linje", "punkt"), "pad": ("yta", "punkt")}
+FORM_UNITS = {"yta": "kN/m²/m", "linje": "kN/m/m", "punkt": "kN/m"}
+
+
+def validate_display(value):
+    if not isinstance(value, dict) or set(value) - {"show_labels", "forms"}:
+        raise ValueError("Ogiltiga visningsval för sättning och styvhet.")
+    result = {**copy.deepcopy(DEFAULT_DISPLAY), **copy.deepcopy(value)}
+    if type(result["show_labels"]) is not bool:
+        raise ValueError("Visa på etiketter måste vara True eller False.")
+    forms = result["forms"]
+    if not isinstance(forms, dict) or set(forms) - set(DISPLAY_FORMS):
+        raise ValueError("Välj styvhetsform för en giltig sultyp.")
+    result["forms"] = {**DEFAULT_DISPLAY["forms"], **forms}
+    if any(form not in DISPLAY_FORMS[kind] for kind, form in result["forms"].items()):
+        raise ValueError("Den valda styvhetsformen är inte tillgänglig för sultypen.")
+    return result
+
+
+def display_result(result, tag, settings):
+    """Normalize PS support stiffness per metre of actual wall, never change its soil model."""
+    form = settings["forms"][footing_category(tag)]
+    value, error = (result["k"] if form == "yta" else result["K"]), result["stiffness_error"]
+    length = None
+    if form == "linje" and result["model"] == "PS" and value is not None:
+        try:
+            length = positive(tag["values"].get("L_vagg"), "L_vägg för linjestyvhet")
+            value = positive(value / length, "Linjestyvhet")
+        except (ValueError, ArithmeticError) as exc:
+            value, error = None, str(exc)
+    return {**result, "display_form": form, "display_value": value,
+            "display_symbol": {"yta": "k", "linje": "K_linje", "punkt": "K_punkt"}[form],
+            "display_unit": FORM_UNITS[form], "display_error": error, "line_length": length}
 
 
 def positive(value, caption):
@@ -55,7 +92,7 @@ def _evaluate(geometry, layers, step):
     model = "VS" if lang == 1 else "PS"
     result = {"model": model, "s": None, "k": None, "K": None,
               "support_symbol": "K_linje" if model == "VS" else "K_punkt",
-              "support_unit": "kN/m²" if model == "VS" else "kN/m",
+              "support_unit": "kN/m/m" if model == "VS" else "kN/m", "k_unit": "kN/m²/m",
               "load_unit": "kN/m" if model == "VS" else "kN",
               "external": None, "self_weight": None, "load": None,
               "settlement_error": "", "stiffness_error": ""}

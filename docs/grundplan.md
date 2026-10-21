@@ -186,15 +186,31 @@ projektprofilen. Kopierade sulor behåller en egen profil. **Lås indata**
 skyddar sulans egna profilval; en ärvd profil fortsätter följa projektets
 profil. Inaktiva sulor och sulor med **Endast H** beräknas inte här.
 
-När profil finns får etiketten och resultatdialogen avsnittet
-**Sättning och styvhet**, med följande resultat:
+I **Jordprofil** finns checkboxen **Visa sättning och styvhet på etiketter**.
+Den döljer eller visar hela avsnittet på etiketterna, även i PDF och HTML.
+Beräkningar, färggruppering och sulans resultatdialog påverkas inte.
+När profil finns visas sättningen och en vald styvhetsform:
 
 | Resultat | Enhet |
 | --- | --- |
 | Sättning s_bruk | mm |
-| Bäddmodul k | kN/m³ |
-| Linjestyvhet K_linje, väggsulemodell | kN/m² (= kN/m/m) |
-| Punktstyvhet K_punkt, pelarsulemodell | kN/m |
+| Ytstyvhet k | kN/m²/m |
+| Linjestyvhet K_linje | kN/m/m |
+| Punktstyvhet K_punkt | kN/m |
+
+Välj redovisningsform separat för varje sultyp i **Jordprofil**:
+
+| Sultyp | Tillgängliga former | Förvalt |
+| --- | --- | --- |
+| Väggsula | Yta, linje | Linje |
+| Väggsula m. beräkningsmodell pelarsula | Yta, linje, punkt | Punkt |
+| Pelarsula | Yta, punkt | Punkt |
+
+För väggsula med pelarsulemodell beräknas linjestyvheten som
+`K_linje = K_punkt / L_vägg`, per meter ovanliggande vägg. PS-modellens
+lastspridning i båda riktningarna behålls. Ett positivt L_vägg krävs;
+saknas det visas just linjestyvheten som **Ej beräknat**. Sättningen och
+övriga beräknade styvhetsvärden finns kvar.
 
 `sattning()` beräknar jordens sättning med **Brukslasten inklusive sulans
 karakteristiska egentyngd**, med faktor 1,0. Betongens tyngd är 25 kN/m³,
@@ -205,7 +221,7 @@ med samma L_vägg- och fördelningsregler som i bärighetsberäkningen. L_su fö
 global glidning påverkar inte denna beräkning.
 
 `baddmodul()` använder sitt lastoberoende format med samma jordprofil och
-nominella grundmått. Bäddmodulen och stödets styvhet visas i potensform med
+nominella grundmått. Den valda styvheten visas i potensform med
 två decimaler. Saknas Brukslast kan styvheten ändå beräknas; sättningen visas
 som **Ej beräknat**. Dialogen visar orsaken och den använda Brukslasten med
 egentyngden särredovisad. Moment och excentricitet reducerar inte måtten i
@@ -213,15 +229,18 @@ dessa funktioner. Modellen omfattar inte isoleringens deformation, krypning
 eller konsolideringstid. De nya resultaten ändrar inte bärighetens eller
 isoleringens utnyttjandegrader och styr inte Auto bₓ.
 
-Profildata sparas i projektformat version 25 och kan ångras/göras om.
+Profildata infördes i projektformat version 25. Visningsvalen sparas i version
+26 och kan ångras/göras om. Version 1–26 kan öppnas; utan sparade visningsval
+används förvalen ovan.
 Äldre projekt (version 1–24) utan profildata öppnas med befintliga kontroller,
 indata och etiketter; det nya etikettavsnittet visas först när profil finns.
 Resultaten räknas från aktuella data vid återöppning och följer med till PDF
 samt fristående, skrivskyddad HTML.
 
-**Färggruppering** har valen **Sättning s**, **Bäddmodul k** och
-**Stödets styvhet K**. Varje storhet har egna redigerbara intervall;
-punktstyvhet och linjestyvhet har separata intervall och enheter. Valen kan
+**Färggruppering** har valen **Sättning s**, **Ytstyvhet k** och
+**Styvhet (vald form)**. Det sista valet följer sultypens valda redovisningsform.
+Varje storhet har egna redigerbara intervall; yt-, linje- och punktstyvhet
+hålls isär med separata intervall och enheter. Valen kan
 kombineras med exempelvis sultyp och tjocklek. Sulor utan beräknat värde för
 vald storhet lämnas vita och skapar ingen extra grupp i legenden. Intervall
 är visuella grupperingsgränser, inte gränsvärden för godkännande.
@@ -236,6 +255,10 @@ plan.jordprofil = {
 plan.satt_jordprofil(tagg_id, egen_profil)  # Samma struktur som ovan.
 plan.satt_jordprofil(tagg_id, None)  # Återgå till projektprofilen.
 plan.sattningsresultat  # Sammanfattningar per aktivt sul-id.
+plan.sattningsvisning = {
+    "show_labels": False,
+    "forms": {"wall": "yta", "wall_pad": "linje", "pad": "punkt"},
+}  # Partiella ändringar tillåts; övriga val behålls.
 plan.jordprofil = None  # Ta bort den gemensamma profilen; egna profiler behålls.
 ```
 

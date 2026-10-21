@@ -36,7 +36,8 @@ from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
-from .grundplan_settlement import validate_profile, evaluate as settlement_result
+from .grundplan_settlement import (validate_profile, evaluate as settlement_result,
+                                   validate_display, display_result)
 
 
 _ASSETS = Path(__file__).parent
@@ -513,6 +514,7 @@ class Grundplan(anywidget.AnyWidget):
         self._object_layout = {"scales": {}, "order": []}
         self._history = History()
         self._soil_profile = None
+        self._settlement_display = validate_display({})
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -663,6 +665,7 @@ class Grundplan(anywidget.AnyWidget):
             "subtitle": self._subtitle,
             "tags": self.taggar,
             "soil_profile": self.jordprofil,
+            "settlement_display": self.sattningsvisning,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
@@ -1277,8 +1280,23 @@ class Grundplan(anywidget.AnyWidget):
     def _settlement_data(self, tag):
         profile = tag.get("soil_profile") or self._soil_profile
         result = settlement_result(tag["values"], profile)
-        return {} if result is None else {"settlement": {**result,
+        return {} if result is None else {"settlement": {**display_result(result, tag, self._settlement_display),
             "profile_source": "own" if tag.get("soil_profile") is not None else "project"}}
+
+    @property
+    def sattningsvisning(self):
+        """Etikettvisning och vald styvhetsform per fysisk sultyp/beräkningsmodell."""
+        return copy.deepcopy(self._settlement_display)
+
+    @sattningsvisning.setter
+    def sattningsvisning(self, changes):
+        if not isinstance(changes, dict):
+            raise ValueError("Visningsval anges som en dict.")
+        settings = {**self._settlement_display, **changes}
+        if isinstance(changes.get("forms"), dict):
+            settings["forms"] = {**self._settlement_display["forms"], **changes["forms"]}
+        self._settlement_display = validate_display(settings)
+        self._publish()
 
     @property
     def jordprofil(self):
@@ -1551,8 +1569,9 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 25,
+            "version": 26,
             "soil_profile": self.jordprofil,
+            "settlement_display": self.sattningsvisning,
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1634,7 +1653,8 @@ class Grundplan(anywidget.AnyWidget):
                           page_number=self.background["page"], colour_grouping=self._colour,
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
                           text_objects=self._text_objects, canvas_bounds=self._canvas_bounds,
-                          drawing_layout=self._drawing_layout, object_layout=self._object_layout)
+                          drawing_layout=self._drawing_layout, object_layout=self._object_layout,
+                          settlement_display=self.sattningsvisning)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1668,6 +1688,7 @@ class Grundplan(anywidget.AnyWidget):
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "soil_profile": self.jordprofil,
+                      "settlement_display": self.sattningsvisning,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
@@ -1723,9 +1744,10 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 26):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–25.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 27):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–26.")
         soil_profile = validate_profile(document.get("soil_profile"))
+        settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
         label_size = _label_size(document.get("label_size", 100))
         title = str(document.get("title", "Grundplan"))[:200]
@@ -1838,6 +1860,7 @@ class Grundplan(anywidget.AnyWidget):
         self._placement_locks = {object_key(item): item for item in locks}
         self._tags = valid_tags
         self._soil_profile = soil_profile
+        self._settlement_display = settlement_display
         self._load_import = None
         self._auto_bx_preview = None
         self._details = details_by_id
@@ -2029,6 +2052,8 @@ class Grundplan(anywidget.AnyWidget):
                     self.satt_jordprofil(content["id"], content.get("profile"))
                 else:
                     self.jordprofil = content.get("profile")
+            elif action == "settlement_display":
+                self.sattningsvisning = content["settings"]
             elif action == "delete_saved_case":
                 reply.update(self._delete_saved_case(content["key"], content.get("state_file"),
                                                     confirmed=content.get("confirmed")))
