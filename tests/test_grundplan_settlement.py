@@ -219,25 +219,79 @@ class TestSettlementProject(unittest.TestCase):
 
     def test_reporting_choices_persist_undo_and_do_not_change_calculations(self):
         self.plan.jordprofil = PROFILE
-        before = copy.deepcopy((self.plan._tags, self.plan.resultat, self.plan.glidningsresultat))
+        before = copy.deepcopy((self.plan._tag(self.ident)['values'], self.plan.resultat, self.plan.glidningsresultat))
         raw = self.plan.sattningsresultat[self.ident]
-        self.assertTrue(self.command(action='settlement_display', settings={
-            'show_labels': False, 'forms': {'pad': 'yta'}})['ok'])
-        self.assertFalse(self.plan.state['settlement_display']['show_labels'])
+        self.assertTrue(self.command(action='settlement_display', id=self.ident, settings={
+            'show_labels': False, 'form': 'yta'})['ok'])
+        self.assertFalse(self.plan.taggar[0]['settlement_display']['show_labels'])
         result = self.plan.sattningsresultat[self.ident]
         self.assertEqual(result['display_value'], raw['k'])
         for key in ('s', 'k', 'K', 'load'): self.assertEqual(result[key], raw[key])
-        self.assertEqual((self.plan._tags, self.plan.resultat, self.plan.glidningsresultat), before)
-        self.plan.angra(); self.assertEqual(self.plan.sattningsvisning, DEFAULT_DISPLAY)
-        self.plan.gor_om(); self.assertFalse(self.plan.sattningsvisning['show_labels'])
+        self.assertEqual((self.plan._tag(self.ident)['values'], self.plan.resultat, self.plan.glidningsresultat), before)
+        self.plan.angra(); self.assertTrue(self.plan.taggar[0]['settlement_display']['show_labels'])
+        self.plan.gor_om(); self.assertFalse(self.plan.taggar[0]['settlement_display']['show_labels'])
         filename = self.plan.spara(self.folder / 'display.json')
         restored = Grundplan.oppna(filename); self.addCleanup(restored.close)
         self.assertEqual(restored.sattningsvisning, self.plan.sattningsvisning)
         self.assertEqual(restored.sattningsresultat, self.plan.sattningsresultat)
         document = self.plan._document(); document['version'] = 25; document.pop('settlement_display')
+        for tag in document['tags']: tag.pop('settlement_display')
         restored._load_document(json.dumps(document).encode())
         self.assertEqual(restored.sattningsvisning, DEFAULT_DISPLAY)
         self.assertEqual(restored.jordprofil, PROFILE)
+
+    def test_individual_and_bulk_display_do_not_modify_other_footings_or_profiles(self):
+        self.plan.jordprofil = PROFILE
+        other = self.plan.kopiera(self.ident, .6, .4)
+        wall = self.plan.lagg_till(.2, .5)
+        self.plan.satt_jordprofil(other, {'layers': PROFILE['layers'] * 3, 'step': .2})
+        before = copy.deepcopy(self.plan._tag(other))
+        self.plan.satt_sattningsvisning(self.ident, {'show_labels': False, 'form': 'yta'})
+        self.assertEqual(self.plan._tag(other), before)
+        self.plan.las_indata([other])
+        self.assertTrue(self.command(action='settlement_display', ids=[self.ident, other, wall], settings={'form': 'yta'})['ok'])
+        self.assertTrue(all(tag['settlement_display']['form'] == 'yta' for tag in self.plan.taggar))
+        self.assertEqual(self.plan._tag(other)['soil_profile'], before['soil_profile'])
+        snapshot = self.plan._document()
+        self.assertFalse(self.command(action='settlement_display', ids=[self.ident, wall], settings={'form': 'punkt'})['ok'])
+        self.assertEqual(self.plan._document(), snapshot)
+        self.plan.angra()
+        self.assertEqual(self.plan.taggar[-1]['settlement_display']['form'], 'linje')
+        self.plan.gor_om()
+        self.assertEqual(self.plan.taggar[-1]['settlement_display']['form'], 'yta')
+
+    def test_v26_migrates_project_display_and_copies_keep_individual_choices(self):
+        document = self.plan._document(); document['version'] = 26
+        document['settlement_display'] = {'show_labels': False, 'forms': {'wall': 'yta', 'pad': 'yta', 'wall_pad': 'linje'}}
+        for tag in document['tags']: tag.pop('settlement_display')
+        self.plan._load_document(json.dumps(document).encode())
+        self.assertEqual(self.plan.taggar[0]['settlement_display'], {'show_labels': False, 'form': 'yta'})
+        copied = self.plan.kopiera(self.ident, .6, .6)
+        self.plan.satt_sattningsvisning(copied, {'show_labels': True})
+        self.assertFalse(self.plan.taggar[0]['settlement_display']['show_labels'])
+        self.assertTrue(self.plan.taggar[1]['settlement_display']['show_labels'])
+        bad = self.plan._document(); bad['tags'][0]['settlement_display']['form'] = 'linje'
+        before = self.plan._document()
+        with self.assertRaises(ValueError): self.plan._load_document(json.dumps(bad).encode())
+        self.assertEqual(self.plan._document(), before)
+
+    def test_multilayer_profile_batch_is_atomic_independent_and_undoable(self):
+        self.plan.jordprofil = PROFILE
+        other = self.plan.kopiera(self.ident, .6, .6)
+        self.plan.satt_jordprofil(other, {'layers': PROFILE['layers'] * 3, 'step': .25})
+        before = self.plan._document()
+        profile = {'layers': [{**PROFILE['layers'][0], 'Ek': 20}, PROFILE['layers'][0]], 'step': .1}
+        self.assertTrue(self.command(action='soil_profile', ids=[self.ident, other], profile=profile)['ok'])
+        self.assertIsNot(self.plan._tag(self.ident)['soil_profile']['layers'], self.plan._tag(other)['soil_profile']['layers'])
+        for tag in self.plan._tags: self.assertEqual(tag['soil_profile'], profile)
+        self.plan.angra(); self.assertEqual(self.plan._document(), before)
+        self.plan.gor_om()
+        self.plan.las_indata([other]); before = self.plan._document()
+        self.assertFalse(self.command(action='soil_profile', ids=[self.ident, other], profile=None)['ok'])
+        self.assertEqual(self.plan._document(), before)
+        self.plan.las_indata([other], last=False)
+        self.assertTrue(self.command(action='soil_profile', ids=[self.ident, other], profile=None)['ok'])
+        self.assertTrue(all('soil_profile' not in tag for tag in self.plan._tags))
 
     def test_invalid_reporting_choices_are_atomic_and_unavailable_line_has_no_colour(self):
         self.plan.jordprofil = PROFILE

@@ -29,9 +29,30 @@ def validate_display(value):
     return result
 
 
+def tag_display(tag, defaults=DEFAULT_DISPLAY):
+    """Resolve legacy project defaults and keep the form valid after model changes."""
+    kind = footing_category(tag)
+    result = {"show_labels": defaults["show_labels"], "form": defaults["forms"][kind],
+              **tag.get("settlement_display", {})}
+    if result["form"] not in DISPLAY_FORMS[kind]:
+        result["form"] = DEFAULT_DISPLAY["forms"][kind]
+    return result
+
+
+def validate_tag_display(value, tag, defaults=DEFAULT_DISPLAY):
+    if not isinstance(value, dict) or set(value) - {"show_labels", "form"}:
+        raise ValueError("Välj Visa på etikett eller Styvhetsform för sulan.")
+    result = {**tag_display(tag, defaults), **value}
+    if type(result["show_labels"]) is not bool:
+        raise ValueError("Visa på etikett måste vara True eller False.")
+    if result["form"] not in DISPLAY_FORMS[footing_category(tag)]:
+        raise ValueError("Styvhetsformen är inte tillgänglig för denna sultyp.")
+    return result
+
+
 def display_result(result, tag, settings):
     """Normalize PS support stiffness per metre of actual wall, never change its soil model."""
-    form = settings["forms"][footing_category(tag)]
+    form = tag_display(tag, settings)["form"]
     value, error = (result["k"] if form == "yta" else result["K"]), result["stiffness_error"]
     length = None
     if form == "linje" and result["model"] == "PS" and value is not None:

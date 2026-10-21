@@ -411,7 +411,7 @@
 .an-grundplan.gp-resizing-panels, .an-grundplan.gp-resizing-panels * { cursor: nwse-resize !important; user-select: none !important; }
 .an-grundplan .gp-input-table { border-collapse: separate; border-spacing: 0; margin: 0; width: max-content; min-width: 100%; font-size: 11px; }
 .an-grundplan .gp-input-table th, .an-grundplan .gp-input-table td { padding: 6px; border-right: 1px solid var(--gp-line); border-bottom: 1px solid var(--gp-line); text-align: center; vertical-align: middle; }
-.an-grundplan .gp-input-table thead { position: sticky; top: 0; z-index: 3; }
+.an-grundplan .gp-input-table > thead { position: sticky; top: 0; z-index: 3; }
 .an-grundplan .gp-input-table th { background: #eef5f3; color: var(--gp-ink); font-weight: 500; }
 .an-grundplan .gp-input-table .gp-table-sort { width: 100%; padding: 4px 0; border: 0; background: transparent; color: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .an-grundplan .gp-input-table .gp-table-sort:hover { color: var(--gp-accent); background: transparent; }
@@ -432,6 +432,14 @@
 .an-grundplan .gp-input-table .gp-table-bool { min-width: 76px; }
 .an-grundplan .gp-input-table .gp-table-choice select { width: 96px; }
 .an-grundplan .gp-input-table .gp-table-choice select[name="table_lasttyp"] { width: 155px; }
+.an-grundplan .gp-input-table .gp-table-choice select[name="table_settlement_form"] { width: 210px; text-align: left; }
+.an-grundplan .gp-input-table .gp-table-profile { min-width: 190px; }
+.an-grundplan .gp-table-soil-panel { position: sticky; left: 6px; width: min(640px, calc(100vw - 100px)); padding: 12px; text-align: left; white-space: normal; }
+.an-grundplan .gp-table-soil-panel h4 { overflow-wrap: anywhere; }
+.an-grundplan .gp-input-table .gp-table-soil-panel th, .an-grundplan .gp-input-table .gp-table-soil-panel td { border: 0; background: transparent; }
+.an-grundplan .gp-input-table .gp-table-soil-panel input { text-align: left; }
+.an-grundplan .gp-input-table .gp-table-soil-panel .gp-soil-step input { width: 90px; }
+.an-grundplan .gp-input-table .gp-table-soil-panel .gp-soil-layers th { text-align: left; }
 .an-grundplan .gp-input-table .gp-table-number .gp-table-value { display: block; padding: 4px 2px; text-align: right; font-variant-numeric: tabular-nums; }
 .an-grundplan .gp-input-table input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--gp-accent); cursor: pointer; vertical-align: middle; }
 .an-grundplan .gp-input-table .gp-table-select { position: sticky; left: 0; min-width: 36px; width: 36px; z-index: 2; }

@@ -32,8 +32,8 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
       } else if (message.action === "table_view") {
         try {
           const value = {...(data.state.table_view || {collapsed: [], sort: {key: null, direction: "ascending"}}), ...message.settings};
-          const groups = ["lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"];
-          const fields = ["label", "status", ...snapshot.schema.fields.map(field => field.name)];
+          const groups = ["lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar", "settlement_show_labels"];
+          const fields = ["label", "status", "settlement_show_labels", "settlement_form", "settlement_profile", ...snapshot.schema.fields.map(field => field.name)];
           if (Object.keys(value).some(key => !["collapsed", "sort"].includes(key)) || !Array.isArray(value.collapsed)
               || value.collapsed.some(key => !groups.includes(key)) || new Set(value.collapsed).size !== value.collapsed.length
               || !value.sort || Object.keys(value.sort).length !== 2 || !["ascending", "descending"].includes(value.sort.direction)

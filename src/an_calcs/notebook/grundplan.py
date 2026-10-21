@@ -22,7 +22,7 @@ except ImportError as exc:
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
-from .grundplan_types import footing_type, infer_type, validate_model
+from .grundplan_types import footing_type, footing_category, infer_type, validate_model
 from .grundplan_placement import object_key, validate_objects
 from .grundplan_objects import drawing_layout, object_layout, scale_value, reorder
 from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds, valid_coordinate, placement_bounds
@@ -37,7 +37,7 @@ from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_setti
 from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
 from .grundplan_settlement import (validate_profile, evaluate as settlement_result,
-                                   validate_display, display_result)
+                                   validate_display, display_result, tag_display, validate_tag_display)
 
 
 _ASSETS = Path(__file__).parent
@@ -84,7 +84,7 @@ _TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
 _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascending"}}
 _LAYOUT_DEFAULTS = {"board_height": None, "table_height": None, "board_width": None, "table_width": None}
 _LAYOUT_LIMITS = {"board_height": (280, 2400), "table_height": (160, 1800), "board_width": (320, 4000), "table_width": (320, 4000)}
-_TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar"}
+_TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", "kommentar", "settlement_show_labels"}
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 _COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 # These fields have different meanings/units for strips and pads.
@@ -152,7 +152,7 @@ def _table_view(value):
             or len(set(collapsed)) != len(collapsed)):
         raise ValueError("Okänd tabellkategori.")
     if (not isinstance(sort, dict) or set(sort) != {"key", "direction"}
-            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk"})
+            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk", "settlement_show_labels", "settlement_form", "settlement_profile"})
             or sort["direction"] not in ("ascending", "descending")):
         raise ValueError("Ogiltig tabellsortering.")
     return result
@@ -775,6 +775,7 @@ class Grundplan(anywidget.AnyWidget):
             "input_locked": False,
             "status": "new", "summary": None, "error": "",
         }
+        tag["settlement_display"] = tag_display(tag, self._settlement_display)
         self._tags.append(tag)
         self._refresh_tag(tag)
         self._publish()
@@ -804,6 +805,9 @@ class Grundplan(anywidget.AnyWidget):
         if source.get("soil_profile") is not None:
             self._tag(ident)["soil_profile"] = copy.deepcopy(source["soil_profile"])
             self._publish()
+        self._tag(ident)["settlement_display"] = tag_display({**self._tag(ident),
+            "settlement_display": tag_display(source, self._settlement_display)}, self._settlement_display)
+        self._publish()
         return ident
 
     @property
@@ -925,6 +929,7 @@ class Grundplan(anywidget.AnyWidget):
         if indata is not None:
             updated["values"] = _updated_values(tag["values"], indata)
             validate_model(footing_type(tag), updated["values"])
+            updated["settlement_display"] = tag_display(updated, self._settlement_display)
         if littera is not None:
             updated["label"] = _label(littera)
             if updated["values"]["inaktiv"] and updated["label"] != tag["label"]:
@@ -1273,7 +1278,8 @@ class Grundplan(anywidget.AnyWidget):
     @property
     def taggar(self):
         """Kopior av taggar, indata och aktuella resultatsammanfattningar."""
-        return [{**copy.deepcopy(tag), "sliding": contribution(tag["values"]),
+        return [{**copy.deepcopy(tag), "settlement_display": tag_display(tag, self._settlement_display),
+                 "sliding": contribution(tag["values"]),
                  "load_resultants": load_resultants(tag["values"]),
                  **self._settlement_data(tag)} for tag in self._tags]
 
@@ -1285,7 +1291,7 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def sattningsvisning(self):
-        """Etikettvisning och vald styvhetsform per fysisk sultyp/beräkningsmodell."""
+        """Äldre projektförval; använd satt_sattningsvisning för individuella val."""
         return copy.deepcopy(self._settlement_display)
 
     @sattningsvisning.setter
@@ -1295,8 +1301,30 @@ class Grundplan(anywidget.AnyWidget):
         settings = {**self._settlement_display, **changes}
         if isinstance(changes.get("forms"), dict):
             settings["forms"] = {**self._settlement_display["forms"], **changes["forms"]}
-        self._settlement_display = validate_display(settings)
+        settings = validate_display(settings)
+        for tag in self._tags:
+            current = tag_display(tag, self._settlement_display)
+            if "show_labels" in changes:
+                current["show_labels"] = settings["show_labels"]
+            kind = footing_category(tag)
+            if kind in changes.get("forms", {}):
+                current["form"] = settings["forms"][kind]
+            tag["settlement_display"] = current
+        self._settlement_display = settings
         self._publish()
+
+    def satt_sattningsvisning(self, taggar, installningar):
+        """Ändra visning per sula eller för en lista, utan att räkna om indata."""
+        tags = self._selected_tags([taggar] if isinstance(taggar, str) else taggar)
+        if not isinstance(installningar, dict) or not installningar:
+            raise ValueError("Välj minst ett visningsval.")
+        if any(tag["values"].get("inaktiv") or tag["values"].get("endast_h_stabilitet") for tag in tags):
+            raise ValueError("Sättning och styvhet används inte för Inaktiv eller Endast H.")
+        prepared = [validate_tag_display(installningar, tag, self._settlement_display) for tag in tags]
+        for tag, settings in zip(tags, prepared):
+            tag["settlement_display"] = settings
+        self._publish()
+        return {"updated": len(tags)}
 
     @property
     def jordprofil(self):
@@ -1309,16 +1337,18 @@ class Grundplan(anywidget.AnyWidget):
         self._publish()
 
     def satt_jordprofil(self, tagg, profil=None):
-        """Egen jordprofil för en sula; None återgår till projektets profil."""
-        tag = self._tag(tagg)
-        self._assert_input_unlocked(tag)
-        if tag["values"]["inaktiv"]:
-            raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras.")
+        """Egen profil för ett id eller en lista; None återgår till projektprofilen."""
+        tags = self._selected_tags([tagg] if isinstance(tagg, str) else tagg)
+        for tag in tags:
+            self._assert_input_unlocked(tag)
+            if tag["values"]["inaktiv"] or tag["values"]["endast_h_stabilitet"]:
+                raise ValueError("Jordprofil används inte för Inaktiv eller Endast H.")
         profile = validate_profile(profil)
-        if profile is None:
-            tag.pop("soil_profile", None)
-        else:
-            tag["soil_profile"] = profile
+        for tag in tags:
+            if profile is None:
+                tag.pop("soil_profile", None)
+            else:
+                tag["soil_profile"] = copy.deepcopy(profile)
         self._publish()
 
     @property
@@ -1459,6 +1489,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Avmarkera Inaktiv för att bekräfta sultypen.")
         validate_model(typ, tag["values"])
         tag["footing_type"] = typ
+        tag["settlement_display"] = tag_display(tag, self._settlement_display)
         tag.pop("footing_type_inferred", None)
         self._publish()
 
@@ -1569,7 +1600,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 26,
+            "version": 27,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "calculator_version": _CALCULATOR_VERSION,
@@ -1597,6 +1628,7 @@ class Grundplan(anywidget.AnyWidget):
             "tags": [
                 {**{key: copy.deepcopy(tag[key]) for key in
                     ("id", "label", "x", "y", "page", "values", "footing_type", "input_locked")},
+                 "settlement_display": tag_display(tag, self._settlement_display),
                  **({"imported_length": tag["imported_length"]} if "imported_length" in tag else {}),
                  **({"leader": copy.deepcopy(tag["leader"])} if "leader" in tag else {}),
                  **({"soil_profile": copy.deepcopy(tag["soil_profile"])} if tag.get("soil_profile") is not None else {}),
@@ -1744,8 +1776,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 27):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–26.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 28):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–27.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -1816,6 +1848,7 @@ class Grundplan(anywidget.AnyWidget):
                 raise ValueError("Projektet saknar objektets sultyp.")
             validate_model(typ, tag["values"])
             tag["footing_type"] = typ
+            tag["settlement_display"] = validate_tag_display(saved.get("settlement_display", {}), tag, settlement_display)
             if inferred:
                 tag["footing_type_inferred"] = True
             if "leader" in saved:
@@ -2048,12 +2081,15 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "save_choices":
                 reply["choices"] = self._save_choices()
             elif action == "soil_profile":
-                if content.get("id") is not None:
-                    self.satt_jordprofil(content["id"], content.get("profile"))
+                if content.get("id") is not None or "ids" in content:
+                    self.satt_jordprofil(content.get("ids", content.get("id")), content.get("profile"))
                 else:
                     self.jordprofil = content.get("profile")
             elif action == "settlement_display":
-                self.sattningsvisning = content["settings"]
+                if "id" in content or "ids" in content:
+                    reply.update(self.satt_sattningsvisning(content.get("ids", content.get("id")), content["settings"]))
+                else:
+                    self.sattningsvisning = content["settings"]
             elif action == "delete_saved_case":
                 reply.update(self._delete_saved_case(content["key"], content.get("state_file"),
                                                     confirmed=content.get("confirmed")))

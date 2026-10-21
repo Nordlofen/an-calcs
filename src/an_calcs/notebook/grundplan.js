@@ -585,6 +585,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }).format(value);
   const precise = value => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
     ? value.toExponential(2).replace(".", ",") : number(value, 6);
+  const superscriptDigits = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+  const scientificText = value => {
+    const [mantissa, exponent] = value.toExponential().split("e"), [whole, fraction = ""] = mantissa.split(".");
+    return whole + "," + fraction.padEnd(2, "0") + " × 10" + String(Number(exponent)).split("")
+      .map(digit => digit === "-" ? "⁻" : superscriptDigits[Number(digit)]).join("");
+  };
+  const parseResultBound = value => Number(value.trim().replace(/\s/g, "").replace(",", ".")
+    .replace(/[×x*]10(?:\^([+-]?\d+)|([⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]+))$/u, (_, plain, superscript) => "e" + (plain ?? [...superscript]
+      .map(digit => digit === "⁻" ? "-" : digit === "⁺" ? "+" : superscriptDigits.indexOf(digit)).join(""))));
   const compactNumber = (value, digits) => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
     ? precise(value) : number(value, digits);
   const button = (text, fn, className = "") => {
@@ -1231,47 +1240,32 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let soilBusy = false, soilEditor = null, projectSoilSignature = "", footingSoilEditor = null, footingSoilSignature = "";
   const soilPanel = node("section", "gp-soil-panel"); soilPanel.hidden = true;
   soilPanel.setAttribute("role", "dialog"); soilPanel.setAttribute("aria-label", "Gemensam jordprofil");
-  let settlementDisplayDraft = null;
-  const settlementDisplay = () => settlementDisplayDraft || state().settlement_display || SETTLEMENT_DISPLAY_DEFAULTS;
-  const soilDisplayControls = node("div", "gp-soil-display-controls");
-  const showSettlementChoice = node("label", "gp-soil-own"), showSettlementCheck = node("input");
-  showSettlementCheck.type = "checkbox";
-  showSettlementCheck.setAttribute("aria-label", "Visa sättning och styvhet på etiketter");
-  showSettlementChoice.append(showSettlementCheck, node("span", "", "Visa sättning och styvhet på etiketter"));
-  soilDisplayControls.append(showSettlementChoice);
-  const stiffnessFormChoices = new Map();
+  const settlementDisplayDrafts = new Map();
   const formCaptions = {yta: "Ytstyvhet [kN/m²/m]", linje: "Linjestyvhet [kN/m/m]", punkt: "Punktstyvhet [kN/m]"};
-  for (const [kind, options] of [["wall", ["yta", "linje"]], ["wall_pad", ["yta", "linje", "punkt"]], ["pad", ["yta", "punkt"]]]) {
-    const row = node("label", "gp-stiffness-form"), select = node("select");
-    select.setAttribute("aria-label", "Styvhetsform – " + FOOTING_CATEGORIES[kind]);
-    for (const value of options) {
-      const option = node("option", "", formCaptions[value]); option.value = value; select.append(option);
+  const allowedStiffnessForms = tag => ({wall: ["yta", "linje"], wall_pad: ["yta", "linje", "punkt"], pad: ["yta", "punkt"]})[footingCategory(tag)];
+  const settlementDisplay = tag => {
+    const legacy = state().settlement_display || SETTLEMENT_DISPLAY_DEFAULTS;
+    const settings = settlementDisplayDrafts.get(tag.id) || tag.settlement_display ||
+      {show_labels: legacy.show_labels, form: legacy.forms[footingCategory(tag)]};
+    return {...settings, form: allowedStiffnessForms(tag).includes(settings.form) ? settings.form : SETTLEMENT_DISPLAY_DEFAULTS.forms[footingCategory(tag)]};
+  };
+  function setSettlementDisplay(ids, patch) {
+    const pendingDisplay = new Map();
+    for (const id of ids) {
+      const tag = state().tags.find(tag => tag.id === id);
+      const draft = {...settlementDisplay(tag), ...patch};
+      settlementDisplayDrafts.set(id, draft); pendingDisplay.set(id, draft);
     }
-    row.append(node("span", "", FOOTING_CATEGORIES[kind]), select); soilDisplayControls.append(row);
-    stiffnessFormChoices.set(kind, select);
-    select.addEventListener("change", () => setSettlementDisplay({forms: {[kind]: select.value}}));
-  }
-  const lineStiffnessNote = node("p", "gp-field-note", "Väggsula med pelarsulemodell: linjestyvhet = punktstyvhet / L_vägg. PS-modellens lastspridning behålls.");
-  soilDisplayControls.append(lineStiffnessNote);
-  showSettlementCheck.addEventListener("change", () => setSettlementDisplay({show_labels: showSettlementCheck.checked}));
-  function setSettlementDisplay(patch) {
-    const draft = {...settlementDisplay(), ...patch,
-      forms: {...SETTLEMENT_DISPLAY_DEFAULTS.forms, ...settlementDisplay().forms, ...patch.forms}};
-    settlementDisplayDraft = draft; update();
-    command("settlement_display", {settings: patch}, [], reply => {
-      if (settlementDisplayDraft === draft) {settlementDisplayDraft = null; update();}
-      if (!reply.ok) showMessage(reply.error, true);
+    update();
+    command("settlement_display", {settings: patch, ...(ids.length === 1 ? {id: ids[0]} : {ids})}, [], reply => {
+      for (const [id, draft] of pendingDisplay) if (settlementDisplayDrafts.get(id) === draft) settlementDisplayDrafts.delete(id);
+      update();
+      if (!reply.ok) {tableFeedback.replaceChildren(node("p", "gp-error-text", reply.error)); showMessage(reply.error, true);}
     });
-  }
-  function showSettlementDisplay() {
-    const settings = settlementDisplay();
-    showSettlementCheck.checked = settings.show_labels;
-    for (const [kind, select] of stiffnessFormChoices) select.value = settings.forms[kind];
-    lineStiffnessNote.hidden = settings.forms.wall_pad !== "linje";
   }
   const soilPanelBody = node("div");
   const soilClose = button("Stäng jordprofil", () => {if (!soilBusy) {soilPanel.hidden = true; soilToggle.focus();}});
-  soilPanel.append(node("h4", "", "Gemensam jordprofil – sättning och styvhet"), soilDisplayControls, soilPanelBody, soilClose);
+  soilPanel.append(node("h4", "", "Gemensam jordprofil – sättning och styvhet"), soilPanelBody, soilClose);
   const soilToggle = button("Jordprofil", () => {
     if (soilBusy) return;
     soilPanel.hidden = !soilPanel.hidden;
@@ -1354,12 +1348,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (soilBusy || historyBusy || drawingDraft || drawingPending || cropDraft || canvasPending) return;
     soilBusy = true; soilClose.disabled = true;
     soilEditor?.setDisabled(true); footingSoilEditor?.setDisabled(true);
-    command("soil_profile", {profile, ...(id ? {id} : {})}, [], reply => {
+    tableSoilEditing?.editor.setDisabled(true);
+    command("soil_profile", {profile, ...(Array.isArray(id) ? {ids: id} : id ? {id} : {})}, [], reply => {
       soilBusy = false; soilClose.disabled = false;
       if (!reply.ok) {
         error.textContent = reply.error; soilEditor?.setDisabled(false);
         footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv || current().values.endast_h_stabilitet));
+        tableSoilEditing?.editor.setDisabled(false);
       } else {
+        if (Array.isArray(id)) closeTableSoilEditor();
         footingSoilSignature = "";
         if (!soilPanel.hidden) showProjectSoilEditor();
         showFootingSoilEditor();
@@ -1374,11 +1371,51 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     soilPanelBody.replaceChildren(soilEditor.element);
   }
   const footingSoilBox = node("details", "gp-footing-soil");
-  footingSoilBox.append(node("summary", "", "Sättning och styvhet – jordprofil"));
+  footingSoilBox.open = true;
+  footingSoilBox.append(node("summary", "", "Sättning och styvhet"));
+  const soilDisplayControls = node("div", "gp-soil-display-controls");
+  const showSettlementChoice = node("label", "gp-soil-own"), showSettlementCheck = node("input");
+  showSettlementCheck.type = "checkbox";
+  showSettlementCheck.setAttribute("aria-label", "Visa sättning och styvhet på etikett");
+  showSettlementChoice.append(showSettlementCheck, node("span", "", "Visa på etikett"));
+  const stiffnessFormRow = node("label", "gp-stiffness-form"), stiffnessFormSelect = node("select");
+  stiffnessFormSelect.setAttribute("aria-label", "Styvhetsform");
+  stiffnessFormRow.append(node("span", "", "Styvhetsform"), stiffnessFormSelect);
+  const displayReadOnly = node("p", "gp-result-note");
+  const lineStiffnessNote = mathText("p", "gp-field-note", "Linjestyvhet = punktstyvhet / L_vägg. PS-modellens lastspridning behålls.");
+  if (readOnly) soilDisplayControls.append(displayReadOnly, lineStiffnessNote);
+  else soilDisplayControls.append(showSettlementChoice, stiffnessFormRow, lineStiffnessNote,
+    node("p", "gp-field-note", "Gäller denna sula. Ändra flera sulor samtidigt i tabellen."));
+  footingSoilBox.append(soilDisplayControls, node("h5", "", "Jordprofil"));
+  showSettlementCheck.addEventListener("change", () => {
+    if (current() && !showSettlementCheck.disabled) setSettlementDisplay([current().id], {show_labels: showSettlementCheck.checked});
+  });
+  stiffnessFormSelect.addEventListener("change", () => {
+    if (current() && !stiffnessFormSelect.disabled) setSettlementDisplay([current().id], {form: stiffnessFormSelect.value});
+  });
+  function showSettlementDisplay(tag) {
+    const settings = settlementDisplay(tag), options = allowedStiffnessForms(tag);
+    showSettlementChoice.hidden = stiffnessFormRow.hidden = readOnly;
+    displayReadOnly.hidden = !readOnly;
+    displayReadOnly.textContent = (settings.show_labels ? "Visas på etikett · " : "Dolt på etikett · ") + formCaptions[settings.form];
+    showSettlementCheck.checked = settings.show_labels;
+    if (stiffnessFormSelect.dataset.category !== footingCategory(tag)) {
+      stiffnessFormSelect.replaceChildren();
+      for (const value of options) {
+        const option = node("option", "", formCaptions[value]); option.value = value; stiffnessFormSelect.append(option);
+      }
+      stiffnessFormSelect.dataset.category = footingCategory(tag);
+    }
+    stiffnessFormSelect.value = settings.form;
+    showSettlementCheck.disabled = stiffnessFormSelect.disabled = readOnly || settlementDisplayDrafts.has(tag.id)
+      || tag.values.inaktiv || tag.values.endast_h_stabilitet;
+    lineStiffnessNote.hidden = footingCategory(tag) !== "wall_pad" || settings.form !== "linje";
+  }
   const footingSoilBody = node("div"); footingSoilBox.append(footingSoilBody);
   function showFootingSoilEditor() {
     const tag = current();
     if (!tag) return;
+    showSettlementDisplay(tag);
     const disabled = inputLocked(tag) || tag.values.inaktiv || tag.values.endast_h_stabilitet;
     const signature = JSON.stringify([tag.id, tag.soil_profile, state().soil_profile, disabled, readOnly]);
     footingSoilBox.hidden = !!tag.values.inaktiv || !!tag.values.endast_h_stabilitet;
@@ -1541,10 +1578,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const row = node("div", "gp-colour-row"), label = node("label", "gp-colour-bounds");
     const input = node("input"); input.type = "text"; input.maxLength = 600;
     input.setAttribute("aria-label", "Intervallgränser " + caption);
+    input.title = key === "s" ? "Ange gränser separerade med semikolon."
+      : "Ange gränser med semikolon. Potensform, t.ex. 1,00 × 10⁵ eller 1e5, och vanliga tal går bra.";
     const error = node("span", "gp-colour-error"); error.setAttribute("role", "status");
     const save = () => {
-      const raw = input.value.trim(), parts = raw.includes(";") ? raw.split(";").map(v => v.trim().replace(",", ".")) : raw.split(",").map(v => v.trim());
-      const bounds = parts.map(Number);
+      const raw = input.value.trim(), parts = raw.includes(";") || /[×x*^eE⁰¹²³⁴⁵⁶⁷⁸⁹]/u.test(raw)
+        ? raw.split(";").map(v => v.trim()) : raw.split(",").map(v => v.trim());
+      const bounds = parts.map(parseResultBound);
       const valid = bounds.length >= 1 && bounds.length <= 20 && parts.every(v => v !== "")
         && bounds.every((v, i) => Number.isFinite(v) && v > 0 && (!i || v > bounds[i - 1]));
       error.textContent = valid ? "" : "Ange 1–20 positiva gränser i stigande ordning, separerade med semikolon.";
@@ -2048,6 +2088,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSelection(); renderMarkers();
   });
   const tableRows = new Map();
+  let tableSoilEditing = null;
   const tableSortHeads = new Map(), tableCollator = new Intl.Collator("sv", {numeric: true, sensitivity: "base"});
   let tableViewDraft = null;
   const tableView = () => tableViewDraft || state().table_view || {collapsed: [], sort: {key: null, direction: "ascending"}};
@@ -2631,8 +2672,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (group.label) return group.label;
     if (group.kind === "geometry") return precise(group.value) + " m";
     if (group.kind === "result") {
-      const value = group.low == null ? group.symbol + " < " + precise(group.high) : group.high == null ? group.symbol + " ≥ " + precise(group.low)
-        : precise(group.low) + " ≤ " + group.symbol + " < " + precise(group.high);
+      const format = group.result_kind === "s" ? precise : scientificText;
+      const value = group.low == null ? group.symbol + " < " + format(group.high) : group.high == null ? group.symbol + " ≥ " + format(group.low)
+        : format(group.low) + " ≤ " + group.symbol + " < " + format(group.high);
       return value + " " + group.unit;
     }
     return group.low == null ? "V < " + precise(group.high) : group.high == null ? "V ≥ " + precise(group.low)
@@ -2675,7 +2717,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const [key, {row, input}] of resultBoundsInputs) {
       row.hidden = !categories.includes(key.startsWith("K_") ? "K" : key);
       if (document.activeElement !== input && !input.validityMessage)
-        input.value = ({...RESULT_BOUNDS, ...settings.result_bounds})[key].map(v => String(v).replace(".", ",")).join("; ");
+        input.value = ({...RESULT_BOUNDS, ...settings.result_bounds})[key].map(v => key === "s" ? String(v).replace(".", ",") : scientificText(v)).join("; ");
     }
     colourLoadOptions.hidden = colourBoundsRow.hidden = !hasV;
     colourBoundsCaption.textContent = "Intervallgränser [" + (kind === "wall" ? "kN/m" : "kN") + "]";
@@ -3322,15 +3364,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function settlementBlock(tag, compact = false) {
     const data = tag.settlement;
-    if (!data || tag.values.inaktiv || tag.values.endast_h_stabilitet || compact && !settlementDisplay().show_labels) return null;
+    if (!data || tag.values.inaktiv || tag.values.endast_h_stabilitet || compact && !settlementDisplay(tag).show_labels) return null;
     const block = node(compact ? "span" : "section", compact ? "gp-tag-settlement" : "gp-settlement-result");
     block.append(node("strong", "gp-tag-sliding-heading", "Sättning och styvhet"));
     const grid = node(compact ? "span" : "dl", "gp-settlement-grid");
     const stale = dirty.has(tag.id);
+    const pendingForm = settlementDisplayDrafts.has(tag.id) && settlementDisplay(tag).form !==
+      (data.display_form || (data.model === "VS" ? "linje" : "punkt"));
     const add = (base, subscript, value, unit, scientific = false, reason = "") => {
       grid.append(symbolNode({base, subscript}));
       const output = node("span");
-      if (stale) output.textContent = "Uppdaterar…";
+      if (stale || scientific && pendingForm) output.textContent = "Uppdaterar…";
       else if (!Number.isFinite(value)) {output.textContent = "Ej beräknat"; output.title = reason;}
       else if (scientific && value !== 0) {
         const [mantissa, exponent] = value.toExponential(2).split("e");
@@ -3339,7 +3383,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       grid.append(output);
     };
     add("s", "bruk", data.s, "mm", false, data.settlement_error);
-    const form = data.display_form || (data.model === "VS" ? "linje" : "punkt");
+    const form = settlementDisplayDrafts.has(tag.id) ? settlementDisplay(tag).form : data.display_form || settlementDisplay(tag).form;
     const value = Object.hasOwn(data, "display_value") ? data.display_value : form === "yta" ? data.k : data.K;
     const unit = data.display_unit || {yta: "kN/m²/m", linje: "kN/m/m", punkt: "kN/m"}[form];
     add(form === "yta" ? "k" : "K", form === "yta" ? "" : form, value, unit, true, data.display_error || data.stiffness_error);
@@ -3521,15 +3565,22 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const resultantFields = new Map(["brott", "bruk"].map(phase => ["V_res_" + phase,
     {name: "V_res_" + phase, type: "result", phase, label: "Yttre lastresultant – " + phase, unit: "kN",
       display_symbol: {base: "V", subscript: "res"}}]));
-  const tableSchema = new Map([...fieldSchema, ...resultantFields]);
+  const settlementFields = new Map([
+    ["settlement_show_labels", {name: "settlement_show_labels", type: "bool", label: "Visa på etikett", unit: ""}],
+    ["settlement_form", {name: "settlement_form", type: "choice", label: "Styvhetsform", unit: "",
+      options: Object.entries(formCaptions).map(([value, label]) => ({value, label}))}],
+    ["settlement_profile", {name: "settlement_profile", type: "profile", label: "Jordprofil", unit: ""}],
+  ]);
+  const tableSchema = new Map([...fieldSchema, ...resultantFields, ...settlementFields]);
   const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))
     .flatMap(name => [name, ...(name === "F_vy" ? ["V_res_brott"] : name === "F_vy_bruk" ? ["V_res_bruk"] : [])])]);
+  tableGroups.splice(-1, 0, ["Sättning och styvhet", [...settlementFields.keys()]]);
   const groupedNames = new Set(tableGroups.flatMap(([, names]) => names));
   const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
   if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
   const tableNames = tableGroups.flatMap(([, names]) => names);
   const tableGroupHeads = new Map(), tableFieldHeads = new Map();
-  const tableFieldClass = field => ["bool", "choice", "text"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number";
+  const tableFieldClass = field => ["bool", "choice", "text", "profile"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number";
   function setTableView(patch) {
     const draft = {...tableView(), ...patch}; tableViewDraft = draft;
     update();
@@ -3610,21 +3661,73 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (name === "L_vagg" && !lineLoads(tag.values)) return "—";
     if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
     if (value == null || value === "") return "—";
-    const field = fieldSchema.get(name);
+    const field = tableSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
     if (name === "lang") return Number(value) === 1 ? "Väggsula" : "Pelarsula";
     if (field?.type === "choice") return field.options?.find(option => String(option.value) === String(value))?.label ?? tableText(value);
     return tableText(value);
   }
   function tableTargets(id, name) {
-    return state().tags.filter(tag => !inputLocked(tag) && (tag.id === id ||
+    return state().tags.filter(tag => (settlementFields.has(name) && name !== "settlement_profile" || !inputLocked(tag))
+      && (!settlementFields.has(name) || !tag.values.inaktiv && !tag.values.endast_h_stabilitet)
+      && (tag.id === id ||
       (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id))));
+  }
+  const tableSettingValue = (tag, name) => name === "settlement_show_labels" ? settlementDisplay(tag).show_labels
+    : name === "settlement_form" ? settlementDisplay(tag).form : name === "settlement_profile" ? profileCaption(tag) : tag.values[name];
+  function profileCaption(tag) {
+    const profile = tag.soil_profile || state().soil_profile;
+    return (tag.soil_profile ? "Egen" : "Gemensam") + (profile ? " · " + profile.layers.length + " lager" : " · saknas");
+  }
+  function closeTableSoilEditor() {
+    tableSoilEditing?.row.remove(); tableSoilEditing = null;
+  }
+  function tableSoilBasis(id) {
+    return JSON.stringify([state().soil_profile, tableTargets(id, "settlement_profile").map(tag => [tag.id, tag.soil_profile])]);
+  }
+  function placeTableSoilEditor() {
+    if (!tableSoilEditing) return;
+    const {row, id, cell} = tableSoilEditing, anchor = tableRows.get(id)?.row;
+    if (!anchor) {closeTableSoilEditor(); return;}
+    cell.setAttribute("colspan", String(3 + [...tableGroupHeads].reduce((sum, [key, group]) =>
+      sum + (tableView().collapsed.includes(key) ? 1 : group.names.length), 0)));
+    if (anchor.nextElementSibling !== row) anchor.after(row);
+  }
+  function openTableSoilEditor(id) {
+    if (readOnly || soilBusy) return;
+    if (tableSoilEditing?.id === id) {closeTableSoilEditor(); return;}
+    closeTableSoilEditor();
+    const tags = tableTargets(id, "settlement_profile");
+    if (!tags.length) return;
+    const same = tags.every(tag => JSON.stringify(tag.soil_profile || null) === JSON.stringify(tags[0].soil_profile || null));
+    const profile = same ? tags[0].soil_profile || state().soil_profile : null;
+    const row = node("tr", "gp-table-soil-row"), cell = node("td"), panel = node("section", "gp-table-soil-panel");
+    panel.setAttribute("aria-label", "Jordprofil i tabellen");
+    panel.append(node("h4", "", "Jordprofil – " + tags.map(tag => tag.label).join(", ")));
+    if (!same) panel.append(node("p", "gp-field-note", "Olika jordprofiler. Ange en ny gemensam lagerföljd eller välj projektets profil."));
+    if (tags.length > 1) panel.append(node("p", "gp-field-note", "Tillämpa ersätter hela lagerföljden för " + tags.length
+      + " markerade sulor. Avmarkera Egen jordprofil för att låta dem följa projektets profil. Sulor med låsta indata, Inaktiv eller Endast H undantas."));
+    const editor = makeSoilEditor(profile, {own: !same || !!tags[0].soil_profile,
+      onApply: (profile, error) => saveSoilProfile(profile, error, tags.map(tag => tag.id))});
+    panel.append(editor.element, button("Stäng jordprofil i tabellen", () => {if (!soilBusy) closeTableSoilEditor();}));
+    cell.append(panel); row.append(cell);
+    tableSoilEditing = {id, row, cell, editor, basis: tableSoilBasis(id)};
+    placeTableSoilEditor();
   }
   function tableEdit(id, name, control) {
     if (readOnly || control.disabled || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
     const tag = state().tags.find(tag => tag.id === id);
-    if (!tag || inputLocked(tag)) return;
+    if (!tag || inputLocked(tag) && !settlementFields.has(name)) return;
     tableFeedback.replaceChildren();
+    if (settlementFields.has(name)) {
+      const targets = tableTargets(id, name);
+      if (!targets.length || targets.some(tag => settlementDisplayDrafts.has(tag.id))) return;
+      const patch = name === "settlement_show_labels" ? {show_labels: control.checked} : {form: control.value};
+      if (patch.form && targets.some(tag => !allowedStiffnessForms(tag).includes(patch.form))) {
+        tableFeedback.replaceChildren(node("p", "gp-error-text", "Välj en styvhetsform som stöds av samtliga markerade sultyper.")); return;
+      }
+      setSettlementDisplay(targets.map(tag => tag.id), patch); return;
+    }
     const field = fieldSchema.get(name);
     const raw = field?.type === "bool" ? control.checked : control.value;
     if (name === "label" && (!raw.trim() || raw.length > 80)) {
@@ -3692,7 +3795,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (bulkBusy || deleteBusy || importBusy) return;
       const checked = select.checked;
       closeDialog(); closeBulk(); bulkSignature = "";
-      const order = [...tableBody.children].map(row => row.dataset.tagId);
+      const order = [...tableBody.children].map(row => row.dataset.tagId).filter(Boolean);
       const anchor = order.indexOf(tableAnchor), end = order.indexOf(tag.id);
       const ids = range && anchor >= 0 ? order.slice(Math.min(anchor, end), Math.max(anchor, end) + 1) : [tag.id];
       if (!range || anchor < 0) tableAnchor = tag.id;
@@ -3721,6 +3824,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         cell.append(value); row.append(cell); controls.set(name, value);
         continue;
       }
+      if (field.type === "profile") {
+        const control = button("", () => {if (!control.disabled) openTableSoilEditor(tag.id);});
+        control.name = "table_" + name; cell.append(control); row.append(cell); controls.set(name, control); continue;
+      }
       const control = node(field.multiline ? "textarea" : field.type === "choice" ? "select" : "input");
       if (field.multiline) control.rows = 2;
       control.name = "table_" + name;
@@ -3737,12 +3844,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const [name, control] of controls) {
       control.dataset.tagId = tag.id; control.dataset.field = name;
       if (readOnly || resultantFields.has(name)) continue;
-      const field = fieldSchema.get(name);
+      const field = tableSchema.get(name);
+      if (field?.type === "profile") continue;
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
       control.addEventListener("keydown", event => {
         if (event.key !== "Enter" || field?.multiline) return;
         event.preventDefault();
-        const rows = [...tableBody.children], index = rows.findIndex(row => row.dataset.tagId === control.dataset.tagId);
+        const rows = [...tableBody.children].filter(row => row.dataset.tagId), index = rows.findIndex(row => row.dataset.tagId === control.dataset.tagId);
         tableRows.get(rows[index + (event.shiftKey ? -1 : 1)]?.dataset.tagId)?.controls.get(name)?.focus({preventScroll: false});
       });
     }
@@ -3773,6 +3881,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         if (resultantFields.has(name)) continue;
+        if (settlementFields.has(name)) {
+          const targets = tableTargets(tag.id, name);
+          control.disabled = busy || soilBusy || tag.values.inaktiv || tag.values.endast_h_stabilitet
+            || (name === "settlement_profile" && inputLocked(tag)) || targets.some(tag => settlementDisplayDrafts.has(tag.id));
+          control.title = name === "settlement_profile" ? "Öppna jordlagren på raden. Markerade sulor med upplåsta indata får samma profil vid Tillämpa."
+            : "Visningsval för denna sula eller samtliga markerade sulor. Jordprofilen ändras inte.";
+          if (name === "settlement_form") {
+            const options = allowedStiffnessForms(tag);
+            if (control.dataset.category !== footingCategory(tag)) {
+              control.replaceChildren();
+              for (const value of options) {
+                const option = node("option", "", formCaptions[value]); option.value = value; control.append(option);
+              }
+              control.dataset.category = footingCategory(tag);
+            }
+            for (const option of control.children) option.disabled = targets.some(tag => !allowedStiffnessForms(tag).includes(option.value));
+            control.value = settlementDisplay(tag).form;
+          }
+          continue;
+        }
         const values = {...tag.values, ...drafts.get(tag.id)?.values};
         const inactiveField = (values.inaktiv || selected.has(tag.id) && selectedInactive)
           && !["inaktiv", "kommentar"].includes(name);
@@ -3798,6 +3926,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
       }
     }
+    if (tableSoilEditing && !soilBusy && tableSoilEditing.basis !== tableSoilBasis(tableSoilEditing.id)) closeTableSoilEditor();
   }
   function showTable() {
     tableSection.hidden = !background().url;
@@ -3821,11 +3950,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const field = tableSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
         if (readOnly || field?.type === "result") {
-          control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tag.values[name], tag);
+          control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tableSettingValue(tag, name), tag);
           continue;
         }
+        if (field?.type === "profile") {control.textContent = profileCaption(tag) + " · ändra…"; continue;}
         if (control === document.activeElement) continue;
-        const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tag.values[name];
+        const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tableSettingValue(tag, name);
         if (field?.type === "bool") control.checked = value ?? false;
         else control.value = name === "L_vagg" && tag.values.lang === 1 && !(draft?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1) ? "1" : tableText(value);
@@ -3847,6 +3977,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     sortTableRows();
     syncTableSelection();
+    placeTableSoilEditor();
   }
   function sortTableRows(force = false) {
     for (const [key, head] of tableSortHeads) {
@@ -3876,10 +4007,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const name = tableSort.key, field = tableSchema.get(name);
       const value = tag => {
         if (field?.type === "result") return dirty.has(tag.id) ? null : tag.load_resultants?.[field.phase];
-        const raw = drafts.get(tag.id)?.values[name] ?? tag.values[name];
+        const raw = drafts.get(tag.id)?.values[name] ?? tableSettingValue(tag, name);
         if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return 1;
         if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
-        return ["text", "choice"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
+        return ["text", "choice", "profile"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
           : field?.type === "bool" ? Number(raw) : Number(String(raw).replace(",", "."));
       };
       const va = value(a), vb = value(b);
@@ -3893,6 +4024,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     // Keep the other rows in their current display order, including newly appended objects.
     if (tableSortScope) rows.push(...[...tableBody.children].filter(row => !tableSortScope.has(row.dataset.tagId)));
     if (rows.some((row, index) => tableBody.children[index] !== row)) tableBody.append(...rows);
+    placeTableSoilEditor();
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
     ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
@@ -4986,7 +5118,6 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function update() {
     const bg = background();
     const data = state();
-    showSettlementDisplay();
     if (!soilPanel.hidden && !soilBusy && projectSoilSignature !== JSON.stringify(data.soil_profile)) showProjectSoilEditor();
     for (const tag of data.tags) if (inputLocked(tag)) {
       drafts.delete(tag.id); dirty.delete(tag.id); slidingDirty.delete(tag.id); edits.delete(tag.id);

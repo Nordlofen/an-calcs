@@ -179,16 +179,16 @@ modul är Eₖ/γₘ. **+ Jordlager** lägger till en rad och × tar bort en rad
 moduler väljs automatiskt. Profilen får innehålla 1–50 lager och högst
 5 000 beräkningsskikt.
 
-I sulans dialog finns **Sättning och styvhet – jordprofil**. Markera
+I sulans dialog finns **Sättning och styvhet**. Markera
 **Egen jordprofil**, ändra värdena och tillämpa för att använda avvikande
 jordlager för just den sulan. Avmarkera och tillämpa för att återgå till
 projektprofilen. Kopierade sulor behåller en egen profil. **Lås indata**
 skyddar sulans egna profilval; en ärvd profil fortsätter följa projektets
 profil. Inaktiva sulor och sulor med **Endast H** beräknas inte här.
 
-I **Jordprofil** finns checkboxen **Visa sättning och styvhet på etiketter**.
-Den döljer eller visar hela avsnittet på etiketterna, även i PDF och HTML.
-Beräkningar, färggruppering och sulans resultatdialog påverkas inte.
+Under samma rubrik finns **Visa på etikett** och **Styvhetsform**, som gäller
+den enskilda sulan. Checkboxen döljer eller visar avsnittet på just dess etikett,
+även i PDF och HTML. Beräkningar, färggruppering och resultatdialog påverkas inte.
 När profil finns visas sättningen och en vald styvhetsform:
 
 | Resultat | Enhet |
@@ -198,13 +198,27 @@ När profil finns visas sättningen och en vald styvhetsform:
 | Linjestyvhet K_linje | kN/m/m |
 | Punktstyvhet K_punkt | kN/m |
 
-Välj redovisningsform separat för varje sultyp i **Jordprofil**:
+Tillgängliga redovisningsformer beror på sulans sultyp:
 
 | Sultyp | Tillgängliga former | Förvalt |
 | --- | --- | --- |
 | Väggsula | Yta, linje | Linje |
 | Väggsula m. beräkningsmodell pelarsula | Yta, linje, punkt | Punkt |
 | Pelarsula | Yta, punkt | Punkt |
+
+Tabellen har gruppen **Sättning och styvhet**, med **Visa på etikett**,
+**Styvhetsform** och **Jordprofil**. Markera flera rader och ändra en cell för
+ett gemensamt visningsval; bara former som stöds av alla valda sultyper är
+valbara. Visningsval kan ändras även när beräkningsindata är låsta.
+
+Tryck **ändra…** i jordprofilcellen för att fälla ut jordlagren på raden.
+Här redigeras **Egen jordprofil**, lagrens tjocklek, E-modul, materialfaktor
+och beräkningsskikt. Antalet lager får skilja mellan sulor. Om markerade
+sulor har olika profiler visas **Olika jordprofiler** och ingen av dem kopieras
+automatiskt. **Tillämpa jordprofil** ersätter hela lagerföljden för de angivna
+sulorna; avmarkera Egen jordprofil för att återgå till projektprofilen.
+Sulor med låsta indata, Inaktiv eller Endast H undantas från profiländringar.
+En gemensam ändring är ett ångringssteg. Visningsändringar påverkar inte profilerna.
 
 För väggsula med pelarsulemodell beräknas linjestyvheten som
 `K_linje = K_punkt / L_vägg`, per meter ovanliggande vägg. PS-modellens
@@ -229,21 +243,26 @@ dessa funktioner. Modellen omfattar inte isoleringens deformation, krypning
 eller konsolideringstid. De nya resultaten ändrar inte bärighetens eller
 isoleringens utnyttjandegrader och styr inte Auto bₓ.
 
-Profildata infördes i projektformat version 25. Visningsvalen sparas i version
-26 och kan ångras/göras om. Version 1–26 kan öppnas; utan sparade visningsval
-används förvalen ovan.
+Profildata infördes i projektformat version 25 och projektgemensamma visningsval
+i version 26. Version 27 sparar visningsval per sula och kan öppna version 1–27.
+Äldre gemensamma val förs över till respektive sula så visningen behålls.
+Utan sparade visningsval används förvalen ovan. Ändringar kan ångras/göras om.
 Äldre projekt (version 1–24) utan profildata öppnas med befintliga kontroller,
 indata och etiketter; det nya etikettavsnittet visas först när profil finns.
 Resultaten räknas från aktuella data vid återöppning och följer med till PDF
 samt fristående, skrivskyddad HTML.
 
 **Färggruppering** har valen **Sättning s**, **Ytstyvhet k** och
-**Styvhet (vald form)**. Det sista valet följer sultypens valda redovisningsform.
+**Styvhet (vald form)**. Det sista valet följer varje sulas valda redovisningsform.
 Varje storhet har egna redigerbara intervall; yt-, linje- och punktstyvhet
 hålls isär med separata intervall och enheter. Valen kan
 kombineras med exempelvis sultyp och tjocklek. Sulor utan beräknat värde för
 vald storhet lämnas vita och skapar ingen extra grupp i legenden. Intervall
 är visuella grupperingsgränser, inte gränsvärden för godkännande.
+Styvhetsintervall visas i potensform i inställningar, färgval och legend,
+även i PDF och HTML. Intervallfältet accepterar exempelvis `1,00 × 10⁵`,
+`1,00 × 10^5`, `1e5` och `100000`. Skilj gränser med semikolon. Intervallens
+numeriska värden behålls exakt; redovisningen avrundar inte en gräns.
 
 Från Python:
 
@@ -255,10 +274,9 @@ plan.jordprofil = {
 plan.satt_jordprofil(tagg_id, egen_profil)  # Samma struktur som ovan.
 plan.satt_jordprofil(tagg_id, None)  # Återgå till projektprofilen.
 plan.sattningsresultat  # Sammanfattningar per aktivt sul-id.
-plan.sattningsvisning = {
-    "show_labels": False,
-    "forms": {"wall": "yta", "wall_pad": "linje", "pad": "punkt"},
-}  # Partiella ändringar tillåts; övriga val behålls.
+plan.satt_sattningsvisning(tagg_id, {"show_labels": False, "form": "yta"})
+plan.satt_sattningsvisning([id_1, id_2], {"form": "yta"})
+plan.satt_jordprofil([id_1, id_2], egen_profil)  # Ersätt hela profiler atomärt.
 plan.jordprofil = None  # Ta bort den gemensamma profilen; egna profiler behålls.
 ```
 

@@ -49,8 +49,13 @@ def description(content, before, after):
     tag = before.get("tag:" + str(content.get("id")), {})
     label = tag.get("label", "sula")
     if action == "soil_profile":
-        return "Ändra jordprofil för " + label if content.get("id") else "Ändra projektets jordprofil"
-    if action == "settlement_display": return "Ändra redovisning av sättning och styvhet"
+        return ("Ändra jordprofil för " + label if content.get("id") else
+                f"Ändra jordprofil för {len(content['ids'])} sulor" if content.get("ids") else
+                "Ändra projektets jordprofil")
+    if action == "settlement_display":
+        return ("Ändra sättningsvisning för " + label if content.get("id") else
+                f"Ändra sättningsvisning för {len(content['ids'])} sulor" if content.get("ids") else
+                "Ändra redovisning av sättning och styvhet")
     if action in ("add", "copy", "place_import"):
         added = next((v["label"] for k, v in after.items() if k.startswith("tag:") and k not in before), "sula")
         return ("Kopiera " if action == "copy" else "Placera ") + added

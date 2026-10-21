@@ -6,6 +6,7 @@ import test from "node:test";
 
 class Element {
   get tagName() { return this.tag.toUpperCase(); }
+  get nextElementSibling() { return this.parent?.children[this.parent.children.indexOf(this) + 1] ?? null; }
   constructor(tag) {
     this.tag = tag;
     this.children = [];
@@ -51,6 +52,12 @@ class Element {
     this.append(...children);
   }
   remove() { this.parent?.replaceChildren(...this.parent.children.filter(child => child !== this)); }
+  after(child) {
+    if (!this.parent) return;
+    child.remove();
+    const parent = this.parent, index = parent.children.indexOf(this);
+    child.parent = parent; parent.children.splice(index + 1, 0, child);
+  }
   click() {
     if (this.tag === "a") document.downloads.push({ href: this.href, filename: this.download });
     this.dispatch("click");
@@ -1345,7 +1352,7 @@ const selectedIds = ui => ui.elements().filter(e => e.dataset.tagId && e.classNa
   .map(e => e.dataset.tagId).sort();
 
 const tableField = (ui, id, name) => ui.find(e => e.name === "table_" + name && e.dataset.tagId === id);
-const tableOrder = ui => ui.byClass("gp-input-table").children[1].children.map(row => row.dataset.tagId);
+const tableOrder = ui => ui.byClass("gp-input-table").children[1].children.map(row => row.dataset.tagId).filter(Boolean);
 const tableSortButton = (ui, key) => ui.find(e => e.getAttribute("aria-label") ===
   "Sortera efter " + (key === "label" ? "littera" : key === "status" ? "status och utnyttjandegrad" : key));
 const selectTableRow = (ui, label, checked = true, options = {}) => {
@@ -4142,7 +4149,7 @@ test("all columns sort numerically or by text with natural littera ties and miss
     {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
   ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 4);
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 7);
   tableSortButton(ui, "b").click();
   assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
   tableSortButton(ui, "b").click();
@@ -5370,16 +5377,17 @@ for (const readOnly of [false, true]) test('settlement and selected stiffness ap
 });
 
 test('label visibility is independent of results and rejected display changes roll back', t => {
-  const ui = setup(t); settlementFixture(ui); ui.byText('Jordprofil').click();
-  const checkbox = ui.find(el => el.getAttribute('aria-label') === 'Visa sättning och styvhet på etiketter');
-  const layer = ui.find(el => el.getAttribute('aria-label') === 'E-modul jordlager 1' && el.closest('.gp-soil-panel'));
+  const ui = setup(t); settlementFixture(ui); ui.marker().click();
+  const checkbox = ui.find(el => el.getAttribute('aria-label') === 'Visa sättning och styvhet på etikett');
+  const layer = ui.find(el => el.getAttribute('aria-label') === 'E-modul jordlager 1' && el.closest('.gp-footing-soil'));
   layer.value = '17'; layer.dispatch('input');
   checkbox.checked = false; checkbox.dispatch('change');
   const request = ui.sent.at(-1);
   assert.equal(request.action, 'settlement_display'); assert.deepEqual(request.settings, {show_labels: false});
   assert.ok(!ui.elements().some(el => el.className.split(' ').includes('gp-tag-settlement')));
   assert.equal(layer.value, '17', 'An unsaved soil profile survives presentation changes');
-  ui.marker().click(); assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
+  assert.equal(request.id, ui.tag.id);
+  assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
   ui.ack(request, {ok: false, error: 'Kunde inte spara visning'});
   assert.equal(checkbox.checked, true);
   assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('4,42 mm'));
@@ -5393,20 +5401,22 @@ for (const readOnly of [false, true]) test('saved hidden label results remain av
   ui.marker().click(); assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
 });
 
-test('each physical footing category offers exactly its supported stiffness forms', t => {
-  const ui = setup(t); settlementFixture(ui); ui.byText('Jordprofil').click();
-  for (const [label, choices, value, key] of [
-    ['Väggsula', ['yta', 'linje'], 'linje', 'wall'],
-    ['Väggsula m. beräkningsmodell pelarsula', ['yta', 'linje', 'punkt'], 'punkt', 'wall_pad'],
-    ['Pelarsula', ['yta', 'punkt'], 'punkt', 'pad']]) {
-    const select = ui.find(el => el.getAttribute('aria-label') === 'Styvhetsform – ' + label);
+test('individual dialog offers exactly the stiffness forms supported by its physical category', t => {
+  const ui = setup(t); settlementFixture(ui); ui.marker().click();
+  for (const [physical, lang, choices, value] of [
+    ['vaggsula', 1, ['yta', 'linje'], 'linje'],
+    ['vaggsula', 0, ['yta', 'linje', 'punkt'], 'punkt'],
+    ['pelarsula', 0, ['yta', 'punkt'], 'punkt']]) {
+    ui.tag.footing_type = physical; ui.tag.values.lang = lang;
+    ui.tag.settlement_display = {show_labels: true, form: value}; ui.changed();
+    const select = ui.find(el => el.getAttribute('aria-label') === 'Styvhetsform');
     assert.deepEqual(select.children.map(el => el.value), choices); assert.equal(select.value, value);
     select.value = 'yta'; select.dispatch('change'); const request = ui.sent.at(-1);
-    assert.deepEqual(request.settings, {forms: {[key]: 'yta'}});
-    ui.data.state.settlement_display = {show_labels: true, forms: {wall: 'linje', wall_pad: 'punkt', pad: 'punkt', ...ui.data.state.settlement_display?.forms, [key]: 'yta'}};
-    ui.changed(); ui.ack(request);
+    assert.equal(request.id, ui.tag.id); assert.deepEqual(request.settings, {form: 'yta'});
+    ui.tag.settlement_display.form = 'yta'; ui.changed(); ui.ack(request);
   }
-  assert.ok(elementText(ui.byClass('gp-soil-display-controls')).includes('Ytstyvhet [kN/m²/m]'));
+  ui.byText('Jordprofil').click();
+  assert.ok(!ui.elements().some(el => el.closest('.gp-soil-panel') && el.getAttribute('aria-label') === 'Styvhetsform'));
 });
 
 test('selected surface, line and point metadata drive label units and colour intervals', t => {
@@ -5424,7 +5434,7 @@ test('selected surface, line and point metadata drive label units and colour int
   assert.equal(colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']}).assignments.size, 0);
   colourFixture(ui, {categories: ['K'], category: 'K'});
   const bounds = ui.find(el => el.getAttribute('aria-label') === 'Intervallgränser Ytstyvhet (vald form) [kN/m²/m]');
-  assert.equal(bounds.value, '10000; 20000; 50000');
+  assert.equal(bounds.value, '1,00 × 10⁴; 2,00 × 10⁴; 5,00 × 10⁴');
   bounds.value = '15000; 25000'; bounds.dispatch('change');
   assert.deepEqual(ui.sent.at(-1).settings.result_bounds.K_area, [15000, 25000]);
 });
@@ -5446,7 +5456,7 @@ test('individual profile inherits initially, can override, survives rejection, a
   assert.equal(ui.sent.at(-1).profile, null);
   ui.ack(ui.sent.at(-1));
   ui.tag.input_locked = true; ui.changed();
-  assert.ok(ui.elements().filter(el => el.closest('.gp-footing-soil') && el.tag === 'input').every(el => el.disabled));
+  assert.ok(ui.elements().filter(el => el.closest('.gp-footing-soil') && el.closest('.gp-soil-editor') && el.tag === 'input').every(el => el.disabled));
 });
 
 test('settlement colour options use their own intervals and missing results consume no colour group', t => {
@@ -5466,4 +5476,109 @@ test('settlement colour options use their own intervals and missing results cons
   const groups = colourGroups(ui.data.state.tags, {...defaultColour, category: 'K', categories: ['K']});
   assert.equal(groups.assignments.size, 1);
   assert.equal(groups.assignments.get(ui.tag.id).unit, 'kN/m/m');
+});
+
+test('table presentation edits apply to selected footings while keeping distinct soil profiles', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.tag.soil_profile = structuredClone(settlementProfile);
+  const other = {...structuredClone(ui.tag), id: 'other', label: 'PS.2', footing_type: 'pelarsula', input_locked: true};
+  other.values.lang = 0; other.soil_profile.layers.push({...settlementProfile.layers[0], Ek: 20});
+  ui.data.state.tags.push(other); ui.changed();
+  const profiles = ui.data.state.tags.map(tag => structuredClone(tag.soil_profile));
+  ui.byText('Markera samtliga').click();
+  const form = tableField(ui, ui.tag.id, 'settlement_form');
+  assert.deepEqual(form.children.filter(option => !option.disabled).map(option => option.value), ['yta']);
+  form.value = 'linje'; form.dispatch('change'); assert.equal(ui.sent.length, 0);
+  form.value = 'yta'; form.dispatch('change'); let request = ui.sent.at(-1);
+  assert.equal(request.action, 'settlement_display'); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
+  assert.deepEqual(request.settings, {form: 'yta'});
+  for (const tag of ui.data.state.tags) tag.settlement_display = {show_labels: true, form: 'yta'};
+  ui.changed(); ui.ack(request);
+  const visibility = tableField(ui, ui.tag.id, 'settlement_show_labels'); visibility.checked = false; visibility.dispatch('change');
+  request = ui.sent.at(-1); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
+  assert.deepEqual(request.settings, {show_labels: false});
+  assert.deepEqual(ui.data.state.tags.map(tag => tag.soil_profile), profiles);
+  assert.equal(tableField(ui, 'other', 'settlement_profile').disabled, true);
+});
+
+test('table soil editor supports differing layer counts and explicitly replaces selected full profiles', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.tag.soil_profile = structuredClone(settlementProfile);
+  const other = {...structuredClone(ui.tag), id: 'other', label: 'VS.2'};
+  other.soil_profile.layers.push({...settlementProfile.layers[0], dz: 1, Ek: 20});
+  const locked = {...structuredClone(other), id: 'locked', label: 'VS.3', input_locked: true};
+  ui.data.state.tags.push(other, locked); ui.changed(); ui.byText('Markera samtliga').click();
+  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  const panel = () => ui.byClass('gp-table-soil-panel');
+  const field = label => ui.find(el => el.getAttribute('aria-label') === label && el.closest('.gp-table-soil-panel'));
+  const button = label => ui.find(el => el.textContent === label && el.closest('.gp-table-soil-panel'));
+  assert.ok(elementText(panel()).includes('Olika jordprofiler'));
+  assert.ok(elementText(panel()).includes('hela lagerföljden för 2 markerade sulor'));
+  button('Tillämpa jordprofil').click(); assert.equal(ui.sent.length, 0, 'Mixed profiles never silently copy the first profile');
+  for (const [label, value] of [['Lagertjocklek jordlager 1', '.5'], ['E-modul jordlager 1', '45'], ['Materialfaktor jordlager 1', '1.3']]) field(label).value = value;
+  button('+ Jordlager').click();
+  for (const [label, value] of [['Lagertjocklek jordlager 2', '1'], ['E-modul jordlager 2', '20'], ['Materialfaktor jordlager 2', '1.5'], ['Beräkningsskikt [m]', '.1']]) field(label).value = value;
+  button('Tillämpa jordprofil').click(); let request = ui.sent.at(-1);
+  assert.equal(request.action, 'soil_profile'); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
+  assert.deepEqual(request.profile, {layers: [{dz: .5, Ek: 45, gamma_m: 1.3}, {dz: 1, Ek: 20, gamma_m: 1.5}], step: .1});
+  ui.ack(request, {ok: false, error: 'Kunde inte spara profilerna'});
+  assert.equal(field('E-modul jordlager 1').value, '45');
+  assert.ok(elementText(panel()).includes('Kunde inte spara profilerna'));
+  button('Tillämpa jordprofil').click(); request = ui.sent.at(-1);
+  for (const tag of [ui.tag, other]) tag.soil_profile = structuredClone(request.profile);
+  ui.changed(); ui.ack(request);
+  assert.ok(!ui.elements().some(el => el.className === 'gp-table-soil-row'));
+  assert.equal(locked.soil_profile.layers.length, 2);
+  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  const own = field('Egen jordprofil'); own.checked = false; own.dispatch('change');
+  button('Tillämpa jordprofil').click(); request = ui.sent.at(-1);
+  assert.equal(request.profile, null); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
+});
+
+test('table soil editor follows sorting and closes when its selection scope changes', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.data.state.tags.push({...structuredClone(ui.tag), id: 'other', label: 'VS.2'}); ui.changed();
+  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  const editor = ui.byClass('gp-table-soil-row');
+  ui.find(el => el.getAttribute('aria-label') === 'Sortera efter Styvhetsform').click();
+  assert.equal(editor.parent.children[editor.parent.children.indexOf(editor) - 1].dataset.tagId, ui.tag.id);
+  ui.byText('Markera samtliga').click();
+  assert.ok(!ui.elements().some(el => el.className === 'gp-table-soil-row'));
+});
+
+test('stiffness colour ranges use scientific notation everywhere and editable notation preserves exact bounds', t => {
+  const ui = setup(t); settlementFixture(ui, {K: 200000});
+  colourFixture(ui, {categories: ['K'], category: 'K'});
+  const legend = elementText(ui.byClass('gp-colour-legend'));
+  assert.ok(legend.includes('1,00 × 10⁵'));
+  assert.ok(!legend.includes('100 000'));
+  assert.ok(ui.elements().some(el => el.type === 'color' && el.getAttribute('aria-label')?.includes('1,00 × 10⁵')));
+  const bounds = ui.find(el => el.getAttribute('aria-label') === 'Intervallgränser Linjestyvhet K [kN/m/m]');
+  assert.equal(bounds.value, '1,00 × 10⁴; 5,00 × 10⁴; 1,00 × 10⁵');
+  bounds.dispatch('change'); let request = ui.sent.at(-1);
+  assert.deepEqual(request.settings.result_bounds.K_line, [10000, 50000, 100000]); ui.ack(request);
+  bounds.value = '1,2345 × 10⁴; 2e5; 3,00 × 10^5'; bounds.dispatch('change'); request = ui.sent.at(-1);
+  assert.deepEqual(request.settings.result_bounds.K_line, [12345, 200000, 300000]);
+  ui.data.state.colour_grouping.result_bounds = {K_line: [12345, 200000, 300000]}; ui.changed(); ui.ack(request);
+  assert.ok(bounds.value.includes('1,2345 × 10⁴'));
+  const count = ui.sent.length; bounds.value = '1 × 10^x'; bounds.dispatch('change'); assert.equal(ui.sent.length, count);
+});
+
+for (const readOnly of [true, false]) test('individual visibility overrides old project defaults (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly});
+  ui.data.state.settlement_display = {show_labels: false, forms: {wall: 'linje', wall_pad: 'punkt', pad: 'punkt'}};
+  ui.tag.settlement_display = {show_labels: true, form: 'linje'}; settlementFixture(ui);
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('4,42 mm'));
+  ui.tag.settlement_display.show_labels = false; ui.changed();
+  assert.ok(!ui.elements().some(el => el.className === 'gp-tag-settlement'));
+});
+
+test('standalone result table can fold and sort the settlement presentation group', t => {
+  const ui = setup(t, {readOnly: true, standalone: true});
+  const original = structuredClone(ui.data.state.tags);
+  ui.find(el => el.getAttribute('aria-label') === 'Sortera efter Styvhetsform').click();
+  assert.equal(ui.model.get('state').table_view.sort.key, 'settlement_form');
+  tableFold(ui, 'Sättning och styvhet').click();
+  assert.ok(ui.model.get('state').table_view.collapsed.includes('settlement_show_labels'));
+  assert.deepEqual(ui.model.get('state').tags, original);
 });
