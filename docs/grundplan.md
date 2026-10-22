@@ -230,7 +230,11 @@ valbara. Visningsval kan ändras även när beräkningsindata är låsta.
 **Δz [m]**, **Eₖ [MPa]** och **γₘ**. **t_skikt [m]** anges en gång per profil
 och gäller samtliga lager. Flera profiler kan vara synliga samtidigt, även
 med olika antal lager. Pilen vid **Egen/Gemensam · … lager** fäller ihop
-eller visar profilen. Profilerna går också att läsa i HTML-resultatets tabell.
+eller visar profilen. På en markerad rad gäller pilen samtliga markerade
+sulor, även dem med låsta indata; på en omarkerad rad gäller den bara den sulan.
+Den klickade radens läge avgör om alla berörda profiler visas eller fälls ihop.
+Hopfällda profiler visar mäktigheterna uppifrån och ned, exempelvis
+**Δz: 1,0 + 0,5 + 0,5 m**. Profilerna går också att läsa i HTML-resultatets tabell.
 
 Ändra ett värde och lämna cellen eller tryck Enter för att tillämpa. På en
 markerad rad ändras samma parameter i samma lagernummer för markerade sulor.

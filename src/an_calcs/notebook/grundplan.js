@@ -3762,6 +3762,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const folded = foldedProfiles.has(tag.id);
     entry.fold.textContent = (folded ? "▸ " : "▾ ") + profileCaption(tag);
     entry.fold.setAttribute("aria-expanded", String(!folded)); entry.body.hidden = folded;
+    entry.summary.hidden = !folded || !profile;
+    entry.summary.textContent = profile ? "Δz: " + profile.layers.map(layer =>
+      Number.isInteger(layer.dz) && layer.dz < 1e9 ? number(layer.dz, 0) + ",0" : precise(layer.dz)).join(" + ") + " m" : "";
     if (entry.signature !== signature && !soilBusy) {
       entry.signature = signature; entry.inputs = []; entry.body.replaceChildren();
       const cellValue = (value, field, layer) => {
@@ -3947,14 +3950,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       cells.set(name, cell);
       if (field.type === "profile") {
         const body = node("div", "gp-table-profile-body");
+        const summary = node("div", "gp-table-profile-summary");
         body.id = "gp-profile-" + view + "-" + tag.id;
         const control = button("", () => {
-          if (foldedProfiles.has(tag.id)) foldedProfiles.delete(tag.id); else foldedProfiles.add(tag.id);
-          syncInlineProfile(state().tags.find(item => item.id === tag.id));
+          const expand = foldedProfiles.has(tag.id);
+          for (const item of profileCandidates(tag.id)) {
+            if (expand) foldedProfiles.delete(item.id); else foldedProfiles.add(item.id);
+            syncInlineProfile(item);
+          }
         }, "gp-table-profile-fold");
         control.setAttribute("aria-controls", body.id); control.name = "table_" + name;
-        cell.append(control, body); row.append(cell); controls.set(name, control);
-        tableProfiles.set(tag.id, {fold: control, body, inputs: []}); continue;
+        cell.append(control, body, summary); row.append(cell); controls.set(name, control);
+        tableProfiles.set(tag.id, {fold: control, body, summary, inputs: []}); continue;
       }
       if (readOnly || field.type === "result") {
         const value = node("span", "gp-table-value");

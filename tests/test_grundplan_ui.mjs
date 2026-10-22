@@ -5550,7 +5550,7 @@ test('table soil editor follows sorting and closes when its selection scope chan
   assert.ok(!ui.elements().some(el => el.className === 'gp-table-soil-row'));
 });
 
-test('inline profiles show all layers together with a single step field and independent folding', t => {
+test('inline profiles show all layers together and keep a thickness summary when folded', t => {
   const ui = setup(t); settlementFixture(ui);
   const other = {...structuredClone(ui.tag), id: 'other', label: 'VS.2', soil_profile: {
     layers: [{dz: 1, Ek: 45, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3}], step: .1}};
@@ -5565,8 +5565,54 @@ test('inline profiles show all layers together with a single step field and inde
   assert.equal(firstBody.hidden, false); assert.equal(otherBody.hidden, false);
   tableField(ui, ui.tag.id, 'settlement_profile').click();
   assert.equal(firstBody.hidden, true); assert.equal(otherBody.hidden, false);
+  const firstSummary = firstBody.parent.children[2];
+  assert.equal(firstSummary.hidden, false); assert.equal(firstSummary.textContent, 'Δz: 0,5 m');
   ui.changed(); assert.equal(firstBody.hidden, true, 'Ordinary refreshes retain folding');
+  tableField(ui, 'other', 'settlement_profile').click();
+  const otherSummary = otherBody.parent.children[2];
+  assert.equal(otherSummary.textContent, 'Δz: 1,0 + 0,5 + 0,5 m');
+  other.soil_profile.layers[0].dz = 1.25; ui.changed();
+  assert.equal(otherSummary.textContent, 'Δz: 1,25 + 0,5 + 0,5 m', 'Folded summaries follow updated profiles');
+  ui.data.state.soil_profile.layers[0].dz = 2; ui.changed();
+  assert.equal(firstSummary.textContent, 'Δz: 2,0 m', 'Inherited summaries follow the shared profile');
+  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  assert.equal(firstSummary.hidden, true); assert.equal(firstBody.hidden, false);
   assert.equal(ui.sent.length, 0, 'Folding is local presentation only');
+});
+
+for (const readOnly of [false, true]) test('profile folding applies one shared state to selected rows, including locks (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly}); settlementFixture(ui);
+  const other = {...structuredClone(ui.tag), id: 'other', label: 'VS.2', input_locked: true};
+  ui.data.state.tags.push(other); ui.changed();
+  const fold = id => tableField(ui, id, 'settlement_profile');
+  const body = id => fold(id).parent.children[1];
+  fold(ui.tag.id).click();
+  assert.equal(body(ui.tag.id).hidden, true); assert.equal(body('other').hidden, false);
+  const all = ui.find(el => el.getAttribute('aria-label') === 'Markera samtliga tabellrader');
+  all.checked = true; all.dispatch('change');
+  const outside = {...structuredClone(ui.tag), id: 'outside', label: 'VS.3'};
+  ui.data.state.tags.push(outside); ui.changed();
+  const originalProfiles = structuredClone(ui.data.state.tags);
+  fold(ui.tag.id).click();
+  assert.equal(body(ui.tag.id).hidden, false); assert.equal(body('other').hidden, false, 'Mixed selection expands uniformly');
+  fold(ui.tag.id).click();
+  assert.equal(body(ui.tag.id).hidden, true); assert.equal(body('other').hidden, true);
+  assert.equal(body('outside').hidden, false, 'Unselected rows retain their own state');
+  assert.equal(fold('other').parent.children[2].hidden, false);
+  assert.equal(fold('other').getAttribute('aria-expanded'), 'false');
+  fold('other').click();
+  assert.equal(body(ui.tag.id).hidden, false); assert.equal(body('other').hidden, false, 'A locked row can expand the whole selection');
+  fold('outside').click();
+  assert.equal(body(ui.tag.id).hidden, false); assert.equal(body('other').hidden, false);
+  assert.equal(body('outside').hidden, true, 'Clicking an unselected row affects only that row');
+  assert.deepEqual(ui.data.state.tags, originalProfiles); assert.equal(ui.sent.length, 0);
+});
+
+test('a folded missing profile never invents layer thicknesses', t => {
+  const ui = setup(t);
+  const fold = tableField(ui, ui.tag.id, 'settlement_profile'); fold.click();
+  const summary = fold.parent.children[2];
+  assert.equal(summary.hidden, true); assert.equal(summary.textContent, '');
 });
 
 test('inline edits explain mixed layer counts before changing only one field of selected profiles', t => {
