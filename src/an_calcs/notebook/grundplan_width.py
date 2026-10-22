@@ -4,6 +4,7 @@ import math
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from .grundplan_reference import exclusion_reason, group_key, group_keys
 from .grundplan_width_optimizer import optimize
+from .grundplan_types import footing_type
 
 
 DEFAULT_SETTINGS = {"step_mm": 100, "u_min": 70, "u_max": 99, "b_min": .2, "b_max": 5,
@@ -52,6 +53,11 @@ def utilization(summary):
     return value
 
 
+def candidate_values(tag, width):
+    """Physical pads are square; wall-pad calculation models retain their length."""
+    return {**tag["values"], "b": width, **({"l": width} if footing_type(tag) == "pelarsula" else {})}
+
+
 def propose(tags, settings, calculate, *, all_tags=None):
     settings = validate_settings(settings)
     project = tags if all_tags is None else all_tags
@@ -64,6 +70,7 @@ def propose(tags, settings, calculate, *, all_tags=None):
     for tag in tags:
         values = tag["values"]
         row = {"id": tag["id"], "label": tag["label"], "b_before": values["b"],
+               "l_before": values.get("l"), "l_after": None, "square_pad": footing_type(tag) == "pelarsula",
                "b_after": None, "u_before": None, "u_after": None, "status": "skipped", "reason": ""}
         rows.append(row)
         reason = ("Låsta indata" if tag.get("input_locked") else "Inaktiv" if values["inaktiv"]
@@ -86,7 +93,7 @@ def propose(tags, settings, calculate, *, all_tags=None):
         # change. Prefer the smallest width in the interval; otherwise the first
         # width below the upper limit. The lower limit is a goal, not a rejection.
         for width in widths:
-            candidate = {**values, "b": width}
+            candidate = candidate_values(tag, width)
             try:
                 details, summary = calculate(candidate)
                 u = utilization(summary)
@@ -94,7 +101,7 @@ def propose(tags, settings, calculate, *, all_tags=None):
                 continue
             if u <= upper + 1e-12:
                 if maximum is not None:
-                    candidates.append((width, u, group_key(tag, width=width)))
+                    candidates.append((width, u, group_key({**tag, "values": candidate})))
                     continue
                 result = (candidate, details, summary, u)
                 if fallback is None:
@@ -113,8 +120,8 @@ def propose(tags, settings, calculate, *, all_tags=None):
             row["reason"] = "Ingen giltig bredd inom sökbredden uppfyller övre U-gränsen."
             continue
         candidate, details, summary, u = chosen
-        row.update(b_after=candidate["b"], u_after=u,
-                   status="unchanged" if candidate["b"] == values["b"] else "changed")
+        row.update(b_after=candidate["b"], l_after=candidate.get("l"), u_after=u,
+                   status="unchanged" if candidate == values else "changed")
         if row["status"] == "changed":
             prepared.append({"id": tag["id"], "values": candidate, "details": details, "summary": summary})
     feasible, message, minimum = True, "", None
@@ -133,12 +140,13 @@ def propose(tags, settings, calculate, *, all_tags=None):
         else:
             for (tag, row, candidates), choice in zip(joint, choices):
                 width, _, _ = candidates[choice]
-                candidate = {**tag["values"], "b": width}
+                candidate = candidate_values(tag, width)
                 details, summary = calculate(candidate)
                 u = utilization(summary)
                 if u > upper + 1e-12:
                     raise ValueError("En föreslagen bredd uppfyller inte övre U-gränsen. Förhandsvisa igen.")
-                row.update(b_after=width, u_after=u, status="unchanged" if width == tag["values"]["b"] else "changed")
+                row.update(b_after=width, l_after=candidate.get("l"), u_after=u,
+                           status="unchanged" if candidate == tag["values"] else "changed")
                 if row["status"] == "changed":
                     prepared.append({"id": tag["id"], "values": candidate, "details": details, "summary": summary})
     replacements = {result["id"]: result for result in prepared}

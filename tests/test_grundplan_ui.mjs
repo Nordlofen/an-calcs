@@ -5909,6 +5909,27 @@ for (const readOnly of [true, false]) test('individual visibility overrides old 
   assert.ok(!ui.elements().some(el => el.className === 'gp-tag-settlement'));
 });
 
+test('Auto bx preview shows both pad axes while wall model pads remain width-only', t => {
+  const ui = setup(t);
+  ui.tag.values.lang = 0; ui.tag.values.l = .5; ui.tag.footing_type = 'pelarsula'; ui.tag.label = 'PS.1';
+  const wallPad = {...structuredClone(ui.tag), id: 'wallpad', label: 'VS.1', footing_type: 'vaggsula'};
+  wallPad.values.l = 1.5; ui.data.state.tags.push(wallPad); ui.changed();
+  ui.byText('Markera samtliga').click();
+  ui.find(el => el.className === 'gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byText('Förhandsvisa').click();
+  ui.ack(ui.sent.at(-1), {preview: {token: 'square', changed: 2, unchanged: 0, skipped: 0, rows: [
+    {id: ui.tag.id, label: 'PS.1', status: 'changed', square_pad: true, b_before: 1, l_before: .5, b_after: 4.8, l_after: 4.8, u_before: 10, u_after: .94},
+    {id: 'wallpad', label: 'VS.1', status: 'changed', square_pad: false, b_before: 1, l_before: 1.5, b_after: 1.2, l_after: 1.5, u_before: 1.1, u_after: .9},
+  ]}});
+  const rows = ui.byClass('gp-auto-bx-list').children[0].children[1].children;
+  assert.ok(elementText(rows[0]).includes('1 × 0,5'));
+  assert.ok(elementText(rows[0]).includes('4,8 × 4,8'));
+  assert.ok(!elementText(rows[1]).includes('×'));
+  assert.ok(elementText(ui.byClass('gp-auto-bx-dialog')).includes('bᵧ = bₓ'));
+  ui.byClass('gp-auto-bx-footer').children[1].click();
+  assert.equal(ui.sent.at(-1).action, 'auto_bx_apply'); assert.equal(ui.sent.at(-1).token, 'square');
+});
+
 test('standalone result table can fold and sort the settlement presentation group', t => {
   const ui = setup(t, {readOnly: true, standalone: true});
   const original = structuredClone(ui.data.state.tags);

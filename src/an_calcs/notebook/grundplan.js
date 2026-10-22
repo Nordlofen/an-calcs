@@ -2066,7 +2066,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const autoBxFooter = node("div", "gp-dialog-footer gp-auto-bx-footer");
   autoBxFooter.append(autoBxPreviewButton, autoBxApply);
   autoBxForm.append(autoBxCount, autoBxSettings,
-    node("p", "gp-field-note", "Övre U-gränsen är ett krav; undre är ett mål. Endast bredden ändras. Max referensgrupper gäller hela projektet; tomt ger individuell tilldelning."),
+    node("p", "gp-field-note", "Övre U-gränsen är ett krav; undre är ett mål. Rena pelarsulor får kvadratiska mått, bᵧ = bₓ. För väggsulor, även med pelarsulemodell, ändras bara bₓ. Max referensgrupper gäller hela projektet; tomt ger individuell tilldelning."),
     autoBxFeedback, autoBxGroups, autoBxList, autoBxSummary, autoBxFooter);
   autoBxForm.addEventListener("submit", event => {event.preventDefault(); previewAutoBx();});
   autoBxDialog.append(autoBxHeader, autoBxForm);
@@ -4721,7 +4721,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     autoBxGroups.textContent = groups ? "Referensgrupper: " + groups.before + " → " + groups.after
       + (groups.maximum != null ? " · Max " + groups.maximum : "") : "";
     const table = node("table", "gp-auto-bx-table"), head = node("thead"), body = node("tbody"), headings = node("tr");
-    for (const text of ["Sula", "b_x [m]", "U [%]"]) {
+    const hasPads = autoBxPreview.rows.some(row => row.square_pad);
+    for (const text of ["Sula", hasPads ? "Sulmått [m]" : "b_x [m]", "U [%]"]) {
       const cell = mathText("th", "", text); cell.setAttribute("scope", "col");
       if (text !== "Sula") cell.append(node("span", "gp-auto-bx-subhead", "Nu → Förslag"));
       headings.append(cell);
@@ -4731,14 +4732,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const line = node("tr"), label = node("th", "", row.label); label.setAttribute("scope", "row"); line.append(label);
       if (row.status === "skipped") {
         const reason = node("td", "gp-auto-bx-reason", row.reason); reason.colSpan = 2; line.append(reason);
-      } else for (const [before, after, digits, factor] of [[row.b_before, row.b_after, 3, 1], [row.u_before, row.u_after, 1, 100]]) {
-        const cell = node("td"); cell.append(node("span", "gp-auto-bx-before", number(before * factor, digits)),
-          node("span", "gp-auto-bx-arrow", "→"), node("strong", "", number(after * factor, digits))); line.append(cell);
+      } else {
+        const dimensions = node("td");
+        if (hasPads) dimensions.append(mathText("span", "gp-auto-bx-subhead", row.square_pad ? "b_x × b_y" : "b_x"));
+        const measure = (bx, by) => number(bx, 3) + (row.square_pad ? " × " + number(by, 3) : "");
+        dimensions.append(node("span", "gp-auto-bx-before", measure(row.b_before, row.l_before)),
+          node("span", "gp-auto-bx-arrow", "→"), node("strong", "", measure(row.b_after, row.l_after)));
+        const utilization = node("td"); utilization.append(node("span", "gp-auto-bx-before", number(row.u_before * 100, 1)),
+          node("span", "gp-auto-bx-arrow", "→"), node("strong", "", number(row.u_after * 100, 1)));
+        line.append(dimensions, utilization);
       }
       body.append(line);
     }
     table.append(head, body); autoBxList.replaceChildren(table);
-    autoBxSummary.textContent = autoBxPreview.changed + " bredder ändras · " + autoBxPreview.unchanged + " oförändrade"
+    autoBxSummary.textContent = autoBxPreview.changed + " sulor ändras · " + autoBxPreview.unchanged + " oförändrade"
       + (autoBxPreview.skipped ? " · " + autoBxPreview.skipped + " överhoppade" : "");
     autoBxPreviewButton.textContent = "Förhandsvisa igen";
   }
@@ -4754,7 +4761,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           drafts.delete(row.id); dirty.delete(row.id); edits.delete(row.id); slidingDirty.delete(row.id);
         }
         autoBxDialog.hidden = true; formId = null;
-        showMessage(reply.report.changed + " sulor har fått nytt bₓ. Tilldelningen kan ångras i ett steg.");
+        showMessage(reply.report.changed + " sulor har fått nya mått. Rena pelarsulor har bᵧ = bₓ. Tilldelningen kan ångras i ett steg.");
       } else autoBxFeedback.textContent = reply.error;
       update();
     });

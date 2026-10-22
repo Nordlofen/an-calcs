@@ -1584,6 +1584,13 @@ minsta och största sökbredd samt valfritt **Max referensgrupper**.
 samt **Referensgrupper: före → efter** för hela projektet.
 Inga sulor ändras innan **Tilldela bₓ**.
 
+För sultyp **Pelarsula** provas kvadratiska mått: varje kandidat får
+**bᵧ = bₓ**. Både bₓ och bᵧ tilldelas, även när det tidigare bᵧ skiljer sig
+från bₓ. Förhandslistan visar då **bₓ × bᵧ: nu → förslag**. **Väggsula**
+och **Väggsula m. beräkningsmodell pelarsula** behåller sitt angivna bᵧ;
+bara bₓ ändras. Optimeringen av Max referensgrupper använder samma
+kandidatmått som beräkningen, inklusive pelarsulornas ändrade bᵧ.
+
 Bredderna är hela multiplar av måttsteget. Varje kandidat beräknas med
 sulans befintliga modell och indata, inklusive egentyngd och alla aktiva
 jord- och isoleringskontroller. U avser den högsta utnyttjandegraden; styrande
@@ -1603,7 +1610,8 @@ Gruppgränsen avser hela projektets referensgrupper, även andra ritningssidor.
 Omarkerade, låsta och överhoppade sulor behåller sina indata och deras
 befintliga grupper räknas med. Kandidater använder exakt samma gruppnyckel
 som Referens-widgeten: sultyp, relevanta gruppmått, lasttyp och jord-/
-beräkningsförutsättningar. Endast bₓ ändras. Oklara äldre sultyper och sulor
+beräkningsförutsättningar. Pelarsulor får bᵧ = bₓ; väggsulor behåller bᵧ.
+Oklara äldre sultyper och sulor
 utan aktuellt giltigt resultat måste bekräftas/beräknas före gemensam optimering.
 
 Om gruppgränsen är omöjlig visas minsta möjliga antal grupper för aktuellt

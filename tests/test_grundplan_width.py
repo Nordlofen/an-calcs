@@ -59,6 +59,30 @@ class TestWidthSearch(unittest.TestCase):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 validate_settings(settings)
 
+    def test_real_pad_candidates_resize_both_dimensions_but_wall_pad_retains_by(self):
+        def calculate(values):
+            return {}, {"utnyttjandegrad": 1.8 / (values['b'] * values['l'])}
+        pad = {**self.tag(lang=0, l=.3), 'label': 'PS.1', 'footing_type': 'pelarsula'}
+        report, prepared = propose([pad], {'u_min': 70, 'u_max': 95, 'b_min': 1, 'b_max': 2}, calculate)
+        row = report['rows'][0]
+        self.assertEqual((row['b_after'], row['l_after']), (1.4, 1.4))
+        self.assertTrue(row['square_pad'])
+        self.assertEqual((prepared[0]['values']['b'], prepared[0]['values']['l']), (1.4, 1.4))
+        self.assertEqual(pad['values']['l'], .3, 'Preview never modifies existing geometry')
+        wall_pad = {**pad, 'footing_type': 'vaggsula'}
+        report, _ = propose([wall_pad], {'u_min': 70, 'u_max': 95, 'b_min': 1, 'b_max': 2}, calculate)
+        self.assertEqual(report['skipped'], 1)
+        self.assertFalse(report['rows'][0]['square_pad'])
+
+    def test_changing_only_pad_by_is_a_real_change_even_if_bx_is_unchanged(self):
+        pad = {**self.tag(lang=0, l=2), 'footing_type': 'pelarsula'}
+        report, prepared = propose([pad], {'b_min': 1, 'b_max': 1},
+                                   lambda values: ({}, {'utnyttjandegrad': .9 / (values['b'] * values['l'])}))
+        row = report['rows'][0]
+        self.assertEqual((row['b_before'], row['b_after'], row['l_before'], row['l_after']), (1, 1, 2, 1))
+        self.assertEqual(row['status'], 'changed')
+        self.assertEqual(len(prepared), 1)
+
 
 @unittest.skipUnless(HAS_SCIPY, "Installera an-calcs[notebook] med SciPy.")
 class TestJointWidthSearch(unittest.TestCase):
@@ -158,6 +182,19 @@ class TestJointWidthSearch(unittest.TestCase):
         self.assertEqual([row["b_after"] for row in report["rows"]], [1, 1.2])
         self.assertEqual(report["reference_groups"], {"before": 3, "after": 3, "maximum": None})
 
+    def test_square_pad_group_keys_use_proposed_by_and_reuse_fixed_square_groups(self):
+        pads = [self.tag('PS.1', .95, b=1.2, lang=0, l=1.1), self.tag('PS.2', 1.15, b=1.3, lang=0, l=1.8)]
+        for tag in pads:
+            tag['footing_type'] = 'pelarsula'
+        fixed = {**self.tag('PS.3', .7, b=1.6, lang=0, l=1.6), 'footing_type': 'pelarsula'}
+        report, prepared = propose(pads, {'max_reference_groups': 1, 'b_min': 1, 'b_max': 2},
+                                   self.calculate, all_tags=[*pads, fixed])
+        self.assertTrue(report['feasible'])
+        self.assertEqual(report['reference_groups']['after'], 1)
+        self.assertEqual([(row['b_after'], row['l_after']) for row in report['rows']], [(1.6, 1.6)] * 2)
+        after = [{**tag, 'values': result['values']} for tag, result in zip(pads, prepared)] + [fixed]
+        self.assertEqual(len(group_keys(after)), 1)
+
 
 @unittest.skipUnless(HAS_NOTEBOOK, "Installera an-calcs[notebook].")
 class TestAutoWidthAndInputLocks(unittest.TestCase):
@@ -185,13 +222,13 @@ class TestAutoWidthAndInputLocks(unittest.TestCase):
         self.assertEqual(report["changed"], 2)
         for row in report["rows"]:
             tag = self.plan._tag(row["id"])
-            _, summary = _calculate({**tag["values"], "b": row["b_after"]})
+            _, summary = _calculate({**tag["values"], "b": row["b_after"], "l": row["l_after"]})
             self.assertAlmostEqual(row["u_after"], summary["utnyttjandegrad"])
             self.assertLessEqual(row["u_after"], .99 + 1e-12)
         self.plan.tilldela_auto_bx(report["token"])
         for row in report["rows"]:
             tag = self.plan._tag(row["id"])
-            self.assertEqual(tag["values"], {**before[0]["tags"][[self.wall, self.pad].index(tag["id"])]["values"], "b": row["b_after"]})
+            self.assertEqual(tag["values"], {**before[0]["tags"][[self.wall, self.pad].index(tag["id"])]["values"], "b": row["b_after"], "l": row["l_after"]})
             details, summary = _calculate(tag["values"])
             self.assertEqual((self.plan.resultat[tag["id"]], tag["summary"]), (details, summary))
 
@@ -207,6 +244,22 @@ class TestAutoWidthAndInputLocks(unittest.TestCase):
         self.assertTrue(self.msg("undo")["ok"]); self.assertEqual(self.plan._document(), original)
         self.assertTrue(self.msg("redo")["ok"]); self.assertEqual(self.plan._document(), changed)
         self.assertFalse(self.msg("auto_bx_apply", token=preview["token"])["ok"])
+
+    def test_heavy_real_pad_can_reach_upper_limit_with_square_geometry_and_undo_restores_both_axes(self):
+        self.plan.uppdatera(self.pad, indata={'b': 1, 'l': .5, 't': .3, 'F_vy': 4000,
+            'isolering': True, 'F_vy_bruk': 2000, 'f_d_brott': 200, 'f_d_bruk': 100})
+        before = self.plan._document()
+        preview = self.msg('auto_bx_preview', ids=[self.pad], settings={'u_min': 70, 'u_max': 95})['preview']
+        row = preview['rows'][0]
+        self.assertEqual(row['status'], 'changed')
+        self.assertEqual((row['b_after'], row['l_after']), (4.8, 4.8))
+        self.assertLessEqual(row['u_after'], .95)
+        self.assertTrue(self.msg('auto_bx_apply', token=preview['token'])['ok'])
+        self.assertEqual((self.plan._tag(self.pad)['values']['b'], self.plan._tag(self.pad)['values']['l']), (4.8, 4.8))
+        self.assertLessEqual(self.plan._tag(self.pad)['summary']['utnyttjandegrad'], .95)
+        after = self.plan._document()
+        self.plan.angra(); self.assertEqual(self.plan._document(), before)
+        self.plan.gor_om(); self.assertEqual(self.plan._document(), after)
 
     def test_stale_preview_rejected_atomically_after_input_lock_rename_or_project_open(self):
         for mutate in [lambda: self.plan.uppdatera(self.wall, indata={"b": 2.1}),
