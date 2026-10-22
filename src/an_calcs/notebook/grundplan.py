@@ -39,6 +39,7 @@ from .grundplan_width import propose as propose_widths
 from .grundplan_settlement import (validate_profile, evaluate as settlement_result,
                                    validate_display, display_result, tag_display, validate_tag_display, positive)
 from .grundplan_pdf_view import svg_preview
+from .grundplan_foundations import validate_foundations, prune_foundations, foundation_result
 
 
 _ASSETS = Path(__file__).parent
@@ -153,7 +154,7 @@ def _table_view(value):
             or len(set(collapsed)) != len(collapsed)):
         raise ValueError("Okänd tabellkategori.")
     if (not isinstance(sort, dict) or set(sort) != {"key", "direction"}
-            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk", "settlement_show_labels", "settlement_form", "settlement_profile", "settlement_s", "settlement_stiffness"})
+            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk", "settlement_show_labels", "settlement_form", "settlement_profile", "settlement_s", "settlement_stiffness", "common_foundation"})
             or sort["direction"] not in ("ascending", "descending")):
         raise ValueError("Ogiltig tabellsortering.")
     return result
@@ -516,6 +517,7 @@ class Grundplan(anywidget.AnyWidget):
         self._history = History()
         self._soil_profile = None
         self._settlement_display = validate_display({})
+        self._common_foundations = []
         self.schema = copy.deepcopy(allmanna_barighetsekvationen.panel_schema)
         self.schema = {**self.schema, "fields": copy.deepcopy(_FIELDS), "px": list(_DEFAULTS),
                        "load_groups": copy.deepcopy(LOAD_GROUPS),
@@ -667,6 +669,7 @@ class Grundplan(anywidget.AnyWidget):
             "tags": self.taggar,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
+            "common_foundations": self.gemensamma_fundament,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
             "sliding": copy.deepcopy(self._gliding),
@@ -1262,6 +1265,7 @@ class Grundplan(anywidget.AnyWidget):
     def ta_bort(self, tagg):
         self._tag(tagg)
         self._tags = [tag for tag in self._tags if tag["id"] != tagg]
+        self._common_foundations = prune_foundations(self._common_foundations, self._tags)
         self._details.pop(tagg, None)
         self._placement_locks.pop("tag:" + tagg, None)
         self._publish()
@@ -1270,6 +1274,7 @@ class Grundplan(anywidget.AnyWidget):
         """Radera alla sulor och avbryt eventuell placeringskö."""
         count = len(self._tags)
         self._tags.clear()
+        self._common_foundations.clear()
         self._placement_locks = {key: item for key, item in self._placement_locks.items() if item["type"] != "tag"}
         self._details.clear()
         self._load_import = None
@@ -1279,10 +1284,75 @@ class Grundplan(anywidget.AnyWidget):
     @property
     def taggar(self):
         """Kopior av taggar, indata och aktuella resultatsammanfattningar."""
+        membership = {key: item["id"] for item in self._common_foundations for key in item["members"]}
         return [{**copy.deepcopy(tag), "settlement_display": tag_display(tag, self._settlement_display),
                  "sliding": contribution(tag["values"]),
                  "load_resultants": load_resultants(tag["values"]),
-                 **self._settlement_data(tag)} for tag in self._tags]
+                 **({"common_foundation_id": membership[tag["id"]]} if tag["id"] in membership else self._settlement_data(tag))}
+                for tag in self._tags]
+
+    def _common_foundation(self, ident):
+        item = next((item for item in self._common_foundations if item["id"] == ident), None)
+        if item is None:
+            raise ValueError("Det gemensamma fundamentet finns inte längre.")
+        return item
+
+    def _assert_foundation_unlocked(self, members):
+        for tag in self._selected_tags(members):
+            self._assert_input_unlocked(tag)
+
+    @property
+    def gemensamma_fundament(self):
+        """Gemensamma plattor med separata, aktuella sättnings- och styvhetsresultat."""
+        return [foundation_result(item, self._tags, self._soil_profile) for item in self._common_foundations]
+
+    def satt_gemensamt_fundament(self, taggar, *, namn, bx, by, t, jordprofil=None,
+                                form="punkt", visa_pa_etikett=True, etikett=None, stodindata=None, ident=None):
+        """Koppla stöd till en fysisk platta. Befintliga stödindata behålls vid upplösning."""
+        tags = self._selected_tags(taggar)
+        existing = self._common_foundation(ident) if ident is not None else None
+        members = [tag["id"] for tag in tags]
+        self._assert_foundation_unlocked(list(dict.fromkeys([*(existing["members"] if existing else []), *members])))
+        old_members = existing["members"] if existing else []
+        if any(tag["values"].get("inaktiv") and tag["id"] not in old_members for tag in tags):
+            raise ValueError("Aktivera stödet innan det kopplas till ett gemensamt fundament.")
+        updates = {} if stodindata is None else stodindata
+        if not isinstance(updates, dict) or set(updates) - set(members):
+            raise ValueError("Stödindata ska avse anslutna stöd.")
+        candidates = copy.deepcopy(self._tags)
+        for tag in candidates:
+            if tag["id"] not in updates:
+                continue
+            patch = updates[tag["id"]]
+            if not isinstance(patch, dict) or set(patch) - {"F_vy_bruk", "L_vagg"}:
+                raise ValueError("Ändra endast Brukslast och hela belastade L_vägg i fundamentets stödlista.")
+            if "L_vagg" in patch and not line_loads(tag["values"]):
+                raise ValueError("Belastad längd gäller endast linjelaster.")
+            patch = {**patch, **({"L_vagg_minst_1": tag["values"]["L_vagg_minst_1"]} if "L_vagg" in patch else {})}
+            tag["values"] = _updated_values(tag["values"], patch)
+        item = {"id": existing["id"] if existing else uuid.uuid4().hex, "label": namn, "members": members,
+                "values": {"b": bx, "l": by, "t": t}, "soil_profile": jordprofil, "form": form,
+                "show_labels": visa_pa_etikett, "label_member": etikett or (existing["label_member"]
+                    if existing and existing["label_member"] in members else members[0])}
+        prepared = [item if other["id"] == item["id"] else other for other in self._common_foundations]
+        if existing is None:
+            prepared.append(item)
+        validated = validate_foundations(prepared, candidates)
+        changed = {tag["id"] for tag, old in zip(candidates, self._tags) if tag["values"] != old["values"]}
+        self._tags = candidates
+        self._common_foundations = validated
+        for tag in self._tags:
+            if tag["id"] in changed:
+                self._refresh_tag(tag)
+        self._publish()
+        return item["id"]
+
+    def los_upp_fundament(self, ident):
+        """Ta bort kopplingen; stöd och deras ursprungliga indata finns kvar."""
+        item = self._common_foundation(ident)
+        self._assert_foundation_unlocked(item["members"])
+        self._common_foundations = [other for other in self._common_foundations if other["id"] != ident]
+        self._publish()
 
     def _settlement_data(self, tag):
         profile = tag.get("soil_profile") or self._soil_profile
@@ -1317,10 +1387,12 @@ class Grundplan(anywidget.AnyWidget):
     def satt_sattningsvisning(self, taggar, installningar):
         """Ändra visning per sula eller för en lista, utan att räkna om indata."""
         tags = self._selected_tags([taggar] if isinstance(taggar, str) else taggar)
+        if any(tag["id"] in item["members"] for item in self._common_foundations for tag in tags):
+            raise ValueError("Ändra visningsvalen under Gemensamt fundament för anslutna stöd.")
         if not isinstance(installningar, dict) or not installningar:
             raise ValueError("Välj minst ett visningsval.")
-        if any(tag["values"].get("inaktiv") or tag["values"].get("endast_h_stabilitet") for tag in tags):
-            raise ValueError("Sättning och styvhet används inte för Inaktiv eller Endast H.")
+        if any(tag["values"].get("inaktiv") for tag in tags):
+            raise ValueError("Sättning och styvhet används inte för Inaktiv.")
         prepared = [validate_tag_display(installningar, tag, self._settlement_display) for tag in tags]
         for tag, settings in zip(tags, prepared):
             tag["settlement_display"] = settings
@@ -1340,10 +1412,12 @@ class Grundplan(anywidget.AnyWidget):
     def satt_jordprofil(self, tagg, profil=None):
         """Egen profil för ett id eller en lista; None återgår till projektprofilen."""
         tags = self._selected_tags([tagg] if isinstance(tagg, str) else tagg)
+        if any(tag["id"] in item["members"] for item in self._common_foundations for tag in tags):
+            raise ValueError("Ändra jordprofilen under Gemensamt fundament för anslutna stöd.")
         for tag in tags:
             self._assert_input_unlocked(tag)
-            if tag["values"]["inaktiv"] or tag["values"]["endast_h_stabilitet"]:
-                raise ValueError("Jordprofil används inte för Inaktiv eller Endast H.")
+            if tag["values"]["inaktiv"]:
+                raise ValueError("Jordprofil används inte för Inaktiv.")
         profile = validate_profile(profil)
         for tag in tags:
             if profile is None:
@@ -1373,7 +1447,7 @@ class Grundplan(anywidget.AnyWidget):
             profile = tag.get("soil_profile") or self._soil_profile
             reason = ("Låsta indata" if tag.get("input_locked") else
                       "Inaktiv" if tag["values"].get("inaktiv") else
-                      "Endast H" if tag["values"].get("endast_h_stabilitet") else
+                      "Gemensamt fundament" if any(tag["id"] in item["members"] for item in self._common_foundations) else
                       "Saknar jordprofil" if profile is None else
                       f"Saknar lager {lager + 1}" if falt != "step" and lager >= len(profile["layers"]) else None)
             if reason:
@@ -1644,9 +1718,10 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 27,
+            "version": 28,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
+            "common_foundations": copy.deepcopy(self._common_foundations),
             "calculator_version": _CALCULATOR_VERSION,
             "title": self._title,
             "subtitle": self._subtitle,
@@ -1730,7 +1805,8 @@ class Grundplan(anywidget.AnyWidget):
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
                           text_objects=self._text_objects, canvas_bounds=self._canvas_bounds,
                           drawing_layout=self._drawing_layout, object_layout=self._object_layout,
-                          settlement_display=self.sattningsvisning, soil_profile=self.jordprofil)
+                          settlement_display=self.sattningsvisning, soil_profile=self.jordprofil,
+                          common_foundations=self.gemensamma_fundament)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1765,6 +1841,7 @@ class Grundplan(anywidget.AnyWidget):
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
                       "soil_profile": self.jordprofil,
                       "settlement_display": self.sattningsvisning,
+                      "common_foundations": self.gemensamma_fundament,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
@@ -1820,8 +1897,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 28):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–27.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 29):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–28.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -1912,6 +1989,7 @@ class Grundplan(anywidget.AnyWidget):
             if profile is not None:
                 tag["soil_profile"] = profile
             valid_tags.append(tag)
+        common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
                                  drawing["page"], allow_empty=True)
         objects_layout = object_layout(document.get("object_layout", {}) if document["version"] >= 23 else {}, valid_tags, text_objects, drawing["page"] if source else None)
@@ -1938,6 +2016,7 @@ class Grundplan(anywidget.AnyWidget):
         self._tags = valid_tags
         self._soil_profile = soil_profile
         self._settlement_display = settlement_display
+        self._common_foundations = common_foundations
         self._load_import = None
         self._auto_bx_preview = None
         self._details = details_by_id
@@ -2129,6 +2208,14 @@ class Grundplan(anywidget.AnyWidget):
                     self.satt_jordprofil(content.get("ids", content.get("id")), content.get("profile"))
                 else:
                     self.jordprofil = content.get("profile")
+            elif action == "common_foundation":
+                reply["id"] = self.satt_gemensamt_fundament(content["ids"], namn=content["label"],
+                    bx=content["values"]["b"], by=content["values"]["l"], t=content["values"]["t"],
+                    jordprofil=content.get("soil_profile"), form=content.get("form", "punkt"),
+                    visa_pa_etikett=content.get("show_labels", True), etikett=content.get("label_member"),
+                    stodindata=content.get("member_updates"), ident=content.get("id"))
+            elif action == "common_foundation_delete":
+                self.los_upp_fundament(content["id"])
             elif action == "soil_profile_patch":
                 reply.update(self.andra_jordprofil(content["ids"], falt=content["field"],
                     varde=content["value"], lager=content.get("layer")))

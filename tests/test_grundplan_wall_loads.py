@@ -102,7 +102,7 @@ class TestWallLoads(unittest.TestCase):
         self.plan.uppdatera(ident, indata={"F_vy": -10})
         self.assertEqual(self.plan.taggar[0]["load_resultants"]["brott"], -6)
         self.plan.uppdatera(ident, indata={"endast_h_stabilitet": True})
-        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": None, "bruk": None})
+        self.assertEqual(self.plan.taggar[0]["load_resultants"], {"brott": None, "bruk": 0})
 
     def test_pad_line_basis_survives_copy_save_old_imported_project_and_exports(self):
         ident = self.imported()

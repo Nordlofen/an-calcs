@@ -98,7 +98,7 @@ def validate_profile(value):
 
 
 def evaluate(values, profile):
-    if profile is None or values.get("inaktiv") or values.get("endast_h_stabilitet"):
+    if profile is None or values.get("inaktiv"):
         return None
     # Store only small result summaries in the cache, not thousands of layer posts.
     geometry = tuple(values.get(name) for name in

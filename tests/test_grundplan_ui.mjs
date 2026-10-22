@@ -3606,7 +3606,7 @@ test("inactive leader remains visible but has no editing handles", t => {
   assert.equal(ui.elements().filter(e => e.className === 'gp-leader-handle').length, 0);
 });
 
-test("H-only checkbox hides bearing inputs, keeps stored values and restores them when unchecked", t => {
+test("H-only checkbox hides bearing inputs but keeps settlement geometry and service load editable", t => {
   const ui = setup(t);
   Object.assign(ui.tag.values, {b: .95, l: 2.4, l_override: true, isolering: true,
     glid_x: true, V_Ed_EQU: 120, glid_mu: .4, glid_L: 3});
@@ -3621,13 +3621,14 @@ test("H-only checkbox hides bearing inputs, keeps stored values and restores the
   assert.equal(ui.sent.at(-1).values.F_vy, 1, "Unused bearing values are preserved");
   assert.equal(ui.field("F_vy").parent.parent.hidden, true);
   assert.equal(ui.field("phi_k").disabled, true);
-  assert.equal(ui.field("t").parent.hidden, true);
-  for (const name of ["b", "l", "l_override"]) {
-    assert.equal(ui.field(name).parent.hidden, true);
-    assert.equal(ui.field(name).disabled, true);
+  assert.equal(ui.field("t").parent.hidden, false);
+  for (const name of ["b", "l", "l_override", "F_vy_bruk"]) {
+    assert.equal(ui.field(name).parent.hidden, false);
+    assert.equal(ui.field(name).disabled, false);
+    assert.equal(ui.field(name).required, false, 'Missing settlement inputs must not block sliding edits');
   }
   assert.equal(ui.sent.at(-1).values.b, .95);
-  assert.equal(ui.sent.at(-1).values.l, 2.4, "A hidden overridden wall dimension is preserved");
+  assert.equal(ui.sent.at(-1).values.l, 2.4, "The overridden wall dimension is preserved");
   assert.equal(ui.sent.at(-1).values.l_override, true);
   assert.equal(ui.field("glid_L").disabled, false);
   assert.equal(ui.field("V_Ed_EQU").parent.parent.hidden, false, "Gliding data can be configured without global control");
@@ -3677,12 +3678,12 @@ test("H-only table checkbox changes selected walls and pads together", t => {
   ui.changed(); ui.ack(ui.sent.at(-1));
   for (const id of ["tag1", "pad"]) {
     assert.equal(tableField(ui, id, "F_vy").disabled, true);
-    for (const name of ["b", "l", "l_override"]) assert.equal(tableField(ui, id, name).disabled, true);
+    for (const name of ["b", "l", "F_vy_bruk"]) assert.equal(tableField(ui, id, name).disabled, name !== 'b', 'Mixed calculation models still block shared load and length edits');
   }
   assert.equal(ui.elements().filter(e => e.textContent === "Endast H" && e.closest(".gp-table-scroll")).length, 3);
   ui.byText("Ändra markerade").click();
   assert.equal(ui.elements().some(e => e.name === "bulk_isolering"), false);
-  for (const name of ["b", "l", "l_override"]) assert.equal(ui.elements().some(e => e.name === "bulk_" + name), false);
+  for (const name of ["b", "l", "t", "F_vy_bruk"]) assert.equal(ui.elements().some(e => e.name === "bulk_" + name), true);
 });
 
 test("read-only H-only labels and results have no bearing utilization or inactive loads", t => {
@@ -3692,13 +3693,13 @@ test("read-only H-only labels and results have no bearing utilization or inactiv
   assert.ok(ui.marker().className.includes("gp-tag-horizontal"));
   assert.equal(resultTableValue(ui, "tag1", "endast_h_stabilitet").textContent, "Ja");
   assert.equal(resultTableValue(ui, "tag1", "F_vy").textContent, "—");
-  for (const name of ["b", "l", "l_override"]) assert.equal(resultTableValue(ui, "tag1", name).textContent, "—");
+  for (const name of ["b", "l"]) assert.equal(resultTableValue(ui, "tag1", name).textContent, "1");
   ui.marker().click();
   const insulationRow = ui.elements().find(e => e.className.includes("gp-field") && e.children.some(child => child.textContent === "isolering"));
   assert.ok(insulationRow?.parent.hidden);
   for (const name of ["b", "l"]) {
     const row = ui.elements().find(e => e.className.split(" ").includes("gp-field") && e.children.some(child => child.textContent === name));
-    assert.equal(row?.hidden, true);
+    assert.equal(row?.hidden, false);
   }
   assert.equal(ui.elements().some(e => e.className.includes("gp-result-main")), false);
   assert.ok(ui.elements().some(e => e.tag === "dd" && e.textContent === "144 kN"));
@@ -4149,9 +4150,9 @@ test("all columns sort numerically or by text with natural littera ties and miss
     {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
   ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 9);
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 10);
   tableSortButton(ui, "b").click();
-  assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
+  assert.deepEqual(tableOrder(ui), ["tag4", "tag2", "tag1", "tag3"]);
   tableSortButton(ui, "b").click();
   assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1", "tag4"]);
   tableSortButton(ui, "kommentar").click();
@@ -4397,8 +4398,8 @@ for (const readOnly of [false, true]) test(`support length has independent geome
     assert.equal(ui.field("glid_L").value, "3");
     ui.field("endast_h_stabilitet").checked = true;
     ui.field("endast_h_stabilitet").dispatch("input");
-    assert.equal(ui.field("L_vagg").parent.hidden, true, "H-only does not use the local wall length");
-    assert.equal(ui.field("L_vagg").disabled, true);
+    assert.equal(ui.field("L_vagg").parent.hidden, false, "H-only uses the local wall length for settlement");
+    assert.equal(ui.field("L_vagg").disabled, false);
   }
 });
 
@@ -4488,20 +4489,23 @@ test("local minimum can be changed for selected table rows and bulk short length
   assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false, L_vagg: .4});
 });
 
-test("H-only hides local wall length and exposes the independent sliding length", t => {
+test("H-only exposes local wall length for settlement and keeps the independent sliding length", t => {
   const ui = setup(t);
   Object.assign(ui.tag.values, {endast_h_stabilitet: true, L_vagg: 5, L_vagg_minst_1: true, glid_L: 3});
   ui.changed(); ui.marker().click();
-  assert.equal(ui.field("L_vagg_minst_1").parent.hidden, true);
-  assert.equal(ui.field("L_vagg").parent.hidden, true);
+  assert.equal(ui.field("L_vagg_minst_1").parent.hidden, false);
+  assert.equal(ui.field("L_vagg").parent.hidden, false);
   assert.equal(ui.field("L_vagg").disabled, true);
   assert.equal(ui.field("L_vagg").value, "5");
-  assert.equal(tableField(ui, "tag1", "L_vagg").value, "5");
+  assert.equal(tableField(ui, "tag1", "L_vagg").value, "1");
   assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
-  assert.equal(tableField(ui, "tag1", "L_vagg_minst_1").disabled, true);
+  assert.equal(tableField(ui, "tag1", "L_vagg_minst_1").disabled, false);
   assert.equal(ui.field("glid_L").parent.hidden, false);
   assert.equal(ui.field("glid_L").disabled, false);
   assert.equal(ui.field("glid_L").value, "3");
+  ui.field('L_vagg_minst_1').checked = false; ui.field('L_vagg_minst_1').dispatch('input');
+  assert.equal(ui.field('L_vagg').disabled, false);
+  assert.equal(ui.field('L_vagg').required, false);
 });
 
 test("support length sorting uses the local displayed length and leaves pads without a value", t => {
@@ -5391,11 +5395,11 @@ test('settlement result columns use the selected stiffness form and keep unavail
   ui.tag.settlement.s = null; ui.tag.settlement.settlement_error = 'Ange Brukslast.'; ui.changed();
   assert.equal(value('settlement_s').textContent, '—'); assert.equal(value('settlement_s').title, 'Ange Brukslast.');
   assert.notEqual(value('settlement_stiffness').textContent, '—');
-  for (const field of ['inaktiv', 'endast_h_stabilitet']) {
-    ui.tag.values[field] = true; ui.changed();
-    assert.equal(value('settlement_s').textContent, '—'); assert.equal(value('settlement_stiffness').textContent, '—');
-    ui.tag.values[field] = false;
-  }
+  ui.tag.values.endast_h_stabilitet = true; ui.changed();
+  assert.notEqual(value('settlement_stiffness').textContent, '—');
+  ui.tag.values.inaktiv = true; ui.changed();
+  assert.equal(value('settlement_s').textContent, '—'); assert.equal(value('settlement_stiffness').textContent, '—');
+  ui.tag.values.inaktiv = ui.tag.values.endast_h_stabilitet = false;
   delete ui.tag.settlement; ui.changed();
   assert.equal(value('settlement_s').textContent, '—'); assert.ok(value('settlement_s').title.includes('jordprofil'));
   settlementFixture(ui);
@@ -5413,6 +5417,113 @@ test('settlement result columns use the selected stiffness form and keep unavail
 const profileReplace = (ui, id) => ui.find(el => el.className === 'gp-table-profile-edit' && el.closest('tr')?.dataset.tagId === id);
 const profileInput = (ui, id, field, layer = null) => ui.find(el => el.dataset.tagId === id
   && el.dataset.profileField === field && (layer === null ? el.dataset.layer === undefined : el.dataset.layer === String(layer)));
+
+const commonFixture = ui => {
+  settlementFixture(ui);
+  const other = {...structuredClone(ui.tag), id: 'second', label: 'H-GR.2'};
+  ui.tag.label = 'H-GR.1';
+  ui.data.state.tags.push(other);
+  for (const tag of [ui.tag, other]) {tag.values.endast_h_stabilitet = true; tag.summary = structuredClone(onlyHSummary); delete tag.settlement;}
+  const item = {id: 'plate', label: 'Hissgrop 1', members: [ui.tag.id, other.id], values: {b: 4, l: 5, t: .4},
+    form: 'punkt', show_labels: true, label_member: ui.tag.id, display_member: ui.tag.id, soil_profile: null,
+    active_count: 2, external: 240, page: 1, effective_profile: structuredClone(settlementProfile),
+    loads: [ui.tag, other].map(tag => ({id: tag.id, label: tag.label, load: 120, length: 1, line: true, resultant: 120, inactive: false})),
+    settlement: {model: 'PS', s: 2.2, k: 20000, K: 400000, display_form: 'punkt', display_value: 400000,
+      display_unit: 'kN/m', load: 440, external: 240, self_weight: 200, load_unit: 'kN', settlement_error: '', stiffness_error: ''}};
+  ui.data.state.common_foundations = [item]; ui.changed(); return item;
+};
+
+for (const readOnly of [false, true]) test('shared plate has one label result and one sortable summary, with linked supports (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly}), item = commonFixture(ui);
+  assert.equal(ui.elements().filter(el => el.className === 'gp-tag-common-foundation').length, 1);
+  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_s').textContent, 'Se fundament');
+  assert.equal(resultTableValue(ui, 'second', 'settlement_stiffness').textContent, 'Se fundament');
+  assert.equal(ui.byClass('gp-common-section').hidden, false);
+  assert.ok(elementText(ui.byClass('gp-common-summary')).includes('4,00 × 10⁵ kN/m'));
+  const link = tableField(ui, 'second', 'common_foundation');
+  assert.equal(link.textContent, 'Hissgrop 1'); link.click();
+  assert.equal(ui.byClass('gp-common-dialog').hidden, false);
+  assert.equal(ui.field('common_b').value, '4');
+  assert.equal(ui.field('common_b').disabled, readOnly);
+  assert.ok(elementText(ui.byClass('gp-common-saved-result')).includes('440 kN'));
+  if (!readOnly) {
+    assert.equal(tableField(ui, 'second', 'settlement_form').disabled, true);
+    assert.equal(ui.elements().filter(el => el.dataset.profileField && el.dataset.tagId === 'second').length, 0);
+    ui.byText('Lös upp fundament').click();
+    assert.equal(ui.sent.at(-1).action, 'common_foundation_delete'); assert.equal(ui.sent.at(-1).id, item.id);
+    ui.data.state.common_foundations = []; ui.changed(); ui.ack(ui.sent.at(-1));
+    assert.equal(ui.byClass('gp-common-section').hidden, true);
+  }
+});
+
+test('shared plate creation stages dimensions, full line lengths and soil until one save, and cancellation sends nothing', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.tag.values.L_vagg = 3;
+  const other = {...structuredClone(ui.tag), id: 'second', label: 'H-GR.2'};
+  ui.data.state.tags.push(other); ui.changed();
+  selectTableRow(ui, ui.tag.label); selectTableRow(ui, other.label);
+  ui.byText('Gemensamt fundament').click();
+  assert.equal(ui.byClass('gp-common-dialog').hidden, false);
+  assert.equal(ui.field('common_b').value, '', 'Never infer physical plate dimensions from individual support widths');
+  ui.find(el => el.textContent === 'Stäng' && el.closest('.gp-common-dialog')).click();
+  assert.equal(ui.sent.length, 0);
+  ui.byText('Gemensamt fundament').click();
+  for (const [name, value] of [['label', 'Hissgrop 1'], ['b', '4'], ['l', '5'], ['t', '0,4']]) ui.field('common_' + name).value = value;
+  const load = ui.find(el => el.dataset.memberId === ui.tag.id && el.dataset.memberField === 'F_vy_bruk');
+  load.value = '150'; load.dispatch('input');
+  ui.byText('Spara fundament').click();
+  const request = ui.sent.at(-1);
+  assert.equal(request.action, 'common_foundation'); assert.deepEqual(request.ids, [ui.tag.id, 'second']);
+  assert.deepEqual(request.values, {b: 4, l: 5, t: .4});
+  assert.deepEqual(request.member_updates, {[ui.tag.id]: {F_vy_bruk: 150}});
+  assert.equal(request.soil_profile, null); assert.equal(request.form, 'punkt');
+  assert.equal(ui.tag.values.F_vy_bruk, 120, 'Drafts do not alter support state before acknowledgement');
+  assert.equal(ui.field('common_b').disabled, true); assert.equal(load.disabled, true);
+  ui.ack(request, {ok: false, error: 'Ogiltig profil'});
+  assert.equal(ui.field('common_b').disabled, false); assert.equal(ui.field('common_b').value, '4');
+  assert.ok(elementText(ui.byClass('gp-common-dialog')).includes('Ogiltig profil'));
+});
+
+test('shared plate uses an active display host and input locks protect the whole plate', t => {
+  const ui = setup(t), item = commonFixture(ui);
+  ui.tag.values.inaktiv = true; item.display_member = 'second'; ui.changed();
+  const plateLabel = ui.byClass('gp-tag-common-foundation');
+  assert.equal(plateLabel.closest('.gp-tag').dataset.tagId, 'second');
+  ui.data.state.tags[1].input_locked = true; ui.changed();
+  tableField(ui, 'second', 'common_foundation').click();
+  assert.equal(ui.field('common_b').disabled, true);
+  assert.equal(ui.byText('Spara fundament').disabled, true);
+  assert.equal(ui.byText('Lös upp fundament').disabled, true);
+});
+
+for (const readOnly of [false, true]) test('H-only footings expose settlement results and soil profiles in table, label and dialog (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly});
+  ui.tag.values.endast_h_stabilitet = true;
+  ui.tag.summary = structuredClone(onlyHSummary);
+  settlementFixture(ui);
+  assert.ok(elementText(ui.byClass('gp-tag-settlement')).includes('4,42 mm'));
+  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_s').textContent, '4,42');
+  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_stiffness').textContent, '3,00 × 10⁴ kN/m/m');
+  ui.marker().click();
+  assert.equal(ui.byClass('gp-footing-soil').hidden, false);
+  assert.ok(elementText(ui.byClass('gp-settlement-result')).includes('4,42 mm'));
+  assert.ok(!ui.elements().some(el => el.className.includes('gp-result-main')));
+  if (readOnly) return;
+  assert.equal(ui.find(el => el.getAttribute('aria-label') === 'Styvhetsform').disabled, false);
+  assert.equal(tableField(ui, ui.tag.id, 'settlement_show_labels').disabled, false);
+  assert.equal(tableField(ui, ui.tag.id, 'F_vy_bruk').disabled, false);
+  const layer = profileInput(ui, ui.tag.id, 'Ek', 0);
+  assert.equal(layer.disabled, false);
+  layer.value = '20'; layer.dispatch('change');
+  assert.equal(ui.sent.at(-1).action, 'soil_profile_patch');
+  assert.deepEqual(ui.sent.at(-1).ids, [ui.tag.id]);
+  ui.ack(ui.sent.at(-1));
+  const visibility = tableField(ui, ui.tag.id, 'settlement_show_labels');
+  visibility.checked = false; visibility.dispatch('change');
+  assert.equal(ui.sent.at(-1).action, 'settlement_display');
+  assert.ok(!ui.elements().some(el => el.className === 'gp-tag-settlement'));
+  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_s').textContent, '4,42');
+});
 
 test('legacy labels have no settlement block, and shared profile validates before sending a single command', t => {
   const ui = setup(t);

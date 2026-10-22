@@ -553,8 +553,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
   const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
-  const bearingOnlyNames = new Set(["b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
-    "F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
+  const bearingOnlyNames = new Set(["d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
+    "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
@@ -576,6 +576,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let importBusy = false, drawingBusy = false, deleteBusy = false, lastImportToken = null;
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   const state = () => model.get("state") || { tags: [] };
+  const commonFoundations = () => state().common_foundations || [];
+  const commonFor = tag => tag && commonFoundations().find(item => item.id === tag.common_foundation_id || item.members.includes(tag.id));
   const loadImport = () => state().load_import;
   const background = () => drawingPreview?.background || model.get("background") || {};
   const drawingLayout = () => drawingDraft || state().drawing_layout || {x: 0, y: 0, scale: 1};
@@ -1176,6 +1178,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   const editMany = button("Ändra markerade", openBulk, "gp-primary");
   const autoBxButton = button("", openAutoBx); autoBxButton.append(mathText("span", "", "Auto b_x"));
+  const commonFoundationButton = button("Gemensamt fundament", () => openCommonFoundation());
   const lockInputs = button("Lås indata", () => setInputLock(true));
   const unlockInputs = button("Lås upp indata", () => setInputLock(false));
   const clearMany = button("Avmarkera", () => {
@@ -1201,7 +1204,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   objectScaleLabel.append(objectScaleInput, node("span", "", "%"));
   const orderButtons = [ ["Flytta fram", "forward"], ["Flytta bak", "backward"], ["Längst fram", "front"], ["Längst bak", "back"] ]
     .map(([label, operation]) => button(label, () => changeOrder(operation)));
-  if (!readOnly) selectionBar.append(editMany, autoBxButton, lockInputs, unlockInputs, lockMany, unlockMany, objectScaleLabel, objectScaleApply, ...orderButtons);
+  if (!readOnly) selectionBar.append(editMany, autoBxButton, commonFoundationButton, lockInputs, unlockInputs, lockMany, unlockMany, objectScaleLabel, objectScaleApply, ...orderButtons);
   selectionBar.append(clearMany);
   const slidingToggle = button("Glidningskontroll", () => {
     setMode("pan");
@@ -1242,8 +1245,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   soilPanel.setAttribute("role", "dialog"); soilPanel.setAttribute("aria-label", "Gemensam jordprofil");
   const settlementDisplayDrafts = new Map();
   const formCaptions = {yta: "Ytstyvhet [kN/m²/m]", linje: "Linjestyvhet [kN/m/m]", punkt: "Punktstyvhet [kN/m]"};
-  const allowedStiffnessForms = tag => ({wall: ["yta", "linje"], wall_pad: ["yta", "linje", "punkt"], pad: ["yta", "punkt"]})[footingCategory(tag)];
+  const allowedStiffnessForms = tag => commonFor(tag) ? ["yta", "punkt"]
+    : ({wall: ["yta", "linje"], wall_pad: ["yta", "linje", "punkt"], pad: ["yta", "punkt"]})[footingCategory(tag)];
   const settlementDisplay = tag => {
+    const shared = commonFor(tag);
+    if (shared) return {show_labels: shared.show_labels, form: shared.form};
     const legacy = state().settlement_display || SETTLEMENT_DISPLAY_DEFAULTS;
     const settings = settlementDisplayDrafts.get(tag.id) || tag.settlement_display ||
       {show_labels: legacy.show_labels, form: legacy.forms[footingCategory(tag)]};
@@ -1273,7 +1279,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   soilToggle.title = "Gemensamma jordlager för sättning och styvhet. Egen profil kan anges i sulans dialog.";
   if (!readOnly) toolbar.append(soilToggle);
-  function makeSoilEditor(profile, {own = null, disabled = false, onApply} = {}) {
+  function makeSoilEditor(profile, {own = null, disabled = false, onApply, deferred = false} = {}) {
     const element = node("div", "gp-soil-editor"), layerInputs = [];
     const ownCheck = node("input"); ownCheck.type = "checkbox"; ownCheck.checked = own === true;
     ownCheck.setAttribute("aria-label", "Egen jordprofil");
@@ -1311,22 +1317,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     step.setAttribute("aria-label", "Beräkningsskikt [m]");
     const stepLabel = node("label", "gp-soil-step"); stepLabel.append(node("span", "", "Beräkningsskikt [m]"), step);
     const actions = node("div", "gp-soil-actions");
-    const apply = button("Tillämpa jordprofil", () => {
-      if (disabled) return;
-      error.textContent = "";
+    const getValue = () => {
       let value = null;
       if (own === null || ownCheck.checked) {
         value = {step: numeric(step.value), layers: layerInputs.map(entry =>
           Object.fromEntries(Object.entries(entry.fields).map(([key, input]) => [key, numeric(input.value)])))};
         if (!value.layers.length || ![value.step, ...value.layers.flatMap(layer => Object.values(layer))].every(v => Number.isFinite(v) && v > 0)) {
-          error.textContent = "Ange positiva tal för skikttjocklek, lagertjocklek, E-modul och materialfaktor."; return;
+          throw new Error("Ange positiva tal för skikttjocklek, lagertjocklek, E-modul och materialfaktor.");
         }
       }
-      onApply?.(value, error);
+      return value;
+    };
+    const apply = button("Tillämpa jordprofil", () => {
+      if (disabled) return;
+      error.textContent = "";
+      try {onApply?.(getValue(), error);} catch (exc) {error.textContent = exc.message;}
     }, "gp-primary");
     const clear = button("Ta bort projektprofil", () => {if (!disabled) onApply?.(null, error);});
     clear.hidden = own !== null || !profile;
     actions.append(apply, clear); element.append(table, add, stepLabel, error, actions);
+    if (deferred) actions.hidden = true;
     if (readOnly) {actions.hidden = true; add.hidden = true; for (const entry of layerInputs) entry.remove.hidden = true;}
     function sync() {
       ownCheck.disabled = disabled || readOnly;
@@ -1342,7 +1352,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       apply.disabled = clear.disabled = disabled;
     }
     ownCheck.addEventListener("change", sync); sync();
-    return {element, setDisabled(value) {disabled = value; sync();}};
+    return {element, getValue, setDisabled(value) {disabled = value; sync();}};
   }
   function saveSoilProfile(profile, error, id = null) {
     if (soilBusy || historyBusy || drawingDraft || drawingPending || cropDraft || canvasPending) return;
@@ -1354,7 +1364,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       soilBusy = false; soilClose.disabled = false;
       if (!reply.ok) {
         error.textContent = reply.error; soilEditor?.setDisabled(false);
-        footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv || current().values.endast_h_stabilitet));
+        footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv));
         tableSoilEditing?.editor.setDisabled(false);
       } else {
         if (Array.isArray(id)) closeTableSoilEditor();
@@ -1409,17 +1419,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     stiffnessFormSelect.value = settings.form;
     showSettlementCheck.disabled = stiffnessFormSelect.disabled = readOnly || settlementDisplayDrafts.has(tag.id)
-      || tag.values.inaktiv || tag.values.endast_h_stabilitet;
+      || tag.values.inaktiv;
     lineStiffnessNote.hidden = footingCategory(tag) !== "wall_pad" || settings.form !== "linje";
   }
   const footingSoilBody = node("div"); footingSoilBox.append(footingSoilBody);
   function showFootingSoilEditor() {
     const tag = current();
     if (!tag) return;
+    const shared = commonFor(tag);
+    soilDisplayControls.hidden = !!shared;
+    if (shared) {
+      footingSoilBox.hidden = !!tag.values.inaktiv;
+      footingSoilEditor = null; footingSoilSignature = "";
+      footingSoilBody.replaceChildren(node("p", "gp-result-note", "Mått, jordprofil och sättningsresultat hör till den gemensamma plattan " + shared.label + "."),
+        button(readOnly ? "Visa gemensamt fundament" : "Redigera gemensamt fundament", () => openCommonFoundation(shared.id)));
+      return;
+    }
     showSettlementDisplay(tag);
-    const disabled = inputLocked(tag) || tag.values.inaktiv || tag.values.endast_h_stabilitet;
+    const disabled = inputLocked(tag) || tag.values.inaktiv;
     const signature = JSON.stringify([tag.id, tag.soil_profile, state().soil_profile, disabled, readOnly]);
-    footingSoilBox.hidden = !!tag.values.inaktiv || !!tag.values.endast_h_stabilitet;
+    footingSoilBox.hidden = !!tag.values.inaktiv;
     if (signature === footingSoilSignature || soilBusy) return;
     footingSoilSignature = signature;
     if (readOnly) {
@@ -2051,7 +2070,238 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     autoBxFeedback, autoBxGroups, autoBxList, autoBxSummary, autoBxFooter);
   autoBxForm.addEventListener("submit", event => {event.preventDefault(); previewAutoBx();});
   autoBxDialog.append(autoBxHeader, autoBxForm);
-  board.append(viewport, empty, zoomBar, dialog, sketch);
+  let commonEditing = null, commonBusy = false, commonSoilEditor = null;
+  const commonInputs = new Map(), commonMemberDrafts = new Map();
+  const commonMemberControls = [];
+  const commonDialog = node("section", "gp-dialog gp-common-dialog"); commonDialog.hidden = true;
+  commonDialog.setAttribute("role", "dialog"); commonDialog.setAttribute("aria-label", "Gemensamt fundament");
+  const commonHeader = node("div", "gp-dialog-header"), commonClose = button("Stäng", closeCommonFoundation);
+  commonHeader.append(node("strong", "", "Gemensamt fundament"), commonClose);
+  const commonForm = node("form", "gp-form"); commonForm.noValidate = true;
+  const commonFields = node("div", "gp-common-fields"), commonMembers = node("div"), commonSoil = node("div");
+  const commonError = node("p", "gp-error-text"); commonError.setAttribute("role", "alert");
+  const commonSavedResult = node("div", "gp-common-saved-result");
+  const commonSave = button("Spara fundament", saveCommonFoundation, "gp-primary");
+  const commonDelete = button("Lös upp fundament", () => {
+    if (commonBusy || !commonEditing?.id || readOnly) return;
+    commonBusy = true; showCommonEditorResult();
+    command("common_foundation_delete", {id: commonEditing.id}, [], reply => {
+      commonBusy = false;
+      if (reply.ok) {closeCommonFoundation(); showMessage("Fundamentet är upplöst. Stöden och deras ursprungliga sulindata finns kvar.");}
+      else {commonError.textContent = reply.error; showCommonEditorResult();}
+    });
+  });
+  const commonFooter = node("div", "gp-dialog-footer"); commonFooter.append(commonDelete, commonSave);
+  commonForm.append(node("p", "gp-field-note", "En fysisk platta med flera laststöd. Brukslasterna summeras i kN med hela belastade L_vägg vid linjelast. Plattans egentyngd tillkommer en gång. Bärighets- och glidningskontrollerna för stöden behålls."),
+    node("p", "gp-field-note", "Plattan beräknas som en rektangulär pelarsula med total vertikallast. Rotation och differenssättningar mellan stöden ingår inte."),
+    commonFields, node("h5", "", "Anslutna stöd och yttre Brukslaster"), commonMembers,
+    node("h5", "", "Plattans jordprofil"), commonSoil, commonError, commonSavedResult, commonFooter);
+  commonForm.addEventListener("submit", event => {event.preventDefault(); saveCommonFoundation();});
+  commonDialog.append(commonHeader, commonForm);
+  const commonSection = node("section", "gp-common-section"); commonSection.hidden = true;
+  commonSection.append(node("h4", "", "Gemensamma fundament"), node("p", "gp-field-note", "Sättning och styvhet redovisas en gång per fysisk platta. Anslutna stöd hänvisar till fundamentet."));
+  const commonList = node("div", "gp-common-list"); commonSection.append(commonList);
+  let commonSort = {key: "label", direction: 1};
+  function closeCommonFoundation() {
+    if (commonBusy) return;
+    commonDialog.hidden = true; commonEditing = null;
+  }
+  function openCommonFoundation(ident = null) {
+    if (commonBusy || historyBusy || drawingDraft || drawingPending || cropDraft || canvasPending) return;
+    let item = ident && commonFoundations().find(item => item.id === ident);
+    const tags = selectionTags();
+    if (!ident) {
+      const groups = [...new Set(tags.map(tag => commonFor(tag)?.id).filter(Boolean))];
+      if (groups.length > 1) {showMessage("Urvalet innehåller flera gemensamma fundament. Öppna fundamentet via tabellen.", true); return;}
+      item = groups.length ? commonFoundations().find(item => item.id === groups[0]) : null;
+    }
+    if (ident && !item || readOnly && !item) return;
+    const members = item ? [...item.members] : tags.map(tag => tag.id);
+    if (!members.length) {showMessage("Markera stöd som ska stå på en gemensam platta.", true); return;}
+    if (!ident && item) for (const tag of tags) if (!members.includes(tag.id)) members.push(tag.id);
+    closeDialog(); closeBulk(); closeAutoBx();
+    commonEditing = {id: item?.id || null, members, page: state().tags.find(tag => tag.id === members[0])?.page};
+    commonInputs.clear(); commonMemberDrafts.clear(); commonFields.replaceChildren(); commonError.textContent = "";
+    const addField = (name, caption, value, options = null, checkbox = false) => {
+      const label = node("label", "gp-common-field"), input = node(options ? "select" : "input");
+      if (options) for (const [key, text] of options) {const option = node("option", "", text); option.value = key; input.append(option);}
+      else {input.type = checkbox ? "checkbox" : "text"; if (["b", "l", "t"].includes(name)) input.inputMode = "decimal";}
+      if (checkbox) input.checked = value; else input.value = value ?? "";
+      input.setAttribute("aria-label", caption); input.name = "common_" + name;
+      label.append(node("span", "", caption), input); commonFields.append(label); commonInputs.set(name, input);
+    };
+    addField("label", "Fundamentnamn", item?.label || "");
+    for (const [name, caption] of [["b", "Plattans bₓ [m]"], ["l", "Plattans bᵧ [m]"], ["t", "Plattans t [m]"]])
+      addField(name, caption, item ? tableText(item.values[name]) : "");
+    addField("form", "Plattans styvhetsform", item?.form || "punkt", [["punkt", formCaptions.punkt], ["yta", formCaptions.yta]]);
+    addField("show_labels", "Visa plattans resultat på etikett", item?.show_labels ?? true, null, true);
+    addField("label_member", "Resultat på stödets etikett", item?.label_member || members[0], []);
+    renderCommonMembers();
+    commonSoilEditor = makeSoilEditor(item?.soil_profile || state().soil_profile, {own: !!item?.soil_profile, deferred: true, disabled: readOnly});
+    commonSoil.replaceChildren(commonSoilEditor.element);
+    commonDialog.hidden = false;
+    commonDialog.style.left = Math.max(8, (board.clientWidth - 660) / 2) + "px";
+    commonDialog.style.top = "8px";
+    showCommonEditorResult(); commonClose.focus({preventScroll: true});
+  }
+  function renderCommonMembers() {
+    commonMembers.replaceChildren(); commonMemberControls.length = 0;
+    const tags = commonEditing.members.map(id => state().tags.find(tag => tag.id === id)).filter(Boolean);
+    const table = node("table", "gp-common-loads"), head = node("thead"), hr = node("tr"), body = node("tbody");
+    for (const text of ["Stöd", "Brukslast V", "Hela L_vägg [m]", "Yttre resultant [kN]", ""]) hr.append(node("th", "", text));
+    head.append(hr); table.append(head, body);
+    for (const tag of tags) {
+      const tr = node("tr"), line = lineLoads(tag.values), draft = commonMemberDrafts.get(tag.id) ||
+        {F_vy_bruk: tableText(tag.values.F_vy_bruk), L_vagg: tableText(tag.values.L_vagg)};
+      commonMemberDrafts.set(tag.id, draft);
+      tr.append(node("td", "", tag.label + (tag.values.inaktiv ? " (inaktiv)" : "")));
+      const total = node("td", "gp-common-member-total");
+      const updateTotal = () => {
+        const load = commonNumeric(draft.F_vy_bruk), length = line ? commonNumeric(draft.L_vagg) : 1;
+        total.textContent = tag.values.inaktiv || !Number.isFinite(load) || !Number.isFinite(length) || length <= 0 ? "—" : precise(load * length);
+      };
+      for (const [name, caption] of [["F_vy_bruk", "Brukslast [" + (line ? "kN/m" : "kN") + "]"], ["L_vagg", "Hela belastade L_vägg [m]"]]) {
+        const td = node("td");
+        if (name === "L_vagg" && !line) td.textContent = "—";
+        else {
+          const input = node("input"); input.type = "text"; input.inputMode = "decimal"; input.value = draft[name];
+          input.dataset.memberId = tag.id; input.dataset.memberField = name;
+          input.setAttribute("aria-label", tag.label + ": " + caption);
+          input.disabled = readOnly || inputLocked(tag) || tag.values.inaktiv;
+          commonMemberControls.push({control: input, blocked: !!tag.values.inaktiv});
+          input.addEventListener("input", () => {draft[name] = input.value; updateTotal();}); td.append(input);
+        }
+        tr.append(td);
+      }
+      tr.append(total); updateTotal();
+      const td = node("td"), remove = button("Koppla loss", () => {
+        if (commonBusy || readOnly) return;
+        commonEditing.members = commonEditing.members.filter(id => id !== tag.id); renderCommonMembers(); showCommonEditorResult();
+      });
+      remove.setAttribute("aria-label", "Koppla loss " + tag.label); remove.disabled = readOnly || tags.some(inputLocked);
+      commonMemberControls.push({control: remove, blocked: false});
+      td.append(remove); tr.append(td); body.append(tr);
+    }
+    const scroll = node("div", "gp-common-loads-scroll"); scroll.append(table); commonMembers.append(scroll);
+    const choices = state().tags.filter(tag => tag.page === commonEditing.page && !tag.values.inaktiv
+      && !commonEditing.members.includes(tag.id) && (!commonFor(tag) || commonFor(tag).id === commonEditing.id));
+    const add = node("select"); add.setAttribute("aria-label", "Lägg till stöd på plattan");
+    const empty = node("option", "", "Lägg till stöd…"); empty.value = ""; add.append(empty);
+    for (const tag of choices) {const option = node("option", "", tag.label); option.value = tag.id; option.disabled = inputLocked(tag); add.append(option);}
+    add.value = ""; add.disabled = readOnly || !choices.length || tags.some(inputLocked);
+    commonMemberControls.push({control: add, blocked: !choices.length});
+    add.addEventListener("change", () => {
+      if (!add.value || commonBusy) return;
+      commonEditing.members.push(add.value); renderCommonMembers(); showCommonEditorResult();
+    });
+    commonMembers.append(add);
+    const host = commonInputs.get("label_member"), previous = host.value;
+    host.replaceChildren();
+    for (const tag of tags) {const option = node("option", "", tag.label); option.value = tag.id; host.append(option);}
+    host.value = tags.some(tag => tag.id === previous) ? previous : tags[0]?.id || "";
+  }
+  function commonNumeric(value) {return value == null || String(value).trim() === "" ? null : Number(String(value).trim().replace(",", "."));}
+  function saveCommonFoundation() {
+    if (commonBusy || readOnly || !commonEditing) return;
+    commonError.textContent = "";
+    try {
+      if (!commonEditing.members.length) throw new Error("Välj minst ett stöd eller lös upp fundamentet.");
+      const values = Object.fromEntries(["b", "l", "t"].map(name => [name, commonNumeric(commonInputs.get(name).value)]));
+      if (!Object.values(values).every(value => Number.isFinite(value) && value > 0)) throw new Error("Ange positiva mått för plattans bₓ, bᵧ och t.");
+      const member_updates = {};
+      for (const id of commonEditing.members) {
+        const tag = state().tags.find(tag => tag.id === id), draft = commonMemberDrafts.get(id);
+        if (!tag || tag.values.inaktiv) continue;
+        const patch = {};
+        for (const name of ["F_vy_bruk", ...(lineLoads(tag.values) ? ["L_vagg"] : [])]) {
+          const value = commonNumeric(draft[name]);
+          if (value !== null && !Number.isFinite(value)) throw new Error(tag.label + ": ange giltiga tal för Brukslast och längd.");
+          if (value !== tag.values[name]) patch[name] = value;
+        }
+        if (Object.keys(patch).length) member_updates[id] = patch;
+      }
+      const payload = {ids: commonEditing.members, label: commonInputs.get("label").value, values, member_updates,
+        soil_profile: commonSoilEditor.getValue(), form: commonInputs.get("form").value,
+        show_labels: commonInputs.get("show_labels").checked, label_member: commonInputs.get("label_member").value,
+        ...(commonEditing.id ? {id: commonEditing.id} : {})};
+      commonBusy = true; showCommonEditorResult();
+      command("common_foundation", payload, [], reply => {
+        commonBusy = false;
+        if (reply.ok) {openCommonFoundation(reply.id); showMessage("Gemensamt fundament sparat. Sättning och styvhet avser hela plattan.");}
+        else {commonError.textContent = reply.error; showCommonEditorResult();}
+      });
+    } catch (error) {commonError.textContent = error.message;}
+  }
+  function showCommonEditorResult() {
+    if (commonDialog.hidden || !commonEditing) return;
+    const item = commonFoundations().find(item => item.id === commonEditing.id);
+    if (commonEditing.id && !item && !commonBusy) {closeCommonFoundation(); return;}
+    const locked = commonEditing.members.some(id => inputLocked(state().tags.find(tag => tag.id === id)));
+    const disabled = readOnly || commonBusy || locked;
+    for (const input of commonInputs.values()) input.disabled = disabled;
+    for (const {control, blocked} of commonMemberControls) control.disabled = disabled || blocked;
+    commonSoilEditor?.setDisabled(disabled);
+    commonSave.hidden = commonDelete.hidden = readOnly;
+    commonSave.disabled = disabled; commonDelete.disabled = disabled || !item;
+    commonClose.disabled = commonBusy;
+    commonSavedResult.replaceChildren(node("h5", "", "Resultat för sparade indata"));
+    if (locked) commonSavedResult.append(node("p", "gp-field-note", "Lås upp indata för samtliga anslutna stöd för att ändra plattan."));
+    if (item) commonSavedResult.append(foundationResultBlock(item));
+    else commonSavedResult.append(node("p", "gp-field-note", "Spara fundamentet för att beräkna sättning och styvhet."));
+  }
+  function foundationResultBlock(item, compact = false) {
+    const block = node(compact ? "span" : "section", compact ? "gp-tag-common-foundation" : "gp-common-result");
+    block.append(node("strong", "gp-tag-sliding-heading", "Gemensamt fundament · " + item.label),
+      mathText("span", "gp-common-measures", "b_x " + precise(item.values.b) + " m · b_y " + precise(item.values.l) + " m · t " + precise(item.values.t) + " m"),
+      node("span", "gp-common-members", "Stöd: " + item.loads.map(load => load.label + (load.inactive ? " (inaktiv)" : "")).join(", ")));
+    const stale = item.members.some(id => dirty.has(id));
+    if (item.settlement) {
+      const fake = {id: "common:" + item.id, footing_type: "pelarsula", values: {lang: 0}, settlement: item.settlement,
+        settlement_display: {show_labels: true, form: item.form}, soil_profile: item.soil_profile, result_pending: stale};
+      block.append(settlementBlock(fake, compact));
+      if (compact && !stale && Number.isFinite(item.settlement.load)) block.append(node("span", "gp-common-load-note",
+        "Bruk " + precise(item.external) + " + egentyngd " + precise(item.settlement.self_weight) + " = " + precise(item.settlement.load) + " kN"));
+    } else block.append(node("span", "gp-result-note", item.active_count ? "Ange jordprofil för plattan." : "Inga aktiva stöd på plattan."));
+    return block;
+  }
+  function showCommonFoundations() {
+    commonSection.hidden = !commonFoundations().length || pdfMode;
+    commonList.replaceChildren();
+    if (!commonFoundations().length) {showCommonEditorResult(); return;}
+    const table = node("table", "gp-common-summary"), head = node("thead"), hr = node("tr"), body = node("tbody");
+    for (const [caption, key] of [["Fundament", "label"], ["Anslutna stöd", null], ["Plattmått [m]", null], ["Bruk inklusive egentyngd [kN]", "load"], ["Sättning [mm]", "s"], ["Styvhet (vald form)", "K"], ["", null]]) {
+      const th = node("th");
+      if (key) {
+        const b = button(caption + (commonSort.key === key ? commonSort.direction === 1 ? " ↑" : " ↓" : " ↕"), () => {
+          commonSort = {key, direction: commonSort.key === key ? -commonSort.direction : 1}; showCommonFoundations();
+        }); b.setAttribute("aria-label", "Sortera fundament efter " + caption); th.append(b);
+      } else th.textContent = caption;
+      hr.append(th);
+    }
+    head.append(hr); table.append(head, body);
+    const val = item => item.members.some(id => dirty.has(id)) ? null : commonSort.key === "K" ? item.settlement?.display_value : item.settlement?.[commonSort.key];
+    const items = [...commonFoundations()].sort((a, b) => {
+      if (commonSort.key === "label") return commonSort.direction * tableCollator.compare(a.label, b.label);
+      const va = val(a), vb = val(b), ma = !Number.isFinite(va), mb = !Number.isFinite(vb);
+      return ma !== mb ? ma ? 1 : -1 : !ma && va !== vb ? commonSort.direction * (va - vb) : tableCollator.compare(a.label, b.label);
+    });
+    for (const item of items) {
+      const tr = node("tr"); tr.dataset.foundationId = item.id;
+      tr.append(node("td", "", item.label), node("td", "", item.loads.map(load => load.label + (load.inactive ? " (inaktiv)" : "")).join(", ")),
+        node("td", "", [item.values.b, item.values.l, item.values.t].map(value => precise(value)).join(" × ")));
+      const stale = item.members.some(id => dirty.has(id));
+      for (const key of ["load", "s", "display_value"]) {
+        const cell = node("td", "gp-common-result-cell"), value = item.settlement?.[key];
+        cell.textContent = stale ? "Uppdaterar…" : !Number.isFinite(value) ? "—" : key === "display_value"
+          ? scientificText(Number(value.toPrecision(3))) + " " + item.settlement.display_unit : number(value, 2);
+        cell.title = item.settlement?.[key === "display_value" ? "stiffness_error" : "settlement_error"] || "Beräknat resultat för hela plattan.";
+        tr.append(cell);
+      }
+      const td = node("td"); td.append(button(readOnly ? "Visa" : "Redigera", () => openCommonFoundation(item.id))); tr.append(td); body.append(tr);
+    }
+    commonList.append(table); showCommonEditorResult();
+  }
+  board.append(viewport, empty, zoomBar, dialog, sketch, commonDialog);
   if (!readOnly) board.append(bulkDialog, autoBxDialog);
   const status = node("div", "gp-status");
   status.setAttribute("role", "status");
@@ -2209,7 +2459,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   if (!readOnly) workspace.append(help, fileInput, projectInput, loadsInput);
   workspace.append(panelHandle("board", workspace, board, "Justera arbetsytans bredd och höjd"));
   tableSection.append(panelHandle("table", tableSection, tableScroll, "Justera tabellens bredd och höjd"));
-  root.append(workspace, tableSection);
+  root.append(workspace, tableSection, commonSection);
   el.append(root);
 
   function showMessage(message, error = false) {
@@ -3365,12 +3615,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return icon;
   }
   function settlementBlock(tag, compact = false) {
+    const shared = commonFor(tag);
+    if (shared) {
+      if (tag.values.inaktiv) return null;
+      if (!compact || shared.show_labels && (shared.display_member || shared.label_member) === tag.id) return foundationResultBlock(shared, compact);
+      return node("span", "gp-tag-foundation-link", "Fundament: " + shared.label);
+    }
     const data = tag.settlement;
-    if (!data || tag.values.inaktiv || tag.values.endast_h_stabilitet || compact && !settlementDisplay(tag).show_labels) return null;
+    if (!data || tag.values.inaktiv || compact && !settlementDisplay(tag).show_labels) return null;
     const block = node(compact ? "span" : "section", compact ? "gp-tag-settlement" : "gp-settlement-result");
     block.append(node("strong", "gp-tag-sliding-heading", "Sättning och styvhet"));
     const grid = node(compact ? "span" : "dl", "gp-settlement-grid");
-    const stale = dirty.has(tag.id);
+    const stale = dirty.has(tag.id) || tag.result_pending;
     const pendingForm = settlementDisplayDrafts.has(tag.id) && settlementDisplay(tag).form !==
       (data.display_form || (data.model === "VS" ? "linje" : "punkt"));
     const add = (base, subscript, value, unit, scientific = false, reason = "") => {
@@ -3586,6 +3842,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       options: Object.entries(formCaptions).map(([value, label]) => ({value, label}))}],
     ["settlement_profile", {name: "settlement_profile", type: "profile", label: "Jordprofil", unit: ""}],
   ]);
+  const foundationLinkField = {name: "common_foundation", type: "foundation", label: "Gemensamt fundament", unit: ""};
   const settlementResultFields = new Map([
     ["settlement_s", {name: "settlement_s", type: "result", label: "Sättning s_bruk", unit: "mm",
       display_symbol: {prefix: "Sättning ", base: "s", subscript: "bruk"},
@@ -3594,16 +3851,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       description: "Beräknad styvhet enligt radens valda styvhetsform. Enheten visas vid värdet. Sorteras efter numeriskt värde i respektive enhet."}],
   ]);
   const resultFields = new Map([...resultantFields, ...settlementResultFields]);
-  const tableSchema = new Map([...fieldSchema, ...resultFields, ...settlementFields]);
+  const tableSchema = new Map([...fieldSchema, ...resultFields, ...settlementFields, ["common_foundation", foundationLinkField]]);
   const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))
     .flatMap(name => [name, ...(name === "F_vy" ? ["V_res_brott"] : name === "F_vy_bruk" ? ["V_res_bruk"] : [])])]);
-  tableGroups.splice(-1, 0, ["Sättning och styvhet", [...settlementFields.keys(), ...settlementResultFields.keys()]]);
+  tableGroups.splice(-1, 0, ["Sättning och styvhet", [...settlementFields.keys(), "common_foundation", ...settlementResultFields.keys()]]);
   const groupedNames = new Set(tableGroups.flatMap(([, names]) => names));
   const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
   if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
   const tableNames = tableGroups.flatMap(([, names]) => names);
   const tableGroupHeads = new Map(), tableFieldHeads = new Map();
-  const tableFieldClass = field => (["bool", "choice", "text", "profile"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number")
+  const tableFieldClass = field => (["bool", "choice", "text", "profile", "foundation"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number")
     + (settlementResultFields.has(field.name) ? " gp-table-result" : "");
   function setTableView(patch) {
     const draft = {...tableView(), ...patch}; tableViewDraft = draft;
@@ -3671,15 +3928,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
   function tableSettlementResult(tag, name) {
+    const shared = commonFor(tag);
+    if (shared) return {value: null, reference: shared.label, reason: "Resultatet redovisas en gång för hela plattan under Gemensamma fundament."};
     const data = tag.settlement || {}, values = {...tag.values, ...drafts.get(tag.id)?.values};
     const form = settlementDisplayDrafts.has(tag.id) ? settlementDisplay(tag).form : data.display_form || settlementDisplay(tag).form;
     const stiffness = name === "settlement_stiffness";
     const pending = dirty.has(tag.id) || tag.status === "stale" || stiffness && settlementDisplayDrafts.has(tag.id)
       && form !== (data.display_form || (data.model === "VS" ? "linje" : "punkt"));
-    const unavailable = values.inaktiv || values.endast_h_stabilitet;
+    const unavailable = values.inaktiv;
     const value = unavailable || pending ? null : stiffness
       ? Object.hasOwn(data, "display_value") ? data.display_value : form === "yta" ? data.k : data.K : data.s;
-    const reason = unavailable ? "Beräknas inte för inaktiva sulor eller Endast H."
+    const reason = unavailable ? "Beräknas inte för inaktiva sulor."
       : pending ? "Resultatet uppdateras."
       : !tag.settlement ? "Ange jordprofil för att beräkna sättning och styvhet."
       : stiffness ? data.display_error || data.stiffness_error : data.settlement_error;
@@ -3689,6 +3948,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function tableDisplayValue(name, value, tag) {
     if (settlementResultFields.has(name)) {
       const result = tableSettlementResult(tag, name);
+      if (result.reference) return "Se fundament";
       if (result.pending) return "Uppdaterar…";
       if (!Number.isFinite(result.value)) return "—";
       return name === "settlement_s" ? number(result.value, 2)
@@ -3706,7 +3966,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (name === "glid_L" && !lineLoads(tag.values)) return "—";
     if (name === "lasttyp" && tag.values.lang === 1) return "—";
     if (name === "L_vagg" && !lineLoads(tag.values)) return "—";
-    if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return "1";
+    if (name === "L_vagg" && tag.values.lang === 1 && tag.values.L_vagg_minst_1) return "1";
     if (value == null || value === "") return "—";
     const field = tableSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
@@ -3716,20 +3976,22 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function tableTargets(id, name) {
     return state().tags.filter(tag => (settlementFields.has(name) && name !== "settlement_profile" || !inputLocked(tag))
-      && (!settlementFields.has(name) || !tag.values.inaktiv && !tag.values.endast_h_stabilitet)
+      && (!settlementFields.has(name) || !tag.values.inaktiv && !commonFor(tag))
       && (tag.id === id ||
       (name !== "label" && name !== "lang" && selected.has(id) && selected.has(tag.id))));
   }
   const tableSettingValue = (tag, name) => name === "settlement_show_labels" ? settlementDisplay(tag).show_labels
-    : name === "settlement_form" ? settlementDisplay(tag).form : name === "settlement_profile" ? profileCaption(tag) : tag.values[name];
+    : name === "settlement_form" ? settlementDisplay(tag).form : name === "settlement_profile" ? profileCaption(tag)
+    : name === "common_foundation" ? commonFor(tag)?.label : tag.values[name];
   function profileCaption(tag) {
+    if (commonFor(tag)) return "Platta · " + commonFor(tag).label;
     const profile = tag.soil_profile || state().soil_profile;
     return (tag.soil_profile ? "Egen" : "Gemensam") + (profile ? " · " + profile.layers.length + " lager" : " · saknas");
   }
   const profileCandidates = id => state().tags.filter(tag => tag.id === id || selected.has(id) && selected.has(tag.id));
   function profileSkip(tag, field, layer) {
     const profile = tag.soil_profile || state().soil_profile;
-    return inputLocked(tag) ? "låsta indata" : tag.values.inaktiv ? "inaktiv" : tag.values.endast_h_stabilitet ? "Endast H"
+    return inputLocked(tag) ? "låsta indata" : tag.values.inaktiv ? "inaktiv" : commonFor(tag) ? "gemensamt fundament"
       : !profile ? "saknar jordprofil" : field !== "step" && layer >= profile.layers.length ? "saknar lager " + (layer + 1) : "";
   }
   function profileScope(id, field, layer) {
@@ -3751,7 +4013,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     command("soil_profile_patch", {ids, field, value, ...(field === "step" ? {} : {layer})}, [], reply => {
       soilBusy = false; soilClose.disabled = false;
       soilEditor?.setDisabled(false);
-      footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv || current().values.endast_h_stabilitet));
+      footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv));
       tableSoilEditing?.editor.setDisabled(false);
       if (!reply.ok) {
         control.setCustomValidity(reply.error); control.reportValidity();
@@ -3785,11 +4047,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       control.setAttribute("aria-label", tag.label + ": " + (field === "step" ? "Beräkningsskikt [m]"
         : {dz: "Lagertjocklek", Ek: "E-modul", gamma_m: "Materialfaktor"}[field] + " jordlager " + (layer + 1)));
     }
-    if (entry.edit) entry.edit.disabled = busy || inputLocked(tag) || tag.values.inaktiv || tag.values.endast_h_stabilitet
+    if (entry.edit) entry.edit.disabled = busy || inputLocked(tag) || tag.values.inaktiv
       || !tableTargets(tag.id, "settlement_profile").length;
   }
   function syncInlineProfile(tag) {
     const entry = tableProfiles.get(tag.id), profile = tag.soil_profile || state().soil_profile;
+    const shared = commonFor(tag);
+    if (shared) {
+      entry.fold.textContent = "Gemensam platta · " + shared.label;
+      entry.fold.disabled = false; entry.fold.setAttribute("aria-expanded", "true");
+      entry.body.hidden = false; entry.summary.hidden = true;
+      entry.body.replaceChildren(button(readOnly ? "Visa plattans jordprofil" : "Redigera plattans jordprofil", () => openCommonFoundation(shared.id)));
+      entry.inputs = []; entry.edit = null; entry.signature = "";
+      return;
+    }
     const signature = JSON.stringify([!!tag.soil_profile, profile]);
     const folded = foldedProfiles.has(tag.id);
     entry.fold.textContent = (folded ? "▸ " : "▾ ") + profileCaption(tag);
@@ -3980,11 +4251,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         row.append(placeholder); placeholders.set(name, placeholder);
       }
       cells.set(name, cell);
+      if (field.type === "foundation") {
+        const control = button("", () => {
+          const shared = commonFor(state().tags.find(item => item.id === tag.id));
+          if (shared) openCommonFoundation(shared.id);
+        }, "gp-table-foundation-link");
+        control.name = "table_" + name; cell.append(control); row.append(cell); controls.set(name, control); continue;
+      }
       if (field.type === "profile") {
         const body = node("div", "gp-table-profile-body");
         const summary = node("div", "gp-table-profile-summary");
         body.id = "gp-profile-" + view + "-" + tag.id;
         const control = button("", () => {
+          const shared = commonFor(state().tags.find(item => item.id === tag.id));
+          if (shared) {openCommonFoundation(shared.id); return;}
           const expand = foldedProfiles.has(tag.id);
           for (const item of profileCandidates(tag.id)) {
             if (expand) foldedProfiles.delete(item.id); else foldedProfiles.add(item.id);
@@ -4022,7 +4302,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       control.dataset.tagId = tag.id; control.dataset.field = name;
       if (readOnly || resultFields.has(name)) continue;
       const field = tableSchema.get(name);
-      if (field?.type === "profile") continue;
+      if (["profile", "foundation"].includes(field?.type)) continue;
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
       control.addEventListener("keydown", event => {
         if (event.key !== "Enter" || field?.multiline) return;
@@ -4058,21 +4338,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         if (resultFields.has(name)) continue;
+        if (name === "common_foundation") continue;
         if (name === "settlement_profile") {syncInlineProfileControls(tag); continue;}
         if (settlementFields.has(name)) {
           const targets = tableTargets(tag.id, name);
-          control.disabled = busy || soilBusy || tag.values.inaktiv || tag.values.endast_h_stabilitet
+          control.disabled = busy || soilBusy || tag.values.inaktiv || !!commonFor(tag)
             || (name === "settlement_profile" && inputLocked(tag)) || targets.some(tag => settlementDisplayDrafts.has(tag.id));
           control.title = name === "settlement_profile" ? "Öppna jordlagren på raden. Markerade sulor med upplåsta indata får samma profil vid Tillämpa."
             : "Visningsval för denna sula eller samtliga markerade sulor. Jordprofilen ändras inte.";
           if (name === "settlement_form") {
             const options = allowedStiffnessForms(tag);
-            if (control.dataset.category !== footingCategory(tag)) {
+            const category = commonFor(tag) ? "common" : footingCategory(tag);
+            if (control.dataset.category !== category) {
               control.replaceChildren();
               for (const value of options) {
                 const option = node("option", "", formCaptions[value]); option.value = value; control.append(option);
               }
-              control.dataset.category = footingCategory(tag);
+              control.dataset.category = category;
             }
             for (const option of control.children) option.disabled = targets.some(tag => !allowedStiffnessForms(tag).includes(option.value));
             control.value = settlementDisplay(tag).form;
@@ -4092,7 +4374,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
-          || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne && !(drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet));
+          || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne);
         control.title = inputLocked(tag) ? "Indata är låsta. Lås upp indata för att redigera."
           : inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
           : ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
@@ -4130,6 +4412,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const field = tableSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
         if (field?.type === "profile") {syncInlineProfile(tag); continue;}
+        if (field?.type === "foundation") {
+          control.textContent = commonFor(tag)?.label || "—"; control.disabled = !commonFor(tag); continue;
+        }
         if (readOnly || field?.type === "result") {
           control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tableSettingValue(tag, name), tag);
           if (settlementResultFields.has(name)) control.title = tableSettlementResult(tag, name).reason || field.description;
@@ -4138,7 +4423,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tableSettingValue(tag, name);
         if (field?.type === "bool") control.checked = value ?? false;
-        else control.value = name === "L_vagg" && tag.values.lang === 1 && !(draft?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
+        else control.value = name === "L_vagg" && tag.values.lang === 1
           && (draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1) ? "1" : tableText(value);
       }
     }
@@ -4190,9 +4475,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (settlementResultFields.has(name)) return tableSettlementResult(tag, name).value;
         if (field?.type === "result") return dirty.has(tag.id) ? null : tag.load_resultants?.[field.phase];
         const raw = drafts.get(tag.id)?.values[name] ?? tableSettingValue(tag, name);
-        if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return 1;
+        if (name === "L_vagg" && tag.values.lang === 1 && tag.values.L_vagg_minst_1) return 1;
         if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
-        return ["text", "choice", "profile"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
+        return ["text", "choice", "profile", "foundation"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
           : field?.type === "bool" ? Number(raw) : Number(String(raw).replace(",", "."));
       };
       const va = value(a), vb = value(b);
@@ -4593,6 +4878,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     lockInputs.disabled = inputBusy || !!pending.size || !tags.length || inputLocks === tags.length;
     unlockInputs.disabled = inputBusy || !!pending.size || !inputLocks;
     autoBxButton.disabled = inputBusy || !!pending.size || !tags.length;
+    commonFoundationButton.disabled = inputBusy || commonBusy || !!pending.size || !tags.length;
     const selectBusy = inputBusy || !!drawingDraft || drawingPending || !!cropDraft || !!canvasPending || !background().url;
     for (const button of [selectAllButton, selectAllMenuButton, ...selectAllChoices]) button.disabled = selectBusy;
     lockMany.disabled = bulkBusy || locked === objects.length;
@@ -4651,7 +4937,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
       }
       const support = bulkInputs.get("L_vagg"), minimum = bulkInputs.get("L_vagg_minst_1");
-      if (strip && support && minimum && !onlyH) {
+      if (strip && support && minimum) {
         const enabled = minimum.choose.checked ? minimum.input.value === "false" : tags.every(tag => !tag.values.L_vagg_minst_1);
         support.input.disabled = support.choose.disabled = !enabled;
         if (!enabled) support.choose.checked = false;
@@ -5017,7 +5303,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         + " Sulmåttet b_y anger fördelningslängden under sulan och ändrar inte den yttre lastresultanten. Egentyngd tillkommer."));
     }
     if (!strip && line) basis.replaceChildren(mathText("span", "", "Pelarsulemodell med linjelast: laster och moment anges per meter linjestöd och multipliceras med hela L_vägg. b_x och b_y anger kontaktmåtten. Egentyngd tillkommer i beräkningen."));
-    if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. V_Ed,EQU ska redan innehålla sulans egentyngd."));
+    if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. Sättning och styvhet beräknas när jordprofil och sulmått finns. Sättningen använder Brukslast inklusive sulans egentyngd. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
       if (name === "lang") {
         const pad = physicalType(current()) === "pelarsula";
@@ -5031,27 +5317,27 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         continue;
       }
       if (name === "l_override") {
-        entry.row.hidden = !strip || onlyH;
-        if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
+        entry.row.hidden = !strip;
+        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false;}
         continue;
       }
       if (name === "L_vagg_minst_1") {
-        entry.row.hidden = !strip || onlyH;
-        if (!readOnly) {entry.input.disabled = !strip || onlyH; entry.input.required = false;}
+        entry.row.hidden = !strip;
+        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false;}
         continue;
       }
       if (name === "L_vagg") {
-        entry.row.hidden = !line || onlyH;
+        entry.row.hidden = !line;
         entry.unit.textContent = "m";
-        entry.row.title = strip ? "Bärighet/isolering: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder L_su."
+        entry.row.title = strip ? "Lokal lastomräkning: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder L_su."
           : "Hela linjestödslängden används för att omräkna linjelasten till total kraft. Sulmåtten ändrar inte resultanten.";
-        if (readOnly) entry.input.textContent = strip && atLeastOne && !onlyH ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
+        if (readOnly) entry.input.textContent = strip && atLeastOne ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
         else {
-          entry.input.hidden = strip && atLeastOne && !onlyH;
+          entry.input.hidden = strip && atLeastOne;
           entry.fixed.hidden = !entry.input.hidden;
-          entry.input.disabled = !line || onlyH || (strip && atLeastOne);
+          entry.input.disabled = !line || (strip && atLeastOne);
           entry.input.required = line && !(strip && atLeastOne) && !onlyH;
-          entry.input.placeholder = onlyH || !strip ? "Hela linjestödslängden" : "Kortare än 1 m";
+          entry.input.placeholder = !strip ? "Hela linjestödslängden" : "Kortare än 1 m";
           if (entry.input.disabled) entry.input.setCustomValidity("");
         }
         continue;
@@ -5078,7 +5364,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         || (name === "l" && strip && !inputs.get("l_override")?.input.checked);
       if (name === "l" && strip && !inputs.get("l_override")?.input.checked) entry.input.value = "1";
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
-        && !entry.input.disabled && (insulated || !name.endsWith("_bruk"));
+        && !entry.input.disabled && !onlyH && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
       entry.row.hidden = ignored || !insulated && name.startsWith("f_d_");
     }
@@ -5106,6 +5392,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSliding();
     showColour();
     showTable();
+    showCommonFoundations();
     const label = labelInput.value.trim();
     const id = active, revision = edits.get(id);
     command("update", { id, values, ...(label ? { label } : {}) }, [], reply => {
@@ -5383,6 +5670,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSliding();
     showColour();
     showTable();
+    showCommonFoundations();
     showLayout();
     showMeasurement();
     showTextObjects();
@@ -5819,6 +6107,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const insideDialog = target => target?.closest?.(".gp-dialog") === dialog
     || target?.closest?.(".gp-dialog") === bulkDialog
     || target?.closest?.(".gp-dialog") === autoBxDialog
+    || target?.closest?.(".gp-dialog") === commonDialog
     || target?.closest?.(".gp-sketch-panel") === sketch;
   const outsideDown = event => {
     if (event.target?.closest?.(".gp-select-all") !== selectAllGroup) closeSelectAllMenu();
@@ -5891,6 +6180,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         leaderNode = null; saveLeader(tag.id, next); viewport.focus({preventScroll: true});
       }
       return;
+    }
+    if (event.key === "Escape" && !commonDialog.hidden) {
+      event.preventDefault(); closeCommonFoundation(); return;
     }
     if (event.key === "Escape" && drawingDraft) {
       event.preventDefault(); if (!drawingBusy) finishDrawingEdit(false); return;

@@ -31,13 +31,15 @@ def bearing_load_length(values):
 def load_resultants(values):
     """Display external totals even if unrelated geometry/soil inputs are invalid."""
     result = {"brott": None, "bruk": None}
-    if values.get("inaktiv") or values.get("endast_h_stabilitet"):
+    if values.get("inaktiv"):
         return result
     try:
         length = bearing_load_length(values)
     except ValueError:
         return result
     for phase, name in (("brott", "F_vy"), ("bruk", "F_vy_bruk")):
+        if phase == "brott" and values.get("endast_h_stabilitet"):
+            continue
         value = values.get(name)
         if type(value) not in (int, float) or not math.isfinite(value):
             continue

@@ -197,7 +197,72 @@ I sulans dialog finns **Sättning och styvhet**. Markera
 jordlager för just den sulan. Avmarkera och tillämpa för att återgå till
 projektprofilen. Kopierade sulor behåller en egen profil. **Lås indata**
 skyddar sulans egna profilval; en ärvd profil fortsätter följa projektets
-profil. Inaktiva sulor och sulor med **Endast H** beräknas inte här.
+profil. Inaktiva sulor beräknas inte här. **Endast H-stabilitet** kan däremot
+beräkna både sättning och styvhet, med samma jordprofiler, sulmått och
+Brukslast inklusive egentyngd som övriga aktiva sulor. Saknad Brukslast
+hindrar sättningen men inte styvheten. Resultaten visas i tabellen, dialogen
+och, om **Visa på etikett** är valt, på etiketten samt i PDF och HTML.
+
+### Gemensamt fundament
+
+Markera stöd som står på samma fysiska platta, exempelvis **H-GR.1–4**, och
+välj **Gemensamt fundament** i markeringsraden. Ange ett namn, plattans
+**bₓ, bᵧ och t** samt projektets jordprofil eller en egen lagerföljd.
+Plattmåtten väljs uttryckligen och hämtas inte automatiskt från stödens
+enskilda sulmått. Avsluta med **Spara fundament**.
+
+Dialogen visar varje stöds yttre **Brukslast** och, vid linjelast, **hela
+belastade L_vägg**. Dessa kan ändras tillsammans med plattans uppgifter och
+sparas i ett gemensamt ångringssteg. Punktlast används direkt i kN;
+linjelast multipliceras med hela L_vägg även när **Minst 1 m** används i
+stödets lokala kontroll. **L_su** hör fortfarande till glidningskontrollen
+och påverkar inte denna lastsumma. Lastimport och senare ändringar av
+stödens Brukslaster uppdaterar fundamentets resultat automatiskt.
+
+Sättningen beräknas med `sattning()` för rektangulär pelarsulemodell och
+stödens sammanlagda yttre Brukslast plus **plattans egentyngd en gång**.
+Stödens separata sulmått och egentyngder ingår inte i plattberäkningen.
+`baddmodul()` ger ytstyvheten och hela plattans punktstyvhet. Det är ett
+resultat för fundamentet som helhet; rotation och differenssättningar mellan
+stöd beräknas inte. Välj ytstyvhet **[kN/m²/m]** eller punktstyvhet **[kN/m]**.
+
+Under sulornas tabell finns **Gemensamma fundament**, med en rad per platta
+och sorterbara resultatkolumner. Stödens egna resultatrutor visar **Se
+fundament**, och kolumnen **Gemensamt fundament** öppnar plattans dialog.
+Resultaten upprepas alltså inte som separata stödresultat. På ritningen
+väljer du **Resultat på stödets etikett** för den gemensamma sammanställningen;
+övriga anslutna etiketter visar fundamentets namn. Resultatet följer med i
+PDF och HTML. **Visa plattans resultat på etikett** styr hela resultatblocket,
+inklusive jordlagermäktigheter. Om det valda stödet inaktiveras visas blocket
+i stället på ett aktivt anslutet stöd.
+
+Inaktiva stöd undantas från lastsummeringen. Saknas Brukslast eller positiv
+belastad längd för ett aktivt stöd visas vad som saknas; ingen partiell
+lastsumma används för sättningen. Styvheten kan fortfarande beräknas med
+giltig geometri och jordprofil. Saknas aktiva stöd visas inget beräknat
+resultat. **Endast H-stabilitet** fortsätter att stänga av bärighet och
+isolering; glidningskontrollerna påverkas inte av fundamentkopplingen.
+
+Varje stöd kan tillhöra en platta. **Lägg till stöd…**, **Koppla loss** och
+**Lös upp fundament** ändrar kopplingarna utan att radera stöd eller deras
+ursprungliga individuella mått/profiler. En kopierad sula är fristående och
+kopplas inte automatiskt till plattan. Låsta indata för ett anslutet stöd
+skyddar även plattan mot ändring. Alla kopplingar och plattindata sparas i
+projektformat version 28; äldre projekt öppnas utan gemensamma fundament.
+Endast H-sulor utan koppling kan fortsatt beräkna sättning och styvhet
+separat. **Referens** grupperar fortfarande separata sulor och skapar ingen
+fysisk platta.
+
+```python
+fundament_id = plan.satt_gemensamt_fundament(
+    [hgr1, hgr2, hgr3, hgr4], namn="Hissgrop 1", bx=4, by=5, t=0.4,
+    jordprofil=None,  # ärver projektets jordprofil
+)
+plattresultat = plan.gemensamma_fundament
+plan.los_upp_fundament(fundament_id)
+```
+
+### Individuella sulor
 
 Under samma rubrik finns **Visa på etikett** och **Styvhetsform**, som gäller
 den enskilda sulan. Checkboxen döljer eller visar avsnittet på just dess etikett,
@@ -259,7 +324,7 @@ bort lager, ange en helt ny profil eller återgå till projektprofilen. Om
 markerade sulor har olika profiler visas **Olika jordprofiler** och ingen av
 dem kopieras automatiskt. **Tillämpa jordprofil** ersätter hela lagerföljden
 för de angivna sulorna; avmarkera Egen jordprofil för att återgå till projektprofilen.
-Sulor med låsta indata, Inaktiv eller Endast H undantas från profiländringar.
+Sulor med låsta indata eller Inaktiv undantas från profiländringar.
 En gemensam ändring är ett ångringssteg. Visningsändringar påverkar inte profilerna.
 
 För väggsula med pelarsulemodell beräknas linjestyvheten som
@@ -788,7 +853,8 @@ exklusive sulans egentyngd: V × använd stödslängd för linjelast, annars V.
 Kolumnerna uppdateras automatiskt, kan sorteras med littera som skiljekriterium
 och följer med gruppens visningsval och den låsta HTML-exporten. Saknad/ogiltig
 last eller stödslängd visas som ett streck; andra indatafel hindrar inte att en
-giltig resultant visas. Endast H-stabilitet visar inga brott-/brukresultanter.
+giltig resultant visas. Endast H-stabilitet visar Bruk-resultanten för
+sättningsberäkningen, men ingen Brott-resultant.
 På pelarsuleetiketter med linjelast visas exempelvis **V 200 kN/m → 120 kN**.
 
 Python-fältet `lasttyp` är 1 för linjelast och 0 för punktlast; `lang` väljer
@@ -881,18 +947,21 @@ hoppar över befintliga inaktiva sulor. Om ett gemensamt urval innehåller
 inaktiva sulor kan endast **Inaktiv** och **Kommentar** ändras för urvalet.
 I Python används till exempel `plan.uppdatera(id, indata={"inaktiv": True})`.
 
-Markera **Endast H-stabilitet** under **Geometri** om sulan endast ska ingå
-i glidningskontrollen. Jordens bärighetskontroll och isoleringskontrollen
+Markera **Endast H-stabilitet** under **Geometri** om sulan ska ingå
+i glidningskontrollen utan bärighets- eller isoleringskontroll. Sättning och
+styvhet kan fortfarande beräknas med en jordprofil. Jordens bärighetskontroll och isoleringskontrollen
 utförs då inte, och deras indata döljs i dialogen och inaktiveras i tabellen.
 Sulan sätts automatiskt till **Utan isolering** och kategorin **Isolering**
 döljs. Sparade material- och bärförmågevärden behålls; isolering kan aktiveras
 igen efter att **Endast H-stabilitet** avmarkerats. Glidningsindata
 visas även innan den globala kontrollen har aktiverats; bidragsriktningarna
 väljs fortfarande manuellt. Vanliga sulor med isolering bidrar med 0 kN.
-Sulmåtten bₓ/bᵧ och **Egen längd** döljs i dialogen och kan inte redigeras i
-tabellen i detta läge. Tidigare mått behålls när läget växlas, men redovisas
-inte på etiketten. **L_vägg** och den lokala kryssrutan **Minst 1 m** döljs
-eftersom bärighet inte kontrolleras. Sulängden **L_su** under **Glidning**
+Sulmåtten bₓ/bᵧ, tjocklek t, **Egen längd**, **L_vägg**, **Minst 1 m** och
+**Brukslast V** är tillgängliga för sättning och styvhet. Lastomräkningen
+använder samma regler som för övriga sulor: väggsulemodell använder en lokal
+enmetersremsa eller kort L_vägg, medan pelarsulemodell med linjelast använder
+hela L_vägg. Saknade sättningsindata hindrar inte glidningskontrollen.
+Sulängden **L_su** under **Glidning**
 är redigerbar vid linjelast och bestämmer det globala bidraget.
 Etiketten och tabellens status visar **Endast H-stabilitet** i neutral blå färg
 utan någon utnyttjandegrad för bärighet. Valet sparas, följer med kopierade

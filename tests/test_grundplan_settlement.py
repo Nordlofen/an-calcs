@@ -56,13 +56,23 @@ class TestSettlementCalculation(unittest.TestCase):
         self.assertIsNone(result['s']); self.assertIsNone(result['k'])
         self.assertTrue(result['stiffness_error'])
 
-    def test_no_profile_inactive_and_only_h_never_call_calculators(self):
+    def test_no_profile_and_inactive_never_call_calculators(self):
         _evaluate.cache_clear()
         with patch('an_calcs.notebook.grundplan_settlement.sattning') as settlement, patch('an_calcs.notebook.grundplan_settlement.baddmodul') as stiffness:
-            for values, profile in [(self.values(), None), (self.values(inaktiv=True), PROFILE),
-                                    (self.values(endast_h_stabilitet=True), PROFILE)]:
+            for values, profile in [(self.values(), None), (self.values(inaktiv=True), PROFILE)]:
                 self.assertIsNone(evaluate(values, profile))
             settlement.assert_not_called(); stiffness.assert_not_called()
+
+    def test_only_h_uses_the_same_settlement_and_stiffness_models_and_loads(self):
+        for values in (self.values(), self.values(lang=1, lasttyp=1, l=1),
+                       self.values(lasttyp=1, L_vagg=.4),
+                       self.values(lang=1, lasttyp=1, l=.5, L_vagg=.4, L_vagg_minst_1=False)):
+            with self.subTest(values=values):
+                self.assertEqual(evaluate({**values, 'endast_h_stabilitet': True}, PROFILE), evaluate(values, PROFILE))
+        result = evaluate(self.values(endast_h_stabilitet=True, F_vy_bruk=None), PROFILE)
+        self.assertIsNone(result['s'])
+        self.assertEqual(result['K'], 97500)
+        self.assertEqual(result['settlement_error'], 'Ange Brukslast.')
 
     def test_profile_validation_is_strict_bounded_and_copied(self):
         self.assertIsNone(validate_profile(None))
@@ -205,6 +215,33 @@ class TestSettlementProject(unittest.TestCase):
         self.plan.uppdatera(self.ident, indata={'inaktiv': False})
         self.assertIn(self.ident, self.plan.sattningsresultat)
 
+    def test_only_h_allows_profiles_and_display_without_enabling_bearing_or_changing_sliding(self):
+        self.plan.jordprofil = PROFILE
+        expected = self.plan.sattningsresultat[self.ident]
+        self.plan.uppdatera(self.ident, indata={'endast_h_stabilitet': True,
+                            'glid_x': True, 'V_Ed_EQU': 120, 'glid_mu': .4})
+        before_sliding = self.plan.taggar[0]['sliding']
+        self.assertEqual(self.plan.sattningsresultat[self.ident], expected)
+        custom = copy.deepcopy(PROFILE)
+        custom['layers'][0]['Ek'] *= 2
+        reply = self.command(action='soil_profile', id=self.ident, profile=custom)
+        self.assertTrue(reply['ok'])
+        self.assertAlmostEqual(self.plan.sattningsresultat[self.ident]['s'], expected['s'] / 2)
+        self.assertTrue(self.command(action='settlement_display', id=self.ident,
+                                    settings={'form': 'yta', 'show_labels': False})['ok'])
+        self.assertEqual(self.plan.sattningsresultat[self.ident]['display_form'], 'yta')
+        self.assertTrue(self.command(action='soil_profile_patch', ids=[self.ident], field='dz', layer=0, value=1)['ok'])
+        self.assertEqual(self.plan.taggar[0]['sliding'], before_sliding)
+        self.assertTrue(self.plan.taggar[0]['summary']['endast_h_stabilitet'])
+        self.assertIsNone(self.plan.taggar[0]['summary']['utnyttjandegrad'])
+        restored = self.new_plan()
+        restored._load_document(json.dumps(self.plan._document()).encode())
+        self.assertEqual(restored.sattningsresultat, self.plan.sattningsresultat)
+        self.plan.uppdatera(self.ident, indata={'b': None, 't': None, 'F_vy_bruk': None})
+        self.assertIsNone(self.plan.sattningsresultat[self.ident]['s'])
+        self.assertTrue(self.plan.taggar[0]['summary']['endast_h_stabilitet'])
+        self.assertEqual(self.plan.taggar[0]['sliding'], before_sliding)
+
     def test_invalid_profile_and_corrupt_saved_profile_are_atomic(self):
         self.plan.jordprofil = PROFILE
         before = self.plan._document(), self.plan.taggar
@@ -340,9 +377,10 @@ class TestSettlementProject(unittest.TestCase):
         self.plan.uppdatera(horizontal, indata={'endast_h_stabilitet': True})
         ids = [self.ident, locked, inactive, horizontal]
         reply = self.command(action='soil_profile_patch', ids=ids, field='gamma_m', layer=0, value=1.3)
-        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 1)
-        self.assertEqual([item['reason'] for item in reply['skipped']], ['Låsta indata', 'Inaktiv', 'Endast H'])
-        self.assertTrue(all('soil_profile' not in self.plan._tag(ident) for ident in ids[1:]))
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 2)
+        self.assertEqual([item['reason'] for item in reply['skipped']], ['Låsta indata', 'Inaktiv'])
+        self.assertTrue(all('soil_profile' not in self.plan._tag(ident) for ident in (locked, inactive)))
+        self.assertEqual(self.plan._tag(horizontal)['soil_profile']['layers'][0]['gamma_m'], 1.3)
         self.plan.satt_jordprofil(self.ident); self.plan.jordprofil = None
         before = self.plan._document()
         reply = self.command(action='soil_profile_patch', ids=[self.ident], field='step', value=.1)

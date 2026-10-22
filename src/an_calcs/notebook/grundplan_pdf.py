@@ -44,7 +44,7 @@ def _page_geometry(page):
 
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None, drawing_layout=None, object_layout=None, settlement_display=None, soil_profile=None):
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None, drawing_layout=None, object_layout=None, settlement_display=None, soil_profile=None, common_foundations=None):
     """Merge the shared HTML/CSS vector overlay onto the original drawing."""
     from .grundplan_pdf_browser import render_overlay
     from .grundplan_reference import group_data as reference_groups
@@ -123,6 +123,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                     "state": {"title": title, "subtitle": "", "label_size": label_size,
                               "settlement_display": settlement_display,
                               "soil_profile": soil_profile,
+                              "common_foundations": common_foundations or [],
                               "tags": [{**tag, "sliding": contribution(tag["values"]),
                                         "load_resultants": load_resultants(tag["values"])} for tag in tags],
                               "sliding": settings, "sliding_result": project_results(tags, settings),
