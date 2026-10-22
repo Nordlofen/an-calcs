@@ -62,6 +62,30 @@ class TestGrundplanPdf(unittest.TestCase):
         self.assertIn('"status": "inactive"', html)
         self.assertIn("Avvaktar granskning", html)
 
+    def test_soil_thicknesses_export_as_vectors_and_follow_individual_settlement_visibility(self):
+        source = self.root / 'vector.pdf'
+        canvas = Canvas(str(source), pagesize=(600, 450)); canvas.showPage(); canvas.save()
+        plan = self.plan(source)
+        shared = {'layers': [{'dz': 1, 'Ek': 45, 'gamma_m': 1.3}], 'step': .1}
+        custom = {'layers': [shared['layers'][0], {'dz': .75, 'Ek': 30, 'gamma_m': 1.3}], 'step': .1}
+        plan.jordprofil = shared
+        first = self.tag(plan, x=.2, y=.3, littera='VS.1', indata={'b': 1.4, 't': .3, 'F_vy': 100, 'F_vy_bruk': 80})
+        second = self.tag(plan, x=.6, y=.3, littera='VS.2', indata={'b': 1.4, 't': .3, 'F_vy': 100, 'F_vy_bruk': 80})
+        plan.satt_jordprofil(second, custom)
+        original = copy.deepcopy((plan.jordprofil, plan.sattningsresultat))
+        reader = PdfReader(io.BytesIO(plan._pdf_bytes())); text = reader.pages[0].extract_text()
+        self.assertEqual(len(reader.pages[0].images), 0)
+        for phrase in ('Jordlagermäktigheter', 'L1: 1 m', 'L2: 0,75 m', 'Uppifrån och ned', 'Egen jordprofil', 'Gemensam jordprofil'):
+            self.assertIn(phrase, text)
+        plan.satt_sattningsvisning(second, {'show_labels': False})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn('Jordlagermäktigheter', text); self.assertNotIn('L2: 0,75 m', text)
+        plan.satt_sattningsvisning(first, {'show_labels': False})
+        text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
+        self.assertNotIn('Jordlagermäktigheter', text); self.assertNotIn('Sättning och styvhet', text)
+        self.assertEqual((plan.jordprofil, plan.sattningsresultat), original)
+        self.assertEqual(plan._tag(second)['soil_profile'], custom)
+
     def test_horizontal_only_exports_mode_and_contribution_without_bearing_results_or_loads(self):
         plan = self.plan()
         ident = self.tag(plan, indata={"endast_h_stabilitet": True, "glid_x": True, "glid_y": True,

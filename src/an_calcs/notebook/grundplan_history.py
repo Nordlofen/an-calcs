@@ -21,7 +21,7 @@ _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "up
             "reference_widget", "footing_type", "text_add", "text_update", "text_delete",
             "insulation_placement", "comment_placement", "reference_placement",
             "colour_placement", "sliding_placement", "drawing"}
-_ACTIONS.update({"input_lock", "auto_bx_apply", "soil_profile", "settlement_display"})
+_ACTIONS.update({"input_lock", "auto_bx_apply", "soil_profile", "soil_profile_patch", "settlement_display"})
 
 
 def snapshot(plan):
@@ -48,6 +48,10 @@ def description(content, before, after):
     action = content["action"]
     tag = before.get("tag:" + str(content.get("id")), {})
     label = tag.get("label", "sula")
+    if action == "soil_profile_patch":
+        count = sum(k.startswith("tag:") and v.get("soil_profile") != before.get(k, {}).get("soil_profile")
+                    for k, v in after.items() if isinstance(v, dict))
+        return f"Ändra jordprofil för {count} sulor"
     if action == "soil_profile":
         return ("Ändra jordprofil för " + label if content.get("id") else
                 f"Ändra jordprofil för {len(content['ids'])} sulor" if content.get("ids") else

@@ -293,6 +293,84 @@ class TestSettlementProject(unittest.TestCase):
         self.assertTrue(self.command(action='soil_profile', ids=[self.ident, other], profile=None)['ok'])
         self.assertTrue(all('soil_profile' not in tag for tag in self.plan._tags))
 
+    def test_cell_edit_only_changes_the_matching_layer_in_distinct_profiles(self):
+        self.plan.jordprofil = PROFILE
+        two = self.plan.kopiera(self.ident, .5, .5)
+        three = self.plan.kopiera(self.ident, .6, .6)
+        outside = self.plan.kopiera(self.ident, .7, .7)
+        self.plan.satt_jordprofil(two, {'layers': [PROFILE['layers'][0], {'dz': 1, 'Ek': 30, 'gamma_m': 1.3}], 'step': .2})
+        self.plan.satt_jordprofil(three, {'layers': [PROFILE['layers'][0], {'dz': .5, 'Ek': 20, 'gamma_m': 1.4},
+            {'dz': 2, 'Ek': 50, 'gamma_m': 1.6}], 'step': .1})
+        before = copy.deepcopy(self.plan._document())
+        reply = self.command(action='soil_profile_patch', ids=[self.ident, two, three], field='Ek', layer=1, value=40)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 2)
+        self.assertEqual(reply['skipped'], [{'id': self.ident, 'label': self.plan._tag(self.ident)['label'], 'reason': 'Saknar lager 2'}])
+        expected = copy.deepcopy(before)
+        for tag in expected['tags']:
+            if tag['id'] in (two, three): tag['soil_profile']['layers'][1]['Ek'] = 40
+        self.assertEqual(self.plan._document(), expected)
+        self.assertNotIn('soil_profile', self.plan._tag(outside))
+        self.plan.angra(); self.assertEqual(self.plan._document(), before)
+        self.plan.gor_om(); self.assertEqual(self.plan._document(), expected)
+
+    def test_cell_edit_copies_inherited_profiles_and_step_applies_to_all_layer_counts(self):
+        self.plan.jordprofil = PROFILE
+        other = self.plan.kopiera(self.ident, .6, .6)
+        outside = self.plan.kopiera(self.ident, .7, .7)
+        reply = self.command(action='soil_profile_patch', ids=[self.ident, other], field='dz', layer=0, value=1)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 2)
+        self.assertEqual(self.plan.jordprofil, PROFILE)
+        self.assertNotIn('soil_profile', self.plan._tag(outside))
+        self.assertIsNot(self.plan._tag(self.ident)['soil_profile'], self.plan._tag(other)['soil_profile'])
+        self.plan.satt_jordprofil(other, {'layers': PROFILE['layers'] * 3, 'step': .5})
+        layers = [copy.deepcopy(self.plan._tag(ident)['soil_profile']['layers']) for ident in (self.ident, other)]
+        reply = self.command(action='soil_profile_patch', ids=[self.ident, other], field='step', value=.1)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 2)
+        for ident, expected in zip((self.ident, other), layers):
+            self.assertEqual(self.plan._tag(ident)['soil_profile']['layers'], expected)
+            self.assertEqual(self.plan._tag(ident)['soil_profile']['step'], .1)
+        restored = self.new_plan(); restored._load_document(json.dumps(self.plan._document()).encode())
+        self.assertEqual(restored.taggar, self.plan.taggar)
+
+    def test_cell_edit_skips_protected_and_missing_profiles_without_inventing_soil(self):
+        self.plan.jordprofil = PROFILE
+        locked, inactive, horizontal = [self.plan.kopiera(self.ident, x, .6) for x in (.4, .5, .6)]
+        self.plan.las_indata([locked])
+        self.plan.uppdatera(inactive, indata={'inaktiv': True})
+        self.plan.uppdatera(horizontal, indata={'endast_h_stabilitet': True})
+        ids = [self.ident, locked, inactive, horizontal]
+        reply = self.command(action='soil_profile_patch', ids=ids, field='gamma_m', layer=0, value=1.3)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 1)
+        self.assertEqual([item['reason'] for item in reply['skipped']], ['Låsta indata', 'Inaktiv', 'Endast H'])
+        self.assertTrue(all('soil_profile' not in self.plan._tag(ident) for ident in ids[1:]))
+        self.plan.satt_jordprofil(self.ident); self.plan.jordprofil = None
+        before = self.plan._document()
+        reply = self.command(action='soil_profile_patch', ids=[self.ident], field='step', value=.1)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 0)
+        self.assertEqual(reply['skipped'][0]['reason'], 'Saknar jordprofil')
+        self.assertEqual(self.plan._document(), before)
+
+    def test_invalid_cell_edit_is_atomic_even_when_only_one_profile_exceeds_layer_limit(self):
+        self.plan.jordprofil = PROFILE
+        other = self.plan.kopiera(self.ident, .6, .6)
+        self.plan.satt_jordprofil(other, {'layers': [{'dz': 600, 'Ek': 20, 'gamma_m': 1.3}], 'step': 1})
+        before = self.plan._document(), self.plan.taggar, copy.deepcopy(self.plan.state['history'])
+        for edit in ({'field': 'step', 'value': .1}, {'field': 'step', 'value': 0},
+                     {'field': 'step', 'value': .5, 'layer': 0}, {'field': 'Ek', 'layer': True, 'value': 40},
+                     {'field': 'Ek', 'layer': -1, 'value': 40}, {'field': 'Ek', 'layer': 0, 'value': float('nan')},
+                     {'field': 'bad', 'layer': 0, 'value': 1}, {'field': 'Ek', 'layer': 0, 'value': '40'}):
+            with self.subTest(edit=edit):
+                self.assertFalse(self.command(action='soil_profile_patch', ids=[self.ident, other], **edit)['ok'])
+                self.assertEqual((self.plan._document(), self.plan.taggar, self.plan.state['history']), before)
+
+    def test_unchanged_cell_does_not_create_overrides_or_history(self):
+        self.plan.jordprofil = PROFILE
+        before = self.plan._document(), copy.deepcopy(self.plan.state['history'])
+        reply = self.command(action='soil_profile_patch', ids=[self.ident], field='Ek', layer=0, value=10)
+        self.assertTrue(reply['ok']); self.assertEqual(reply['updated'], 0)
+        self.assertEqual(reply['unchanged'], [self.ident])
+        self.assertEqual((self.plan._document(), self.plan.state['history']), before)
+
     def test_invalid_reporting_choices_are_atomic_and_unavailable_line_has_no_colour(self):
         self.plan.jordprofil = PROFILE
         before = self.plan._document(), self.plan.taggar

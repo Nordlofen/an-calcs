@@ -5335,6 +5335,9 @@ const settlementFixture = (ui, changes = {}) => {
     external: 120, self_weight: 12.5, load: 132.5, profile_source: 'project', settlement_error: '', stiffness_error: '', ...changes};
   ui.changed();
 };
+const profileReplace = (ui, id) => ui.find(el => el.className === 'gp-table-profile-edit' && el.closest('tr')?.dataset.tagId === id);
+const profileInput = (ui, id, field, layer = null) => ui.find(el => el.dataset.tagId === id
+  && el.dataset.profileField === field && (layer === null ? el.dataset.layer === undefined : el.dataset.layer === String(layer)));
 
 test('legacy labels have no settlement block, and shared profile validates before sending a single command', t => {
   const ui = setup(t);
@@ -5498,7 +5501,8 @@ test('table presentation edits apply to selected footings while keeping distinct
   request = ui.sent.at(-1); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
   assert.deepEqual(request.settings, {show_labels: false});
   assert.deepEqual(ui.data.state.tags.map(tag => tag.soil_profile), profiles);
-  assert.equal(tableField(ui, 'other', 'settlement_profile').disabled, true);
+  assert.equal(profileInput(ui, 'other', 'Ek', 0).disabled, true);
+  assert.equal(tableField(ui, 'other', 'settlement_profile').disabled, false, 'Locked profiles may still be viewed and folded');
 });
 
 test('table soil editor supports differing layer counts and explicitly replaces selected full profiles', t => {
@@ -5508,7 +5512,7 @@ test('table soil editor supports differing layer counts and explicitly replaces 
   other.soil_profile.layers.push({...settlementProfile.layers[0], dz: 1, Ek: 20});
   const locked = {...structuredClone(other), id: 'locked', label: 'VS.3', input_locked: true};
   ui.data.state.tags.push(other, locked); ui.changed(); ui.byText('Markera samtliga').click();
-  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  profileReplace(ui, ui.tag.id).click();
   const panel = () => ui.byClass('gp-table-soil-panel');
   const field = label => ui.find(el => el.getAttribute('aria-label') === label && el.closest('.gp-table-soil-panel'));
   const button = label => ui.find(el => el.textContent === label && el.closest('.gp-table-soil-panel'));
@@ -5529,7 +5533,7 @@ test('table soil editor supports differing layer counts and explicitly replaces 
   ui.changed(); ui.ack(request);
   assert.ok(!ui.elements().some(el => el.className === 'gp-table-soil-row'));
   assert.equal(locked.soil_profile.layers.length, 2);
-  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  profileReplace(ui, ui.tag.id).click();
   const own = field('Egen jordprofil'); own.checked = false; own.dispatch('change');
   button('Tillämpa jordprofil').click(); request = ui.sent.at(-1);
   assert.equal(request.profile, null); assert.deepEqual(request.ids, [ui.tag.id, 'other']);
@@ -5538,12 +5542,112 @@ test('table soil editor supports differing layer counts and explicitly replaces 
 test('table soil editor follows sorting and closes when its selection scope changes', t => {
   const ui = setup(t); settlementFixture(ui);
   ui.data.state.tags.push({...structuredClone(ui.tag), id: 'other', label: 'VS.2'}); ui.changed();
-  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  profileReplace(ui, ui.tag.id).click();
   const editor = ui.byClass('gp-table-soil-row');
   ui.find(el => el.getAttribute('aria-label') === 'Sortera efter Styvhetsform').click();
   assert.equal(editor.parent.children[editor.parent.children.indexOf(editor) - 1].dataset.tagId, ui.tag.id);
   ui.byText('Markera samtliga').click();
   assert.ok(!ui.elements().some(el => el.className === 'gp-table-soil-row'));
+});
+
+test('inline profiles show all layers together with a single step field and independent folding', t => {
+  const ui = setup(t); settlementFixture(ui);
+  const other = {...structuredClone(ui.tag), id: 'other', label: 'VS.2', soil_profile: {
+    layers: [{dz: 1, Ek: 45, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3}], step: .1}};
+  ui.data.state.tags.push(other); ui.changed();
+  assert.equal(ui.elements().filter(el => el.dataset.profileField === 'step').length, 2);
+  assert.equal(ui.elements().filter(el => el.dataset.profileField === 'Ek').length, 4);
+  assert.equal(profileInput(ui, 'other', 'step').parent.getAttribute('rowspan'), '3');
+  assert.equal(profileInput(ui, 'other', 'dz', 2).value, '0,5');
+  assert.equal(profileInput(ui, ui.tag.id, 'Ek', 0).value, '10');
+  const firstBody = tableField(ui, ui.tag.id, 'settlement_profile').parent.children[1];
+  const otherBody = tableField(ui, 'other', 'settlement_profile').parent.children[1];
+  assert.equal(firstBody.hidden, false); assert.equal(otherBody.hidden, false);
+  tableField(ui, ui.tag.id, 'settlement_profile').click();
+  assert.equal(firstBody.hidden, true); assert.equal(otherBody.hidden, false);
+  ui.changed(); assert.equal(firstBody.hidden, true, 'Ordinary refreshes retain folding');
+  assert.equal(ui.sent.length, 0, 'Folding is local presentation only');
+});
+
+test('inline edits explain mixed layer counts before changing only one field of selected profiles', t => {
+  const ui = setup(t); settlementFixture(ui);
+  const two = {...structuredClone(ui.tag), id: 'two', label: 'VS.2', soil_profile: {
+    layers: [{dz: 1, Ek: 45, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3}], step: .1}};
+  const three = {...structuredClone(two), id: 'three', label: 'VS.3'};
+  three.soil_profile.layers.push({dz: 2, Ek: 60, gamma_m: 1.5});
+  const locked = {...structuredClone(two), id: 'locked', label: 'VS.4', input_locked: true};
+  ui.data.state.tags.push(two, three, locked); ui.changed(); ui.byText('Markera samtliga').click();
+  const field = profileInput(ui, 'two', 'Ek', 1); field.dispatch('focus');
+  const info = elementText(ui.byClass('gp-table-feedback'));
+  assert.ok(info.includes('2 av 4 sulor')); assert.ok(info.includes('saknar lager 2')); assert.ok(info.includes('låsta indata'));
+  field.value = '40'; field.dispatch('change'); const request = ui.sent.at(-1);
+  assert.equal(request.action, 'soil_profile_patch'); assert.equal(request.field, 'Ek');
+  assert.equal(request.layer, 1); assert.equal(request.value, 40);
+  assert.deepEqual(request.ids, [ui.tag.id, 'two', 'three', 'locked']);
+  assert.equal('profile' in request, false, 'The request cannot accidentally replace whole profiles');
+  assert.equal(profileInput(ui, 'three', 'dz', 0).disabled, true, 'Block overlapping profile writes until acknowledgement');
+  two.soil_profile.layers[1].Ek = three.soil_profile.layers[1].Ek = 40;
+  ui.changed(); ui.ack(request, {updated: 2, skipped: [{label: ui.tag.label, reason: 'Saknar lager 2'}, {label: 'VS.4', reason: 'Låsta indata'}]});
+  assert.equal(profileInput(ui, 'three', 'Ek', 1).value, '40');
+  assert.equal(profileInput(ui, 'three', 'dz', 2).value, '2');
+  assert.equal(profileInput(ui, 'three', 'step').value, '0,1');
+  assert.equal(locked.soil_profile.layers[1].Ek, 30);
+  assert.ok(elementText(ui.byClass('gp-table-feedback')).includes('2 sulor ändrade'));
+});
+
+test('inline step edits have no layer index and rejected edits retain their input for correction', t => {
+  const ui = setup(t); settlementFixture(ui);
+  const other = {...structuredClone(ui.tag), id: 'other', label: 'VS.2', soil_profile: {
+    layers: [structuredClone(settlementProfile.layers[0]), {dz: 1, Ek: 20, gamma_m: 1.3}], step: .2}};
+  ui.data.state.tags.push(other); ui.changed(); ui.byText('Markera samtliga').click();
+  const step = profileInput(ui, ui.tag.id, 'step');
+  step.value = '0'; step.dispatch('change'); assert.equal(ui.sent.length, 0);
+  step.value = '0,01'; step.dispatch('input'); step.dispatch('change'); let request = ui.sent.at(-1);
+  assert.equal(request.field, 'step'); assert.equal(request.value, .01); assert.equal('layer' in request, false);
+  assert.deepEqual(request.ids, [ui.tag.id, 'other']);
+  ui.ack(request, {ok: false, error: 'För många beräkningsskikt'});
+  assert.equal(step.value, '0,01'); assert.equal(step.disabled, false);
+  assert.ok(elementText(ui.byClass('gp-table-feedback')).includes('För många beräkningsskikt'));
+  step.value = '0,1'; step.dispatch('input'); step.dispatch('change'); request = ui.sent.at(-1);
+  assert.equal(request.value, .1); assert.equal(step.validityMessage, '');
+  ui.ack(request, {updated: 2});
+});
+
+test('editable soil values retain precision without locale digit grouping', t => {
+  const ui = setup(t); settlementFixture(ui);
+  ui.tag.soil_profile = {layers: [{dz: .123456789, Ek: 12000.123456, gamma_m: 1.3}], step: .1}; ui.changed();
+  assert.equal(profileInput(ui, ui.tag.id, 'dz', 0).value, '0,123456789');
+  const field = profileInput(ui, ui.tag.id, 'Ek', 0);
+  assert.equal(field.value, '12000,123456'); field.dispatch('change');
+  assert.equal(ui.sent.at(-1).value, 12000.123456);
+});
+
+test('an unrelated shared profile update preserves an unsaved own-profile cell', t => {
+  const ui = setup(t); settlementFixture(ui); ui.tag.soil_profile = structuredClone(settlementProfile); ui.changed();
+  const field = profileInput(ui, ui.tag.id, 'Ek', 0); field.value = '37,5'; field.dispatch('input');
+  ui.data.state.soil_profile.layers[0].Ek = 60; ui.changed();
+  assert.equal(profileInput(ui, ui.tag.id, 'Ek', 0), field);
+  assert.equal(field.value, '37,5'); assert.equal(ui.sent.length, 0);
+});
+
+for (const readOnly of [false, true]) test('soil thicknesses follow the settlement visibility switch (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly}); settlementFixture(ui);
+  ui.tag.soil_profile = {layers: [{dz: 1, Ek: 45, gamma_m: 1.3}, {dz: .5, Ek: 30, gamma_m: 1.3},
+    {dz: .5, Ek: 30, gamma_m: 1.3}], step: .1};
+  ui.changed(); const saved = structuredClone(ui.tag.soil_profile);
+  const text = elementText(ui.byClass('gp-tag-soil'));
+  assert.ok(text.includes('Jordlagermäktigheter Δz')); assert.ok(text.includes('L1: 1 m'));
+  assert.ok(text.includes('L2: 0,5 m')); assert.ok(text.includes('L3: 0,5 m'));
+  assert.ok(text.includes('Uppifrån och ned')); assert.ok(text.includes('Egen jordprofil'));
+  ui.tag.settlement_display = {show_labels: false, form: 'linje'}; ui.changed();
+  assert.ok(!ui.elements().some(el => el.className === 'gp-tag-soil'));
+  assert.ok(!ui.elements().some(el => el.className === 'gp-tag-settlement'));
+  assert.deepEqual(ui.tag.soil_profile, saved); assert.equal(ui.tag.settlement.s, 4.42);
+  assert.equal(profileInputOrCount(), readOnly ? 0 : 9);
+  function profileInputOrCount() {return ui.elements().filter(el => el.dataset.profileField && el.dataset.tagId === ui.tag.id && el.dataset.profileField !== 'step').length;}
+  ui.tag.settlement_display.show_labels = true; delete ui.tag.soil_profile; ui.changed();
+  assert.ok(elementText(ui.byClass('gp-tag-soil')).includes('Gemensam jordprofil'));
+  assert.ok(!elementText(ui.byClass('gp-tag-soil')).includes('L2:'));
 });
 
 test('stiffness colour ranges use scientific notation everywhere and editable notation preserves exact bounds', t => {

@@ -1349,6 +1349,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     soilBusy = true; soilClose.disabled = true;
     soilEditor?.setDisabled(true); footingSoilEditor?.setDisabled(true);
     tableSoilEditing?.editor.setDisabled(true);
+    update();
     command("soil_profile", {profile, ...(Array.isArray(id) ? {ids: id} : id ? {id} : {})}, [], reply => {
       soilBusy = false; soilClose.disabled = false;
       if (!reply.ok) {
@@ -2088,6 +2089,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showSelection(); renderMarkers();
   });
   const tableRows = new Map();
+  const tableProfiles = new Map(), foldedProfiles = new Set();
   let tableSoilEditing = null;
   const tableSortHeads = new Map(), tableCollator = new Intl.Collator("sv", {numeric: true, sensitivity: "base"});
   let tableViewDraft = null;
@@ -3388,6 +3390,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const unit = data.display_unit || {yta: "kN/m²/m", linje: "kN/m/m", punkt: "kN/m"}[form];
     add(form === "yta" ? "k" : "K", form === "yta" ? "" : form, value, unit, true, data.display_error || data.stiffness_error);
     block.append(grid);
+    if (compact) {
+      const profile = tag.soil_profile || state().soil_profile;
+      if (profile) {
+        const soil = node("span", "gp-tag-soil");
+        soil.append(node("span", "gp-tag-soil-heading", "Jordlagermäktigheter Δz"));
+        const layers = node("span", "gp-tag-soil-layers");
+        for (const [i, layer] of profile.layers.entries())
+          layers.append(node("span", "", "L" + (i + 1) + ": " + precise(layer.dz) + " m"));
+        soil.append(layers, node("span", "gp-tag-soil-source", "Uppifrån och ned · "
+          + (tag.soil_profile ? "Egen jordprofil" : "Gemensam jordprofil")));
+        block.append(soil);
+      }
+    }
     if (!compact) {
       if (Number.isFinite(data.load)) block.append(node("p", "gp-result-note",
         "Brukslast " + precise(data.external) + " + egentyngd " + precise(data.self_weight) + " = " + precise(data.load) + " " + data.load_unit + "."));
@@ -3679,6 +3694,121 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const profile = tag.soil_profile || state().soil_profile;
     return (tag.soil_profile ? "Egen" : "Gemensam") + (profile ? " · " + profile.layers.length + " lager" : " · saknas");
   }
+  const profileCandidates = id => state().tags.filter(tag => tag.id === id || selected.has(id) && selected.has(tag.id));
+  function profileSkip(tag, field, layer) {
+    const profile = tag.soil_profile || state().soil_profile;
+    return inputLocked(tag) ? "låsta indata" : tag.values.inaktiv ? "inaktiv" : tag.values.endast_h_stabilitet ? "Endast H"
+      : !profile ? "saknar jordprofil" : field !== "step" && layer >= profile.layers.length ? "saknar lager " + (layer + 1) : "";
+  }
+  function profileScope(id, field, layer) {
+    const tags = profileCandidates(id), skipped = tags.filter(tag => profileSkip(tag, field, layer));
+    const caption = field === "step" ? "Beräkningsskikt" : "Lager " + (layer + 1);
+    return caption + ": ändrar " + (tags.length - skipped.length) + " av " + tags.length + " sulor."
+      + (skipped.length ? " Undantas: " + skipped.map(tag => tag.label + " (" + profileSkip(tag, field, layer) + ")").join(", ") + "." : "")
+      + " Endast detta värde ändras; övriga jordlager behålls.";
+  }
+  function patchTableProfile(id, field, layer, control) {
+    if (readOnly || soilBusy || historyBusy || control.disabled || drawingDraft || drawingPending || cropDraft || canvasPending) return;
+    const value = control.value.trim() === "" ? NaN : Number(control.value.trim().replace(",", "."));
+    control.setCustomValidity(Number.isFinite(value) && value > 0 ? "" : "Ange ett ändligt tal större än noll.");
+    if (!control.reportValidity()) return;
+    const ids = profileCandidates(id).map(tag => tag.id);
+    soilBusy = true; soilClose.disabled = true;
+    soilEditor?.setDisabled(true); footingSoilEditor?.setDisabled(true); tableSoilEditing?.editor.setDisabled(true);
+    update();
+    command("soil_profile_patch", {ids, field, value, ...(field === "step" ? {} : {layer})}, [], reply => {
+      soilBusy = false; soilClose.disabled = false;
+      soilEditor?.setDisabled(false);
+      footingSoilEditor?.setDisabled(!!current() && (inputLocked(current()) || current().values.inaktiv || current().values.endast_h_stabilitet));
+      tableSoilEditing?.editor.setDisabled(false);
+      if (!reply.ok) {
+        control.setCustomValidity(reply.error); control.reportValidity();
+        tableFeedback.replaceChildren(node("p", "gp-error-text", reply.error)); showMessage(reply.error, true);
+      } else {
+        footingSoilSignature = "";
+        const skipped = reply.skipped || [];
+        const updated = reply.updated ?? ids.length;
+        const message = "Jordprofil: " + updated + (updated === 1 ? " sula ändrad." : " sulor ändrade.")
+          + (skipped.length ? " Undantas: " + skipped.map(tag => tag.label + " (" + tag.reason + ")").join(", ") + "." : "")
+          + (reply.unchanged?.length ? " " + reply.unchanged.length + " hade redan värdet." : "");
+        tableFeedback.replaceChildren(node("p", "gp-field-note", message)); showMessage(message);
+      }
+      update();
+    });
+  }
+  function syncInlineProfileControls(tag) {
+    const entry = tableProfiles.get(tag.id);
+    if (!entry) return;
+    const busy = soilBusy || bulkBusy || importBusy || deleteBusy || autoBxBusy || inputLockBusy || historyBusy;
+    entry.fold.disabled = false;
+    entry.fold.title = "Visa eller dölj jordlagren för " + tag.label;
+    for (const {control, field, layer} of entry.inputs) {
+      const reason = profileSkip(tag, field, layer);
+      control.disabled = readOnly || busy || !!reason;
+      // Resolve the full selection report only on focus, not once per cell on
+      // every redraw of large tables. Disabled cells still explain their lock.
+      control.title = reason ? "Kan inte redigeras: " + reason : field === "step"
+        ? "Beräkningsskikt för samtliga lager i profilen. Gäller markerade sulor."
+        : "Lager " + (layer + 1) + ": ändra bara detta värde hos markerade sulor som har lagret.";
+      control.setAttribute("aria-label", tag.label + ": " + (field === "step" ? "Beräkningsskikt [m]"
+        : {dz: "Lagertjocklek", Ek: "E-modul", gamma_m: "Materialfaktor"}[field] + " jordlager " + (layer + 1)));
+    }
+    if (entry.edit) entry.edit.disabled = busy || inputLocked(tag) || tag.values.inaktiv || tag.values.endast_h_stabilitet
+      || !tableTargets(tag.id, "settlement_profile").length;
+  }
+  function syncInlineProfile(tag) {
+    const entry = tableProfiles.get(tag.id), profile = tag.soil_profile || state().soil_profile;
+    const signature = JSON.stringify([!!tag.soil_profile, profile]);
+    const folded = foldedProfiles.has(tag.id);
+    entry.fold.textContent = (folded ? "▸ " : "▾ ") + profileCaption(tag);
+    entry.fold.setAttribute("aria-expanded", String(!folded)); entry.body.hidden = folded;
+    if (entry.signature !== signature && !soilBusy) {
+      entry.signature = signature; entry.inputs = []; entry.body.replaceChildren();
+      const cellValue = (value, field, layer) => {
+        if (readOnly) return node("span", "gp-table-value", precise(value));
+        const control = node("input"); control.type = "text"; control.inputMode = "decimal";
+        control.value = String(value).replace(".", ",");
+        control.dataset.tagId = tag.id; control.dataset.profileField = field;
+        if (layer != null) control.dataset.layer = String(layer);
+        control.addEventListener("input", () => control.setCustomValidity(""));
+        control.addEventListener("focus", () => tableFeedback.replaceChildren(node("p", "gp-field-note", profileScope(tag.id, field, layer))));
+        control.addEventListener("change", () => patchTableProfile(tag.id, field, layer, control));
+        control.addEventListener("keydown", event => {
+          if (event.key === "Enter") {event.preventDefault(); patchTableProfile(tag.id, field, layer, control);}
+        });
+        entry.inputs.push({control, field, layer}); return control;
+      };
+      if (profile) {
+        const table = node("table", "gp-table-profile-layers"), head = node("thead"), headings = node("tr"), body = node("tbody");
+        table.setAttribute("aria-label", "Jordlager för " + tag.label);
+        for (const [notation, unit] of [[{text: "Lager"}, ""], [{base: "Δz"}, "m"],
+          [{base: "E", subscript: "k"}, "MPa"], [{base: "γ", subscript: "m"}, "–"], [{base: "t", subscript: "skikt"}, "m"]]) {
+          const th = node("th"); th.setAttribute("scope", "col"); th.append(symbolNode(notation));
+          if (unit) th.append(node("span", "gp-table-profile-unit", "[" + unit + "]"));
+          headings.append(th);
+        }
+        head.append(headings); table.append(head, body);
+        for (const [i, layer] of profile.layers.entries()) {
+          const row = node("tr"); row.append(node("td", "gp-table-profile-layer-name", "Lager " + (i + 1)));
+          for (const field of ["dz", "Ek", "gamma_m"]) {const cell = node("td"); cell.append(cellValue(layer[field], field, i)); row.append(cell);}
+          if (i === 0) {
+            const step = node("td", "gp-table-profile-step"); step.setAttribute("rowspan", String(profile.layers.length));
+            step.append(cellValue(profile.step, "step", null)); row.append(step);
+          }
+          body.append(row);
+        }
+        entry.body.append(table);
+      } else entry.body.append(node("p", "gp-field-note", "Jordprofil saknas."));
+      if (!readOnly) {
+        entry.edit = button(profile ? "Ersätt lagerföljd…" : "Ange lagerföljd…", () => {
+          if (!entry.edit.disabled) openTableSoilEditor(tag.id);
+        }, "gp-table-profile-edit");
+        entry.edit.title = "Lägg till eller ta bort jordlager, ange en hel profil eller återgå till projektets profil. Markerade sulor får hela den angivna profilen.";
+        entry.body.append(entry.edit);
+      }
+    }
+    syncInlineProfileControls(tag);
+  }
   function closeTableSoilEditor() {
     tableSoilEditing?.row.remove(); tableSoilEditing = null;
   }
@@ -3703,7 +3833,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const profile = same ? tags[0].soil_profile || state().soil_profile : null;
     const row = node("tr", "gp-table-soil-row"), cell = node("td"), panel = node("section", "gp-table-soil-panel");
     panel.setAttribute("aria-label", "Jordprofil i tabellen");
-    panel.append(node("h4", "", "Jordprofil – " + tags.map(tag => tag.label).join(", ")));
+    panel.append(node("h4", "", "Ersätt lagerföljd – " + tags.map(tag => tag.label).join(", ")));
     if (!same) panel.append(node("p", "gp-field-note", "Olika jordprofiler. Ange en ny gemensam lagerföljd eller välj projektets profil."));
     if (tags.length > 1) panel.append(node("p", "gp-field-note", "Tillämpa ersätter hela lagerföljden för " + tags.length
       + " markerade sulor. Avmarkera Egen jordprofil för att låta dem följa projektets profil. Sulor med låsta indata, Inaktiv eller Endast H undantas."));
@@ -3815,6 +3945,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         row.append(placeholder); placeholders.set(name, placeholder);
       }
       cells.set(name, cell);
+      if (field.type === "profile") {
+        const body = node("div", "gp-table-profile-body");
+        body.id = "gp-profile-" + view + "-" + tag.id;
+        const control = button("", () => {
+          if (foldedProfiles.has(tag.id)) foldedProfiles.delete(tag.id); else foldedProfiles.add(tag.id);
+          syncInlineProfile(state().tags.find(item => item.id === tag.id));
+        }, "gp-table-profile-fold");
+        control.setAttribute("aria-controls", body.id); control.name = "table_" + name;
+        cell.append(control, body); row.append(cell); controls.set(name, control);
+        tableProfiles.set(tag.id, {fold: control, body, inputs: []}); continue;
+      }
       if (readOnly || field.type === "result") {
         const value = node("span", "gp-table-value");
         if (field.type === "result") {
@@ -3823,10 +3964,6 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         }
         cell.append(value); row.append(cell); controls.set(name, value);
         continue;
-      }
-      if (field.type === "profile") {
-        const control = button("", () => {if (!control.disabled) openTableSoilEditor(tag.id);});
-        control.name = "table_" + name; cell.append(control); row.append(cell); controls.set(name, control); continue;
       }
       const control = node(field.multiline ? "textarea" : field.type === "choice" ? "select" : "input");
       if (field.multiline) control.rows = 2;
@@ -3881,6 +4018,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
         if (resultantFields.has(name)) continue;
+        if (name === "settlement_profile") {syncInlineProfileControls(tag); continue;}
         if (settlementFields.has(name)) {
           const targets = tableTargets(tag.id, name);
           control.disabled = busy || soilBusy || tag.values.inaktiv || tag.values.endast_h_stabilitet
@@ -3932,7 +4070,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     tableSection.hidden = !background().url;
     const tags = state().tags, ids = new Set(tags.map(tag => tag.id));
     if (!ids.has(tableAnchor)) tableAnchor = null;
-    for (const [id, row] of tableRows) if (!ids.has(id)) {row.row.remove(); tableRows.delete(id);}
+    for (const [id, row] of tableRows) if (!ids.has(id)) {
+      row.row.remove(); tableRows.delete(id); tableProfiles.delete(id); foldedProfiles.delete(id);
+    }
     const errors = tags.filter(tag => tag.status === "error").length;
     tableCount.textContent = tags.length + " sulor" + (errors ? " · " + errors + " med fel i indata" : "");
     for (const tag of tags) {
@@ -3949,11 +4089,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       for (const [name, control] of controls) {
         const field = tableSchema.get(name);
         control.setAttribute("aria-label", tag.label + ": " + (field?.label || "Littera"));
+        if (field?.type === "profile") {syncInlineProfile(tag); continue;}
         if (readOnly || field?.type === "result") {
           control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tableSettingValue(tag, name), tag);
           continue;
         }
-        if (field?.type === "profile") {control.textContent = profileCaption(tag) + " · ändra…"; continue;}
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tableSettingValue(tag, name);
         if (field?.type === "bool") control.checked = value ?? false;

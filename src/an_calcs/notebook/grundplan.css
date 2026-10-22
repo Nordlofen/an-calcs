@@ -94,6 +94,11 @@
 .an-grundplan .gp-footing-soil { padding: 10px 0; border-bottom: 1px solid var(--gp-line); }
 .an-grundplan .gp-footing-soil summary { font-weight: 700; cursor: pointer; }
 .an-grundplan .gp-tag-settlement { display: block; border-top: 1px solid #d4e0e1; margin-top: 6px; padding-top: 5px; }
+.an-grundplan .gp-tag-soil { display: block; margin-top: 6px; padding-top: 5px; border-top: 1px solid #d4e0e1; white-space: normal; }
+.an-grundplan .gp-tag-soil-heading, .an-grundplan .gp-tag-soil-source { display: block; color: var(--gp-muted); font-size: .9em; }
+.an-grundplan .gp-tag-soil-layers { display: flex; flex-wrap: wrap; gap: 2px 6px; margin: 2px 0; max-width: 340px; }
+.an-grundplan .gp-tag-soil-layers > span { white-space: nowrap; }
+.an-grundplan .gp-tag-soil-layers > span:not(:last-child)::after { content: " ·"; color: var(--gp-muted); }
 .an-grundplan .gp-settlement-grid { display: grid; grid-template-columns: max-content max-content; gap: 2px 12px; text-align: left; }
 .an-grundplan .gp-settlement-result { border-bottom: 1px solid var(--gp-line); padding: 10px 0; margin-bottom: 12px; }
 .an-grundplan .gp-copy-arguments { display: block; width: calc(100% - 32px); margin: 0 16px 12px; font-family: monospace; }
@@ -424,6 +429,7 @@
 .an-grundplan .gp-table-symbol { display: block; font-size: 15px; }
 .an-grundplan .gp-table-unit { display: block; margin-top: 3px; color: var(--gp-muted); font-size: 10px; white-space: nowrap; }
 .an-grundplan .gp-input-table td { background: #fff; }
+.an-grundplan .gp-input-table > tbody > tr > td { vertical-align: top; }
 .an-grundplan .gp-input-table tbody tr:nth-child(even) td { background: #f8faf9; }
 .an-grundplan .gp-input-table tbody .gp-table-row-selected td { background: #e5f3ee; }
 .an-grundplan .gp-input-table input:not([type="checkbox"]), .an-grundplan .gp-input-table select { width: 100%; min-width: 0; padding: 5px 6px; border: 1px solid #c5d5d6; border-radius: 4px; background: #fff; text-align: right; font-variant-numeric: tabular-nums; }
@@ -433,7 +439,16 @@
 .an-grundplan .gp-input-table .gp-table-choice select { width: 96px; }
 .an-grundplan .gp-input-table .gp-table-choice select[name="table_lasttyp"] { width: 155px; }
 .an-grundplan .gp-input-table .gp-table-choice select[name="table_settlement_form"] { width: 210px; text-align: left; }
-.an-grundplan .gp-input-table .gp-table-profile { min-width: 190px; }
+.an-grundplan .gp-input-table .gp-table-profile { min-width: 380px; width: 380px; text-align: left; }
+.an-grundplan .gp-input-table .gp-table-profile-fold { border: 0; padding: 3px 0 6px; background: transparent; color: var(--gp-accent); text-align: left; }
+.an-grundplan .gp-input-table .gp-table-profile-body { width: 366px; }
+.an-grundplan .gp-input-table .gp-table-profile-layers { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0; font-size: 11px; }
+.an-grundplan .gp-input-table .gp-table-profile-layers th { padding: 6px 3px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.an-grundplan .gp-input-table .gp-table-profile-unit { display: block; font-size: 10px; color: var(--gp-muted); margin-top: 2px; }
+.an-grundplan .gp-input-table .gp-table-profile-layers td { padding: 3px; }
+.an-grundplan .gp-input-table .gp-table-profile-layers .gp-table-profile-layer-name { text-align: left; white-space: nowrap; }
+.an-grundplan .gp-input-table .gp-table-profile-layers .gp-table-profile-step { vertical-align: top; border-left: 1px solid #bdcfd1; }
+.an-grundplan .gp-input-table .gp-table-profile-edit { margin-top: 6px; padding: 3px 0; border: 0; background: transparent; color: var(--gp-accent); font-size: 11px; }
 .an-grundplan .gp-table-soil-panel { position: sticky; left: 6px; width: min(640px, calc(100vw - 100px)); padding: 12px; text-align: left; white-space: normal; }
 .an-grundplan .gp-table-soil-panel h4 { overflow-wrap: anywhere; }
 .an-grundplan .gp-input-table .gp-table-soil-panel th, .an-grundplan .gp-input-table .gp-table-soil-panel td { border: 0; background: transparent; }

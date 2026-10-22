@@ -37,7 +37,7 @@ from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_setti
 from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
 from .grundplan_settlement import (validate_profile, evaluate as settlement_result,
-                                   validate_display, display_result, tag_display, validate_tag_display)
+                                   validate_display, display_result, tag_display, validate_tag_display, positive)
 from .grundplan_pdf_view import svg_preview
 
 
@@ -1352,6 +1352,49 @@ class Grundplan(anywidget.AnyWidget):
                 tag["soil_profile"] = copy.deepcopy(profile)
         self._publish()
 
+    def andra_jordprofil(self, taggar, *, falt, varde, lager=None):
+        """Ändra en profilparameter atomiskt utan att ersätta övriga jordlager.
+
+        Lager är nollbaserat. Saknade lager/profiler och skyddade sulor undantas
+        med redovisad orsak. Ärvt underlag kopieras först när ett värde ändras.
+        """
+        captions = {"dz": "Lagertjocklek", "Ek": "E-modul", "gamma_m": "Materialfaktor", "step": "Beräkningsskikt"}
+        if not isinstance(falt, str) or falt not in captions:
+            raise ValueError("Välj lagertjocklek, E-modul, materialfaktor eller beräkningsskikt.")
+        value = positive(varde, captions[falt])
+        if falt == "step":
+            if lager is not None:
+                raise ValueError("Beräkningsskikt gäller hela profilen, inte ett jordlager.")
+        elif type(lager) is not int or not 0 <= lager < 50:
+            raise ValueError("Välj jordlager 0–49, räknat uppifrån.")
+        tags = self._selected_tags([taggar] if isinstance(taggar, str) else taggar)
+        prepared, skipped, unchanged = [], [], []
+        for tag in tags:
+            profile = tag.get("soil_profile") or self._soil_profile
+            reason = ("Låsta indata" if tag.get("input_locked") else
+                      "Inaktiv" if tag["values"].get("inaktiv") else
+                      "Endast H" if tag["values"].get("endast_h_stabilitet") else
+                      "Saknar jordprofil" if profile is None else
+                      f"Saknar lager {lager + 1}" if falt != "step" and lager >= len(profile["layers"]) else None)
+            if reason:
+                skipped.append({"id": tag["id"], "label": tag["label"], "reason": reason})
+                continue
+            changed = copy.deepcopy(profile)
+            if falt == "step":
+                changed["step"] = value
+            else:
+                changed["layers"][lager][falt] = value
+            changed = validate_profile(changed)
+            if changed == profile:
+                unchanged.append(tag["id"])
+            else:
+                prepared.append((tag, changed))
+        for tag, profile in prepared:
+            tag["soil_profile"] = profile
+        if prepared:
+            self._publish()
+        return {"updated": len(prepared), "skipped": skipped, "unchanged": unchanged}
+
     @property
     def sattningsresultat(self):
         """Aktuella sättnings- och styvhetsresultat, oberoende av bärighetskontrollens U."""
@@ -1687,7 +1730,7 @@ class Grundplan(anywidget.AnyWidget):
                           insulation_widget=self._insulation_widget, comment_widget=self._comment_widget, reference_widget=self._reference_widget,
                           text_objects=self._text_objects, canvas_bounds=self._canvas_bounds,
                           drawing_layout=self._drawing_layout, object_layout=self._object_layout,
-                          settlement_display=self.sattningsvisning)
+                          settlement_display=self.sattningsvisning, soil_profile=self.jordprofil)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -2086,6 +2129,9 @@ class Grundplan(anywidget.AnyWidget):
                     self.satt_jordprofil(content.get("ids", content.get("id")), content.get("profile"))
                 else:
                     self.jordprofil = content.get("profile")
+            elif action == "soil_profile_patch":
+                reply.update(self.andra_jordprofil(content["ids"], falt=content["field"],
+                    varde=content["value"], lager=content.get("layer")))
             elif action == "settlement_display":
                 if "id" in content or "ids" in content:
                     reply.update(self.satt_sattningsvisning(content.get("ids", content.get("id")), content["settings"]))

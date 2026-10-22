@@ -201,7 +201,9 @@ profil. Inaktiva sulor och sulor med **Endast H** beräknas inte här.
 
 Under samma rubrik finns **Visa på etikett** och **Styvhetsform**, som gäller
 den enskilda sulan. Checkboxen döljer eller visar avsnittet på just dess etikett,
-även i PDF och HTML. Beräkningar, färggruppering och resultatdialog påverkas inte.
+även i PDF och HTML. Detta omfattar också jordlagermäktigheterna, som visas på
+en kompakt rad **L1: … m · L2: … m** uppifrån och ned, med **Egen/Gemensam
+jordprofil** som källa. Beräkningar, färggruppering och resultatdialog påverkas inte.
 När profil finns visas sättningen och en vald styvhetsform:
 
 | Resultat | Enhet |
@@ -224,12 +226,26 @@ Tabellen har gruppen **Sättning och styvhet**, med **Visa på etikett**,
 ett gemensamt visningsval; bara former som stöds av alla valda sultyper är
 valbara. Visningsval kan ändras även när beräkningsindata är låsta.
 
-Tryck **ändra…** i jordprofilcellen för att fälla ut jordlagren på raden.
-Här redigeras **Egen jordprofil**, lagrens tjocklek, E-modul, materialfaktor
-och beräkningsskikt. Antalet lager får skilja mellan sulor. Om markerade
-sulor har olika profiler visas **Olika jordprofiler** och ingen av dem kopieras
-automatiskt. **Tillämpa jordprofil** ersätter hela lagerföljden för de angivna
-sulorna; avmarkera Egen jordprofil för att återgå till projektprofilen.
+**Jordprofil** visar lagerföljden direkt i varje sulrad, med kolumner för
+**Δz [m]**, **Eₖ [MPa]** och **γₘ**. **t_skikt [m]** anges en gång per profil
+och gäller samtliga lager. Flera profiler kan vara synliga samtidigt, även
+med olika antal lager. Pilen vid **Egen/Gemensam · … lager** fäller ihop
+eller visar profilen. Profilerna går också att läsa i HTML-resultatets tabell.
+
+Ändra ett värde och lämna cellen eller tryck Enter för att tillämpa. På en
+markerad rad ändras samma parameter i samma lagernummer för markerade sulor.
+En ändring av Eₖ i lager 2 ändrar alltså inte tjocklek, materialfaktor eller
+övriga lager. Sulor som saknar lager 2 undantas. t_skikt gäller hela profilen
+och kan ändras gemensamt oavsett lagerantal. När cellen får fokus visas vilka
+sulor som berörs och vilka som undantas. En ändrad ärvd profil blir en egen
+kopia; projektprofilen och omarkerade sulor behålls. Ogiltiga värden avvisas
+utan att någon av de berörda profilerna ändras.
+
+**Ersätt lagerföljd…** öppnar separat redigering för att lägga till eller ta
+bort lager, ange en helt ny profil eller återgå till projektprofilen. Om
+markerade sulor har olika profiler visas **Olika jordprofiler** och ingen av
+dem kopieras automatiskt. **Tillämpa jordprofil** ersätter hela lagerföljden
+för de angivna sulorna; avmarkera Egen jordprofil för att återgå till projektprofilen.
 Sulor med låsta indata, Inaktiv eller Endast H undantas från profiländringar.
 En gemensam ändring är ett ångringssteg. Visningsändringar påverkar inte profilerna.
 
