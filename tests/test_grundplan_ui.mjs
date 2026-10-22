@@ -4149,7 +4149,7 @@ test("all columns sort numerically or by text with natural littera ties and miss
     {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
   ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 7);
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 9);
   tableSortButton(ui, "b").click();
   assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
   tableSortButton(ui, "b").click();
@@ -5335,6 +5335,81 @@ const settlementFixture = (ui, changes = {}) => {
     external: 120, self_weight: 12.5, load: 132.5, profile_source: 'project', settlement_error: '', stiffness_error: '', ...changes};
   ui.changed();
 };
+
+for (const standalone of [false, true]) test('settlement table results are read-only, numerical, sortable and independent of label visibility (standalone=' + standalone + ')', t => {
+  const ui = setup(t, {readOnly: standalone, standalone}); settlementFixture(ui);
+  const cases = [
+    ['a', 'VS.10', 10.004, 200000], ['b', 'VS.2', 10.003, 90000],
+    ['c', 'VS.3', 0, 90000], ['d', 'VS.4', null, null],
+  ];
+  ui.model.get('state').tags = cases.map(([id, label, s, display_value]) => ({...structuredClone(ui.tag), id, label,
+    input_locked: id === 'b', settlement_display: {show_labels: false, form: 'linje'},
+    settlement: {...ui.tag.settlement, s, display_form: 'linje', display_value, display_unit: 'kN/m/m'}}));
+  ui.changed();
+  const original = structuredClone(ui.model.get('state').tags);
+  for (const [id] of cases) for (const name of ['settlement_s', 'settlement_stiffness']) {
+    const result = resultTableValue(ui, id, name);
+    assert.equal(result.tag, 'span'); assert.equal(result.listeners.size, 0);
+    assert.equal(result.parent.getAttribute('aria-readonly'), 'true');
+    assert.ok(result.parent.className.includes('gp-table-result'));
+    assert.ok(!ui.elements().some(el => el.name === 'table_' + name));
+  }
+  assert.equal(resultTableValue(ui, 'a', 'settlement_s').textContent, '10');
+  assert.equal(resultTableValue(ui, 'c', 'settlement_s').textContent, '0');
+  assert.equal(resultTableValue(ui, 'a', 'settlement_stiffness').textContent, '2,00 × 10⁵ kN/m/m');
+  assert.equal(resultTableValue(ui, 'd', 'settlement_s').textContent, '—');
+  assert.ok(!ui.elements().some(el => el.className === 'gp-tag-settlement'));
+  const sort = (caption, key) => {
+    ui.find(el => el.getAttribute('aria-label') === 'Sortera efter ' + caption).click();
+    if (!standalone) {
+      const request = ui.sent.at(-1);
+      assert.equal(request.action, 'table_view'); assert.equal(request.settings.sort.key, key);
+      ui.data.state.table_view = {...ui.data.state.table_view, ...request.settings}; ui.changed(); ui.ack(request);
+    } else assert.equal(ui.model.get('state').table_view.sort.key, key);
+  };
+  sort('Sättning s_bruk', 'settlement_s');
+  assert.deepEqual(tableOrder(ui), ['c', 'b', 'a', 'd'], 'Sort on unrounded settlement, even when both cells display 10');
+  sort('Sättning s_bruk', 'settlement_s'); assert.deepEqual(tableOrder(ui), ['a', 'b', 'c', 'd']);
+  sort('Styvhet (vald form)', 'settlement_stiffness'); assert.deepEqual(tableOrder(ui), ['b', 'c', 'a', 'd']);
+  sort('Styvhet (vald form)', 'settlement_stiffness'); assert.deepEqual(tableOrder(ui), ['a', 'b', 'c', 'd']);
+  tableFold(ui, 'Sättning och styvhet').click();
+  assert.equal(resultTableValue(ui, 'a', 'settlement_s').parent.hidden, true);
+  assert.equal(resultTableValue(ui, 'a', 'settlement_stiffness').parent.hidden, true);
+  assert.deepEqual(ui.model.get('state').tags, original);
+});
+
+test('settlement result columns use the selected stiffness form and keep unavailable or pending values out of sorting', t => {
+  const ui = setup(t); settlementFixture(ui);
+  const value = name => resultTableValue(ui, ui.tag.id, name);
+  for (const [form, unit, result] of [['yta', 'kN/m²/m', 15000], ['punkt', 'kN/m', 30000], ['linje', 'kN/m/m', 75000]]) {
+    ui.tag.settlement_display = {show_labels: true, form};
+    Object.assign(ui.tag.settlement, {model: 'PS', display_form: form, display_value: result, display_unit: unit});
+    ui.changed();
+    assert.ok(value('settlement_stiffness').textContent.endsWith(' ' + unit));
+    assert.ok(value('settlement_stiffness').textContent.includes('× 10⁴'));
+  }
+  ui.tag.settlement.s = null; ui.tag.settlement.settlement_error = 'Ange Brukslast.'; ui.changed();
+  assert.equal(value('settlement_s').textContent, '—'); assert.equal(value('settlement_s').title, 'Ange Brukslast.');
+  assert.notEqual(value('settlement_stiffness').textContent, '—');
+  for (const field of ['inaktiv', 'endast_h_stabilitet']) {
+    ui.tag.values[field] = true; ui.changed();
+    assert.equal(value('settlement_s').textContent, '—'); assert.equal(value('settlement_stiffness').textContent, '—');
+    ui.tag.values[field] = false;
+  }
+  delete ui.tag.settlement; ui.changed();
+  assert.equal(value('settlement_s').textContent, '—'); assert.ok(value('settlement_s').title.includes('jordprofil'));
+  settlementFixture(ui);
+  tableField(ui, ui.tag.id, 'b').value = '1,5'; tableField(ui, ui.tag.id, 'b').dispatch('input');
+  assert.equal(value('settlement_s').textContent, 'Uppdaterar…'); assert.equal(value('settlement_stiffness').textContent, 'Uppdaterar…');
+  ui.ack(ui.sent.at(-1));
+  assert.equal(value('settlement_s').textContent, '4,42');
+  ui.tag.settlement_display = {show_labels: true, form: 'linje'}; ui.changed();
+  const form = tableField(ui, ui.tag.id, 'settlement_form'); form.value = 'yta'; form.dispatch('change');
+  assert.equal(value('settlement_s').textContent, '4,42'); assert.equal(value('settlement_stiffness').textContent, 'Uppdaterar…');
+  Object.assign(ui.tag.settlement, {display_form: 'yta', display_value: 15000, display_unit: 'kN/m²/m'});
+  ui.tag.settlement_display.form = 'yta'; ui.changed(); ui.ack(ui.sent.at(-1));
+  assert.equal(value('settlement_stiffness').textContent, '1,50 × 10⁴ kN/m²/m');
+});
 const profileReplace = (ui, id) => ui.find(el => el.className === 'gp-table-profile-edit' && el.closest('tr')?.dataset.tagId === id);
 const profileInput = (ui, id, field, layer = null) => ui.find(el => el.dataset.tagId === id
   && el.dataset.profileField === field && (layer === null ? el.dataset.layer === undefined : el.dataset.layer === String(layer)));

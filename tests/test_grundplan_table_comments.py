@@ -73,6 +73,25 @@ class TestTableAndComments(unittest.TestCase):
         self.assertEqual(self.plan.tabellvy, {"collapsed": [], "sort": {"key": None, "direction": "ascending"}})
         self.assertEqual(self.plan._tag(ident)["values"]["kommentar"], "")
 
+    def test_settlement_result_sorting_persists_in_project_and_html_without_recalculating(self):
+        self.plan.lagg_till(.1, .2)
+        tags, calculations = self.plan.taggar, self.plan.resultat
+        for key in ("settlement_s", "settlement_stiffness"):
+            with self.subTest(key=key):
+                settings = {"sort": {"key": key, "direction": "descending"}}
+                with patch("an_calcs.notebook.grundplan._calculate", side_effect=AssertionError("Sort must not recalculate")):
+                    self.plan._on_message(None, {"action": "table_view", "settings": settings}, [])
+                self.assertEqual(self.plan.tabellvy["sort"], settings["sort"])
+                saved = self.plan.spara(self.folder / "results.json")
+                restored = Grundplan.oppna(saved)
+                self.addCleanup(restored.close)
+                self.assertEqual(restored.tabellvy["sort"], settings["sort"])
+                html = restored._html_bytes().decode()
+                snapshot = json.loads(re.search(r'<script id="grundplan-data" type="application/json">(.*?)</script>', html, re.S).group(1))
+                self.assertEqual(snapshot["state"]["table_view"]["sort"], settings["sort"])
+        self.assertEqual(self.plan.taggar, tags)
+        self.assertEqual(self.plan.resultat, calculations)
+
     def test_table_view_validation_commands_are_atomic_and_do_not_change_tags(self):
         self.plan.lagg_till(.1, .2)
         before = self.plan._document()

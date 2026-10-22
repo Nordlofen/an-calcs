@@ -3586,16 +3586,25 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       options: Object.entries(formCaptions).map(([value, label]) => ({value, label}))}],
     ["settlement_profile", {name: "settlement_profile", type: "profile", label: "Jordprofil", unit: ""}],
   ]);
-  const tableSchema = new Map([...fieldSchema, ...resultantFields, ...settlementFields]);
+  const settlementResultFields = new Map([
+    ["settlement_s", {name: "settlement_s", type: "result", label: "Sättning s_bruk", unit: "mm",
+      display_symbol: {prefix: "Sättning ", base: "s", subscript: "bruk"},
+      description: "Beräknad sättning med Brukslast inklusive sulans egentyngd. Uppdateras automatiskt."}],
+    ["settlement_stiffness", {name: "settlement_stiffness", type: "result", label: "Styvhet (vald form)", unit: "",
+      description: "Beräknad styvhet enligt radens valda styvhetsform. Enheten visas vid värdet. Sorteras efter numeriskt värde i respektive enhet."}],
+  ]);
+  const resultFields = new Map([...resultantFields, ...settlementResultFields]);
+  const tableSchema = new Map([...fieldSchema, ...resultFields, ...settlementFields]);
   const tableGroups = groups.map(([label, names]) => [label, names.filter(name => fieldSchema.has(name))
     .flatMap(name => [name, ...(name === "F_vy" ? ["V_res_brott"] : name === "F_vy_bruk" ? ["V_res_bruk"] : [])])]);
-  tableGroups.splice(-1, 0, ["Sättning och styvhet", [...settlementFields.keys()]]);
+  tableGroups.splice(-1, 0, ["Sättning och styvhet", [...settlementFields.keys(), ...settlementResultFields.keys()]]);
   const groupedNames = new Set(tableGroups.flatMap(([, names]) => names));
   const extraNames = [...fieldSchema.keys()].filter(name => !groupedNames.has(name));
   if (extraNames.length) tableGroups.push(["Övrigt", extraNames]);
   const tableNames = tableGroups.flatMap(([, names]) => names);
   const tableGroupHeads = new Map(), tableFieldHeads = new Map();
-  const tableFieldClass = field => ["bool", "choice", "text", "profile"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number";
+  const tableFieldClass = field => (["bool", "choice", "text", "profile"].includes(field.type) ? "gp-table-" + field.type : "gp-table-number")
+    + (settlementResultFields.has(field.name) ? " gp-table-result" : "");
   function setTableView(patch) {
     const draft = {...tableView(), ...patch}; tableViewDraft = draft;
     update();
@@ -3639,7 +3648,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       for (const name of names) {
         const field = tableSchema.get(name), head = node("th", tableFieldClass(field));
         head.setAttribute("scope", "col");
-        head.title = label + ": " + field.label;
+        head.title = label + ": " + field.label + (field.description ? ". " + field.description : "");
         head.setAttribute("aria-label", head.title);
         const notation = field.display_symbol || (name === "l_override" ? {prefix: "Egen ", base: "b", subscript: "y"}
           : name === "glid_x" || name === "glid_y"
@@ -3661,7 +3670,30 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   buildTableHeader();
   const tableText = value => value == null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
+  function tableSettlementResult(tag, name) {
+    const data = tag.settlement || {}, values = {...tag.values, ...drafts.get(tag.id)?.values};
+    const form = settlementDisplayDrafts.has(tag.id) ? settlementDisplay(tag).form : data.display_form || settlementDisplay(tag).form;
+    const stiffness = name === "settlement_stiffness";
+    const pending = dirty.has(tag.id) || tag.status === "stale" || stiffness && settlementDisplayDrafts.has(tag.id)
+      && form !== (data.display_form || (data.model === "VS" ? "linje" : "punkt"));
+    const unavailable = values.inaktiv || values.endast_h_stabilitet;
+    const value = unavailable || pending ? null : stiffness
+      ? Object.hasOwn(data, "display_value") ? data.display_value : form === "yta" ? data.k : data.K : data.s;
+    const reason = unavailable ? "Beräknas inte för inaktiva sulor eller Endast H."
+      : pending ? "Resultatet uppdateras."
+      : !tag.settlement ? "Ange jordprofil för att beräkna sättning och styvhet."
+      : stiffness ? data.display_error || data.stiffness_error : data.settlement_error;
+    return {value, pending: pending && !unavailable, reason,
+      unit: stiffness ? data.display_unit || {yta: "kN/m²/m", linje: "kN/m/m", punkt: "kN/m"}[form] : "mm"};
+  }
   function tableDisplayValue(name, value, tag) {
+    if (settlementResultFields.has(name)) {
+      const result = tableSettlementResult(tag, name);
+      if (result.pending) return "Uppdaterar…";
+      if (!Number.isFinite(result.value)) return "—";
+      return name === "settlement_s" ? number(result.value, 2)
+        : (result.value === 0 ? "0" : scientificText(Number(result.value.toPrecision(3)))) + " " + result.unit;
+    }
     if (tag.values.inaktiv && !["label", "inaktiv", "kommentar"].includes(name)) return "—";
     if (resultantFields.has(name)) {
       const total = dirty.has(tag.id) ? null : tag.load_resultants?.[resultantFields.get(name).phase];
@@ -3848,7 +3880,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     placeTableSoilEditor();
   }
   function tableEdit(id, name, control) {
-    if (readOnly || control.disabled || resultantFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
+    if (readOnly || control.disabled || resultFields.has(name) || importBusy || bulkBusy || deleteBusy) return;
     const tag = state().tags.find(tag => tag.id === id);
     if (!tag || inputLocked(tag) && !settlementFields.has(name)) return;
     tableFeedback.replaceChildren();
@@ -3967,7 +3999,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const value = node("span", "gp-table-value");
         if (field.type === "result") {
           value.dataset.field = name;
-          cell.title = "Yttre lastresultant i kN, exklusive sulans egentyngd. Uppdateras automatiskt.";
+          cell.title = field.description || "Yttre lastresultant i kN, exklusive sulans egentyngd. Uppdateras automatiskt.";
+          cell.setAttribute("aria-readonly", "true");
         }
         cell.append(value); row.append(cell); controls.set(name, value);
         continue;
@@ -3987,7 +4020,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     for (const [name, control] of controls) {
       control.dataset.tagId = tag.id; control.dataset.field = name;
-      if (readOnly || resultantFields.has(name)) continue;
+      if (readOnly || resultFields.has(name)) continue;
       const field = tableSchema.get(name);
       if (field?.type === "profile") continue;
       control.addEventListener(["bool", "choice"].includes(field?.type) ? "change" : "input", () => tableEdit(tag.id, name, control));
@@ -4024,7 +4057,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       entry.row.classList.toggle("gp-input-locked", inputLocked(tag));
       if (readOnly) continue;
       for (const [name, control] of entry.controls) {
-        if (resultantFields.has(name)) continue;
+        if (resultFields.has(name)) continue;
         if (name === "settlement_profile") {syncInlineProfileControls(tag); continue;}
         if (settlementFields.has(name)) {
           const targets = tableTargets(tag.id, name);
@@ -4099,6 +4132,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (field?.type === "profile") {syncInlineProfile(tag); continue;}
         if (readOnly || field?.type === "result") {
           control.textContent = tableDisplayValue(name, name === "label" ? tag.label : tableSettingValue(tag, name), tag);
+          if (settlementResultFields.has(name)) control.title = tableSettlementResult(tag, name).reason || field.description;
           continue;
         }
         if (control === document.activeElement) continue;
@@ -4153,6 +4187,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
       const name = tableSort.key, field = tableSchema.get(name);
       const value = tag => {
+        if (settlementResultFields.has(name)) return tableSettlementResult(tag, name).value;
         if (field?.type === "result") return dirty.has(tag.id) ? null : tag.load_resultants?.[field.phase];
         const raw = drafts.get(tag.id)?.values[name] ?? tableSettingValue(tag, name);
         if (name === "L_vagg" && tag.values.lang === 1 && !tag.values.endast_h_stabilitet && tag.values.L_vagg_minst_1) return 1;

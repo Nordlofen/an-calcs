@@ -226,6 +226,15 @@ Tabellen har gruppen **Sättning och styvhet**, med **Visa på etikett**,
 ett gemensamt visningsval; bara former som stöds av alla valda sultyper är
 valbara. Visningsval kan ändras även när beräkningsindata är låsta.
 
+I samma tabellgrupp visas resultatkolumnerna **Sättning s_bruk [mm]** och
+**Styvhet (vald form)**. De är gråmarkerade och kan inte redigeras. Styvheten
+visas i potensform med enhet enligt radens valda styvhetsform. Resultaten
+visas även när **Visa på etikett** är avmarkerat. Klicka på respektive
+kolumnrubrik för stigande eller fallande numerisk sortering; saknade resultat
+hamnar sist. För styvhet används talvärdet i den enhet som står på varje rad;
+välj samma styvhetsform för sulorna om värdena ska jämföras i samma enhet.
+Även HTML-resultatets tabell visar och sorterar dessa kolumner.
+
 **Jordprofil** visar lagerföljden direkt i varje sulrad, med kolumner för
 **Δz [m]**, **Eₖ [MPa]** och **γₘ**. **t_skikt [m]** anges en gång per profil
 och gäller samtliga lager. Flera profiler kan vara synliga samtidigt, även

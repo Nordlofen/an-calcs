@@ -153,7 +153,7 @@ def _table_view(value):
             or len(set(collapsed)) != len(collapsed)):
         raise ValueError("Okänd tabellkategori.")
     if (not isinstance(sort, dict) or set(sort) != {"key", "direction"}
-            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk", "settlement_show_labels", "settlement_form", "settlement_profile"})
+            or sort["key"] is not None and (not isinstance(sort["key"], str) or sort["key"] not in {*_DEFAULTS, "label", "status", "V_res_brott", "V_res_bruk", "settlement_show_labels", "settlement_form", "settlement_profile", "settlement_s", "settlement_stiffness"})
             or sort["direction"] not in ("ascending", "descending")):
         raise ValueError("Ogiltig tabellsortering.")
     return result
