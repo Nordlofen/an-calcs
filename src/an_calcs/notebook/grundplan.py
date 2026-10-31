@@ -65,6 +65,10 @@ _FIELDS = [field for field in allmanna_barighetsekvationen.panel_schema["fields"
 _INSULATION_FIELDS = [field for field in isolering_under_sula.panel_schema["fields"]
                       if field["name"] not in _SOIL_NAMES and field["name"] not in _REMOVED_FIELDS]
 _EXTRA_FIELDS = [
+    {"name": "B_x", "type": "number", "label": "Konstruktionsdel ovanför sulan – mått i x-led", "unit": "mm", "default": None,
+     "display_symbol": {"base": "B", "subscript": "x"}},
+    {"name": "B_y", "type": "number", "label": "Konstruktionsdel ovanför sulan – mått i y-led", "unit": "mm", "default": None,
+     "display_symbol": {"base": "B", "subscript": "y"}},
     {"name": "inaktiv", "type": "bool", "label": "Inaktiv", "unit": "", "default": False},
     {"name": "lasttyp", "type": "choice", "label": "Last anges som", "unit": "", "default": 0,
      "options": [{"value": 1, "label": "Linjelast [kN/m]"}, {"value": 0, "label": "Punktlast [kN]"}]},
@@ -87,6 +91,7 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
 _FIELDS = [{**field, "label": "Beräkningsmodell"} if field["name"] == "lang" else field for field in _FIELDS]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
 _DEFAULTS.update(physical_length=False, equ_reference_length=None)
+_VISUAL_FIELDS = {"B_x", "B_y"}
 # Retain legacy serialized keys but do not expose either length override.
 _FIELDS = [field for field in _FIELDS if field["name"] not in {"L_vagg_minst_1", "glid_L"}]
 _TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
@@ -97,7 +102,7 @@ _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", 
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 _COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"e_l_plac", "length_end", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"B_y", "e_l_plac", "length_end", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "lasttyp"}
 _BULK_LOAD_FIELDS = {"V_Ed_EQU", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b",
                      "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "L_vagg", "glid_L"}
@@ -138,7 +143,7 @@ def _values(values, *, draft=False):
                 raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name in {"L_vagg", "equ_reference_length"} or name == "e_l_plac" and values["lang"] == 1) and value is None and name not in {"lang", "lasttyp"}:
+        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name in {"L_vagg", "equ_reference_length", "B_x", "B_y"} or name == "e_l_plac" and values["lang"] == 1) and value is None and name not in {"lang", "lasttyp"}:
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -153,6 +158,12 @@ def _values(values, *, draft=False):
         if values["L_vagg"] is not None: values["l"] = values["L_vagg"]
     elif values["lang"] == 1 and not values["l_override"]:
         values["l"] = 1.0
+    if values["lang"] == 1:
+        length = values["l"]
+        values["B_y"] = length * 1000 if type(length) in (int, float) and length > 0 else None
+    for name in _VISUAL_FIELDS:
+        if values[name] is not None and (not math.isfinite(values[name]) or values[name] <= 0):
+            raise ValueError(f"{name} ska vara ett positivt mått i mm eller lämnas tomt.")
     return copy.deepcopy(values)
 
 
@@ -904,7 +915,7 @@ class Grundplan(anywidget.AnyWidget):
                   "items": new_items, "index": 0, "paused": False} if new_items else None)
         for tag, values, imported_length, placement in prepared:
             changed = any(values[name] != value for name, value in tag["values"].items()
-                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
+                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES and name not in _VISUAL_FIELDS)
             tag["values"] = values
             if placement is not None:
                 self._contours["placements"][tag["id"]] = placement
@@ -982,7 +993,7 @@ class Grundplan(anywidget.AnyWidget):
                     raise ValueError(f"{name} måste ligga inom ritningsytan.")
                 updated[name] = value
         changed = any(updated["values"][name] != value for name, value in tag["values"].items()
-                      if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
+                      if name not in _TEXT_NAMES and name not in SLIDING_NAMES and name not in _VISUAL_FIELDS)
         contour = self._resized_contour(tag, updated["values"])
         if changed:
             updated.update(status="stale", summary=None, error="")
@@ -1273,7 +1284,7 @@ class Grundplan(anywidget.AnyWidget):
         for tag, values, contour in zip(tags, prepared, contours):
             if contour is not None: self._contours["placements"][tag["id"]] = contour
             changed = any(values[name] != value for name, value in tag["values"].items()
-                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
+                          if name not in _TEXT_NAMES and name not in SLIDING_NAMES and name not in _VISUAL_FIELDS)
             tag["values"] = values
             if changed:
                 tag.update(status="stale", summary=None, error="")
@@ -1286,7 +1297,7 @@ class Grundplan(anywidget.AnyWidget):
         inactive = sum(tag["values"]["inaktiv"] for tag in tags)
         if inactive:
             report["inactive"] = inactive
-        if berakna:
+        if berakna and not set(indata) <= _VISUAL_FIELDS:
             for tag in tags:
                 if tag["values"]["inaktiv"]:
                     continue
@@ -1812,7 +1823,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 32,
+            "version": 33,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -1994,8 +2005,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 33):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–32.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 34):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–33.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -2151,7 +2162,7 @@ class Grundplan(anywidget.AnyWidget):
         for tag in self._tags:
             previous = before.get("tag:" + tag["id"])
             if previous is None or any(value != previous["values"].get(name)
-                    for name, value in tag["values"].items() if name not in _TEXT_NAMES and name not in SLIDING_NAMES):
+                    for name, value in tag["values"].items() if name not in _TEXT_NAMES and name not in SLIDING_NAMES and name not in _VISUAL_FIELDS):
                 self._refresh_tag(tag)
         self._drawing_preview = None
         if self._load_import:

@@ -345,6 +345,27 @@ export function footprintGeometry(tag, placement, bg, cal) {
   return {points, anchor, center, xAxis, yAxis, units, length};
 }
 
+// Upper construction dimensions are annotation data in millimetres.
+export function supportAnnotation(tag) {
+  const v = tag.values || {}, strip = Number(v.lang) === 1;
+  const positive = value => {const n = draftNumber(value); return n > 0 && Number.isFinite(n) ? n : null;};
+  const Bx = positive(v.B_x), By = strip ? positive(v.l) * 1000 || null : positive(v.B_y);
+  const eccentricity = value => Number.isFinite(draftNumber(value)) ? Math.abs(draftNumber(value)) * 1000 : 0;
+  return {B_x: Bx, B_y: strip && !Bx ? null : By,
+    e_x: eccentricity(v.e_b_plac), e_y: strip ? 0 : eccentricity(v.e_l_plac)};
+}
+
+export function constructionGeometry(tag, placement, bg, cal) {
+  const values = {...tag.values};
+  for (const key of ["b","l","e_b_plac","e_l_plac"]) values[key] = draftNumber(values[key]);
+  const g = footprintGeometry({...tag,values}, placement, bg, cal), dims = supportAnnotation(tag);
+  if (!g || !(dims.B_x > 0) || !(dims.B_y > 0)) return null;
+  const {anchor, xAxis, yAxis, units} = g;
+  return {...g, center: anchor, points: [[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y]) => ({
+    x: anchor.x + units * (x*dims.B_x*xAxis.x + y*dims.B_y*yAxis.x)/2000,
+    y: anchor.y + units * (x*dims.B_x*xAxis.y + y*dims.B_y*yAxis.y)/2000}))};
+}
+
 function definitionSketch(strip) {
   const make = (name, attributes, text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -1950,7 +1971,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourSvg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
     const assignments = colour().enabled ? colourGroups(groupingTags(), colour()).assignments : null;
     const defs = svgNode("defs", {}), fills = svgNode("g", {class: "gp-contour-fills"}), outlines = svgNode("g", {class: "gp-contour-outlines"}), guides = svgNode("g", {class: "gp-contour-guides"});
-    contourSvg.append(defs, fills, outlines, guides);
+    const upperHatches = svgNode("g", {class:"gp-construction-hatches", opacity:settings.fill_opacity ?? .18, "pointer-events":"none"}),
+      upperOutlines = svgNode("g", {class:"gp-construction-outlines", "pointer-events":"none"});
+    contourSvg.append(defs, fills, outlines, upperHatches, upperOutlines, guides);
     const tags = pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id)));
     for (const tag of tags) {
       const geometry = contourGeometry(tag); if (!geometry) continue;
@@ -1972,6 +1995,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const outline = svgNode("polygon", {points: pointsText, fill: "transparent", stroke: `color-mix(in srgb, ${color} 72%, #18333b)`, "stroke-width": contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, chosen),
         "vector-effect": "non-scaling-stroke", class: "gp-contour-shape"});
       outline.dataset.contourId = tag.id; outlines.append(outline);
+      const visualTag = {...tag, values:{...tag.values, ...drafts.get(tag.id)?.values,
+        ...(contourPlacementDraft?.id === tag.id ? contourPlacementDraft.values : {})}};
+      const upper = constructionGeometry(visualTag, contourPlacement(tag), bg, calibration());
+      if (upper) {
+        const id = "gp-construction-hatch-" + view + "-" + tag.id;
+        const pattern = svgNode("pattern", {id, patternUnits:"userSpaceOnUse", width:8, height:8});
+        pattern.append(svgNode("path", {d:"M-2 2L2 -2M0 8L8 0M6 10L10 6", fill:"none", stroke:"#35515c", "stroke-width":.8}));
+        defs.append(pattern);
+        const points = upper.points.map(p => `${p.x},${p.y}`).join(" ");
+        upperHatches.append(svgNode("polygon", {points, fill:`url(#${id})`}));
+        upperOutlines.append(svgNode("polygon", {points, fill:"none", stroke:"#35515c",
+          "stroke-width":contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, false),
+          "vector-effect":"non-scaling-stroke", class:"gp-construction-shape"}));
+      }
       if (chosen && !pdfMode) {
         const label = positions.get(tag.id) || tag, x = label.x * bg.width, y = label.y * bg.height;
         guides.append(svgNode("line", {x1: x, y1: y, x2: anchor.x, y2: anchor.y, stroke: "#58717a", "stroke-dasharray": "5 4", "stroke-width": 1, "vector-effect": "non-scaling-stroke"}));
@@ -3271,6 +3308,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || (category === "V" && part.kind === "special" ? "V " : "");
     return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
   }
+  function supportLines(tags) {
+    if (!tags.length) return [];
+    const values = tags.map(tag => supportAnnotation({...tag, values:{...tag.values, ...drafts.get(tag.id)?.values}}));
+    const range = (key, optional) => {
+      const nums = values.map(v => v[key]);
+      if ((optional && nums.every(n => n == null)) || (!optional && nums.every(n => !n))) return null;
+      if (nums.some(n => n == null)) return "blandat";
+      const lo = Math.min(...nums), hi = Math.max(...nums);
+      return compactNumber(lo,1) + (hi === lo ? "" : "–" + compactNumber(hi,1));
+    };
+    return [["B_x","B_y"],["e_x","e_y"]].map((keys,i) => keys.map(key => {
+      const value = range(key,i===0); return value == null ? null : key + " " + value;
+    }).filter(Boolean).join(" · ")).filter(Boolean).map(line => line + " mm");
+  }
   function showColour() {
     const settings = colour(), data = colourGroups(groupingTags(), settings);
     colourToggle.classList.toggle("gp-selected", settings.enabled);
@@ -3366,6 +3417,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           i === index || group.categories[i] === "sultyp" ? [] : [colourPartCaption(group, i)]).filter(Boolean).join(" · ")),
         mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
       }
+      const members = groupingTags().filter(tag => data.assignments.get(tag.id)?.key === group.key);
+      const annotations = categories.some(key => ["sultyp","t","b","l"].includes(key)) ? supportLines(members) : [];
+      if (annotations.length) {
+        for (const line of annotations) caption.append(mathText("span", "gp-support-details", line));
+      }
       row.append(swatch, caption, node("span", "gp-colour-group-count", String(group.count)));
       colourLegendBody.append(row);
     }
@@ -3455,6 +3511,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         line.append(symbolNode({base: "V", subscript: phase}), node("span", "", caption));
         info.append(line);
       }
+      const memberIds = new Set(group.members.map(member => member.id));
+      for (const line of supportLines(state().tags.filter(tag => memberIds.has(tag.id))))
+        info.append(mathText("p", "gp-reference-geometry gp-support-details", line));
       info.append(node("p", "gp-reference-caption", "Gäller för"),
         node("p", "gp-reference-members", group.members.map(member => member.label).join(", ") + " (" + group.members.length + " st)"));
       row.append(ident, info); referenceBody.append(row);
@@ -4092,6 +4151,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       marker.title += accessibleGeometry + governing;
       if (group) marker.title += " · Färggrupp: " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : "");
       marker.append(heading, mathText("span", "gp-tag-result", text));
+      for (const line of supportLines([{...tag, values}])) marker.append(mathText("span", "gp-tag-support", line));
       if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
       const adjusted = adjustedLineLoad({...tag, values});
@@ -4172,7 +4232,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderContours();
   }
   const groups = [
-    ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac", "length_end"]],
+    ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "B_x", "B_y", "e_b_plac", "e_l_plac", "length_end"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -4539,7 +4599,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       control.setCustomValidity(text !== "" && value === null ? "Ange ett tal." : "");
     } else control.setCustomValidity("");
     closeBulk(); bulkSignature = "";
-    const calculationInput = name !== "label" && field.type !== "text" && !slidingNames.has(name);
+    const calculationInput = name !== "label" && field.type !== "text" && !slidingNames.has(name) && !["B_x","B_y"].includes(name);
     const revisions = new Map();
     for (const target of targets) {
       const draft = drafts.get(target.id) || {label: target.label,
@@ -4723,13 +4783,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || name === "e_l_plac" && Number(values.lang) === 1 || (name === "lang" && physicalType(tag) === "pelarsula") || (name === "L_vagg_minst_1" || name === "l_override" && Number(values.lang) === 0 && !values.physical_length)
+        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || name === "B_y" && Number(values.lang) === 1 || name === "e_l_plac" && Number(values.lang) === 1 || (name === "lang" && physicalType(tag) === "pelarsula") || (name === "L_vagg_minst_1" || name === "l_override" && Number(values.lang) === 0 && !values.physical_length)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && (tag.values.lang === 1 || values.physical_length && physicalType(tag) === "vaggsula") && !ownLength)
           || (name === "L_vagg" && sourceLengthLocked(tag)) || (name === "length_end" && (Number(values.lang) !== 1 || !ownLength))
           ;
         control.title = inputLocked(tag) ? "Indata är låsta. Lås upp indata för att redigera."
+          : name === "B_y" && Number(values.lang) === 1 ? "Bᵧ följer alltid sulans bᵧ."
           : inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
           : ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
           : "Används inte vid Endast H-stabilitet. Det sparade värdet behålls."
@@ -4848,7 +4909,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     placeTableSoilEditor();
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
-    ["e_l_plac", "lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+    ["B_y", "e_l_plac", "lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   const loadTypeFields = new Set(["L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function beginDrawingEdit() {
     if (readOnly || drawingBusy || drawingPending || importBusy || bulkBusy || calibrationBusy) return;
@@ -5393,9 +5454,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (field.type === "text") controlRow.append(caption, input);
         else if (["bool", "choice"].includes(field.type)) controlRow.append(caption, symbol, input);
         else controlRow.append(caption, symbol, input, node("span", "gp-unit", unitText));
-        const blocked = mixed && sameTypeFields.has(name) || mixedLoads && loadTypeFields.has(name);
+        const blocked = mixed && sameTypeFields.has(name) || mixedLoads && loadTypeFields.has(name) || name === "B_y" && tags.some(tag => Number(tag.values.lang) === 1);
         choose.disabled = input.disabled = blocked;
-        if (blocked) row.title = "Välj samma sultyp för att ändra detta fält gemensamt.";
+        if (blocked) row.title = name === "B_y" && tags.some(tag => Number(tag.values.lang) === 1)
+          ? "Bᵧ följer alltid sulans bᵧ för väggsulemodellen."
+          : "Välj samma sultyp för att ändra detta fält gemensamt.";
         const sync = () => { input.setCustomValidity(""); row.classList.toggle("gp-bulk-changed", choose.checked); syncLength(); };
         choose.addEventListener("change", sync);
         input.addEventListener(["bool", "choice"].includes(field.type) ? "change" : "input", () => {
@@ -5418,7 +5481,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const raw = input.value.trim().replace(",", ".");
       const value = field.type === "bool" ? (input.value === "true" ? true : input.value === "false" ? false : null)
         : field.type === "text" ? input.value : raw === "" ? null : Number(raw);
-      const ok = field.type === "text" || (field.type === "bool" ? value !== null : value !== null && Number.isFinite(value));
+      const ok = field.type === "text" || (field.type === "bool" ? value !== null : (value === null && ["B_x","B_y"].includes(name) || value !== null && Number.isFinite(value)));
       input.setCustomValidity(ok ? "" : field.type === "bool" ? "Välj Ja eller Nej." : "Ange ett tal.");
       if (!ok) { valid = false; group.open = true; input.reportValidity(); }
       patch[name] = value;
@@ -5587,7 +5650,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           const fixed = node("span", "gp-value gp-wall-length-default", "1");
           fixed.hidden = true; row.append(fixed); unit.style.gridColumn = "4"; inputs.get(name).fixed = fixed;
         }
-        input.addEventListener("input", () => edit(field.type !== "text" && !slidingNames.has(name)));
+        input.addEventListener("input", () => edit(field.type !== "text" && !slidingNames.has(name) && !["B_x","B_y"].includes(name)));
       }
       if (!readOnly && names[0] === "lang") group.append(contourShortcut);
       fieldsBox.append(group);
@@ -5703,6 +5766,16 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         entry.unit.textContent = name === "V_Ed_EQU" ? (line ? "kN/m" : "kN") : fieldSchema.get(name).unit;
         if (!readOnly) { entry.input.disabled = disabled; entry.input.required = numeric && !disabled && selected && !insulated;
           if (disabled) entry.input.setCustomValidity(""); }
+        continue;
+      }
+      if (["B_x","B_y"].includes(name)) {
+        entry.row.hidden = false; entry.unit.textContent = "mm";
+        entry.row.title = strip && name === "B_y" ? "Följer alltid sulans bᵧ. Endast visning; påverkar inte beräkningen." : "Endast visning; påverkar inte beräkningen.";
+        if (!readOnly) {
+          entry.input.required = false; entry.input.disabled = strip && name === "B_y";
+          if (entry.input.disabled) {entry.input.value = draftNumber(inputs.get("l")?.input.value) * 1000 || ""; entry.input.setCustomValidity("");}
+          entry.input.placeholder = "Ej angivet";
+        }
         continue;
       }
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");

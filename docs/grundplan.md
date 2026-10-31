@@ -1743,13 +1743,13 @@ ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskil
 En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
 eller öppnad suletikett. Den ersätter inte befintliga fritt formade
 hänvisningslinjer och följer inte med i PDF/utskrift. Konturer, fyllningsval
-och placeringsdata sparas i projektformat 30. Äldre projektformat 1–29 stöds
+och placeringsdata sparas i projektformat 33. Äldre projektformat 1–32 stöds
 fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
 av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
 
 Gemensamt fundament för sättning/styvhet skapar inte automatiskt en gemensam
 betongkontur; varje definierat sulobjekt har fortfarande sin egen kontur.
-Tabellvyn och befintliga redigeringsdialoger är oförändrade.
+Tabellvyn och popupdialogen behåller sina befintliga redigeringsflöden.
 
 
 ### Konturernas linjetjocklek och utskriftsförhandsvisning
@@ -1765,3 +1765,31 @@ PDF-exporten, omräknad efter ritningsytans fysiska mått och aktuell zoom.
 Linjen växer då tillsammans med ritningen när man zoomar in. Även markerade
 konturer använder den angivna utskriftsbredden i detta läge. Inställningarna
 sparas per projekt/fall och kan granskas även i exporterad HTML.
+
+
+### Ovanliggande vägg eller pelare
+
+Under **Geometri** i sulans popup och tabell finns **Bₓ/Bᵧ**, mått för
+konstruktionsdelen ovanför sulan. Dessa anges i **mm** och används enbart för
+visning. De påverkar inte bärighet, egentyngd, sättning, styvhet, Auto bₓ eller
+referensgruppindelning. Tomma värden innebär att måtten inte är definierade.
+För väggsulemodell följer Bᵧ alltid sulans bᵧ och kan inte ändras separat.
+För pelarsulemodell anges båda måtten självständigt.
+
+När Bₓ och Bᵧ är definierade ritas en vägg-/pelarkontur ovanpå sulkonturen,
+med samma riktning och vid stödets fasta läge. Placeringsexcentriciteten
+förskjuter sulan, medan den ovanliggande delen ligger kvar vid stödet. Den
+övre konturen har mörk kantlinje och gles skraffering utan bakgrundsfyllning.
+Skrafferingen följer **Färgfyllning**; vid 0 % återstår endast kantlinjerna.
+Ritningsunderlaget syns genom skrafferingen. Konturen tar inte över klick
+eller drag från befintliga verktyg.
+
+Etiketten visar en kompakt rad med B-måtten i mm samt en rad för relevanta,
+icke nollställda placeringsexcentriciteter i mm, utan tecken. Väggsulemodellen
+visar bara eₓ. Referenswidgeten och färglegender med måttgrupper visar samma
+information. Skiljer sig värdena inom en grupp visas intervall; saknas mått
+på någon av sulorna anges blandade värden. Grupperna delas inte upp av B-måtten.
+
+Måtten följer med vid kopiering, Ångra/Gör om, projektsparning samt HTML- och
+vektor-PDF-export. Indatalås skyddar även B-måtten. Äldre filer öppnas utan
+påhittade pelar-/väggbredder; ingen övre kontur visas innan måtten fyllts i.

@@ -210,7 +210,7 @@ class TestLoadPlacement(unittest.TestCase):
             tag = self.plan._tag(ident)
             for name in ("id", "label", "x", "y", "page"):
                 self.assertEqual(tag[name], before[ident][name])
-            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"l", "equ_reference_length", "glid_L", "L_vagg"} if ident == wall else set())
+            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"l", "B_y", "equ_reference_length", "glid_L", "L_vagg"} if ident == wall else set())
             for name, value in before[ident]["values"].items():
                 if name not in updated_fields:
                     self.assertEqual(tag["values"][name], value)
@@ -221,6 +221,7 @@ class TestLoadPlacement(unittest.TestCase):
         self.assertEqual(self.plan._tag(wall)["values"]["F_vy_bruk"], 35)
         self.assertEqual(self.plan._tag(wall)["values"]["V_Ed_EQU"], 40)
         self.assertEqual(self.plan._tag(wall)["values"]["glid_L"], 7.5)
+        self.assertEqual(self.plan._tag(wall)["values"]["B_y"], 7500)
         self.assertEqual(self.plan._tag(other), before[other])
         new_id = self.plan.placera_lasteffekt(.8, .4)
         self.assertEqual(self.plan._tag(new_id)["label"], "W2")

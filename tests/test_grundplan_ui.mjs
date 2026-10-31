@@ -133,12 +133,13 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
-  popupCalculationResult, footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  popupCalculationResult, supportAnnotation, constructionGeometry, footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
+names.push("B_x", "B_y");
 names.push("length_end", "L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "inaktiv", "kommentar", "lasttyp");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
@@ -156,6 +157,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
       summary: { utnyttjandegrad: .75, styrande: "Jord · brott", b: 1, last: 100, barformaga: 133, q_Ed: 100, q_bd: 133, b_ef: 1, lastenhet: "kN/m" } };
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
+  tag.values.B_x = null; tag.values.B_y = 1000;
   tag.values.L_vagg = null;
   tag.values.L_vagg_minst_1 = true;
   tag.values.l_override = false;
@@ -168,7 +170,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "stöd"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
       type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp", "length_end"].includes(name) ? "choice" : "number",
-      unit: loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
+      unit: ["B_x","B_y"].includes(name) ? "mm" : loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
       options: name === "lasttyp" ? [{value: 0, label: "Punktlast [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
   const snapshot = { state: data.state, schema: data.schema, page, pages: [data.background], pdf };
@@ -3446,7 +3448,7 @@ test("labels retain the governing check below insulation, utilization and geomet
   });
   ui.changed();
   assert.match(ui.marker().className, /gp-tag-over/);
-  assert.equal(ui.marker().children.length, 4);
+  assert.equal(ui.marker().children.length, 5);
   assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Isolering · bruk");
   assert.equal(ui.byClass("gp-tag-insulation").children[1].textContent, "Med isolering");
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 160 % · bₓ 1 m · t 1 m");
@@ -6187,4 +6189,94 @@ for(const readOnly of [false,true]) test(`converted load labels use one decimal 
   assert.match(text,/V 492,5 kN\/m \(urspr. 388,3\)/);
   assert.doesNotMatch(text,/623,492683|492,478049/);
   assert.deepEqual(ui.tag,before);
+});
+
+
+test('upper construction uses millimetres and stays on the fixed support when the footing is eccentric or rotated',()=>{
+  const tag={footing_type:'pelarsula',values:{lang:0,b:2,l:3,B_x:300,B_y:400,e_b_plac:.25,e_l_plac:-.5}};
+  const bg={width:800,height:600};
+  for (const angle_deg of [0,37,90]) {
+    const g=constructionGeometry(tag,{...padPlacement,angle_deg},bg,contourCalibration);
+    near(g.center.x,400);near(g.center.y,300);
+    near(Math.hypot(g.points[1].x-g.points[0].x,g.points[1].y-g.points[0].y),12);
+    near(Math.hypot(g.points[2].x-g.points[1].x,g.points[2].y-g.points[1].y),16);
+  }
+  assert.deepEqual(supportAnnotation(tag),{B_x:300,B_y:400,e_x:250,e_y:500});
+  tag.values.B_y=null;assert.equal(constructionGeometry(tag,padPlacement,bg,contourCalibration),null);
+  Object.assign(tag,{footing_type:'vaggsula'});Object.assign(tag.values,{lang:1,l:2.6,B_x:200,B_y:999});
+  assert.deepEqual(supportAnnotation(tag),{B_x:200,B_y:2600,e_x:250,e_y:0});
+  tag.values.B_x=null;assert.equal(supportAnnotation(tag).B_y,null);
+});
+
+test('upper contours have transparent hatching controlled by fill opacity and an independent non-interactive outline',t=>{
+  const ui=contourSetup(t);Object.assign(ui.tag.values,{B_x:300,B_y:400,e_b_plac:-.15,e_l_plac:.1});
+  ui.data.state.contours.fill_opacity=.3;ui.changed();
+  const hatch=ui.byClass('gp-construction-hatches'),outline=ui.byClass('gp-construction-outlines');
+  assert.equal(hatch.getAttribute('opacity'),'0.3');assert.equal(hatch.getAttribute('pointer-events'),'none');
+  assert.equal(outline.getAttribute('pointer-events'),'none');assert.equal(outline.children[0].getAttribute('fill'),'none');
+  const svg=hatch.parent,pattern=svg.children[0].children.find(e=>e.getAttribute('id')?.startsWith('gp-construction-hatch-'));
+  assert.ok(pattern);assert.equal(pattern.children.length,1);assert.equal(pattern.children[0].tagName,'PATH');
+  assert.match(elementText(ui.byClass('gp-tag-support')),/B.*300.*400.*mm/);
+  assert.ok(ui.elements().some(e=>e.className==='gp-tag-support' && /150.*100.*mm/.test(elementText(e))));
+  ui.data.state.contours.fill_opacity=0;ui.changed();
+  assert.equal(ui.byClass('gp-construction-hatches').getAttribute('opacity'),'0');
+  assert.equal(ui.byClass('gp-construction-outlines').children.length,1);
+});
+
+test('wall upper length is automatic while visual-only editing keeps utilization visible',t=>{
+  const ui=setup(t);ui.marker().click();
+  assert.equal(ui.field('B_y').disabled,true);assert.equal(ui.field('B_y').value,'1000');
+  assert.equal(ui.field('B_x').required,false);
+  ui.field('B_x').value='200';ui.field('B_x').dispatch('input');
+  assert.equal(ui.sent.at(-1).values.B_x,200);
+  assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
+  assert.match(elementText(ui.byClass('gp-tag-support')),/200.*1.*000.*mm/);
+});
+
+for (const readOnly of [false,true]) test(`dimension widgets summarize differing upper dimensions without splitting groups (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});
+  Object.assign(ui.tag.values,{B_x:200,e_b_plac:0});
+  const other={...structuredClone(ui.tag),id:'b',label:'VS.28',values:{...ui.tag.values,B_x:300,e_b_plac:.15}};
+  ui.data.state.tags.push(other);
+  colourFixture(ui,{categories:['sultyp','b']});referenceFixture(ui);
+  assert.equal(ui.byClass('gp-colour-legend-body').children.filter(e=>e.className.includes('gp-colour-legend-row')).length,1);
+  for (const cls of ['gp-colour-legend-body','gp-reference-body']) {
+    const text=elementText(ui.byClass(cls));
+    assert.match(text,/200–300/);assert.match(text,/0–150/);
+    assert.doesNotMatch(text,/ey/);
+  }
+  other.values.B_x=null;ui.changed();
+  assert.match(elementText(ui.byClass('gp-reference-body')),/blandat/);
+});
+
+test('table upper dimensions use normal bulk selection, preserve U, support clearing and disable automatic wall By',t=>{
+  const ui=setup(t);
+  ui.data.state.tags.push({...structuredClone(ui.tag),id:'second',label:'VS2'});ui.changed();
+  ui.byText('Markera samtliga').click();
+  assert.equal(tableField(ui,'tag1','B_y').disabled,true);
+  const Bx=tableField(ui,'tag1','B_x');Bx.value='250';Bx.dispatch('input');
+  assert.deepEqual(ui.sent.at(-1).values,{B_x:250});
+  assert.deepEqual(ui.sent.at(-1).ids,['tag1','second']);
+  assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
+});
+
+for(const pdfMode of [false,true]) test(`upper contours and annotations remain in readonly/export mode (pdfMode=${pdfMode})`,t=>{
+  const ui=contourSetup(t,{readOnly:true,pdfMode});
+  Object.assign(ui.tag.values,{B_x:300,B_y:400,e_b_plac:.15,e_l_plac:0});ui.changed();
+  assert.equal(ui.byClass('gp-construction-outlines').children.length,1);
+  assert.match(elementText(ui.byClass('gp-tag-support')),/300.*400.*mm/);
+  assert.equal(ui.sent.length,0);
+});
+
+
+test('old objects without B dimensions keep their labels and footing contours without requiring new inputs',t=>{
+  const ui=contourSetup(t);delete ui.tag.values.B_x;delete ui.tag.values.B_y;
+  Object.assign(ui.tag.values,{e_b_plac:0,e_l_plac:0});ui.changed();
+  assert.equal(ui.byClass('gp-contour-outlines').children.length,1);
+  assert.equal(ui.byClass('gp-construction-outlines').children.length,0);
+  assert.equal(ui.elements().filter(e=>e.className==='gp-tag-support').length,0);
+  ui.marker().click();
+  assert.equal(ui.field('B_x').value,'');assert.equal(ui.field('B_y').value,'');
+  assert.equal(ui.field('B_x').required,false);assert.equal(ui.field('B_y').required,false);
+  assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
 });
