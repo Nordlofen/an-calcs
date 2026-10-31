@@ -44,7 +44,7 @@ def _page_geometry(page):
 
 
 
-def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None, drawing_layout=None, object_layout=None, settlement_display=None, soil_profile=None, common_foundations=None):
+def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None, drawing_layout=None, object_layout=None, settlement_display=None, soil_profile=None, common_foundations=None, contours=None, calibration=None):
     """Merge the shared HTML/CSS vector overlay onto the original drawing."""
     from .grundplan_pdf_browser import render_overlay
     from .grundplan_reference import group_data as reference_groups
@@ -120,7 +120,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                       "url": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"}
         snapshot = {"page": page_number, "pages": [background],
                     "schema": {"fields": [], "load_groups": LOAD_GROUPS},
-                    "state": {"title": title, "subtitle": "", "label_size": label_size,
+                    "state": {"contours": contours or {}, "calibration": calibration, "title": title, "subtitle": "", "label_size": label_size,
                               "settlement_display": settlement_display,
                               "soil_profile": soil_profile,
                               "common_foundations": common_foundations or [],

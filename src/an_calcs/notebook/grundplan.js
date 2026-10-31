@@ -262,6 +262,35 @@ export function measuredDistance(start, end, background, calibration) {
   return drawingDistance(start, end, background) / drawingDistance(calibration.start, calibration.end, background) * calibration.length_m;
 }
 
+// Plan coordinates are normalized to the stable drawing frame, never to a label.
+export function footprintGeometry(tag, placement, bg, cal) {
+  if (!placement || !cal || !bg.width || !bg.height) return null;
+  const units = drawingDistance(cal.start, cal.end, bg) / cal.length_m;
+  const v = tag.values, width = Number(v.b), expected = footingCategory(tag) === "wall" ? "wall" : "pad";
+  if (!(units > 0) || !(width > 0) || placement.kind !== expected) return null;
+  const pixel = p => ({x: p.x * bg.width, y: p.y * bg.height});
+  let anchor, xAxis, yAxis, length;
+  if (placement.kind === "wall") {
+    const a = pixel(placement.start), b = pixel(placement.end), d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!(d > 1e-6)) return null;
+    yAxis = {x: (b.x - a.x) / d, y: (b.y - a.y) / d}; xAxis = {x: -yAxis.y, y: yAxis.x};
+    anchor = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; length = d / units;
+  } else {
+    const angle = placement.angle_deg * Math.PI / 180;
+    xAxis = {x: Math.cos(angle), y: -Math.sin(angle)}; yAxis = {x: -Math.sin(angle), y: -Math.cos(angle)};
+    anchor = pixel(placement.center); length = Number(v.l);
+  }
+  if (!(length > 0)) return null;
+  // e_plac is the support/load position relative to the footing centre.
+  // A fixed support therefore gives a footing centre displaced by minus e_plac.
+  const ex = Number(v.e_b_plac || 0), ey = Number(v.e_l_plac || 0);
+  const center = {x: anchor.x - units * (ex * xAxis.x + ey * yAxis.x), y: anchor.y - units * (ex * xAxis.y + ey * yAxis.y)};
+  const points = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b]) => ({
+    x: center.x + units * (a * width * xAxis.x + b * length * yAxis.x) / 2,
+    y: center.y + units * (a * width * xAxis.y + b * length * yAxis.y) / 2}));
+  return {points, anchor, center, xAxis, yAxis, units, length};
+}
+
 function definitionSketch(strip) {
   const make = (name, attributes, text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -575,6 +604,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let inputLockBusy = false, autoBxBusy = false, autoBxPreview = null, autoBxBasis = "";
   let importBusy = false, drawingBusy = false, deleteBusy = false, lastImportToken = null;
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
+  let contourEditing = false, contourPanel = false, contourTarget = null, contourResume = false, contourBusy = false;
+  let contourPoints = [], contourPlacing = false, contourSettingsDraft = null, contourPlacementDraft = null;
   const state = () => model.get("state") || { tags: [] };
   const commonFoundations = () => state().common_foundations || [];
   const commonFor = tag => tag && commonFoundations().find(item => item.id === tag.common_foundation_id || item.members.includes(tag.id));
@@ -605,7 +636,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return b;
   };
   function command(action, payload = {}, buffers = [], onDone) {
-    if (readOnly && !["label_size", "calibration", "export_pdf", "table_view", "layout"].includes(action)) return;
+    if (readOnly && !["label_size", "calibration", "export_pdf", "table_view", "layout", "contours"].includes(action)) return;
     if (historyBusy && !["undo", "redo"].includes(action)) return;
     const request = ++sequence;
     const field = document.activeElement;
@@ -723,6 +754,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     for (const values of [dirty, drafts, edits, slidingDirty, positions, pendingPositions, overlayPositions,
       pendingOverlayPositions, leaderDrafts, lockDrafts, scaleDrafts, textDrafts]) values.clear();
     leaderEdit = leaderNode = null;
+    contourPlacementDraft = contourSettingsDraft = null; contourBusy = false;
     headingDraft = sizeDraft = slidingDraft = colourDraft = colourEditType = layoutDraft = calibrationDraft = null;
     insulationWidgetDraft = commentWidgetDraft = referenceWidgetDraft = null;
     formId = null; bulkSignature = "";
@@ -1679,6 +1711,223 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     cancelDrag(); cropDraft = {...CANVAS_DEFAULTS}; showCanvas(); fit();
   });
   cropBar.append(cropHint, cropSize, cropApply, cropCancel, cropReset);
+  // Contour controls are isolated from the existing table and footing dialogs.
+  const contourMenu = node("details", "gp-contour-menu");
+  contourMenu.append(node("summary", "", "Visa"));
+  const contourMenuBody = node("div", "gp-contour-menu-body");
+  const contourVisible = node("input"); contourVisible.type = "checkbox";
+  contourVisible.setAttribute("aria-label", "Visa sulkonturer");
+  const contourVisibleLabel = node("label"); contourVisibleLabel.append(contourVisible, node("span", "", "Visa sulkonturer"));
+  const contourOptions = button("Konturinställningar…", () => {contourPanel = !contourPanel; contourMenu.open = false; showContours();});
+  const contourEdit = button("Redigera sulkonturer…", () => {contourMenu.open = false; beginContourEdit();});
+  contourMenuBody.append(contourVisibleLabel, contourOptions);
+  if (!readOnly) contourMenuBody.append(contourEdit);
+  contourMenu.append(contourMenuBody); toolbar.append(contourMenu);
+  const contourBar = node("section", "gp-contour-bar"); contourBar.hidden = true;
+  const contourStatus = node("span", "gp-contour-status");
+  const contourAlpha = node("input"); contourAlpha.type = readOnly ? "number" : "range"; contourAlpha.min = "0"; contourAlpha.max = "100"; contourAlpha.step = "1";
+  contourAlpha.setAttribute("aria-label", "Sulkonturernas färgfyllning i procent");
+  const contourAlphaText = node("output");
+  const contourAlphaLabel = node("label", "gp-contour-fill");
+  contourAlphaLabel.append(node("span", "", "Färgfyllning"), contourAlpha, contourAlphaText);
+  const contourEditor = node("div", "gp-contour-editor");
+  const contourSelect = node("select"); contourSelect.setAttribute("aria-label", "Sula för konturplacering");
+  const contourDefine = button("Definiera placering", () => {
+    if (!calibration()) {contourResume = true; setMode("calibrate"); return;}
+    contourPoints = []; contourPlacing = true; setMode("contour"); contourEditing = true; showContours();
+  });
+  const contourInputs = {};
+  const contourField = (name, label) => {
+    const wrap = node("label", "gp-contour-field"); wrap.append(node("span", "", label));
+    const input = node("input"); input.type = "text"; input.inputMode = "decimal";
+    input.setAttribute("aria-label", label); contourInputs[name] = input; wrap.append(input); return wrap;
+  };
+  const contourApply = button("Tillämpa mått", () => {
+    const tag = contourTag(); if (!tag || contourBusy) return;
+    const changes = {}, names = ["b", "e_b_plac", "e_l_plac", ...(footingCategory(tag) === "wall" ? [] : ["l"])];
+    for (const name of names) {
+      const value = Number(contourInputs[name].value.trim().replace(",", "."));
+      if (!Number.isFinite(value) || ["b","l"].includes(name) && value <= 0) {showMessage("Ange giltiga mått och excentriciteter.", true); return;}
+      changes[name] = value;
+    }
+    contourBusy = true;
+    command("calculate", {id: tag.id, label: tag.label, values: {...tag.values, ...changes}}, [], () => {contourBusy = false; showContours();});
+  });
+  const contourAngle = contourField("angle", "Riktning x [°]");
+  const contourLength = contourField("length", "Konturlängd [m]");
+  const contourGeometryApply = button("Tillämpa riktning/längd", () => {
+    const tag = contourTag(), p = contourPlacement(tag); if (!p) return;
+    const value = Number(contourInputs[p.kind === "pad" ? "angle" : "length"].value.trim().replace(",", "."));
+    if (!Number.isFinite(value) || p.kind === "wall" && value <= 0) {showMessage("Ange en giltig riktning eller positiv längd.", true); return;}
+    if (p.kind === "pad") saveContour(tag.id, {...p, angle_deg: value});
+    else {
+      const g = footprintGeometry(tag, p, background(), calibration()), bg = background(); if (!g) return;
+      const d = g.units * value / 2;
+      saveContour(tag.id, {kind: "wall", start: {x: (g.anchor.x - g.yAxis.x * d) / bg.width, y: (g.anchor.y - g.yAxis.y * d) / bg.height},
+        end: {x: (g.anchor.x + g.yAxis.x * d) / bg.width, y: (g.anchor.y + g.yAxis.y * d) / bg.height}});
+    }
+  });
+  const contourRemove = button("Ta bort konturplacering", () => {const tag = contourTag(); if (tag) saveContour(tag.id, null);});
+  const contourDone = button("Klar", () => finishContours());
+  contourEditor.append(contourSelect, contourDefine,
+    contourField("b", "bₓ [m]"), contourField("l", "bᵧ [m]"),
+    contourField("e_b_plac", "eₓ,plac [m]"), contourField("e_l_plac", "eᵧ,plac [m]"), contourApply,
+    contourAngle, contourLength, contourGeometryApply, contourRemove);
+  const contourHint = node("p", "gp-contour-hint");
+  contourBar.append(contourStatus, contourAlphaLabel, contourEditor, contourHint, contourDone);
+  contourSelect.addEventListener("change", () => {contourTarget = contourSelect.value; contourPoints = []; contourPlacing = false; showContours();});
+  contourVisible.addEventListener("change", () => {
+    const enabled = contourVisible.checked;
+    setContourSettings({enabled}, () => {
+      if (enabled && !readOnly && (!calibration() || pageTags().some(tag => !contourGeometry(tag)))) beginContourEdit();
+      if (!enabled) finishContours();
+    });
+  });
+  contourAlpha.addEventListener("input", () => {
+    contourSettingsDraft = {...contourSettings(), fill_opacity: Number(contourAlpha.value) / 100};
+    contourAlphaText.textContent = contourAlpha.value + " %"; renderContours();
+  });
+  contourAlpha.addEventListener("change", () => setContourSettings({fill_opacity: Number(contourAlpha.value) / 100}));
+
+  function contourSettings() {return contourSettingsDraft || state().contours || {enabled: false, fill_opacity: .18, placements: {}};}
+  function pageTags() {return state().tags.filter(tag => tag.page === background().page);}
+  function contourTag() {return pageTags().find(t => t.id === contourTarget);}
+  function contourPlacement(tag) {return tag && (contourPlacementDraft?.id === tag.id ? contourPlacementDraft.placement : contourSettings().placements?.[tag.id]);}
+  function contourGeometry(tag) {if (!tag) return null; return footprintGeometry(contourPlacementDraft?.id === tag.id && contourPlacementDraft.values ? {...tag, values: contourPlacementDraft.values} : tag, contourPlacement(tag), background(), calibration());}
+  function setContourSettings(changes, done) {
+    if (contourBusy) return;
+    contourBusy = true;
+    command("contours", {settings: changes}, [], reply => {
+      contourBusy = false; contourSettingsDraft = null; showContours(); if (reply.ok) done?.();
+    });
+  }
+  function saveContour(id, placement) {
+    if (contourBusy) return;
+    contourBusy = true;
+    command("contour_placement", {id, placement}, [], () => {
+      contourBusy = false; contourPlacementDraft = null; showContours();
+    });
+  }
+  function beginContourEdit() {
+    if (readOnly || contourBusy || drawingDraft || cropDraft || bulkBusy || importBusy || autoBxBusy || inputLockBusy) return;
+    closeDialog(); closeBulk(); closeAutoBx(); cancelDrag();
+    setMode("contour"); contourEditing = contourPanel = true; contourPoints = []; contourPlacing = false;
+    const tags = pageTags();
+    if (!tags.some(t => t.id === contourTarget)) contourTarget = tags.find(t => selected.has(t.id))?.id || tags.find(t => !contourGeometry(t))?.id || tags[0]?.id;
+    if (!contourSettings().enabled) setContourSettings({enabled: true});
+    if (!calibration()) {contourResume = true; setMode("calibrate");}
+    showContours();
+  }
+  function finishContours() {
+    cancelDrag(); contourEditing = contourPanel = contourResume = contourPlacing = false; contourPoints = [];
+    contourPlacementDraft = null; setMode("pan"); showContours();
+  }
+  function chooseContourPoint(event) {
+    const point = measurementPoint(event), tag = contourTag(); if (!point || !tag) return;
+    contourPoints.push(point);
+    if (contourPoints.length === 2) {
+      const [a,b] = contourPoints, bg = background();
+      if (drawingDistance(a,b,bg) < 1e-6) {contourPoints.pop(); showMessage("Välj två olika punkter.", true); return;}
+      saveContour(tag.id, footingCategory(tag) === "wall" ? {kind: "wall", start: a, end: b}
+        : {kind: "pad", center: a, angle_deg: Math.atan2(-(b.y-a.y)*bg.height, (b.x-a.x)*bg.width)*180/Math.PI});
+      contourPoints = []; contourPlacing = false;
+    }
+    showContours();
+  }
+  function showContours() {
+    const settings = contourSettings(), tags = pageTags(), blocked = contourBusy || !!drawingDraft || !!cropDraft || drawingPending || drawingBusy || bulkBusy || importBusy || autoBxBusy || inputLockBusy || deleteBusy;
+    contourVisible.checked = !!settings.enabled; contourVisible.disabled = blocked || !background().url;
+    contourEdit.disabled = blocked || !tags.length; contourAlpha.disabled = blocked;
+    contourBar.hidden = !contourPanel && !contourEditing;
+    contourEditor.hidden = !contourEditing || !calibration();
+    contourStatus.textContent = contourEditing ? "Redigera sulkonturer · " + tags.filter(t => contourGeometry(t)).length + "/" + tags.length + " definierade" : "Sulkonturer";
+    if (document.activeElement !== contourAlpha) contourAlpha.value = Math.round((settings.fill_opacity ?? .18) * 100);
+    contourAlphaText.textContent = contourAlpha.value + " %";
+    if (contourEditing) {
+      contourSelect.replaceChildren();
+      for (const tag of tags) {const o = node("option", "", tag.label + (contourGeometry(tag) ? " ✓" : " · saknar placering")); o.value = tag.id; contourSelect.append(o);}
+      if (!tags.some(t => t.id === contourTarget)) contourTarget = tags[0]?.id;
+      contourSelect.value = contourTarget || "";
+      if (!contourTarget) {contourPlacing = false; contourPoints = [];}
+      const tag = contourTag(), p = contourPlacement(tag), g = tag && contourGeometry(tag), wall = tag && footingCategory(tag) === "wall";
+      const locked = !tag || placementLocked({type: "tag", id: tag.id});
+      contourDefine.disabled = blocked || locked;
+      for (const name of ["b","l","e_b_plac","e_l_plac"]) {
+        const input = contourInputs[name]; if (document.activeElement !== input) input.value = tag?.values[name] ?? "";
+        input.disabled = blocked || !tag || tag.input_locked;
+      }
+      contourInputs.l.closest("label").hidden = !!wall;
+      contourApply.disabled = blocked || !tag || tag.input_locked;
+      contourAngle.hidden = !p || !!wall; contourLength.hidden = !p || !wall;
+      if (document.activeElement !== contourInputs.angle) contourInputs.angle.value = p?.angle_deg ?? "";
+      if (document.activeElement !== contourInputs.length) contourInputs.length.value = g ? precise(g.length) : "";
+      contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked;
+    }
+    contourHint.textContent = !calibration() ? "Kalibrera ritningsskalan med Mät. Konturer visas först efter giltig kalibrering."
+      : contourEditing ? contourPlacing ? (footingCategory(contourTag()) === "wall"
+        ? "Klicka på väggsulans " + (contourPoints.length ? "slutpunkt." : "startpunkt.")
+        : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
+        : "Välj sula och definiera placering. Dra cirklar för centrum/ändpunkter, dra konturen för placeringsexcentricitet. Tom yta panorerar. Klar eller Esc avslutar."
+      : "0 % färgfyllning lämnar enbart konturlinjer. Visning aktiverar inte redigering.";
+    renderContours();
+  }
+
+  function renderContours() {
+    const settings = contourSettings(), bg = background();
+    contourSvg.replaceChildren(); contourSvg.hidden = !settings.enabled || !calibration() || !!drawingDraft || !!cropDraft;
+    contourSvg.style.display = contourSvg.hidden ? "none" : "";
+    if (contourSvg.hidden || !bg.width) return;
+    contourSvg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
+    const assignments = colour().enabled ? colourGroups(groupingTags(), colour()).assignments : null;
+    const defs = svgNode("defs", {}), fills = svgNode("g", {class: "gp-contour-fills"}), outlines = svgNode("g", {class: "gp-contour-outlines"}), guides = svgNode("g", {class: "gp-contour-guides"});
+    contourSvg.append(defs, fills, outlines, guides);
+    const tags = pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id)));
+    for (const tag of tags) {
+      const geometry = contourGeometry(tag); if (!geometry) continue;
+      const {points, anchor, xAxis, yAxis} = geometry, style = assignments?.get(tag.id), color = style?.background || "#739b99";
+      const pointsText = points.map(p => `${p.x},${p.y}`).join(" ");
+      const group = svgNode("g", {opacity: settings.fill_opacity ?? .18});
+      group.append(svgNode("polygon", {points: pointsText, fill: color}));
+      if (style?.pattern && style.pattern !== "plain") {
+        const patternId = "gp-contour-pattern-" + view + "-" + tag.id;
+        const pitch = colourPatternGeometry(style.pattern, 1, 1, 1, false, style.pattern_variant).pitch;
+        const pattern = svgNode("pattern", {id: patternId, patternUnits: "userSpaceOnUse", width: pitch, height: pitch});
+        const geometry = colourPatternGeometry(style.pattern, pitch, pitch, 1, false, style.pattern_variant);
+        pattern.append(...geometry.shapes.map(({tag: shape, ...attrs}) => svgNode(shape,
+          {...attrs, fill: shape === "path" ? "none" : "#35515c", stroke: shape === "path" ? "#35515c" : "none"})));
+        defs.append(pattern); group.append(svgNode("polygon", {points: pointsText, fill: `url(#${patternId})`}));
+      }
+      fills.append(group);
+      const chosen = selected.has(tag.id) || active === tag.id || contourEditing && contourTarget === tag.id;
+      const outline = svgNode("polygon", {points: pointsText, fill: "transparent", stroke: `color-mix(in srgb, ${color} 72%, #18333b)`, "stroke-width": chosen ? 2.5 : 1.5,
+        "vector-effect": "non-scaling-stroke", class: "gp-contour-shape"});
+      outline.dataset.contourId = tag.id; outlines.append(outline);
+      if (chosen && !pdfMode) {
+        const label = positions.get(tag.id) || tag, x = label.x * bg.width, y = label.y * bg.height;
+        guides.append(svgNode("line", {x1: x, y1: y, x2: anchor.x, y2: anchor.y, stroke: "#58717a", "stroke-dasharray": "5 4", "stroke-width": 1, "vector-effect": "non-scaling-stroke"}));
+      }
+      if (contourEditing && contourTarget === tag.id && mode === "contour" && !pdfMode) {
+        const p = contourPlacement(tag), handle = (point, name) => {
+          const circle = svgNode("circle", {cx: point.x, cy: point.y, r: 6 / zoom, fill: "white", stroke: "#14695e", "stroke-width": 2,
+            "vector-effect": "non-scaling-stroke", class: "gp-contour-handle"});
+          circle.dataset.contourId = tag.id; circle.dataset.handle = name; guides.append(circle);
+        };
+        if (!placementLocked({type: "tag", id: tag.id})) {
+          if (p.kind === "pad") {
+            handle(anchor, "center"); handle({x: anchor.x + xAxis.x * 48 / zoom, y: anchor.y + xAxis.y * 48 / zoom}, "angle");
+          } else for (const name of ["start","end"]) handle({x:p[name].x*bg.width, y:p[name].y*bg.height}, name);
+        }
+        for (const [axis, name] of [[xAxis,"x"],[yAxis,"y"]]) {
+          const end = {x:anchor.x+axis.x*35/zoom, y:anchor.y+axis.y*35/zoom};
+          guides.append(svgNode("line", {x1:anchor.x,y1:anchor.y,x2:end.x,y2:end.y,stroke:"#14695e","stroke-width":1,"vector-effect":"non-scaling-stroke"}),
+            svgNode("text", {x:end.x,y:end.y,"font-size":12/zoom,fill:"#14695e"}, name));
+        }
+      }
+    }
+    if (contourPlacing && contourPoints.length) guides.append(svgNode("circle", {cx:contourPoints[0].x*bg.width,cy:contourPoints[0].y*bg.height,r:5/zoom,fill:"#14695e"}));
+    contourSvg.classList.toggle("gp-contour-editing", contourEditing && mode === "contour" && !readOnly);
+  }
+
   const measurementBar = node("section", "gp-measurement-bar");
   measurementBar.hidden = true;
   measurementBar.setAttribute("aria-label", "Mätverktyg");
@@ -1702,7 +1951,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     calibrationDraft = value; calibrationBusy = true; showMeasurement();
     command("calibration", {calibration: value}, [], reply => {
       calibrationDraft = null; calibrationBusy = false;
-      if (reply.ok && mode === "calibrate") setMode("measure");
+      if (reply.ok && mode === "calibrate") {
+        if (contourResume) {contourResume = false; setMode("contour"); contourEditing = contourPanel = true; showContours();}
+        else setMode("measure");
+      }
       showMeasurement();
       if (!reply.ok) showMessage(reply.error, true);
     });
@@ -1771,6 +2023,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return element;
   };
   const measurementOverlay = node("div", "gp-measurement-overlay");
+  const contourSvg = svgNode("svg", {class: "gp-contours", "aria-label": "Sulornas utbredning"});
   const leaderSvg = svgNode("svg", {class: "gp-leaders", "aria-label": "Etiketternas hänvisningslinjer"});
   const leaderHandles = svgNode("svg", {class: "gp-leader-handles", "aria-label": "Redigera hänvisningslinje"});
   const leaderResizeObserver = new ResizeObserver(() => renderLeaders());
@@ -1893,7 +2146,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   referenceLegend.addEventListener("click", event => selectOverlayBody("reference", event));
   referenceLegend.append(referenceHeader, referenceBody, referenceResize);
   overlays.append(axesOverlay, slidingLegend, colourLegend, insulationLegend, commentLegend, referenceLegend);
-  sheet.append(picture, leaderSvg, markers, overlays, leaderHandles);
+  sheet.append(picture, contourSvg, leaderSvg, markers, overlays, leaderHandles);
   paper.append(sheet);
   viewport.append(paper, selectionBox, measurementOverlay, cropFrame, drawingFrame, objectFrame);
   const empty = node("div", "gp-empty");
@@ -2451,7 +2704,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   workspace.append(heading, toolbar);
   if (!readOnly) workspace.append(colourControls, soilPanel);
-  workspace.append(measurementBar, cropBar, drawingBar);
+  workspace.append(measurementBar, cropBar, drawingBar, contourBar);
   if (!readOnly) workspace.append(importBar);
   workspace.append(selectionBar);
   if (!readOnly) workspace.append(savePanel, projectFile, argumentsFallback);
@@ -2577,6 +2830,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
   loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
+    if (!["contour", "calibrate"].includes(value) && !(value === "measure" && contourResume)) {
+      contourEditing = contourResume = contourPlacing = false; contourPoints = [];
+    }
     if (cropDraft) finishCrop(false);
     if (drawingDraft) finishDrawingEdit(false);
     leaderPlacement = null; leaderEdit = leaderNode = null;
@@ -2598,9 +2854,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     showMeasurement();
+    showContours();
     if (measuring()) return;
     if (value === "copy") showMessage("Klicka på ritningen för att placera en kopia av " + copySource.label + ". Escape avbryter.");
     else if (value === "import") showMessage(importCaption());
+    else if (value === "contour") {showContours(); return;}
     else if (value !== "pan") showMessage("Klicka på ritningen där du vill placera en " +
       (value === "vaggsula" ? "väggsula." : "pelarsula."));
     else showMessage(readOnly
@@ -3393,6 +3651,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     placeSheet();
     zoomText.textContent = Math.round(zoom * 100) + "%";
     renderSlidingGeometry();
+    renderContours();
   }
   function showCanvas() {
     const bg = background(), bounds = canvasBounds(), w = (bg.width || 0) * zoom, h = (bg.height || 0) * zoom;
@@ -3817,6 +4076,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     refreshGroupPatterns(true);
     renderLeaders();
     syncTableSelection();
+    renderContours();
   }
   const groups = [
     ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
@@ -5680,6 +5940,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showCommonFoundations();
     showLayout();
     showMeasurement();
+    showContours();
     showTextObjects();
     const visibleKinds = new Set(visibleOverlays().map(element => element.dataset.kind));
     for (const kind of selectedOverlays) if (!visibleKinds.has(kind)) selectedOverlays.delete(kind);
@@ -5778,6 +6039,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     viewport.classList.remove("gp-selecting");
     if (previous && viewport.hasPointerCapture(previous.pointerId)) viewport.releasePointerCapture(previous.pointerId);
     if (previous?.id) renderMarkers();
+    if (previous?.contour) {contourPlacementDraft = null; renderContours();}
   }
   viewport.addEventListener("pointerdown", (event) => {
     if (![0, 2].includes(event.button) || drag || drawingBusy || drawingPending || objectsBusy || deleteBusy || autoBxBusy || inputLockBusy || !background().url) return;
@@ -5788,6 +6050,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
+    }
+    if (contourEditing && mode === "contour" && !readOnly && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      const hit = event.target.closest(".gp-contour-handle") || event.target.closest(".gp-contour-shape");
+      if (contourPlacing || hit) {
+        event.preventDefault(); viewport.focus({preventScroll: true});
+        if (hit) contourTarget = hit.dataset.contourId;
+        const tag = contourTag(), placement = contourPlacement(tag);
+        const locked = tag && placementLocked({type: "tag", id: tag.id});
+        drag = {contour: true, contourPick: contourPlacing, handle: hit?.dataset.handle,
+          contourId: tag?.id, contourBefore: placement && JSON.parse(JSON.stringify(placement)),
+          contourValues: tag && {...tag.values}, contourCanMove: !!tag && !locked && (!!hit?.dataset.handle || !tag.input_locked),
+          x: event.clientX, y: event.clientY, left: panX, top: panY, moved: false, pointerId: event.pointerId};
+        viewport.setPointerCapture(event.pointerId); showContours(); return;
+      }
     }
     if (drawingDraft) {
       event.preventDefault(); viewport.focus({preventScroll: true});
@@ -5905,6 +6181,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 5) drag.moved = true;
+    if (drag.contour) {
+      if (!drag.moved) return;
+      if (drag.contourPick || !drag.contourCanMove) {panX = drag.left + dx; panY = drag.top + dy; placeSheet(); return;}
+      const tag = pageTags().find(t => t.id === drag.contourId), p = drag.contourBefore, point = measurementPoint(event), bg = background();
+      if (!tag || !p || !point) return;
+      const geometry = footprintGeometry({...tag, values: drag.contourValues}, p, bg, calibration()); if (!geometry) return;
+      if (drag.handle) {
+        const next = JSON.parse(JSON.stringify(p));
+        if (drag.handle === "angle") next.angle_deg = Math.atan2(-(point.y*bg.height-geometry.anchor.y), point.x*bg.width-geometry.anchor.x)*180/Math.PI;
+        else next[drag.handle] = point;
+        contourPlacementDraft = {id: tag.id, placement: next};
+      } else {
+        const x = dx / zoom, y = dy / zoom;
+        drag.contourChanges = {e_b_plac: Number(drag.contourValues.e_b_plac || 0) - (x*geometry.xAxis.x+y*geometry.xAxis.y)/geometry.units,
+          e_l_plac: Number(drag.contourValues.e_l_plac || 0) - (x*geometry.yAxis.x+y*geometry.yAxis.y)/geometry.units};
+        // Preview values only; the kernel calculates once on pointerup.
+        contourPlacementDraft = {id: tag.id, placement: p, values: {...drag.contourValues,...drag.contourChanges}};
+      }
+      renderContours(); return;
+    }
     if (drag.drawing) {
       if (!drag.moved) return;
       const before = drag.beforeDrawing;
@@ -6006,13 +6302,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (drag.box && drag.moved) previewSelection(event);
     const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
       objectPositions, placementPan, resize, crop, drawing, objectScaling,
-      stroke, leaderClick, attachment } = drag;
+      stroke, leaderClick, attachment, contour, contourPick, contourId, contourCanMove, contourChanges } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if (contour) {
+      if (contourPick && !moved) chooseContourPoint(event);
+      else if (moved && contourCanMove && contourPlacementDraft) {
+        if (contourChanges) {
+          const tag = pageTags().find(t => t.id === contourId); contourBusy = true;
+          command("calculate", {id: tag.id, label: tag.label, values: {...tag.values, ...contourChanges}}, [], () => {contourBusy = false; contourPlacementDraft = null; showContours();});
+        } else saveContour(contourId, contourPlacementDraft.placement);
+      } else {contourPlacementDraft = null; showContours();}
+      return;
+    }
     if (pan || crop || drawing) return;
     if (objectScaling) {if (moved) saveObjectTransforms(objectPositions); return;}
     if (stroke && leaderPlacement) {
@@ -6168,6 +6474,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     event.stopPropagation();
     hideHistoryTooltip();
     const key = String(event.key).toLowerCase();
+    if (event.key === "Escape" && (contourEditing || contourPanel)) {event.preventDefault(); finishContours(); return;}
     if (event.key === "Escape" && !selectAllMenu.hidden) {event.preventDefault(); closeSelectAllMenu(); selectAllMenuButton.focus(); return;}
     if (event.key === "Escape" && !autoBxDialog.hidden) {event.preventDefault(); closeAutoBx(); return;}
     if (!readOnly && (event.metaKey || event.ctrlKey) && !event.altKey

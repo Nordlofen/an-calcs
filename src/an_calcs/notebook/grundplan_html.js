@@ -40,6 +40,13 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
               || value.sort.key !== null && !fields.includes(value.sort.key)) throw new Error("Ogiltig tabellvy.");
           data.state = {...data.state, table_view: value}; emit("change:state");
         } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
+      } else if (message.action === "contours") {
+        const settings = message.settings;
+        if (!settings || Object.keys(settings).some(k => !["enabled","fill_opacity"].includes(k))
+            || "enabled" in settings && typeof settings.enabled !== "boolean"
+            || "fill_opacity" in settings && (typeof settings.fill_opacity !== "number" || !Number.isFinite(settings.fill_opacity) || settings.fill_opacity < 0 || settings.fill_opacity > 1)) {
+          reply.ok = false; reply.error = "Ogiltiga konturinställningar.";
+        } else {data.state = {...data.state, contours: {...(data.state.contours || {}), ...settings}}; emit("change:state");}
       } else if (message.action === "calibration") {
         try {
           data.state = {...data.state, calibration: validateCalibration(message.calibration, data.background)};

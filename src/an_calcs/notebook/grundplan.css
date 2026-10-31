@@ -538,3 +538,23 @@
 .an-grundplan .gp-object-leader { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .an-grundplan .gp-leader-handles { z-index: 100000; }
 .an-grundplan .gp-selection-box { z-index: 100003; }
+
+/* Physical footprints remain transparent to pointer gestures outside edit mode. */
+.an-grundplan .gp-contours { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; z-index: 1; pointer-events: none; }
+.an-grundplan .gp-contour-editing .gp-contour-shape { pointer-events: all; cursor: move; }
+.an-grundplan .gp-contour-editing .gp-contour-handle { pointer-events: all; cursor: move; }
+.an-grundplan .gp-contour-menu { position: relative; }
+.an-grundplan .gp-contour-menu > summary { cursor: pointer; padding: 9px 14px; border: 1px solid var(--gp-line); border-radius: 6px; }
+.an-grundplan .gp-contour-menu-body { position: absolute; z-index: 20000; min-width: 240px; padding: 12px; display: grid; gap: 10px; background: white; color: var(--gp-ink); border: 1px solid var(--gp-line); border-radius: 8px; box-shadow: 0 4px 16px #18333b24; }
+.an-grundplan .gp-contour-menu-body > label { display: flex; align-items: center; gap: 8px; }
+.an-grundplan .gp-contour-bar { padding: 12px 16px; border: 1px solid var(--gp-line); background: #f0f7f5; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.an-grundplan .gp-contour-bar[hidden], .an-grundplan .gp-contour-editor[hidden], .an-grundplan .gp-contour-field[hidden] { display: none; }
+.an-grundplan .gp-contour-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; width: 100%; }
+.an-grundplan .gp-contour-fill { display: flex; gap: 8px; align-items: center; }
+.an-grundplan .gp-contour-field { display: grid; gap: 4px; font-size: 12px; }
+.an-grundplan .gp-contour-field input { width: 90px; padding: 7px; border: 1px solid var(--gp-line); border-radius: 5px; }
+.an-grundplan .gp-contour-status { font-weight: 700; }
+.an-grundplan .gp-contour-hint { flex: 1 1 100%; margin: 0; font-size: 12px; color: var(--gp-muted); }
+.an-grundplan.gp-pdf .gp-contour-guides { display: none; }
+
+@media print { .an-grundplan .gp-contour-guides { display: none; } }

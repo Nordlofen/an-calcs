@@ -1712,3 +1712,45 @@ uv pip install --reinstall-package an-calcs "an-calcs[notebook] @ git+https://gi
 Starta om notebookens kernel efter installation. Testa på en kopia av
 projektfilen. För att återgå till ordinarie paket används samma kommando med
 `@main`; använd då originalprojektet som sparades före testet.
+
+
+## Sulkonturer
+
+**Visa → Visa sulkonturer** visar sulornas fysiska utbredning. Visningen är
+avstängd som standard, även när ett äldre projekt öppnas. Första aktiveringen
+öppnar redigeringsläget om placeringar eller giltig måttkalibrering saknas.
+En befintlig kalibrering återanvänds; annars används Mät-verktygets två punkter
+och ett känt avstånd. Endast färdigdefinierade konturer visas.
+
+**Visa → Redigera sulkonturer…** aktiverar redigeringen uttryckligen. Välj
+sula och **Definiera placering**. För pelarsulor väljs stödets fasta centrum
+och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
+start och slut. Väggsulor med pelarsulemodell visas som bₓ × bᵧ-rektanglar;
+långa väggsulors längd kommer från de valda ändpunkterna, inte enmetersremsans bᵧ.
+
+Cirklarna flyttar centrum/ändpunkter eller vrider pelarsulans lokala axlar.
+Drag i själva konturen ändrar placeringsexcentriciteten och räknar om sulan;
+stödets fasta placering behålls. Positiv excentricitet anger stödets läge
+relativt sulans centrum. Därför flyttas konturen i motsatt riktning vid
+ökad excentricitet. Lastmoment flyttar inte betongkonturen. Måtten bₓ/bᵧ
+följer alltid objektets indata, även efter Auto bₓ. Etikettens läge är separat.
+Placeringslås skyddar konturplacering och excentricitetsdrag; indatalås skyddar
+mått och excentriciteter.
+
+**Klar** eller **Esc** avslutar redigeringen. I normalläget går musdrag rakt
+igenom konturerna till panoreringen. **Konturinställningar… → Färgfyllning**
+styr fyllningens opacitet; 0 % lämnar endast konturlinjer. Färg och mönster
+hämtas från samma färggruppering som etiketterna. Alla konturlinjer ligger
+ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskild
+överlappningsvarning skapas.
+
+En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
+eller öppnad suletikett. Den ersätter inte befintliga fritt formade
+hänvisningslinjer och följer inte med i PDF/utskrift. Konturer, fyllningsval
+och placeringsdata sparas i projektformat 29. Äldre projektformat 1–28 stöds
+fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
+av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
+
+Gemensamt fundament för sättning/styvhet skapar inte automatiskt en gemensam
+betongkontur; varje definierat sulobjekt har fortfarande sin egen kontur.
+Tabellvyn och befintliga redigeringsdialoger är oförändrade.

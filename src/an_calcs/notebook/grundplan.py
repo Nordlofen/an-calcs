@@ -29,6 +29,7 @@ from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
+from .grundplan_contours import settings as contour_settings, placement as contour_placement
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
@@ -500,6 +501,7 @@ class Grundplan(anywidget.AnyWidget):
         self._subtitle = subtitle
         self._label_size = 100
         self._calibration = None
+        self._contours = contour_settings({}, [])
         self._gliding = copy.deepcopy(DEFAULT_SETTINGS)
         self._colour = copy.deepcopy(DEFAULT_COLOUR)
         self._table_view = copy.deepcopy(_TABLE_DEFAULTS)
@@ -661,6 +663,7 @@ class Grundplan(anywidget.AnyWidget):
         # Never accept client state as calculation evidence.
         if self._colour["enabled"]:
             self._colour = remember_styles(self.taggar, self._colour)
+        self._contours = contour_settings(self._contours, self._tags, prune=True)
         self._history.observe(self)
         state = {
             "history": self._history.state,
@@ -672,6 +675,7 @@ class Grundplan(anywidget.AnyWidget):
             "common_foundations": self.gemensamma_fundament,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
+            "contours": copy.deepcopy(self._contours),
             "sliding": copy.deepcopy(self._gliding),
             "sliding_result": self.glidningsresultat,
             "colour_grouping": self.farggruppering,
@@ -1715,10 +1719,41 @@ class Grundplan(anywidget.AnyWidget):
         self._calibration = _calibration(value, self.background)
         self._publish()
 
+    @property
+    def sulkonturer(self):
+        """Frivillig konturvisning; äldre projekt har visningen avstängd."""
+        return copy.deepcopy(self._contours)
+
+    @sulkonturer.setter
+    def sulkonturer(self, changes):
+        if not isinstance(changes, dict) or set(changes) - {"enabled", "fill_opacity"}:
+            raise ValueError("Ange enabled och/eller fill_opacity.")
+        self._contours = contour_settings({**self._contours, **changes}, self._tags)
+        self._publish()
+
+    def placera_sulkontur(self, tagg, placering):
+        """Definiera stödets centrum/riktning eller väggsulans centrumlinje."""
+        tag = self._tag(tagg)
+        if not self._calibration:
+            raise ValueError("Kalibrera ritningsskalan före konturplacering.")
+        if object_key({"type": "tag", "id": tagg}) in self._placement_locks:
+            raise ValueError("Sulans placering är låst.")
+        placements = copy.deepcopy(self._contours["placements"])
+        if placering is None:
+            placements.pop(tagg, None)
+        else:
+            item = contour_placement(placering)
+            expected = "wall" if footing_category(tag) == "wall" else "pad"
+            if item["kind"] != expected:
+                raise ValueError("Konturtypen måste motsvara sulans beräkningsmodell.")
+            placements[tagg] = item
+        self._contours = contour_settings({**self._contours, "placements": placements}, self._tags)
+        self._publish()
+
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 28,
+            "version": 29,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -1727,6 +1762,7 @@ class Grundplan(anywidget.AnyWidget):
             "subtitle": self._subtitle,
             "label_size": self._label_size,
             "calibration": self.kalibrering,
+            "contours": copy.deepcopy(self._contours),
             "sliding": copy.deepcopy(self._gliding),
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
@@ -1806,7 +1842,8 @@ class Grundplan(anywidget.AnyWidget):
                           text_objects=self._text_objects, canvas_bounds=self._canvas_bounds,
                           drawing_layout=self._drawing_layout, object_layout=self._object_layout,
                           settlement_display=self.sattningsvisning, soil_profile=self.jordprofil,
-                          common_foundations=self.gemensamma_fundament)
+                          common_foundations=self.gemensamma_fundament,
+                          contours=self.sulkonturer, calibration=self.kalibrering)
 
     def exportera_pdf(self, fil):
         """Exportera vyns enda ritningssida med fasta etiketter till en PDF.
@@ -1839,6 +1876,7 @@ class Grundplan(anywidget.AnyWidget):
         return render_html({
             "state": {"title": self._title, "subtitle": self._subtitle,
                       "label_size": self._label_size, "calibration": self.kalibrering, "tags": self.taggar,
+                      "contours": self.sulkonturer,
                       "soil_profile": self.jordprofil,
                       "settlement_display": self.sattningsvisning,
                       "common_foundations": self.gemensamma_fundament,
@@ -1897,8 +1935,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 29):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–28.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 30):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–29.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -1989,6 +2027,7 @@ class Grundplan(anywidget.AnyWidget):
             if profile is not None:
                 tag["soil_profile"] = profile
             valid_tags.append(tag)
+        contours = contour_settings(document.get("contours", {}), valid_tags)
         common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
                                  drawing["page"], allow_empty=True)
@@ -2004,6 +2043,7 @@ class Grundplan(anywidget.AnyWidget):
         self._drawing_layout = source_layout
         self._object_layout = objects_layout
         self._calibration = calibration
+        self._contours = contours
         self._gliding = gliding
         self._colour = colour
         self._table_view = table_view
@@ -2130,6 +2170,10 @@ class Grundplan(anywidget.AnyWidget):
                 self.visa_sida(content["page"])
             elif action == "label_size":
                 self.etikettstorlek = content["value"]
+            elif action == "contours":
+                self.sulkonturer = content["settings"]
+            elif action == "contour_placement":
+                self.placera_sulkontur(content["id"], content.get("placement"))
             elif action == "calibration":
                 self.kalibrering = content.get("calibration")
             elif action == "heading":

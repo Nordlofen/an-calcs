@@ -10,7 +10,7 @@ from functools import wraps
 
 _MISSING = object()
 _FIELDS = ("_source", "_filename", "_initial_page", "background", "_title", "_subtitle",
-           "_label_size", "_calibration", "_gliding", "_colour", "_layout",
+           "_label_size", "_calibration", "_contours", "_gliding", "_colour", "_layout",
            "_insulation_widget", "_comment_widget", "_reference_widget", "_text_objects",
            "_placement_locks", "_canvas_bounds", "_drawing_layout", "_object_layout", "_load_import", "_soil_profile", "_settlement_display", "_common_foundations")
 _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "update",
@@ -22,7 +22,7 @@ _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "up
             "insulation_placement", "comment_placement", "reference_placement",
             "colour_placement", "sliding_placement", "drawing"}
 _ACTIONS.update({"input_lock", "auto_bx_apply", "soil_profile", "soil_profile_patch", "settlement_display"})
-_ACTIONS.update({"common_foundation", "common_foundation_delete"})
+_ACTIONS.update({"common_foundation", "common_foundation_delete", "contours", "contour_placement"})
 
 
 def snapshot(plan):
@@ -83,6 +83,8 @@ def description(content, before, after):
         changed = sum(k.startswith("tag:") and v.get("values") != before.get(k, {}).get("values")
                       for k, v in after.items() if isinstance(v, dict))
         return f"Tilldela bₓ för {changed} sulor"
+    if action == "contours": return "Ändra konturvisning"
+    if action == "contour_placement": return "Placera sulkontur för " + label
     if action == "leader": return "Ändra spline för " + label
     if action == "footing_type": return "Ändra sultyp för " + label
     if action in ("text_update", "text_delete", "text_add"):

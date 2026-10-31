@@ -133,7 +133,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
-  leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  footprintGeometry, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -5938,4 +5938,118 @@ test('standalone result table can fold and sort the settlement presentation grou
   tableFold(ui, 'Sättning och styvhet').click();
   assert.ok(ui.model.get('state').table_view.collapsed.includes('settlement_show_labels'));
   assert.deepEqual(ui.model.get('state').tags, original);
+});
+
+const contourCalibration = {start:{x:.1,y:.1},end:{x:.6,y:.1},length_m:10};
+const padPlacement = {kind:'pad',center:{x:.5,y:.5},angle_deg:0};
+function contourSetup(t, opts={}) {
+  const ui=setup(t,opts);
+  Object.assign(ui.tag,{footing_type:'pelarsula'});
+  Object.assign(ui.tag.values,{lang:0,b:2,l:3,e_b_plac:0,e_l_plac:0});
+  ui.model.get('state').calibration=structuredClone(contourCalibration);
+  ui.model.get('state').contours={enabled:true,fill_opacity:.18,placements:{tag1:structuredClone(padPlacement)}};
+  ui.changed();return ui;
+}
+
+test('physical contours use true scale, local axes and negative placement eccentricity about a fixed support',()=>{
+  const tag={footing_type:'pelarsula',values:{lang:0,b:2,l:3,e_b_plac:.25,e_l_plac:.5,M_insp_b:999}};
+  const bg={width:800,height:600};
+  const g=footprintGeometry(tag,padPlacement,bg,contourCalibration);
+  near(g.units,40);near(g.anchor.x,400);near(g.anchor.y,300);
+  near(g.center.x,390);near(g.center.y,320);
+  near(Math.hypot(g.points[1].x-g.points[0].x,g.points[1].y-g.points[0].y),80);
+  near(Math.hypot(g.points[2].x-g.points[1].x,g.points[2].y-g.points[1].y),120);
+  const rotated=footprintGeometry(tag,{...padPlacement,angle_deg:90},bg,contourCalibration);
+  near(rotated.center.x,420);near(rotated.center.y,310);
+  assert.equal(footprintGeometry(tag,padPlacement,bg,null),null);
+  const wall={footing_type:'vaggsula',values:{lang:1,b:.8,l:1}};
+  const w=footprintGeometry(wall,{kind:'wall',start:{x:.1,y:.2},end:{x:.6,y:.2}},bg,contourCalibration);
+  near(w.length,10);near(Math.hypot(w.points[1].x-w.points[0].x,w.points[1].y-w.points[0].y),32);
+  assert.equal(footprintGeometry(wall,padPlacement,bg,contourCalibration),null);
+});
+
+test('contour gestures are disabled by default and drag pans without a kernel edit',t=>{
+  const ui=contourSetup(t),shape=ui.byClass('gp-contour-shape'),before=ui.position();
+  assert.equal(ui.byClass('gp-contours').className.includes('gp-contour-editing'),false);
+  ui.start(shape,300,300);ui.move(350,320);ui.finish(350,320);
+  assert.equal(ui.sent.length,0);assert.deepEqual(ui.position(),before);
+  assert.equal(ui.elements().some(e=>e.className==='gp-contour-handle'),false);
+});
+
+test('contours follow changed dimensions while labels and support anchors remain independent',t=>{
+  const ui=contourSetup(t),before=ui.byClass('gp-contour-shape').getAttribute('points');
+  ui.tag.values.b=3;ui.changed();
+  assert.notEqual(ui.byClass('gp-contour-shape').getAttribute('points'),before);
+  const resized=ui.byClass('gp-contour-shape').getAttribute('points');ui.tag.x=.8;ui.changed();
+  assert.equal(ui.byClass('gp-contour-shape').getAttribute('points'),resized);
+  ui.data.state.calibration=null;ui.changed();assert.equal(ui.byClass('gp-contours').style.display,'none');
+});
+
+test('first enabling legacy contours opens setup and resumes it after the existing calibration flow',t=>{
+  const ui=setup(t),check=ui.find(e=>e.getAttribute('aria-label')==='Visa sulkonturer');
+  check.checked=true;check.dispatch('change');const request=ui.sent.at(-1);
+  assert.equal(request.action,'contours');ui.data.state.contours={enabled:true,fill_opacity:.18,placements:{}};ui.changed();ui.ack(request);
+  assert.equal(ui.byClass('gp-contour-bar').hidden,false);
+  assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
+  assert.equal(ui.byClass('gp-contour-editor').hidden,true);
+  const bg=ui.byClass('gp-sheet').getBoundingClientRect();
+  ui.place(bg.left+.1*bg.width,bg.top+.1*bg.height);ui.place(bg.left+.6*bg.width,bg.top+.1*bg.height);
+  ui.find(e=>e.getAttribute('aria-label')==='Känt referensmått i meter').value='10';
+  ui.byText('Spara kalibrering').click();const calibration=ui.sent.at(-1);
+  assert.equal(calibration.action,'calibration');ui.data.state.calibration=calibration.calibration;ui.changed();ui.ack(calibration);
+  assert.equal(ui.byClass('gp-contour-editor').hidden,false);
+});
+
+test('explicit contour mode defines pad centre/direction, then escapes without moving the label',t=>{
+  const ui=contourSetup(t);delete ui.data.state.contours.placements.tag1;ui.changed();
+  ui.byText('Redigera sulkonturer…').click();ui.byText('Definiera placering').click();
+  ui.place(300,250);ui.place(400,250);const req=ui.sent.at(-1);
+  assert.equal(req.action,'contour_placement');assert.equal(req.placement.kind,'pad');near(req.placement.angle_deg,0);
+  ui.data.state.contours.placements.tag1=req.placement;ui.changed();ui.ack(req);
+  assert.equal(ui.elements().filter(e=>e.className==='gp-contour-handle').length,2);
+  ui.viewport.dispatch('keydown',{key:'Escape'}); // root receives key events in the actual DOM
+  ui.find(e=>e.textContent==='Klar' && e.closest('.gp-contour-bar')).click();assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.deepEqual(ui.position(),[.3,.4]);
+});
+
+test('contour drag edits eccentricity once, fixed anchor is preserved and locked inputs cannot be dragged',t=>{
+  const ui=contourSetup(t);ui.byText('Redigera sulkonturer…').click();const before=structuredClone(ui.data.state.contours);
+  ui.start(ui.byClass('gp-contour-shape'),300,250);ui.move(340,250);
+  assert.equal(ui.sent.length,0,'drag is only a preview');ui.finish(340,250);
+  const req=ui.sent.at(-1);assert.equal(req.action,'calculate');assert.ok(req.values.e_b_plac<0);
+  assert.deepEqual(ui.data.state.contours,before);
+  ui.tag.values=req.values;ui.changed();ui.ack(req);
+  ui.tag.input_locked=true;ui.changed();const count=ui.sent.length;
+  ui.start(ui.byClass('gp-contour-shape'),300,250);ui.move(340,250);ui.finish(340,250);assert.equal(ui.sent.length,count);
+});
+
+test('fill zero hides all colour and hatching while outlines and existing leaders remain separate',t=>{
+  const ui=contourSetup(t);colourFixture(ui,{categories:['b']});ui.changed();
+  ui.byText('Konturinställningar…').click();const fill=ui.find(e=>e.getAttribute('aria-label')==='Sulkonturernas färgfyllning i procent');
+  fill.value='0';fill.dispatch('input');
+  assert.equal(ui.byClass('gp-contour-fills').children[0].getAttribute('opacity'),'0');
+  assert.equal(ui.byClass('gp-contour-outlines').children.length,1);
+  fill.dispatch('change');assert.equal(ui.sent.at(-1).settings.fill_opacity,0);
+  assert.equal(ui.byClass('gp-leaders').children.length,0);
+  assert.equal(ui.byClass('gp-contour-guides').children.length,0);
+  ui.marker().click();assert.ok(ui.byClass('gp-contour-guides').children.length>0);
+});
+
+test('PDF has no selection helpers and standalone result views cannot edit contour geometry',t=>{
+  const ui=contourSetup(t,{readOnly:true,standalone:true,pdfMode:true});
+  assert.equal(ui.elements().some(e=>e.textContent==='Redigera sulkonturer…'),false);
+  ui.marker().click();assert.equal(ui.byClass('gp-contour-guides').children.length,0);
+  const replies=[];ui.model.on('msg:custom',r=>replies.push(r));
+  ui.model.send({action:'contour_placement',id:'tag1',placement:padPlacement});assert.equal(replies.at(-1).ok,false);
+});
+
+
+test('saved complete contours can be shown again without entering edit mode',t=>{
+  const ui=contourSetup(t);ui.data.state.contours.enabled=false;ui.changed();
+  const check=ui.find(e=>e.getAttribute('aria-label')==='Visa sulkonturer');check.checked=true;check.dispatch('change');
+  const req=ui.sent.at(-1);ui.data.state.contours.enabled=true;ui.changed();ui.ack(req);
+  assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.equal(ui.elements().some(e=>e.className==='gp-contour-handle'),false);
+  ui.data.state.tags=[];ui.changed();
+  assert.equal(ui.elements().some(e=>e.className==='gp-contour-shape'),false);
 });
