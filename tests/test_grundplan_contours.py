@@ -101,3 +101,61 @@ class TestContours(unittest.TestCase):
         bad = {**before, "contours":{"placements":{"missing":self.position}}}
         with self.assertRaises(ValueError): self.plan._load_document(json.dumps(bad).encode())
         self.assertEqual(self.plan._document(), before)
+
+    def test_print_width_defaults_validation_history_and_legacy_roundtrip(self):
+        self.assertEqual(self.plan.sulkonturer["line_width_mm"], .10)
+        self.assertFalse(self.plan.sulkonturer["show_print_width"])
+        for changes in [{"line_width_mm":0},{"line_width_mm":-1},{"line_width_mm":2.1},
+                        {"line_width_mm":True},{"line_width_mm":float("nan")},{"show_print_width":1}]:
+            before = self.plan._document()
+            with self.assertRaises(ValueError): self.plan.sulkonturer = changes
+            self.assertEqual(self.plan._document(), before)
+        result = self.message("contours", settings={"line_width_mm":.15,"show_print_width":True})
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.plan.sulkonturer["line_width_mm"], .15)
+        saved = self.plan._document(); self.plan._load_document(json.dumps(saved).encode())
+        self.assertEqual(self.plan._document(), saved)
+        legacy = copy.deepcopy(saved); legacy["version"] = 29
+        legacy["contours"].pop("line_width_mm"); legacy["contours"].pop("show_print_width")
+        self.plan._load_document(json.dumps(legacy).encode())
+        self.assertEqual(self.plan.sulkonturer["line_width_mm"], .10)
+        self.assertFalse(self.plan.sulkonturer["show_print_width"])
+        self.assertTrue(self.message("contours", settings={"line_width_mm":.20,"show_print_width":True})["ok"])
+        self.assertTrue(self.message("undo")["ok"])
+        self.assertEqual(self.plan.sulkonturer["line_width_mm"], .10)
+        self.assertTrue(self.message("redo")["ok"])
+        self.assertEqual(self.plan.sulkonturer["line_width_mm"], .20)
+
+    @unittest.skipUnless(importlib.util.find_spec("pymupdf"), "Installera PyMuPDF.")
+    def test_pdf_paper_line_width_is_exact_across_page_sizes_crop_and_preview_choice(self):
+        import pymupdf
+        from reportlab.lib.pagesizes import A0, A1, landscape
+        from reportlab.pdfgen.canvas import Canvas
+        from an_calcs.notebook.grundplan_canvas import DEFAULT_BOUNDS
+        for name, size, mm, preview, cropped in [
+                ("a1", landscape(A1), .10, False, False),
+                ("a1-preview", landscape(A1), .10, True, True),
+                ("a0", landscape(A0), .20, False, False)]:
+            with self.subTest(name=name):
+                source = Path(self.tmp.name) / (name + ".pdf")
+                canvas = Canvas(str(source), pagesize=size); canvas.showPage(); canvas.save()
+                plan = Grundplan(source); self.addCleanup(plan.close)
+                ident = plan.lagg_till(.05, .05, typ="pelarsula", indata={"b":2,"l":3,"F_vy":100})
+                if cropped:
+                    plan.ritningsram = {"left":-.2,"top":-.1,"right":1.2,"bottom":1.1}
+                    plan.ritningsunderlag = {"scale":1.4}
+                plan.kalibrering = self.calibration
+                plan.placera_sulkontur(ident, {"kind":"pad","center":{"x":.5,"y":.5},"angle_deg":0})
+                plan.sulkonturer = {"enabled":True,"fill_opacity":0,"line_width_mm":mm,"show_print_width":preview}
+                pdf = plan._pdf_bytes()
+                with pymupdf.open(stream=pdf, filetype="pdf") as document:
+                    # The contour uses this explicit darkened default teal stroke.
+                    outlines = [d for d in document[0].get_drawings() if d.get("color")
+                                and abs(d["color"][0] - .351) < .025
+                                and abs(d["color"][1] - .499) < .025
+                                and abs(d["color"][2] - .502) < .025]
+                    self.assertTrue(outlines, "Exported contour path exists")
+                    for outline in outlines:
+                        self.assertAlmostEqual(outline["width"] * 25.4 / 72, mm, delta=.001)
+                    # Keep a rendered export available during local visual QA.
+                    document[0].get_pixmap(matrix=pymupdf.Matrix(.6,.6)).save(str(Path(self.tmp.name)/(name+".png")))

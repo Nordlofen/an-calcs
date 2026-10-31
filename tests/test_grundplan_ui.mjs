@@ -133,7 +133,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
-  footprintGeometry, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -6052,4 +6052,46 @@ test('saved complete contours can be shown again without entering edit mode',t=>
   assert.equal(ui.elements().some(e=>e.className==='gp-contour-handle'),false);
   ui.data.state.tags=[];ui.changed();
   assert.equal(ui.elements().some(e=>e.className==='gp-contour-shape'),false);
+});
+
+
+test('paper line weight converts millimetres through the physical canvas, while normal screen strokes stay constant',()=>{
+  const bg={width:2800,height:1980},layout={canvas_width_pt:841*72/25.4};
+  const settings={line_width_mm:.10,show_print_width:false};
+  near(contourStrokeWidth(settings,bg,layout,.1),1.5);
+  near(contourStrokeWidth(settings,bg,layout,4),1.5);
+  near(contourStrokeWidth(settings,bg,layout,4,false,true),2.5);
+  const preview={...settings,show_print_width:true};
+  const width=contourStrokeWidth(preview,bg,layout,1);
+  near(width,.10*2800/841);
+  near(contourStrokeWidth(preview,bg,layout,4),width*4);
+  near(contourStrokeWidth(preview,bg,layout,.1),width*.1);
+  near(contourStrokeWidth(settings,bg,layout,1,true,true),width);
+  near(contourStrokeWidth(preview,bg,layout,1,true,false),width);
+  near(contourStrokeWidth({line_width_mm:.2},bg,layout,1,true),2*width);
+});
+
+test('contour settings accept comma millimetres and persist the print-preview switch without changing geometry',t=>{
+  const ui=contourSetup(t),before=structuredClone(ui.data.state.contours.placements);
+  ui.byText('Konturinställningar…').click();
+  const input=ui.find(e=>e.getAttribute('aria-label')==='Linjetjocklek vid export i millimeter');
+  input.value='0,15';input.dispatch('change');const req=ui.sent.at(-1);
+  assert.deepEqual(req.settings,{line_width_mm:.15});ui.data.state.contours.line_width_mm=.15;ui.changed();ui.ack(req);
+  const check=ui.find(e=>e.getAttribute('aria-label')==='Visa utskriftstjocklek');check.checked=true;check.dispatch('change');
+  const toggle=ui.sent.at(-1);assert.deepEqual(toggle.settings,{show_print_width:true});
+  ui.data.state.contours.show_print_width=true;ui.changed();ui.ack(toggle);
+  const width=Number(ui.byClass('gp-contour-shape').getAttribute('stroke-width'));
+  ui.byText('+').click();assert.ok(Number(ui.byClass('gp-contour-shape').getAttribute('stroke-width'))>width);
+  assert.deepEqual(ui.data.state.contours.placements,before);
+  for(const value of ['','0','-1','NaN','2.1']) {const count=ui.sent.length;input.value=value;input.dispatch('change');assert.equal(ui.sent.length,count);}
+});
+
+test('exported HTML permits local print-width inspection, rejects invalid widths and protects placement data',t=>{
+  const ui=contourSetup(t,{readOnly:true,standalone:true});const replies=[];ui.model.on('msg:custom',r=>replies.push(r));
+  ui.model.send({action:'contours',settings:{line_width_mm:.2,show_print_width:true}});assert.equal(replies.at(-1).ok,true);
+  assert.equal(ui.model.get('state').contours.line_width_mm,.2);
+  assert.equal(ui.model.get('state').contours.show_print_width,true);
+  for(const settings of [{line_width_mm:0},{line_width_mm:Infinity},{show_print_width:'yes'},{placements:{}},3,[]]) {
+    ui.model.send({action:'contours',settings});assert.equal(replies.at(-1).ok,false);
+  }
 });

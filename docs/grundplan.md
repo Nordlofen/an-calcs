@@ -1747,10 +1747,25 @@ ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskil
 En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
 eller öppnad suletikett. Den ersätter inte befintliga fritt formade
 hänvisningslinjer och följer inte med i PDF/utskrift. Konturer, fyllningsval
-och placeringsdata sparas i projektformat 29. Äldre projektformat 1–28 stöds
+och placeringsdata sparas i projektformat 30. Äldre projektformat 1–29 stöds
 fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
 av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
 
 Gemensamt fundament för sättning/styvhet skapar inte automatiskt en gemensam
 betongkontur; varje definierat sulobjekt har fortfarande sin egen kontur.
 Tabellvyn och befintliga redigeringsdialoger är oförändrade.
+
+
+### Konturernas linjetjocklek och utskriftsförhandsvisning
+
+Under **Visa → Konturinställningar…** anges **Linjetjocklek vid export [mm]**
+(0,01–2 mm, standard 0,10 mm). PDF-exporten använder alltid detta pappersmått,
+oberoende av sidstorlek, beskärning och visningsläge. Svenska decimalkomman
+accepteras. Måttet påverkar inte sulornas geometri eller beräkningsindata.
+
+**Visa utskriftstjocklek** är avstängt som standard. Avstängt behålls den
+konstanta skärmbredden vid zoomning. Aktiverat visas samma pappersbredd som i
+PDF-exporten, omräknad efter ritningsytans fysiska mått och aktuell zoom.
+Linjen växer då tillsammans med ritningen när man zoomar in. Även markerade
+konturer använder den angivna utskriftsbredden i detta läge. Inställningarna
+sparas per projekt/fall och kan granskas även i exporterad HTML.

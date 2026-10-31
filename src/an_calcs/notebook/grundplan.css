@@ -558,3 +558,5 @@
 .an-grundplan.gp-pdf .gp-contour-guides { display: none; }
 
 @media print { .an-grundplan .gp-contour-guides { display: none; } }
+
+.an-grundplan .gp-contour-print-width { display: flex; gap: 8px; align-items: center; }

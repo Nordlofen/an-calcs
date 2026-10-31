@@ -42,8 +42,10 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
         } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
       } else if (message.action === "contours") {
         const settings = message.settings;
-        if (!settings || Object.keys(settings).some(k => !["enabled","fill_opacity"].includes(k))
+        if (!settings || typeof settings !== "object" || Array.isArray(settings) || Object.keys(settings).some(k => !["enabled","fill_opacity","line_width_mm","show_print_width"].includes(k))
             || "enabled" in settings && typeof settings.enabled !== "boolean"
+            || "show_print_width" in settings && typeof settings.show_print_width !== "boolean"
+            || "line_width_mm" in settings && (typeof settings.line_width_mm !== "number" || !Number.isFinite(settings.line_width_mm) || settings.line_width_mm < .01 || settings.line_width_mm > 2)
             || "fill_opacity" in settings && (typeof settings.fill_opacity !== "number" || !Number.isFinite(settings.fill_opacity) || settings.fill_opacity < 0 || settings.fill_opacity > 1)) {
           reply.ok = false; reply.error = "Ogiltiga konturinställningar.";
         } else {data.state = {...data.state, contours: {...(data.state.contours || {}), ...settings}}; emit("change:state");}

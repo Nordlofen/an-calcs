@@ -3,7 +3,7 @@ import copy
 import math
 from .grundplan_canvas import COORDINATE_BOUNDS, valid_coordinate
 
-DEFAULTS = {"enabled": False, "fill_opacity": .18, "placements": {}}
+DEFAULTS = {"enabled": False, "fill_opacity": .18, "line_width_mm": .10, "show_print_width": False, "placements": {}}
 
 
 def point(value):
@@ -36,6 +36,11 @@ def settings(value, tags, *, prune=False):
     alpha = result["fill_opacity"]
     if type(result["enabled"]) is not bool or type(alpha) not in (int, float) or not math.isfinite(alpha) or not 0 <= alpha <= 1:
         raise ValueError("Ange konturvisning och fyllning mellan 0 och 1.")
+    width = result["line_width_mm"]
+    if type(width) not in (int, float) or not math.isfinite(width) or not .01 <= width <= 2:
+        raise ValueError("Konturens linjetjocklek ska vara 0,01–2 mm.")
+    if type(result["show_print_width"]) is not bool:
+        raise ValueError("Visa utskriftstjocklek ska vara True eller False.")
     if not isinstance(result["placements"], dict) or len(result["placements"]) > 1000:
         raise ValueError("Ogiltiga konturplaceringar.")
     ids = {t["id"] for t in tags}

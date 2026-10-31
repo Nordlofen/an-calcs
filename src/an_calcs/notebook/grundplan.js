@@ -262,6 +262,16 @@ export function measuredDistance(start, end, background, calibration) {
   return drawingDistance(start, end, background) / drawingDistance(calibration.start, calibration.end, background) * calibration.length_m;
 }
 
+// Screen strokes are CSS pixels. For print preview/export, convert the desired
+// paper millimetres to CSS pixels using the SAME physical canvas as the PDF
+// merger. Crop and underlay transforms do not change the paper line weight.
+export function contourStrokeWidth(settings, background, layout, zoom = 1, pdfMode = false, chosen = false) {
+  if (!pdfMode && !settings.show_print_width) return chosen ? 2.5 : 1.5;
+  const widthPt = layout?.canvas_width_pt || background.width_pt || background.width * .75;
+  const mm = settings.line_width_mm ?? .10;
+  return mm * 72 / 25.4 * background.width / widthPt * zoom;
+}
+
 // Plan coordinates are normalized to the stable drawing frame, never to a label.
 export function footprintGeometry(tag, placement, bg, cal) {
   if (!placement || !cal || !bg.width || !bg.height) return null;
@@ -1730,6 +1740,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const contourAlphaText = node("output");
   const contourAlphaLabel = node("label", "gp-contour-fill");
   contourAlphaLabel.append(node("span", "", "Färgfyllning"), contourAlpha, contourAlphaText);
+  const contourWidthLabel = node("label", "gp-contour-field");
+  contourWidthLabel.append(node("span", "", "Linjetjocklek vid export [mm]"));
+  const contourWidth = node("input"); contourWidth.type = "text"; contourWidth.inputMode = "decimal";
+  contourWidth.setAttribute("aria-label", "Linjetjocklek vid export i millimeter");
+  contourWidth.title = "0,01–2 mm. PDF-exporten använder alltid detta mått.";
+  contourWidthLabel.append(contourWidth);
+  const contourPrintWidth = node("input"); contourPrintWidth.type = "checkbox";
+  contourPrintWidth.setAttribute("aria-label", "Visa utskriftstjocklek");
+  const contourPrintLabel = node("label", "gp-contour-print-width");
+  contourPrintLabel.append(contourPrintWidth, node("span", "", "Visa utskriftstjocklek"));
+  contourPrintLabel.title = "Visa papperslinjens bredd vid aktuell zoom. Avstängt ger konstant skärmbredd.";
+  contourWidth.addEventListener("change", () => {
+    const value = Number(contourWidth.value.trim().replace(",", "."));
+    if (!Number.isFinite(value) || value < .01 || value > 2) {
+      contourWidth.setCustomValidity("Ange en linjetjocklek mellan 0,01 och 2 mm."); contourWidth.reportValidity(); return;
+    }
+    contourWidth.setCustomValidity(""); setContourSettings({line_width_mm: value});
+  });
+  contourWidth.addEventListener("input", () => contourWidth.setCustomValidity(""));
+  contourPrintWidth.addEventListener("change", () => setContourSettings({show_print_width: contourPrintWidth.checked}));
   const contourEditor = node("div", "gp-contour-editor");
   const contourSelect = node("select"); contourSelect.setAttribute("aria-label", "Sula för konturplacering");
   const contourDefine = button("Definiera placering", () => {
@@ -1774,7 +1804,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourField("e_b_plac", "eₓ,plac [m]"), contourField("e_l_plac", "eᵧ,plac [m]"), contourApply,
     contourAngle, contourLength, contourGeometryApply, contourRemove);
   const contourHint = node("p", "gp-contour-hint");
-  contourBar.append(contourStatus, contourAlphaLabel, contourEditor, contourHint, contourDone);
+  contourBar.append(contourStatus, contourAlphaLabel, contourWidthLabel, contourPrintLabel, contourEditor, contourHint, contourDone);
   contourSelect.addEventListener("change", () => {contourTarget = contourSelect.value; contourPoints = []; contourPlacing = false; showContours();});
   contourVisible.addEventListener("change", () => {
     const enabled = contourVisible.checked;
@@ -1838,6 +1868,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const settings = contourSettings(), tags = pageTags(), blocked = contourBusy || !!drawingDraft || !!cropDraft || drawingPending || drawingBusy || bulkBusy || importBusy || autoBxBusy || inputLockBusy || deleteBusy;
     contourVisible.checked = !!settings.enabled; contourVisible.disabled = blocked || !background().url;
     contourEdit.disabled = blocked || !tags.length; contourAlpha.disabled = blocked;
+    contourWidth.disabled = contourPrintWidth.disabled = blocked;
+    if (document.activeElement !== contourWidth) contourWidth.value = String(settings.line_width_mm ?? .10).replace(".", ",");
+    contourPrintWidth.checked = !!settings.show_print_width;
     contourBar.hidden = !contourPanel && !contourEditing;
     contourEditor.hidden = !contourEditing || !calibration();
     contourStatus.textContent = contourEditing ? "Redigera sulkonturer · " + tags.filter(t => contourGeometry(t)).length + "/" + tags.length + " definierade" : "Sulkonturer";
@@ -1868,7 +1901,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         ? "Klicka på väggsulans " + (contourPoints.length ? "slutpunkt." : "startpunkt.")
         : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
         : "Välj sula och definiera placering. Dra cirklar för centrum/ändpunkter, dra konturen för placeringsexcentricitet. Tom yta panorerar. Klar eller Esc avslutar."
-      : "0 % färgfyllning lämnar enbart konturlinjer. Visning aktiverar inte redigering.";
+      : "0 % färgfyllning lämnar enbart konturlinjer. PDF använder alltid angiven linjetjocklek. Visa utskriftstjocklek förhandsvisar pappersbredden vid aktuell zoom.";
     renderContours();
   }
 
@@ -1899,7 +1932,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
       fills.append(group);
       const chosen = selected.has(tag.id) || active === tag.id || contourEditing && contourTarget === tag.id;
-      const outline = svgNode("polygon", {points: pointsText, fill: "transparent", stroke: `color-mix(in srgb, ${color} 72%, #18333b)`, "stroke-width": chosen ? 2.5 : 1.5,
+      const outline = svgNode("polygon", {points: pointsText, fill: "transparent", stroke: `color-mix(in srgb, ${color} 72%, #18333b)`, "stroke-width": contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, chosen),
         "vector-effect": "non-scaling-stroke", class: "gp-contour-shape"});
       outline.dataset.contourId = tag.id; outlines.append(outline);
       if (chosen && !pdfMode) {
