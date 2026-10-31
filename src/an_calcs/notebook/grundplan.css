@@ -564,6 +564,7 @@
 .an-grundplan .gp-contour-editbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; border: 1px solid var(--gp-line); background: #f0f7f5; }
 .an-grundplan .gp-contour-editbar[hidden] { display: none; }
 .an-grundplan .gp-contour-editbar .gp-contour-hint { flex: 1 1 280px; }
-.an-grundplan .gp-contour-editor { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gp-line); }
-.an-grundplan .gp-contour-editor h5, .an-grundplan .gp-contour-object-status { flex: 1 1 100%; margin: 0; }
 .an-grundplan.gp-contour-picking .gp-dialog { visibility: hidden; pointer-events: none; }
+
+.an-grundplan .gp-contour-shortcut { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gp-line); }
+.an-grundplan .gp-contour-editor select { max-width: 100%; min-width: 220px; padding: 7px; border: 1px solid var(--gp-line); border-radius: 5px; background: white; color: var(--gp-ink); }

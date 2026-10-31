@@ -1722,18 +1722,23 @@ avstängd som standard, även när ett äldre projekt öppnas. Första aktiverin
 En befintlig kalibrering återanvänds; annars används Mät-verktygets två punkter
 och ett känt avstånd. Endast färdigdefinierade konturer visas.
 
-Sulans egna konturverktyg finns under **Geometri → Sulkontur** i
-popupdialogen: **Redigera placering/riktning**, **Definiera placering**,
-riktningsvinkel/konturlängd samt **Ta bort konturplacering**. Mått och
-excentriciteter ändras i de befintliga geometrifälten, utan dubbletter.
-**Visa → Redigera sulkonturer…** finns kvar och öppnar samma editor för
-aktuell/markerad sula, annars den första som saknar placering.
-Under punktplacering och tillhörande kalibrering döljs popupdialogen
-tillfälligt så att hela ritningsytan kan användas; den återkommer när
-punkterna har valts. **Klar med konturen**, **Klar** eller **Esc** avslutar
-redigeringen. Att minimera dialogen avslutar också konturernas redigeringsläge.
-Fyllning och PDF-linjebredd ligger separat under **Konturinställningar…**;
-att stänga dessa visningsinställningar avslutar inte konturredigeringen.
+**Visa → Redigera sulkonturer…** öppnar konturernas redigeringspanel ovanför
+ritningen. Här finns rullistan för sula, **Definiera placering**, riktning eller
+konturlängd samt **Ta bort konturplacering**. Rullistan visar tydligt
+**✓ · Placering definierad** respektive **Saknar placering**. Sparade placeringar
+behåller sin status även när ritningen behöver ny kalibrering. Valet i listan
+styr vilket objekt som definieras eller ändras.
+
+I sulans popupdialog under **Geometri** finns enbart genvägen
+**Redigera placering/riktning**. Den väljer sulan i konturpanelen och minimerar
+popupen så att ritningen är fri för redigering. Konturval och inmatningsfält
+ligger kvar i menyns panel. Mått och excentriciteter ändras fortsatt i de
+befintliga geometrifälten, utan dubbletter i konturpanelen.
+
+**Klar** eller **Esc** avslutar konturredigeringen. Att öppna eller minimera en
+sulas vanliga popup stänger inte konturpanelen. Fyllning, PDF-linjebredd och
+utskriftsförhandsvisning ligger separat under **Konturinställningar…**; att
+stänga dessa visningsinställningar avslutar inte konturredigeringen.
 
 Välj **Definiera placering**. För pelarsulor väljs stödets fasta centrum
 och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
