@@ -1789,7 +1789,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const value = Number(contourInputs.angle.value.trim().replace(",", "."));
     if (!Number.isFinite(value)) {showMessage("Ange en giltig riktning i grader.", true); return;}
     if (p.kind === "pad" || !p.end) saveContour(tag.id, {...p, angle_deg: value});
-    else showMessage("Definiera om placeringen med startpunkt och x-riktning.", true);
+    else showMessage("Definiera om placeringen med startpunkt och positiv bᵧ-riktning.", true);
   });
   const contourRemove = button("Ta bort konturplacering", () => {const tag = contourTag(); if (tag) saveContour(tag.id, null);});
   const contourDone = button("Klar", () => finishContours());
@@ -1861,8 +1861,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (contourPoints.length === 2) {
       const [a,b] = contourPoints, bg = background();
       if (drawingDistance(a,b,bg) < 1e-6) {contourPoints.pop(); showMessage("Välj två olika punkter.", true); return;}
-      const angle = Math.atan2(-(b.y-a.y)*bg.height,(b.x-a.x)*bg.width)*180/Math.PI;
-      saveContour(tag.id, footingCategory(tag) === "wall" ? {kind:"wall",start:a,angle_deg:angle}
+      const wall = footingCategory(tag) === "wall";
+      const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
+      // Placements store the x-axis angle; a wall is picked along positive y.
+      const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI;
+      saveContour(tag.id, wall ? {kind:"wall",start:a,angle_deg:angle}
         : {kind:"pad",center:a,angle_deg:angle});
       contourPoints = []; contourPlacing = false;
     }
@@ -1899,7 +1902,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked || !calibration();
     contourEditStatus.textContent = "Redigera sulkonturer · " + tags.filter(t => contourDefined(t)).length + "/" + tags.length + " definierade";
     contourEditHint.textContent = !calibration() ? "Kalibrera ritningsskalan med två punkter och ett känt mått."
-      : contourPlacing && tag ? (wall ? "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning, tvärs väggen." : "väggsulans startpunkt på centrumlinjen.")
+      : contourPlacing && tag ? (wall ? "Klicka på " + (contourPoints.length ? "en punkt i positiv bᵧ-riktning, längs väggsulan." : "väggsulans startpunkt på centrumlinjen.")
         : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
       : "Välj sula i listan. Dra cirklar för centrum/startpunkt och riktning, eller konturen för excentricitet. Klar eller Esc avslutar.";
     root.classList.toggle("gp-contour-picking", contourEditing && (contourPlacing || contourResume));

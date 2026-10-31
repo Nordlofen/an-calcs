@@ -6069,9 +6069,18 @@ for(const readOnly of [false,true]) test(`adjusted load labels show derived and 
   assert.doesNotMatch(elementText(ui.byClass('gp-tag-result')),/bᵧ/);
 });
 
-test('wall placement uses start and positive x direction; second click does not choose its length',t=>{
-  const ui=contourSetup(t);ui.tag.footing_type='vaggsula';Object.assign(ui.tag.values,{lang:1,lasttyp:1,physical_length:true,L_vagg:3,l:3});
-  delete ui.data.state.contours.placements.tag1;ui.changed();ui.byText('Redigera sulkonturer…').click();ui.byText('Definiera placering').click();
-  ui.place(300,250);ui.place(400,250);const r=ui.sent.at(-1);assert.equal(r.placement.kind,'wall');assert.ok(Math.abs(r.placement.angle_deg)<1e-10);
-  assert.equal('end' in r.placement,false);const g=footprintGeometry(ui.tag,r.placement,ui.data.background,ui.data.state.calibration);assert.equal(g.length,3);
-});
+for (const [dx,dy] of [[100,0],[0,100],[-100,0],[0,-100],[100,-100]])
+  test(`wall placement follows positive by direction (${dx}, ${dy}) with length from by`,t=>{
+    const ui=contourSetup(t);ui.tag.footing_type='vaggsula';
+    Object.assign(ui.tag.values,{lang:1,lasttyp:1,physical_length:true,L_vagg:3,l:3});
+    delete ui.data.state.contours.placements.tag1;ui.changed();
+    ui.byText('Redigera sulkonturer…').click();ui.byText('Definiera placering').click();
+    ui.place(300,250);
+    assert.match(elementText(ui.byClass('gp-contour-editbar')),/positiv bᵧ-riktning, längs väggsulan/);
+    ui.place(300+dx,250+dy);const r=ui.sent.at(-1);
+    assert.equal(r.placement.kind,'wall');assert.equal('end' in r.placement,false);
+    const g=footprintGeometry(ui.tag,r.placement,ui.data.background,ui.data.state.calibration);
+    assert.equal(g.length,3);
+    assert.ok(Math.abs(g.yAxis.x-dx/Math.hypot(dx,dy))<1e-10);
+    assert.ok(Math.abs(g.yAxis.y-dy/Math.hypot(dx,dy))<1e-10);
+  });

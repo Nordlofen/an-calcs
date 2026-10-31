@@ -1706,7 +1706,7 @@ stänga dessa visningsinställningar avslutar inte konturredigeringen.
 
 Välj **Definiera placering**. För pelarsulor väljs stödets fasta centrum
 och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
-startpunkt och en punkt i positiv lokal x-riktning, tvärs väggen. Den andra
+startpunkt och en punkt i positiv bᵧ-riktning, längs väggsulan. Den andra
 punktens avstånd bestämmer inte längden; den kommer från bᵧ. Väggsulor med
 pelarsulemodell visas som bₓ × bᵧ-rektanglar.
 
