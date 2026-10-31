@@ -560,3 +560,10 @@
 @media print { .an-grundplan .gp-contour-guides { display: none; } }
 
 .an-grundplan .gp-contour-print-width { display: flex; gap: 8px; align-items: center; }
+
+.an-grundplan .gp-contour-editbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; border: 1px solid var(--gp-line); background: #f0f7f5; }
+.an-grundplan .gp-contour-editbar[hidden] { display: none; }
+.an-grundplan .gp-contour-editbar .gp-contour-hint { flex: 1 1 280px; }
+.an-grundplan .gp-contour-editor { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gp-line); }
+.an-grundplan .gp-contour-editor h5, .an-grundplan .gp-contour-object-status { flex: 1 1 100%; margin: 0; }
+.an-grundplan.gp-contour-picking .gp-dialog { visibility: hidden; pointer-events: none; }

@@ -5989,9 +5989,10 @@ test('first enabling legacy contours opens setup and resumes it after the existi
   const ui=setup(t),check=ui.find(e=>e.getAttribute('aria-label')==='Visa sulkonturer');
   check.checked=true;check.dispatch('change');const request=ui.sent.at(-1);
   assert.equal(request.action,'contours');ui.data.state.contours={enabled:true,fill_opacity:.18,placements:{}};ui.changed();ui.ack(request);
-  assert.equal(ui.byClass('gp-contour-bar').hidden,false);
+  assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
   assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
-  assert.equal(ui.byClass('gp-contour-editor').hidden,true);
+  assert.ok(ui.byClass('gp-dialog').closest('.gp-contour-picking'));
   const bg=ui.byClass('gp-sheet').getBoundingClientRect();
   ui.place(bg.left+.1*bg.width,bg.top+.1*bg.height);ui.place(bg.left+.6*bg.width,bg.top+.1*bg.height);
   ui.find(e=>e.getAttribute('aria-label')==='Känt referensmått i meter').value='10';
@@ -6008,7 +6009,7 @@ test('explicit contour mode defines pad centre/direction, then escapes without m
   ui.data.state.contours.placements.tag1=req.placement;ui.changed();ui.ack(req);
   assert.equal(ui.elements().filter(e=>e.className==='gp-contour-handle').length,2);
   ui.viewport.dispatch('keydown',{key:'Escape'}); // root receives key events in the actual DOM
-  ui.find(e=>e.textContent==='Klar' && e.closest('.gp-contour-bar')).click();assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  ui.find(e=>e.textContent==='Klar' && e.closest('.gp-contour-editbar')).click();assert.equal(ui.byClass('gp-contour-editbar').hidden,true);
   assert.deepEqual(ui.position(),[.3,.4]);
 });
 
@@ -6094,4 +6095,80 @@ test('exported HTML permits local print-width inspection, rejects invalid widths
   for(const settings of [{line_width_mm:0},{line_width_mm:Infinity},{show_print_width:'yes'},{placements:{}},3,[]]) {
     ui.model.send({action:'contours',settings});assert.equal(replies.at(-1).ok,false);
   }
+});
+
+
+test('contour controls live only in the single-footing Geometry popup, with no duplicate engineering inputs',t=>{
+  const ui=contourSetup(t);ui.marker().click();const editor=ui.byClass('gp-contour-editor');
+  assert.equal(editor.closest('.gp-dialog'),ui.byClass('gp-dialog'));
+  assert.equal(editor.closest('.gp-group').children[0].textContent,'Geometri');
+  for(const name of ['b','l','e_b_plac','e_l_plac']) assert.equal(ui.elements().filter(e=>e.name===name && e.closest('.gp-dialog')).length,1,name);
+  assert.equal(ui.elements().some(e=>e.textContent==='Tillämpa mått'),false);
+  assert.equal(ui.elements().some(e=>e.getAttribute('aria-label')==='Sula för konturplacering'),false);
+  assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.equal(ui.elements().some(e=>e.className==='gp-contour-handle'),false,'Opening the existing popup does not activate contour editing');
+  ui.byText('Redigera placering/riktning').click();
+  assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
+  assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.equal(ui.elements().filter(e=>e.className==='gp-contour-handle').length,2);
+  ui.byText('Klar med konturen').click();assert.equal(ui.byClass('gp-contour-editbar').hidden,true);
+  assert.equal(ui.byClass('gp-dialog').hidden,false);
+});
+
+test('menu opens the same Geometry editor and display settings stay independent while editing',t=>{
+  const ui=contourSetup(t);ui.marker().click();const group=ui.byClass('gp-contour-editor').closest('.gp-group');group.open=false;
+  ui.byText('Redigera sulkonturer…').click();
+  assert.equal(ui.byClass('gp-dialog').hidden,false);
+  assert.equal(ui.byClass('gp-contour-editor').closest('.gp-group').open,true);
+  ui.byText('Konturinställningar…').click();assert.equal(ui.byClass('gp-contour-bar').hidden,false);
+  assert.equal(ui.find(e=>e.getAttribute('aria-label')==='Visa utskriftstjocklek').closest('.gp-dialog'),null);
+  ui.byText('Stäng konturinställningar').click();assert.equal(ui.byClass('gp-contour-bar').hidden,true);
+  assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
+  ui.byText('Minimera').click();assert.equal(ui.byClass('gp-contour-editbar').hidden,true);
+  assert.equal(ui.elements().filter(e=>e.className==='gp-contour-handle').length,0);
+});
+
+test('switching footing popups while editing routes contour changes to the new object',t=>{
+  const ui=contourSetup(t),second=structuredClone(ui.tag);Object.assign(second,{id:'second',label:'PS.2',x:.7});
+  ui.data.state.tags.push(second);ui.data.state.contours.placements.second={...structuredClone(padPlacement),angle_deg:45};ui.changed();
+  ui.byText('Redigera sulkonturer…').click();
+  ui.find(e=>e.className.includes('gp-tag') && e.dataset.tagId==='second').click();
+  const angle=ui.find(e=>e.getAttribute('aria-label')==='Riktning x [°]');assert.equal(angle.value,'45');angle.value='90';
+  ui.byText('Tillämpa riktning/längd').click();const req=ui.sent.at(-1);
+  assert.equal(req.action,'contour_placement');assert.equal(req.id,'second');assert.equal(req.placement.angle_deg,90);
+  assert.equal(ui.data.state.contours.placements.tag1.angle_deg,0);
+});
+
+test('popup starts definition without prior menu activation and temporarily clears the drawing for point placement',t=>{
+  const ui=contourSetup(t);ui.marker().click();ui.byText('Definiera placering').click();
+  assert.ok(ui.byClass('gp-dialog').closest('.gp-contour-picking'));
+  ui.place(300,250);ui.place(400,250);const req=ui.sent.at(-1);assert.equal(req.action,'contour_placement');
+  ui.data.state.contours.placements.tag1=req.placement;ui.changed();ui.ack(req);
+  assert.equal(ui.byClass('gp-dialog').closest('.gp-contour-picking'),null);
+  assert.equal(ui.byClass('gp-dialog').hidden,false);
+  ui.byText('Minimera').click();assert.equal(ui.byClass('gp-dialog').hidden,true);
+});
+
+test('document outside-click handling preserves the active popup for contour picks, calibration and view options',t=>{
+  const ui=contourSetup(t);ui.marker().click();ui.byText('Definiera placering').click();
+  const pick=(x,y)=>{
+    document.dispatch('pointerdown',{target:ui.viewport,clientX:x,clientY:y});
+    ui.start(ui.byClass('gp-picture'),x,y);
+    document.dispatch('pointerup',{target:ui.viewport,clientX:x,clientY:y});
+    ui.finish(x,y);
+  };
+  pick(300,250);assert.equal(ui.byClass('gp-dialog').hidden,false);
+  assert.ok(ui.byClass('gp-contour-editbar').children[1].textContent.includes('positiv x-riktning'));
+  pick(400,250);const req=ui.sent.at(-1);assert.equal(req.action,'contour_placement');
+  ui.data.state.contours.placements.tag1=req.placement;ui.changed();ui.ack(req);
+  const options=ui.byText('Konturinställningar…');
+  document.dispatch('pointerdown',{target:options,clientX:500,clientY:500});
+  document.dispatch('pointerup',{target:options,clientX:500,clientY:500});options.click();
+  assert.equal(ui.byClass('gp-dialog').hidden,false);
+  assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
+  // Unrelated outside content still follows the original minimise rule.
+  const outside=new Element('p');
+  document.dispatch('pointerdown',{target:outside,clientX:500,clientY:500});
+  document.dispatch('pointerup',{target:outside,clientX:500,clientY:500});
+  assert.equal(ui.byClass('gp-dialog').hidden,true);assert.equal(ui.byClass('gp-contour-editbar').hidden,true);
 });

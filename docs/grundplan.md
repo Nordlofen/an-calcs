@@ -1722,8 +1722,20 @@ avstängd som standard, även när ett äldre projekt öppnas. Första aktiverin
 En befintlig kalibrering återanvänds; annars används Mät-verktygets två punkter
 och ett känt avstånd. Endast färdigdefinierade konturer visas.
 
-**Visa → Redigera sulkonturer…** aktiverar redigeringen uttryckligen. Välj
-sula och **Definiera placering**. För pelarsulor väljs stödets fasta centrum
+Sulans egna konturverktyg finns under **Geometri → Sulkontur** i
+popupdialogen: **Redigera placering/riktning**, **Definiera placering**,
+riktningsvinkel/konturlängd samt **Ta bort konturplacering**. Mått och
+excentriciteter ändras i de befintliga geometrifälten, utan dubbletter.
+**Visa → Redigera sulkonturer…** finns kvar och öppnar samma editor för
+aktuell/markerad sula, annars den första som saknar placering.
+Under punktplacering och tillhörande kalibrering döljs popupdialogen
+tillfälligt så att hela ritningsytan kan användas; den återkommer när
+punkterna har valts. **Klar med konturen**, **Klar** eller **Esc** avslutar
+redigeringen. Att minimera dialogen avslutar också konturernas redigeringsläge.
+Fyllning och PDF-linjebredd ligger separat under **Konturinställningar…**;
+att stänga dessa visningsinställningar avslutar inte konturredigeringen.
+
+Välj **Definiera placering**. För pelarsulor väljs stödets fasta centrum
 och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
 start och slut. Väggsulor med pelarsulemodell visas som bₓ × bᵧ-rektanglar;
 långa väggsulors längd kommer från de valda ändpunkterna, inte enmetersremsans bᵧ.

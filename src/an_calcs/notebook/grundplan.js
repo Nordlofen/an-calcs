@@ -1761,32 +1761,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   contourWidth.addEventListener("input", () => contourWidth.setCustomValidity(""));
   contourPrintWidth.addEventListener("change", () => setContourSettings({show_print_width: contourPrintWidth.checked}));
   const contourEditor = node("div", "gp-contour-editor");
-  const contourSelect = node("select"); contourSelect.setAttribute("aria-label", "Sula för konturplacering");
-  const contourDefine = button("Definiera placering", () => {
-    if (!calibration()) {contourResume = true; setMode("calibrate"); return;}
-    contourPoints = []; contourPlacing = true; setMode("contour"); contourEditing = true; showContours();
-  });
+  const contourObjectStatus = node("p", "gp-field-note gp-contour-object-status");
+  const contourStart = button("Redigera placering/riktning", () => beginContourEdit(current()));
+  const contourDefine = button("Definiera placering", () => beginContourEdit(current(), true));
   const contourInputs = {};
   const contourField = (name, label) => {
     const wrap = node("label", "gp-contour-field"); wrap.append(node("span", "", label));
     const input = node("input"); input.type = "text"; input.inputMode = "decimal";
     input.setAttribute("aria-label", label); contourInputs[name] = input; wrap.append(input); return wrap;
   };
-  const contourApply = button("Tillämpa mått", () => {
-    const tag = contourTag(); if (!tag || contourBusy) return;
-    const changes = {}, names = ["b", "e_b_plac", "e_l_plac", ...(footingCategory(tag) === "wall" ? [] : ["l"])];
-    for (const name of names) {
-      const value = Number(contourInputs[name].value.trim().replace(",", "."));
-      if (!Number.isFinite(value) || ["b","l"].includes(name) && value <= 0) {showMessage("Ange giltiga mått och excentriciteter.", true); return;}
-      changes[name] = value;
-    }
-    contourBusy = true;
-    command("calculate", {id: tag.id, label: tag.label, values: {...tag.values, ...changes}}, [], () => {contourBusy = false; showContours();});
-  });
   const contourAngle = contourField("angle", "Riktning x [°]");
   const contourLength = contourField("length", "Konturlängd [m]");
   const contourGeometryApply = button("Tillämpa riktning/längd", () => {
-    const tag = contourTag(), p = contourPlacement(tag); if (!p) return;
+    const tag = current(), p = contourPlacement(tag); if (!p) return;
     const value = Number(contourInputs[p.kind === "pad" ? "angle" : "length"].value.trim().replace(",", "."));
     if (!Number.isFinite(value) || p.kind === "wall" && value <= 0) {showMessage("Ange en giltig riktning eller positiv längd.", true); return;}
     if (p.kind === "pad") saveContour(tag.id, {...p, angle_deg: value});
@@ -1797,15 +1784,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         end: {x: (g.anchor.x + g.yAxis.x * d) / bg.width, y: (g.anchor.y + g.yAxis.y * d) / bg.height}});
     }
   });
-  const contourRemove = button("Ta bort konturplacering", () => {const tag = contourTag(); if (tag) saveContour(tag.id, null);});
+  const contourRemove = button("Ta bort konturplacering", () => {const tag = current(); if (tag) saveContour(tag.id, null);});
   const contourDone = button("Klar", () => finishContours());
-  contourEditor.append(contourSelect, contourDefine,
-    contourField("b", "bₓ [m]"), contourField("l", "bᵧ [m]"),
-    contourField("e_b_plac", "eₓ,plac [m]"), contourField("e_l_plac", "eᵧ,plac [m]"), contourApply,
-    contourAngle, contourLength, contourGeometryApply, contourRemove);
-  const contourHint = node("p", "gp-contour-hint");
-  contourBar.append(contourStatus, contourAlphaLabel, contourWidthLabel, contourPrintLabel, contourEditor, contourHint, contourDone);
-  contourSelect.addEventListener("change", () => {contourTarget = contourSelect.value; contourPoints = []; contourPlacing = false; showContours();});
+  const contourPopupDone = button("Klar med konturen", () => finishContours());
+  contourEditor.append(node("h5", "", "Sulkontur"), contourObjectStatus, contourStart, contourDefine,
+    contourAngle, contourLength, contourGeometryApply, contourRemove, contourPopupDone);
+  const contourHint = node("p", "gp-contour-hint",
+    "0 % färgfyllning lämnar enbart konturlinjer. PDF använder alltid angiven linjetjocklek. Visa utskriftstjocklek förhandsvisar pappersbredden vid aktuell zoom.");
+  const contourCloseOptions = button("Stäng konturinställningar", () => {contourPanel = false; showContours();});
+  contourBar.append(contourStatus, contourAlphaLabel, contourWidthLabel, contourPrintLabel, contourHint, contourCloseOptions);
+  const contourEditBar = node("section", "gp-contour-editbar"); contourEditBar.hidden = true;
+  const contourEditStatus = node("strong");
+  const contourEditHint = node("span", "gp-contour-hint");
+  contourEditBar.append(contourEditStatus, contourEditHint, contourDone);
   contourVisible.addEventListener("change", () => {
     const enabled = contourVisible.checked;
     setContourSettings({enabled}, () => {
@@ -1838,18 +1829,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       contourBusy = false; contourPlacementDraft = null; showContours();
     });
   }
-  function beginContourEdit() {
+  function beginContourEdit(tag = null, define = false) {
     if (readOnly || contourBusy || drawingDraft || cropDraft || bulkBusy || importBusy || autoBxBusy || inputLockBusy) return;
-    closeDialog(); closeBulk(); closeAutoBx(); cancelDrag();
-    setMode("contour"); contourEditing = contourPanel = true; contourPoints = []; contourPlacing = false;
     const tags = pageTags();
-    if (!tags.some(t => t.id === contourTarget)) contourTarget = tags.find(t => selected.has(t.id))?.id || tags.find(t => !contourGeometry(t))?.id || tags[0]?.id;
+    tag = tag || current() || tags.find(t => selected.has(t.id)) || tags.find(t => !contourGeometry(t)) || tags[0];
+    if (!tag) return;
+    closeBulk(); closeAutoBx(); cancelDrag();
+    setMode("contour"); contourEditing = true; contourTarget = tag.id; contourPoints = []; contourPlacing = define;
+    openDialog(tag);
+    const group = inputs.get("b")?.group;
+    if (group) group.open = true;
+    contourEditor.scrollIntoView?.({block: "nearest"});
     if (!contourSettings().enabled) setContourSettings({enabled: true});
     if (!calibration()) {contourResume = true; setMode("calibrate");}
     showContours();
   }
   function finishContours() {
-    cancelDrag(); contourEditing = contourPanel = contourResume = contourPlacing = false; contourPoints = [];
+    cancelDrag(); contourEditing = contourResume = contourPlacing = false; contourPoints = [];
     contourPlacementDraft = null; setMode("pan"); showContours();
   }
   function chooseContourPoint(event) {
@@ -1871,37 +1867,32 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourWidth.disabled = contourPrintWidth.disabled = blocked;
     if (document.activeElement !== contourWidth) contourWidth.value = String(settings.line_width_mm ?? .10).replace(".", ",");
     contourPrintWidth.checked = !!settings.show_print_width;
-    contourBar.hidden = !contourPanel && !contourEditing;
-    contourEditor.hidden = !contourEditing || !calibration();
-    contourStatus.textContent = contourEditing ? "Redigera sulkonturer · " + tags.filter(t => contourGeometry(t)).length + "/" + tags.length + " definierade" : "Sulkonturer";
+    contourBar.hidden = !contourPanel;
+    contourEditBar.hidden = !contourEditing;
+    contourStatus.textContent = "Sulkonturer";
     if (document.activeElement !== contourAlpha) contourAlpha.value = Math.round((settings.fill_opacity ?? .18) * 100);
     contourAlphaText.textContent = contourAlpha.value + " %";
-    if (contourEditing) {
-      contourSelect.replaceChildren();
-      for (const tag of tags) {const o = node("option", "", tag.label + (contourGeometry(tag) ? " ✓" : " · saknar placering")); o.value = tag.id; contourSelect.append(o);}
-      if (!tags.some(t => t.id === contourTarget)) contourTarget = tags[0]?.id;
-      contourSelect.value = contourTarget || "";
-      if (!contourTarget) {contourPlacing = false; contourPoints = [];}
-      const tag = contourTag(), p = contourPlacement(tag), g = tag && contourGeometry(tag), wall = tag && footingCategory(tag) === "wall";
-      const locked = !tag || placementLocked({type: "tag", id: tag.id});
-      contourDefine.disabled = blocked || locked;
-      for (const name of ["b","l","e_b_plac","e_l_plac"]) {
-        const input = contourInputs[name]; if (document.activeElement !== input) input.value = tag?.values[name] ?? "";
-        input.disabled = blocked || !tag || tag.input_locked;
-      }
-      contourInputs.l.closest("label").hidden = !!wall;
-      contourApply.disabled = blocked || !tag || tag.input_locked;
-      contourAngle.hidden = !p || !!wall; contourLength.hidden = !p || !wall;
-      if (document.activeElement !== contourInputs.angle) contourInputs.angle.value = p?.angle_deg ?? "";
-      if (document.activeElement !== contourInputs.length) contourInputs.length.value = g ? precise(g.length) : "";
-      contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked;
-    }
-    contourHint.textContent = !calibration() ? "Kalibrera ritningsskalan med Mät. Konturer visas först efter giltig kalibrering."
-      : contourEditing ? contourPlacing ? (footingCategory(contourTag()) === "wall"
-        ? "Klicka på väggsulans " + (contourPoints.length ? "slutpunkt." : "startpunkt.")
+    const tag = current(), p = contourPlacement(tag), g = tag && contourGeometry(tag), wall = tag && footingCategory(tag) === "wall";
+    if (tag) contourTarget = tag.id;
+    if (!tags.some(t => t.id === contourTarget)) {contourPlacing = false; contourPoints = [];}
+    const locked = !tag || placementLocked({type: "tag", id: tag.id});
+    contourEditor.hidden = readOnly || !tag;
+    contourDefine.disabled = contourStart.disabled = blocked || locked;
+    contourStart.hidden = !p || contourEditing;
+    contourObjectStatus.textContent = p ? "Konturplacering definierad. Mått och excentriciteter ändras i fälten ovan."
+      : "Konturplacering saknas. Definiera stödets centrum och riktning eller väggsulans start/slut.";
+    contourAngle.hidden = !p || !!wall; contourLength.hidden = !p || !wall;
+    if (document.activeElement !== contourInputs.angle) contourInputs.angle.value = p?.angle_deg ?? "";
+    if (document.activeElement !== contourInputs.length) contourInputs.length.value = g ? precise(g.length) : "";
+    contourGeometryApply.hidden = contourRemove.hidden = !p;
+    contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked || !calibration();
+    contourPopupDone.hidden = !contourEditing;
+    contourEditStatus.textContent = "Redigera sulkonturer · " + tags.filter(t => contourGeometry(t)).length + "/" + tags.length + " definierade";
+    contourEditHint.textContent = !calibration() ? "Kalibrera ritningsskalan med två punkter och ett känt mått."
+      : contourPlacing && tag ? (wall ? "Klicka på väggsulans " + (contourPoints.length ? "slutpunkt." : "startpunkt.")
         : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
-        : "Välj sula och definiera placering. Dra cirklar för centrum/ändpunkter, dra konturen för placeringsexcentricitet. Tom yta panorerar. Klar eller Esc avslutar."
-      : "0 % färgfyllning lämnar enbart konturlinjer. PDF använder alltid angiven linjetjocklek. Visa utskriftstjocklek förhandsvisar pappersbredden vid aktuell zoom.";
+      : "Välj sula via etiketten. Dra cirklar för centrum/ändpunkter eller konturen för excentricitet. Klar eller Esc avslutar.";
+    root.classList.toggle("gp-contour-picking", contourEditing && (contourPlacing || contourResume));
     renderContours();
   }
 
@@ -1985,7 +1976,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     command("calibration", {calibration: value}, [], reply => {
       calibrationDraft = null; calibrationBusy = false;
       if (reply.ok && mode === "calibrate") {
-        if (contourResume) {contourResume = false; setMode("contour"); contourEditing = contourPanel = true; showContours();}
+        if (contourResume) {contourResume = false; setMode("contour"); contourEditing = true; showContours();}
         else setMode("measure");
       }
       showMeasurement();
@@ -2737,7 +2728,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   workspace.append(heading, toolbar);
   if (!readOnly) workspace.append(colourControls, soilPanel);
-  workspace.append(measurementBar, cropBar, drawingBar, contourBar);
+  workspace.append(measurementBar, cropBar, drawingBar, contourBar, contourEditBar);
   if (!readOnly) workspace.append(importBar);
   workspace.append(selectionBar);
   if (!readOnly) workspace.append(savePanel, projectFile, argumentsFallback);
@@ -3769,6 +3760,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     rememberSections(inputSections);
     rememberSections(resultSections);
     active = null;
+    if (contourEditing) finishContours();
     dialogAnchor = null;
     formId = null;
     dialog.hidden = true;
@@ -3778,6 +3770,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function openDialog(tag) {
     if (bulkBusy || deleteBusy || autoBxBusy || inputLockBusy) return;
     closeBulk(); closeAutoBx();
+    if (contourEditing && contourTarget !== tag.id) {
+      cancelDrag(); contourPoints = []; contourPlacing = false;
+    }
+    contourTarget = tag.id;
     leaderEdit = leaderNode = null;
     if (!readOnly) { selected.clear(); selected.add(tag.id); selectedOverlays.clear(); overlaySelected = null;
       tableAnchor = null; bulkSignature = ""; renderSlidingGeometry(); showSelection(); }
@@ -5540,6 +5536,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         }
         input.addEventListener("input", () => edit(field.type !== "text" && !slidingNames.has(name)));
       }
+      if (!readOnly && names[0] === "lang") group.append(contourEditor);
       fieldsBox.append(group);
     }
   }
@@ -6088,7 +6085,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const hit = event.target.closest(".gp-contour-handle") || event.target.closest(".gp-contour-shape");
       if (contourPlacing || hit) {
         event.preventDefault(); viewport.focus({preventScroll: true});
-        if (hit) contourTarget = hit.dataset.contourId;
+        if (hit && !contourPlacing && hit.dataset.contourId !== active) {
+          const tag = pageTags().find(t => t.id === hit.dataset.contourId);
+          if (tag) openDialog(tag);
+        }
         const tag = contourTag(), placement = contourPlacement(tag);
         const locked = tag && placementLocked({type: "tag", id: tag.id});
         drag = {contour: true, contourPick: contourPlacing, handle: hit?.dataset.handle,
@@ -6458,6 +6458,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const outsideDown = event => {
     if (event.target?.closest?.(".gp-select-all") !== selectAllGroup) closeSelectAllMenu();
     outsidePress = null;
+    // Contour picking/calibration and its display options intentionally use
+    // the canvas outside this nonmodal popup. Keep its active footing alive.
+    if (contourEditing && event.target?.closest?.(".an-grundplan") === root
+      && [".gp-viewport", ".gp-contour-menu", ".gp-contour-bar", ".gp-contour-editbar"]
+        .some(selector => event.target.closest(selector))) return;
     if (event.button !== 0 || (dialog.hidden && bulkDialog.hidden && autoBxDialog.hidden) || insideDialog(event.target)
       || event.target?.closest?.(".gp-panel-resize")
       || (event.target?.closest?.(".an-grundplan") === root && event.target.closest(".gp-tag"))) return;
@@ -6507,7 +6512,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     event.stopPropagation();
     hideHistoryTooltip();
     const key = String(event.key).toLowerCase();
-    if (event.key === "Escape" && (contourEditing || contourPanel)) {event.preventDefault(); finishContours(); return;}
+    if (event.key === "Escape" && contourEditing) {event.preventDefault(); finishContours(); return;}
+    if (event.key === "Escape" && contourPanel) {event.preventDefault(); contourPanel = false; showContours(); return;}
     if (event.key === "Escape" && !selectAllMenu.hidden) {event.preventDefault(); closeSelectAllMenu(); selectAllMenuButton.focus(); return;}
     if (event.key === "Escape" && !autoBxDialog.hidden) {event.preventDefault(); closeAutoBx(); return;}
     if (!readOnly && (event.metaKey || event.ctrlKey) && !event.altKey
