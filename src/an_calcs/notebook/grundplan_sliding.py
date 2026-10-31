@@ -76,10 +76,9 @@ def contribution(values):
         return {**result, "status": "insulated"}
     if not any(selected.values()):
         return result
-    # EQU is a contact load per metre of footing for line inputs. Its global
-    # contribution uses the full footing length, independently of the wall
-    # length used to convert Brott/Bruk actions in the local bearing check.
-    names = ["V_Ed_EQU", "glid_mu"] + (["glid_L"] if line_loads(values) else [])
+    # EQU already includes self-weight. Preserve its source resultant when
+    # footing length changes; legacy records retain their old reference length.
+    names = ["V_Ed_EQU", "glid_mu"] + (["glid_L"] if line_loads(values) and not values.get("physical_length") else [])
     for name in names:
         value = values.get(name)
         if not _finite(value) or value < 0 or (name == "glid_L" and value == 0):
@@ -87,7 +86,13 @@ def contribution(values):
             return {**result, "status": "incomplete", "capacity": None,
                     **{axis: None if selected[axis] else 0 for axis in selected},
                     "error": "Kontrollera " + caption.lower() + "."}
-    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (values["glid_L"] if line_loads(values) else 1)
+    if values.get("physical_length") and line_loads(values):
+        ref = values.get("equ_reference_length") if values.get("equ_reference_length") is not None else values.get("L_vagg")
+        if not _finite(ref) or ref <= 0:
+            return {**result, "status":"incomplete", "capacity":None,
+                    **{axis:None if selected[axis] else 0 for axis in selected}, "error":"Ange giltig L_stöd för EQU-resultanten."}
+    capacity = values["V_Ed_EQU"] * values["glid_mu"] * (ref
+        if values.get("physical_length") and line_loads(values) else values["glid_L"] if line_loads(values) else 1)
     if not math.isfinite(capacity):
         return {**result, "status": "incomplete", "capacity": None,
                 **{axis: None if selected[axis] else 0 for axis in selected},

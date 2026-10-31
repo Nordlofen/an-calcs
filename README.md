@@ -296,18 +296,17 @@ Moment anges direkt vid sulan; inget momentbidrag från horisontallast
 gånger hävarm läggs till. Horisontallaster i brott påverkar fortfarande
 jordens bärighet.
 
-bᵧ kan ändras även för väggsulor, i dialogen, tabellen och för flera markerade
-sulor. Den lilla kryssrutan **Egen längd** låser upp måttet; avmarkerad
-visar den ett grått, låst 1 m-fält. Laster anges fortfarande per meter vägg och
-linjestödslängden **L_vägg** och sulängden **L_su** är separata. Importens
-`length` fyller båda initialt; därefter behålls manuellt ändrad L_su vid uppdatering.
-Den lilla kryssrutan **Minst 1 m** ställs in automatiskt vid import: aktiverad
-för L_vägg ≥ 1 m, annars avmarkerad med kort stödslängd som redigerbart värde.
-Lokal bärighets-/isoleringskontroll använder `V × 1 m` respektive `V × kort L_vägg`.
-bᵧ ändrar kontaktarean utan att ändra den yttre lastresultanten. Hela L_vägg
-behålls för total EQU-last och glidning. Se [lastkonventionen](docs/grundplan.md#lastkonvention-och-resultat). Det valda måttet används i skissen för effektiv area
-och sparas med projektet. Tidigare sparade egna mått får kryssrutan aktiverad;
-projekt från tiden före bᵧ-redigeringen behåller sin remslängd på 1 m.
+**L_stöd** är den ursprungliga lastgivande stödlängden och låses efter import.
+**bᵧ** är sulans verkliga längd och följer initialt L_stöd. Aktivera
+**Justerad längd** för att ändra bᵧ i popupen, tabellen eller flerredigeringen.
+Välj **Startpunkt** eller **Slutpunkt** som ska flyttas när längden ändras.
+Avmarkering återställer bᵧ till L_stöd. Även stöd kortare än en meter behåller
+sin verkliga importerade längd; valet Minst 1 m finns inte längre.
+Lastintensiteten härleds som `v_ny = v_ursprunglig × L_stöd / bᵧ` så att hela
+reaktionen stannar på samma sula. Etiketten visar **Omräknad last** och både
+aktuella och ursprungliga värden. bᵧ visas inte i etiketter eller grupperingar
+för väggsulemodellen. EQU och glidning inkluderar fortfarande egentyngden i
+indatan, utan ytterligare påslag. Se [lastkonventionen](docs/grundplan.md#lastkonvention-och-resultat).
 
 Aktivera **Underliggande isolering** för att ange `f_d.brott` och `f_d.bruk`
 i kPa samt separata långtidslaster. Isoleringens tryck beräknas som
@@ -359,8 +358,7 @@ bärighetskontroll och isoleringskontrollen och sätter den till **Utan isolerin
 Kategorin **Isolering** döljs. Sulan bidrar fortfarande i sina
 valda glidningsriktningar. Valet kan även ändras för markerade rader i tabellen;
 övriga indatavärden behålls när läget växlas.
-Sulmåtten bₓ/bᵧ döljs i detta läge; linjestödslängden L_vägg anges under Geometri och sulängden L_su anges fortfarande
-under **Glidning**.
+Sulmått, Brukslast och jordprofil är tillgängliga för sättnings- och styvhetsberäkning även i detta läge.
 
 Koordinatsymbolen kan dras och förstoras med hörnhandtaget. Dra resultatrutans
 rubrik för att flytta den och dra dess hörnhandtag för att ändra storlek på

@@ -148,7 +148,8 @@ class TestGrundplanHtml(unittest.TestCase):
         self.assertEqual(tag["values"]["glid_L"], 6.2)
         self.assertEqual(tag["summary"]["effective_area"]["brott"]["by"], 2.4)
         text = PdfReader(io.BytesIO(base64.b64decode(data["pdf"]["data"]))).pages[0].extract_text()
-        self.assertRegex(text, r"bₓ 0,8 m · b\s*ᵧ\s+2,4 m · t 0,3 m")
+        self.assertIn("bₓ 0,8 m · t 0,3 m",text)
+        self.assertNotIn("bᵧ",text)
         self.assertRegex(text, r"L\s*su\s+6,2 m")
 
     def test_drawing_headings_and_dates_are_embedded_in_html_and_its_pdf(self):

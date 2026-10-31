@@ -102,14 +102,14 @@ def evaluate(values, profile):
         return None
     # Store only small result summaries in the cache, not thousands of layer posts.
     geometry = tuple(values.get(name) for name in
-                     ("lang", "b", "l", "t", "F_vy_bruk", "lasttyp", "L_vagg", "L_vagg_minst_1"))
+                     ("lang", "b", "l", "t", "F_vy_bruk", "lasttyp", "L_vagg", "L_vagg_minst_1", "physical_length"))
     layers = tuple(tuple(layer[key] for key in ("dz", "Ek", "gamma_m")) for layer in profile["layers"])
     return copy.deepcopy(_evaluate(geometry, layers, profile["step"]))
 
 
 @lru_cache(maxsize=1024)
 def _evaluate(geometry, layers, step):
-    lang, bx, by, thickness, service, load_type, length, at_least_one = geometry
+    lang, bx, by, thickness, service, load_type, length, at_least_one, physical_length = geometry
     model = "VS" if lang == 1 else "PS"
     result = {"model": model, "s": None, "k": None, "K": None,
               "support_symbol": "K_linje" if model == "VS" else "K_punkt",
@@ -135,7 +135,7 @@ def _evaluate(geometry, layers, step):
             raise ValueError("Brukslasten måste vara ett ändligt tal.")
         positive(thickness, "Sultjocklek")
         support_length = bearing_load_length({"lang": lang, "lasttyp": load_type,
-            "L_vagg": length, "L_vagg_minst_1": at_least_one})
+            "L_vagg": length, "L_vagg_minst_1": at_least_one, "physical_length": physical_length})
         external = service * (support_length if support_length is not None else 1)
         if model == "VS":
             # Adapt the local resultant to the same per-metre footing API as bearing.

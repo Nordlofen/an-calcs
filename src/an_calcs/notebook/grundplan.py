@@ -29,6 +29,7 @@ from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
+from .grundplan_lengths import intensity_data, lock_source, resized_placement, migrate_wall, metres_per_pixel
 from .grundplan_contours import settings as contour_settings, placement as contour_placement
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
@@ -47,7 +48,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:independent-load-type-v7"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:physical-support-length-v8"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -68,10 +69,12 @@ _EXTRA_FIELDS = [
     {"name": "lasttyp", "type": "choice", "label": "Last anges som", "unit": "", "default": 0,
      "options": [{"value": 1, "label": "Linjelast [kN/m]"}, {"value": 0, "label": "Punktlast [kN]"}]},
     {"name": "endast_h_stabilitet", "type": "bool", "label": "Endast H-stabilitet", "unit": "", "default": False},
-    {"name": "l_override", "type": "bool", "label": "Egen längd", "unit": "", "default": False},
+    {"name": "l_override", "type": "bool", "label": "Justerad längd", "unit": "", "default": False},
+    {"name": "length_end", "type": "choice", "label": "Justera vid", "unit": "", "default": 0,
+     "options": [{"value": 0, "label": "Slutpunkt"}, {"value": 1, "label": "Startpunkt"}]},
     {"name": "L_vagg_minst_1", "type": "bool", "label": "Minst 1 m", "unit": "", "default": True},
-    {"name": "L_vagg", "type": "number", "label": "Längd linjestöd alt. längd ovanliggande vägg", "unit": "m", "default": None,
-     "display_symbol": {"base": "L", "subscript": "vägg"}},
+    {"name": "L_vagg", "type": "number", "label": "Importerad stödlängd", "unit": "m", "default": None,
+     "display_symbol": {"base": "L", "subscript": "stöd"}},
     {"name": "isolering", "type": "bool", "label": "Underliggande isolering", "unit": "", "default": False},
     {"name": "isolerprodukt", "type": "text", "label": "Isolerprodukt", "unit": "", "default": ""},
     *_INSULATION_FIELDS,
@@ -83,6 +86,9 @@ _FIELDS = [{**field, "label": DISPLAY_LABELS.get(field["name"], field["label"]),
            for field in [*_FIELDS, *_EXTRA_FIELDS]]
 _FIELDS = [{**field, "label": "Beräkningsmodell"} if field["name"] == "lang" else field for field in _FIELDS]
 _DEFAULTS = {field["name"]: field["default"] for field in _FIELDS}
+_DEFAULTS.update(physical_length=False, equ_reference_length=None)
+# Retain legacy serialized keys but do not expose either length override.
+_FIELDS = [field for field in _FIELDS if field["name"] not in {"L_vagg_minst_1", "glid_L"}]
 _TEXT_NAMES = {field["name"] for field in _FIELDS if field["type"] == "text"}
 _TABLE_DEFAULTS = {"collapsed": [], "sort": {"key": None, "direction": "ascending"}}
 _LAYOUT_DEFAULTS = {"board_height": None, "table_height": None, "board_width": None, "table_width": None}
@@ -91,7 +97,7 @@ _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", 
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 _COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"length_end", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "lasttyp"}
 _BULK_LOAD_FIELDS = {"V_Ed_EQU", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b",
                      "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "L_vagg", "glid_L"}
@@ -116,7 +122,7 @@ def _values(values, *, draft=False):
         values = {**values, "lasttyp": 1 if values["lang"] == 1 else 0}
     # Old project/API fields cannot reintroduce hidden moment contributions.
     values = {**_DEFAULTS, **{name: value for name, value in values.items() if name not in _REMOVED_FIELDS}}
-    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"}
+    boolean_names = {"isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv", "physical_length"}
     for name in boolean_names:
         if not isinstance(values[name], bool):
             raise ValueError(f"{name} måste vara True eller False.")
@@ -132,7 +138,7 @@ def _values(values, *, draft=False):
                 raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name == "L_vagg") and value is None and name not in {"lang", "lasttyp"}:
+        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name in {"L_vagg", "equ_reference_length"}) and value is None and name not in {"lang", "lasttyp"}:
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -141,7 +147,11 @@ def _values(values, *, draft=False):
         raise ValueError("Lasttyp måste vara 0 (punktlast) eller 1 (linjelast).")
     if values["lang"] == 1:
         values["lasttyp"] = 1
-    if values["lang"] == 1 and not values["l_override"]:
+    if values["length_end"] not in (0, 1):
+        raise ValueError("Välj Startpunkt eller Slutpunkt.")
+    if values["physical_length"] and values["lasttyp"] == 1 and not values["l_override"]:
+        if values["L_vagg"] is not None: values["l"] = values["L_vagg"]
+    elif values["lang"] == 1 and not values["l_override"]:
         values["l"] = 1.0
     return copy.deepcopy(values)
 
@@ -204,10 +214,14 @@ def _updated_values(current, updates):
         if any(name not in {"inaktiv", "kommentar"} and value != current.get(name) for name, value in updates.items()):
             raise ValueError("Sulan är inaktiv. Endast kommentaren kan ändras; avmarkera Inaktiv för att ändra indata.")
     # Explicit Python length updates keep their existing meaning. The UI sends
-    # the checkbox too, so unchecking it always restores the standard strip.
+    # the checkbox too, so unchecking it restores the immutable source length
+    # (or the legacy strip when no source length is known).
     values = {**current, **updates}
-    if values["lang"] == 1 and "l" in updates and "l_override" not in updates:
-        values["l_override"] = updates["l"] != 1
+    if ("L_vagg" in updates and updates["L_vagg"] is not None and not current.get("physical_length")
+            and (current.get("L_vagg") is None or updates["L_vagg"] != current.get("L_vagg"))):
+        values["physical_length"] = True
+    if "l" in updates and "l_override" not in updates and (values["lang"] == 1 or values.get("physical_length")):
+        values["l_override"] = updates["l"] != (values.get("L_vagg") if values.get("physical_length") else 1)
     if "L_vagg" in updates and "L_vagg_minst_1" not in updates:
         length = updates["L_vagg"]
         values["L_vagg_minst_1"] = length is None or _number(length, "L_vägg") >= 1
@@ -427,7 +441,7 @@ def _calculate(values):
         summary.update(last=_number(summary["last"] * to_total, "Total vertikallast"),
                        barformaga=_number(summary["barformaga"] * to_total, "Total bärförmåga"),
                        lastenhet="kN", load_conversion={"support_length": support_length, "by": by,
-                       "full_support_length": values["L_vagg"], "at_least_one": values["lang"] == 1 and values["L_vagg_minst_1"],
+                       "full_support_length": values["L_vagg"], "at_least_one": not values["physical_length"] and values["lang"] == 1 and values["L_vagg_minst_1"],
                        "brott": _number(values["F_vy"] * support_length, "Yttre last, brott"),
                        "bruk": None if values["F_vy_bruk"] is None else
                        _number(values["F_vy_bruk"] * support_length, "Yttre last, bruk")})
@@ -438,6 +452,10 @@ def _calculate(values):
             for name in ("isolering_EG_k", "isolering_N_brott", "isolering_N_bruk"):
                 summary["isolering"][name] = _number(summary["isolering"][name] * to_total, name)
         details["metodbeskrivning"]["items"].append({"rubrik": "Linjestöd och sula", "text": (
+            "Ursprungliga linjelaster och moment multipliceras med L_stöd för att bevara den yttre resultanten. "
+            "Den aktuella intensiteten härleds från L_stöd / b_y. Sulans egentyngd beräknas separat från geometrin. "
+            "EQU för glidning inkluderar redan egentyngden och dess totalresultant bevaras utan ytterligare påslag."
+        ) if values["physical_length"] else (
             "Pelarsulemodellen: alla yttre linjelaster och moment per meter multipliceras med hela angivna L_vägg. "
             "b_x och b_y anger sulans kontaktmått och ändrar inte den yttre lastresultanten. "
             "Sulans egentyngd beräknas separat från geometrin. Rapporten visar totala krafter och moment."
@@ -465,7 +483,8 @@ class Grundplan(anywidget.AnyWidget):
     Koordinater för taggar är relativa originalritningen, med origo uppe
     till vänster. Originalramen är 0–1; tillagda marginaler kan ligga utanför.
     Mått och laster anges manuellt. Varje väggsula beräknas per
-    meter; ritningslängden används inte för att fördela en total last.
+    meter lastgivande stöd; L_stöd bevarar totalreaktionen och b_y anger
+    sulans fysiska längd och därmed den aktuella lastintensiteten.
     """
 
     _esm = _ASSETS / "grundplan.js"
@@ -767,6 +786,8 @@ class Grundplan(anywidget.AnyWidget):
             values["lasttyp"] = 1 if values["lang"] == 1 else 0
         if values["lang"] == 1 and "l" not in (indata or {}):
             values["l"] = 1.0
+        if line_loads(values) and values.get("L_vagg") is not None:
+            values["physical_length"] = True
         values = _updated_values(values, indata or {})
         validate_model(typ, values)
         prefix = "VS" if typ == "vaggsula" else "PS"
@@ -798,6 +819,7 @@ class Grundplan(anywidget.AnyWidget):
         source = self._tag(tagg)
         values = copy.deepcopy(source["values"])
         if indata is not None:
+            lock_source(source, indata)
             values = _updated_values(values, indata)
         ident = self.lagg_till(
             x, y, littera=littera,
@@ -869,14 +891,21 @@ class Grundplan(anywidget.AnyWidget):
             if kind == "vaggsula" and tag["values"]["glid_L"] is not None:
                 if tag["values"]["glid_L"] != tag.get("imported_length"):
                     updates.pop("glid_L")
+            if tag["values"].get("physical_length"):
+                updates.pop("l", None); updates.pop("l_override", None)
+            elif kind == "vaggsula" and (tag["values"]["lang"] == 0 or tag["values"].get("l_override")):
+                updates["l"] = tag["values"]["l"]; updates["l_override"] = True
             values = _values({**tag["values"], **updates}, draft=True)
-            prepared.append((tag, values, item["values"].get("L_vagg")))
+            placement = self._resized_contour(tag, values)
+            prepared.append((tag, values, item["values"].get("L_vagg"), placement))
         queue = ({"token": uuid.uuid4().hex, "filename": Path(filename).name,
                   "items": new_items, "index": 0, "paused": False} if new_items else None)
-        for tag, values, imported_length in prepared:
+        for tag, values, imported_length, placement in prepared:
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
             tag["values"] = values
+            if placement is not None:
+                self._contours["placements"][tag["id"]] = placement
             if imported_length is not None:
                 tag["imported_length"] = imported_length
             if changed:
@@ -889,7 +918,7 @@ class Grundplan(anywidget.AnyWidget):
         return {"updated": len(prepared), "new": len(new_items),
                 **({"skipped_inactive": len(skipped_inactive)} if skipped_inactive else {}),
                 **({"skipped_locked": len(skipped_locked)} if skipped_locked else {}),
-                "updated_ids": [tag["id"] for tag, _, _ in prepared]}
+                "updated_ids": [tag["id"] for tag, _, _, _ in prepared]}
 
     def _control_load_import(self, token, operation):
         if self._load_import is None or token != self._load_import["token"]:
@@ -935,6 +964,7 @@ class Grundplan(anywidget.AnyWidget):
                 or littera is not None and _label(littera) != tag["label"]):
             self._assert_input_unlocked(tag)
         if indata is not None:
+            lock_source(tag, indata)
             updated["values"] = _updated_values(tag["values"], indata)
             validate_model(footing_type(tag), updated["values"])
             updated["settlement_display"] = tag_display(updated, self._settlement_display)
@@ -951,10 +981,12 @@ class Grundplan(anywidget.AnyWidget):
                 updated[name] = value
         changed = any(updated["values"][name] != value for name, value in tag["values"].items()
                       if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
+        contour = self._resized_contour(tag, updated["values"])
         if changed:
             updated.update(status="stale", summary=None, error="")
             self._details.pop(tagg, None)
         tag.update(updated)
+        if contour is not None: self._contours["placements"][tagg] = contour
         if changed or tag["summary"] is None:
             self._refresh_tag(tag)
         self._publish()
@@ -1229,12 +1261,15 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Linjestödslängden L_vägg gäller endast linjelaster.")
         if types == {0} and "L_vagg_minst_1" in indata:
             raise ValueError("Minst 1 m gäller endast väggsulemodellen.")
-        if types == {0} and "l_override" in indata:
+        if types == {0} and "l_override" in indata and not all(t["values"].get("physical_length") for t in tags):
             raise ValueError("Egen remslängd gäller endast väggsulor.")
+        for tag in tags: lock_source(tag, indata)
         prepared = [_updated_values(tag["values"], indata) for tag in tags]
+        contours = [self._resized_contour(tag, values) for tag, values in zip(tags, prepared)]
         for tag, values in zip(tags, prepared):
             validate_model(footing_type(tag), values)
-        for tag, values in zip(tags, prepared):
+        for tag, values, contour in zip(tags, prepared, contours):
+            if contour is not None: self._contours["placements"][tag["id"]] = contour
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name not in _TEXT_NAMES and name not in SLIDING_NAMES)
             tag["values"] = values
@@ -1291,7 +1326,7 @@ class Grundplan(anywidget.AnyWidget):
         membership = {key: item["id"] for item in self._common_foundations for key in item["members"]}
         return [{**copy.deepcopy(tag), "settlement_display": tag_display(tag, self._settlement_display),
                  "sliding": contribution(tag["values"]),
-                 "load_resultants": load_resultants(tag["values"]),
+                 "load_resultants": load_resultants(tag["values"]), "load_intensity": intensity_data(tag["values"]),
                  **({"common_foundation_id": membership[tag["id"]]} if tag["id"] in membership else self._settlement_data(tag))}
                 for tag in self._tags]
 
@@ -1333,6 +1368,7 @@ class Grundplan(anywidget.AnyWidget):
             if "L_vagg" in patch and not line_loads(tag["values"]):
                 raise ValueError("Belastad längd gäller endast linjelaster.")
             patch = {**patch, **({"L_vagg_minst_1": tag["values"]["L_vagg_minst_1"]} if "L_vagg" in patch else {})}
+            lock_source(tag, patch)
             tag["values"] = _updated_values(tag["values"], patch)
         item = {"id": existing["id"] if existing else uuid.uuid4().hex, "label": namn, "members": members,
                 "values": {"b": bx, "l": by, "t": t}, "soil_profile": jordprofil, "form": form,
@@ -1743,6 +1779,7 @@ class Grundplan(anywidget.AnyWidget):
             placements.pop(tagg, None)
         else:
             item = contour_placement(placering)
+            if tag["values"].get("physical_length"): item = migrate_wall(item, self.background)
             expected = "wall" if footing_category(tag) == "wall" else "pad"
             if item["kind"] != expected:
                 raise ValueError("Konturtypen måste motsvara sulans beräkningsmodell.")
@@ -1750,10 +1787,18 @@ class Grundplan(anywidget.AnyWidget):
         self._contours = contour_settings({**self._contours, "placements": placements}, self._tags)
         self._publish()
 
+    def _resized_contour(self, tag, values):
+        placement = self._contours["placements"].get(tag["id"])
+        if placement is None or values["l"] == tag["values"]["l"]: return None
+        if values.get("physical_length") and (type(values["l"]) not in (int, float) or values["l"] <= 0):
+            raise ValueError("Ange ett positivt b_y för den placerade sulkonturen.")
+        result = resized_placement(placement, tag["values"], values, self.background, self._calibration)
+        return contour_placement(result)
+
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 30,
+            "version": 31,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -1935,8 +1980,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 31):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–30.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 32):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–31.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -2017,6 +2062,24 @@ class Grundplan(anywidget.AnyWidget):
                 if length <= 0:
                     raise ValueError("Importerad linjestödslängd måste vara större än noll.")
                 tag["imported_length"] = length
+                if document["version"] >= 31 and tag["values"].get("physical_length") and tag["values"]["L_vagg"] != length:
+                    raise ValueError("L_stöd måste motsvara den importerade stödlängden.")
+            if document["version"] < 31 and line_loads(tag["values"]) and tag.get("imported_length"):
+                values = tag["values"]
+                source_length = tag["imported_length"]
+                physical_by = values["l"]
+                adjusted = values.get("l_override", False) or values["lang"] == 0
+                old_placement = document.get("contours", {}).get("placements", {}).get(ident)
+                if old_placement is not None:
+                    old_placement = contour_placement(old_placement)
+                if values["lang"] == 1 and old_placement and old_placement.get("kind") == "wall" and "end" in old_placement and calibration:
+                    a, b = old_placement["start"], old_placement["end"]
+                    physical_by = math.hypot((b["x"]-a["x"])*rendered["width"], (b["y"]-a["y"])*rendered["height"]) * metres_per_pixel(calibration, rendered)
+                    adjusted = not math.isclose(physical_by, source_length, rel_tol=1e-9)
+                elif not adjusted: physical_by = source_length
+                tag["values"] = _values({**values, "physical_length": True, "L_vagg": source_length,
+                    "equ_reference_length": values["glid_L"] if values.get("glid_L") is not None else source_length,
+                    "l": physical_by, "l_override": adjusted}, draft=True)
             try:
                 details, summary = _inactive_result() if tag["values"]["inaktiv"] else _calculate(tag["values"])
                 tag.update(status="inactive" if tag["values"]["inaktiv"] else "calculated", summary=summary)
@@ -2027,7 +2090,10 @@ class Grundplan(anywidget.AnyWidget):
             if profile is not None:
                 tag["soil_profile"] = profile
             valid_tags.append(tag)
-        contours = contour_settings(document.get("contours", {}), valid_tags)
+        saved_contours = contour_settings(document.get("contours", {}), valid_tags)
+        physical_ids = {t["id"] for t in valid_tags if t["values"].get("physical_length")}
+        saved_contours["placements"] = {ident: migrate_wall(p, rendered) if ident in physical_ids else p for ident, p in saved_contours.get("placements", {}).items()}
+        contours = contour_settings(saved_contours, valid_tags)
         common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
                                  drawing["page"], allow_empty=True)

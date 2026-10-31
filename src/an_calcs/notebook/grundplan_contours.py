@@ -16,11 +16,13 @@ def point(value):
 def placement(value):
     if not isinstance(value, dict):
         raise ValueError("Ogiltig konturplacering.")
-    if value.get("kind") == "pad" and set(value) == {"kind", "center", "angle_deg"}:
+    kind = value.get("kind")
+    anchor = "center" if kind == "pad" else "start"
+    if kind in ("pad", "wall") and set(value) == {"kind", anchor, "angle_deg"}:
         angle = value["angle_deg"]
         if type(angle) not in (int, float) or not math.isfinite(angle) or abs(angle) > 36000:
             raise ValueError("Ange en ändlig riktning i grader.")
-        return {"kind": "pad", "center": point(value["center"]), "angle_deg": angle % 360}
+        return {"kind": kind, anchor: point(value[anchor]), "angle_deg": angle % 360}
     if value.get("kind") == "wall" and set(value) == {"kind", "start", "end"}:
         start, end = point(value["start"]), point(value["end"])
         if math.hypot(end["x"] - start["x"], end["y"] - start["y"]) < 1e-8:

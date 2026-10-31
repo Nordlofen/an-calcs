@@ -199,7 +199,7 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       const group = byKey.get("omitted");
       group.count++; assignments.set(tag.id, group); continue;
     }
-    const value = values[category === "V" ? {brott: "F_vy", bruk: "F_vy_bruk", EQU: "V_Ed_EQU"}[phase] : category];
+    const value = category === "V" ? displayedLineLoad({...tag,values},{brott:"F_vy",bruk:"F_vy_bruk",EQU:"V_Ed_EQU"}[phase]) : values[category];
     let group;
     if (!finite(value)) {
       const key = "missing";
@@ -262,6 +262,15 @@ export function measuredDistance(start, end, background, calibration) {
   return drawingDistance(start, end, background) / drawingDistance(calibration.start, calibration.end, background) * calibration.length_m;
 }
 
+function displayedLineLoad(tag, name) {
+  const v = tag.values;
+  if (!v.physical_length || !lineLoads(v) || !(v.L_vagg > 0) || !(v.l > 0)) return v[name];
+  return v[name] == null ? null : v[name] * (name === "V_Ed_EQU" ? (v.equ_reference_length ?? v.L_vagg) : v.L_vagg) / v.l;
+}
+const sourceLengthLocked = tag => tag?.imported_length != null || !!tag?.values.physical_length && tag.values.L_vagg != null;
+const adjustedLineLoad = tag => tag.values.physical_length && lineLoads(tag.values)
+  && tag.values.l > 0 && tag.values.L_vagg > 0 && Math.abs(tag.values.L_vagg/tag.values.l-1) > 1e-10;
+
 // Screen strokes are CSS pixels. For print preview/export, convert the desired
 // paper millimetres to CSS pixels using the SAME physical canvas as the PDF
 // merger. Crop and underlay transforms do not change the paper line weight.
@@ -280,15 +289,17 @@ export function footprintGeometry(tag, placement, bg, cal) {
   if (!(units > 0) || !(width > 0) || placement.kind !== expected) return null;
   const pixel = p => ({x: p.x * bg.width, y: p.y * bg.height});
   let anchor, xAxis, yAxis, length;
-  if (placement.kind === "wall") {
-    const a = pixel(placement.start), b = pixel(placement.end), d = Math.hypot(b.x - a.x, b.y - a.y);
+  if (placement.kind === "wall" && placement.end) {
+    const a = pixel(placement.start), b = pixel(placement.end), d = Math.hypot(b.x-a.x,b.y-a.y);
     if (!(d > 1e-6)) return null;
-    yAxis = {x: (b.x - a.x) / d, y: (b.y - a.y) / d}; xAxis = {x: -yAxis.y, y: yAxis.x};
-    anchor = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; length = d / units;
+    yAxis = {x:(b.x-a.x)/d,y:(b.y-a.y)/d}; xAxis = {x:-yAxis.y,y:yAxis.x};
+    anchor = {x:(a.x+b.x)/2,y:(a.y+b.y)/2}; length = d/units;
   } else {
     const angle = placement.angle_deg * Math.PI / 180;
-    xAxis = {x: Math.cos(angle), y: -Math.sin(angle)}; yAxis = {x: -Math.sin(angle), y: -Math.cos(angle)};
-    anchor = pixel(placement.center); length = Number(v.l);
+    xAxis = {x:Math.cos(angle),y:-Math.sin(angle)}; yAxis = {x:-Math.sin(angle),y:-Math.cos(angle)};
+    length = Number(v.l);
+    anchor = pixel(placement.kind === "wall" ? placement.start : placement.center);
+    if (placement.kind === "wall") anchor = {x:anchor.x+yAxis.x*length*units/2,y:anchor.y+yAxis.y*length*units/2};
   }
   if (!(length > 0)) return null;
   // e_plac is the support/load position relative to the footing centre.
@@ -1435,7 +1446,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   stiffnessFormSelect.setAttribute("aria-label", "Styvhetsform");
   stiffnessFormRow.append(node("span", "", "Styvhetsform"), stiffnessFormSelect);
   const displayReadOnly = node("p", "gp-result-note");
-  const lineStiffnessNote = mathText("p", "gp-field-note", "Linjestyvhet = punktstyvhet / L_vägg. PS-modellens lastspridning behålls.");
+  const lineStiffnessNote = mathText("p", "gp-field-note", "Linjestyvhet = punktstyvhet / L_stöd. PS-modellens lastspridning behålls.");
   if (readOnly) soilDisplayControls.append(displayReadOnly, lineStiffnessNote);
   else soilDisplayControls.append(showSettlementChoice, stiffnessFormRow, lineStiffnessNote,
     node("p", "gp-field-note", "Gäller denna sula. Ändra flera sulor samtidigt i tabellen."));
@@ -1773,23 +1784,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     input.setAttribute("aria-label", label); contourInputs[name] = input; wrap.append(input); return wrap;
   };
   const contourAngle = contourField("angle", "Riktning x [°]");
-  const contourLength = contourField("length", "Konturlängd [m]");
-  const contourGeometryApply = button("Tillämpa riktning/längd", () => {
+  const contourGeometryApply = button("Tillämpa riktning", () => {
     const tag = contourTag(), p = contourPlacement(tag); if (!p) return;
-    const value = Number(contourInputs[p.kind === "pad" ? "angle" : "length"].value.trim().replace(",", "."));
-    if (!Number.isFinite(value) || p.kind === "wall" && value <= 0) {showMessage("Ange en giltig riktning eller positiv längd.", true); return;}
-    if (p.kind === "pad") saveContour(tag.id, {...p, angle_deg: value});
-    else {
-      const g = footprintGeometry(tag, p, background(), calibration()), bg = background(); if (!g) return;
-      const d = g.units * value / 2;
-      saveContour(tag.id, {kind: "wall", start: {x: (g.anchor.x - g.yAxis.x * d) / bg.width, y: (g.anchor.y - g.yAxis.y * d) / bg.height},
-        end: {x: (g.anchor.x + g.yAxis.x * d) / bg.width, y: (g.anchor.y + g.yAxis.y * d) / bg.height}});
-    }
+    const value = Number(contourInputs.angle.value.trim().replace(",", "."));
+    if (!Number.isFinite(value)) {showMessage("Ange en giltig riktning i grader.", true); return;}
+    if (p.kind === "pad" || !p.end) saveContour(tag.id, {...p, angle_deg: value});
+    else showMessage("Definiera om placeringen med startpunkt och x-riktning.", true);
   });
   const contourRemove = button("Ta bort konturplacering", () => {const tag = contourTag(); if (tag) saveContour(tag.id, null);});
   const contourDone = button("Klar", () => finishContours());
   contourShortcut.append(contourStart);
-  contourEditor.append(contourSelect, contourDefine, contourAngle, contourLength, contourGeometryApply, contourRemove);
+  contourEditor.append(contourSelect, contourDefine, contourAngle, contourGeometryApply, contourRemove);
   contourSelect.addEventListener("change", () => {
     const id = contourSelect.value;
     cancelDrag(); closeDialog(); contourTarget = id; contourPoints = []; contourPlacing = false; showContours();
@@ -1856,8 +1861,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (contourPoints.length === 2) {
       const [a,b] = contourPoints, bg = background();
       if (drawingDistance(a,b,bg) < 1e-6) {contourPoints.pop(); showMessage("Välj två olika punkter.", true); return;}
-      saveContour(tag.id, footingCategory(tag) === "wall" ? {kind: "wall", start: a, end: b}
-        : {kind: "pad", center: a, angle_deg: Math.atan2(-(b.y-a.y)*bg.height, (b.x-a.x)*bg.width)*180/Math.PI});
+      const angle = Math.atan2(-(b.y-a.y)*bg.height,(b.x-a.x)*bg.width)*180/Math.PI;
+      saveContour(tag.id, footingCategory(tag) === "wall" ? {kind:"wall",start:a,angle_deg:angle}
+        : {kind:"pad",center:a,angle_deg:angle});
       contourPoints = []; contourPlacing = false;
     }
     showContours();
@@ -1877,7 +1883,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!tags.some(t => t.id === contourTarget)) {contourTarget = tags[0]?.id; contourPlacing = false; contourPoints = [];}
     contourSelect.replaceChildren();
     for (const item of tags) {
-      const option = node("option", "", item.label + (contourDefined(item) ? " ✓ · Placering definierad" : " · Saknar placering"));
+      const option = node("option", "", item.label + (contourDefined(item) ? " · Placerad ✓" : " · ---"));
       option.value = item.id; contourSelect.append(option);
     }
     contourSelect.value = contourTarget || "";
@@ -1887,16 +1893,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourEditor.hidden = !contourEditing || readOnly || !tag;
     contourDefine.disabled = blocked || locked;
     contourStart.disabled = blocked || !current() || placementLocked({type: "tag", id: current()?.id});
-    contourAngle.hidden = !p || !!wall; contourLength.hidden = !p || !wall;
+    contourAngle.hidden = !p;
     if (document.activeElement !== contourInputs.angle) contourInputs.angle.value = p?.angle_deg ?? "";
-    if (document.activeElement !== contourInputs.length) contourInputs.length.value = g ? precise(g.length) : "";
     contourGeometryApply.hidden = contourRemove.hidden = !p;
     contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked || !calibration();
     contourEditStatus.textContent = "Redigera sulkonturer · " + tags.filter(t => contourDefined(t)).length + "/" + tags.length + " definierade";
     contourEditHint.textContent = !calibration() ? "Kalibrera ritningsskalan med två punkter och ett känt mått."
-      : contourPlacing && tag ? (wall ? "Klicka på väggsulans " + (contourPoints.length ? "slutpunkt." : "startpunkt.")
+      : contourPlacing && tag ? (wall ? "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning, tvärs väggen." : "väggsulans startpunkt på centrumlinjen.")
         : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
-      : "Välj sula i listan. Dra cirklar för centrum/ändpunkter eller konturen för excentricitet. Klar eller Esc avslutar.";
+      : "Välj sula i listan. Dra cirklar för centrum/startpunkt och riktning, eller konturen för excentricitet. Klar eller Esc avslutar.";
     root.classList.toggle("gp-contour-picking", contourEditing && (contourPlacing || contourResume));
     renderContours();
   }
@@ -1944,7 +1949,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (!placementLocked({type: "tag", id: tag.id})) {
           if (p.kind === "pad") {
             handle(anchor, "center"); handle({x: anchor.x + xAxis.x * 48 / zoom, y: anchor.y + xAxis.y * 48 / zoom}, "angle");
-          } else for (const name of ["start","end"]) handle({x:p[name].x*bg.width, y:p[name].y*bg.height}, name);
+          } else if (p.end) {
+            for (const name of ["start", "end"]) handle({x:p[name].x*bg.width,y:p[name].y*bg.height},name);
+          } else {
+            const start = {x:p.start.x*bg.width,y:p.start.y*bg.height};
+            handle(start,"start");handle({x:start.x+xAxis.x*48/zoom,y:start.y+xAxis.y*48/zoom},"angle");
+          }
         }
         for (const [axis, name] of [[xAxis,"x"],[yAxis,"y"]]) {
           const end = {x:anchor.x+axis.x*35/zoom, y:anchor.y+axis.y*35/zoom};
@@ -2374,7 +2384,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   });
   const commonFooter = node("div", "gp-dialog-footer"); commonFooter.append(commonDelete, commonSave);
-  commonForm.append(node("p", "gp-field-note", "En fysisk platta med flera laststöd. Brukslasterna summeras i kN med hela belastade L_vägg vid linjelast. Plattans egentyngd tillkommer en gång. Bärighets- och glidningskontrollerna för stöden behålls."),
+  commonForm.append(node("p", "gp-field-note", "En fysisk platta med flera laststöd. Brukslasterna summeras i kN med hela belastade L_stöd vid linjelast. Plattans egentyngd tillkommer en gång. Bärighets- och glidningskontrollerna för stöden behålls."),
     node("p", "gp-field-note", "Plattan beräknas som en rektangulär pelarsula med total vertikallast. Rotation och differenssättningar mellan stöden ingår inte."),
     commonFields, node("h5", "", "Anslutna stöd och yttre Brukslaster"), commonMembers,
     node("h5", "", "Plattans jordprofil"), commonSoil, commonError, commonSavedResult, commonFooter);
@@ -2430,7 +2440,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     commonMembers.replaceChildren(); commonMemberControls.length = 0;
     const tags = commonEditing.members.map(id => state().tags.find(tag => tag.id === id)).filter(Boolean);
     const table = node("table", "gp-common-loads"), head = node("thead"), hr = node("tr"), body = node("tbody");
-    for (const text of ["Stöd", "Brukslast V", "Hela L_vägg [m]", "Yttre resultant [kN]", ""]) hr.append(node("th", "", text));
+    for (const text of ["Stöd", "Brukslast V", "Hela L_stöd [m]", "Yttre resultant [kN]", ""]) hr.append(node("th", "", text));
     head.append(hr); table.append(head, body);
     for (const tag of tags) {
       const tr = node("tr"), line = lineLoads(tag.values), draft = commonMemberDrafts.get(tag.id) ||
@@ -2442,15 +2452,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const load = commonNumeric(draft.F_vy_bruk), length = line ? commonNumeric(draft.L_vagg) : 1;
         total.textContent = tag.values.inaktiv || !Number.isFinite(load) || !Number.isFinite(length) || length <= 0 ? "—" : precise(load * length);
       };
-      for (const [name, caption] of [["F_vy_bruk", "Brukslast [" + (line ? "kN/m" : "kN") + "]"], ["L_vagg", "Hela belastade L_vägg [m]"]]) {
+      for (const [name, caption] of [["F_vy_bruk", "Brukslast [" + (line ? "kN/m" : "kN") + "]"], ["L_vagg", "Hela belastade L_stöd [m]"]]) {
         const td = node("td");
         if (name === "L_vagg" && !line) td.textContent = "—";
         else {
           const input = node("input"); input.type = "text"; input.inputMode = "decimal"; input.value = draft[name];
           input.dataset.memberId = tag.id; input.dataset.memberField = name;
           input.setAttribute("aria-label", tag.label + ": " + caption);
-          input.disabled = readOnly || inputLocked(tag) || tag.values.inaktiv;
-          commonMemberControls.push({control: input, blocked: !!tag.values.inaktiv});
+          input.disabled = readOnly || inputLocked(tag) || tag.values.inaktiv || name === "L_vagg" && sourceLengthLocked(tag);
+          commonMemberControls.push({control: input, blocked: !!tag.values.inaktiv || name === "L_vagg" && sourceLengthLocked(tag)});
           input.addEventListener("input", () => {draft[name] = input.value; updateTotal();}); td.append(input);
         }
         tr.append(td);
@@ -2980,7 +2990,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     importLoads.textContent = "Brott V " + precise(values.F_vy) + " " + unit
       + " · Bruk V " + precise(values.F_vy_bruk) + " " + unit
       + " · EQU V " + precise(values.V_Ed_EQU) + " " + unit
-      + (strip ? " · Lvägg " + precise(values.L_vagg ?? values.glid_L) + " m" : "");
+      + (strip ? " · Lstöd " + precise(values.L_vagg ?? values.glid_L) + " m" : "");
     if (!queue.paused && mode === "import") showMessage(importBusy ? "Placerar sula…" : importCaption());
   }
   function controlImport(operation) {
@@ -3398,7 +3408,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       ident.append(badge, utilization, interval);
       const info = node("div", "gp-reference-info");
       info.append(mathText("p", "gp-reference-geometry", Object.entries(group.geometry).map(([name, value]) =>
-        ({t: "t", b: "b_x", l: "b_y", L_vagg: "L_vägg"}[name] || name) + " " + precise(value) + " m").join(" · ")));
+        ({t: "t", b: "b_x", l: "b_y", L_vagg: "L_stöd"}[name] || name) + " " + precise(value) + " m").join(" · ")));
       info.append(node("p", "gp-reference-caption", group.unit === "kN/m" ? "Linjelast" : "Punktlast"));
       for (const phase of ["brott", "bruk"]) {
         const line = node("p", "gp-reference-load"), value = group.loads[phase];
@@ -3957,7 +3967,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (data.settlement_error || data.display_error || data.stiffness_error)
         block.append(node("p", "gp-result-note", data.display_error || data.stiffness_error || data.settlement_error));
       if (form === "linje" && data.model === "PS" && Number.isFinite(data.line_length))
-        block.append(mathText("p", "gp-result-note", "K_linje = K_punkt / L_vägg. L_vägg = " + precise(data.line_length) + " m. PS-modellens lastspridning behålls."));
+        block.append(mathText("p", "gp-result-note", "K_linje = K_punkt / L_stöd. L_stöd = " + precise(data.line_length) + " m. PS-modellens lastspridning behålls."));
       block.append(node("p", "gp-result-note", "2:1-metoden med nominella grundmått. "
         + (data.profile_source === "own" ? "Egen jordprofil. " : "Projektets jordprofil. ")
         + "Styvheten är lastoberoende. Isoleringens deformation, krypning och konsolideringstid ingår inte."));
@@ -4029,7 +4039,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const dimensions = [];
       if (!onlyH && summary && Number.isFinite(summary.b) && Number.isFinite(tag.values.l)) {
         dimensions.push("bₓ " + number(summary.b) + " m");
-        if (tag.values.lang === 0 || tag.values.l !== 1) dimensions.push("bᵧ " + number(tag.values.l) + " m");
+        if (tag.values.lang === 0) dimensions.push("bᵧ " + number(tag.values.l) + " m");
         if (Number.isFinite(tag.values.t)) dimensions.push("t " + precise(tag.values.t) + " m");
       }
       const geometry = dimensions.join(" · ");
@@ -4038,7 +4048,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         ? onlyH ? "Endast H-stabilitet" + (geometry ? " · " + geometry : "")
           : "U " + number(summary.utnyttjandegrad * 100, 1) + " % · " + geometry
         : ({ new: "Kontrollera indata", stale: "Uppdaterar…", error: "Kontrollera indata" }[tagState] || "Kontrollera indata");
-      const accessibleGeometry = !onlyH && summary && (tag.values.lang === 0 || tag.values.l !== 1) ? ", mått i ordningen bₓ × bᵧ" : "";
+      const accessibleGeometry = !onlyH && summary && tag.values.lang === 0 ? ", mått i ordningen bₓ × bᵧ" : "";
       const governingLabel = !onlyH && summary?.styrande;
       const governing = governingLabel ? ", styrande: " + governingLabel : "";
       marker.setAttribute("aria-label", label + ", " + insulationText + ", " + text + accessibleGeometry + governing);
@@ -4047,13 +4057,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       marker.append(heading, mathText("span", "gp-tag-result", text));
       if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
+      const adjusted = adjustedLineLoad(tag);
+      if (adjusted && !onlyH) {
+        const badge = node("span","gp-load-adjusted","Omräknad last");
+        badge.title = "Omräknad för justerad sullängd. Totallasten är oförändrad."; loads.append(badge);
+      }
       const accessibleLoads = [];
       for (const group of model.get("schema").load_groups || []) {
         if (onlyH) continue;
-        if (group.label === "Bruk" && !insulated && !tag.settlement) continue;
+        if (group.label === "Bruk" && !insulated && !tag.settlement && !adjusted) continue;
         const tokens = [];
         for (const field of group.fields) {
-          const raw = values[field.name];
+          const raw = displayedLineLoad({...tag,values},field.name);
           const value = typeof raw === "string" ? Number(raw.replace(",", ".")) : raw;
           if (typeof value !== "number" || !Number.isFinite(value) || value === 0) continue;
           const unit = field.unit + (lineLoads(values) ? "/m" : "");
@@ -4062,12 +4077,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
             const total = dirty.has(tag.id) ? null : tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"];
             token += " → " + (Number.isFinite(total) ? precise(total) + " kN" : "—");
           }
+          if (adjusted && Number.isFinite(values[field.name])) token += " (urspr. " + precise(values[field.name]) + ")";
           tokens.push(token);
         }
         if (!tokens.length) continue;
         const row = node("span", "gp-tag-load-row");
         const content = node("span", "gp-tag-load-values");
-        content.append(...tokens.map(text => node("span", "", text)));
+        content.append(...tokens.map(text => {
+          const index = text.indexOf(" (urspr.");
+          const span = node("span", "", index < 0 ? text : text.slice(0,index));
+          if(index >= 0) span.append(node("span","gp-load-original",text.slice(index)));
+          return span;
+        }));
         row.append(node("strong", "", group.label), content);
         loads.append(row);
         accessibleLoads.push(group.label + ": " + tokens.join(", "));
@@ -4079,6 +4100,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
       if (showSlidingBlock) {
         const section = node("span", "gp-tag-sliding");
+        if (adjusted && onlyH) section.append(node("span", "gp-load-adjusted", "Omräknad last"));
         section.append(node("strong", "gp-tag-sliding-heading", "Glidmotstånd – globalt"));
         const grid = node("span", "gp-tag-sliding-grid");
         const data = node("span", "gp-tag-sliding-inputs"), capacities = node("span", "gp-tag-sliding-capacities");
@@ -4086,14 +4108,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           parent.append(symbolNode({base, subscript}), node(bold ? "b" : "span", "", value));
         };
         const value = (name, unit) => {
-          const raw = values[name];
+          const raw = name === "glid_L" && values.physical_length ? values.l : name === "V_Ed_EQU" ? displayedLineLoad({...tag,values},name) : values[name];
           const n = raw == null || raw === "" ? NaN : Number(String(raw).replace(",", "."));
           return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
         };
         add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
-        if (lineLoads(values)) {
-          add(data, "L", "su", value("glid_L", "m"));
-        }
+        if (values.physical_length && Number.isFinite(values.V_Ed_EQU) && displayedLineLoad({...tag,values},"V_Ed_EQU") !== values.V_Ed_EQU)
+          data.children[data.children.length-1].append(node("span", "gp-load-original", " (urspr. " + precise(values.V_Ed_EQU) + ")"));
+        if (lineLoads(values) && !values.physical_length) add(data, "L", "su", value("glid_L", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
           add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
@@ -4112,7 +4134,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderContours();
   }
   const groups = [
-    ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac"]],
+    ["Geometri", ["lang", "inaktiv", "lasttyp", "endast_h_stabilitet", "b", "l", "l_override", "L_vagg_minst_1", "L_vagg", "t", "e_b_plac", "e_l_plac", "length_end"]],
     ["Laster – Brott", ["F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l"],
       "Yttre dimensionerande laster. Ange moment direkt vid sulan; inga moment från horisontallaster läggs till. Sulans egentyngd tillkommer med faktor 1,5."],
     ["Laster – Bruk", ["F_vy_bruk", "M_insp_b_bruk", "M_insp_l_bruk"],
@@ -4200,7 +4222,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         head.setAttribute("scope", "col");
         head.title = label + ": " + field.label + (field.description ? ". " + field.description : "");
         head.setAttribute("aria-label", head.title);
-        const notation = field.display_symbol || (name === "l_override" ? {prefix: "Egen ", base: "b", subscript: "y"}
+        const notation = field.display_symbol || (name === "l_override" ? {prefix: "Justerad ", base: "b", subscript: "y"}
           : name === "glid_x" || name === "glid_y"
           ? {prefix: "Bidrar ", base: name === "glid_x" ? "X" : "Y", subscript: "g"} : {});
         const sortButton = button("", () => chooseTableSort(name), "gp-table-sort");
@@ -4255,11 +4277,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
     if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
     if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
-    if (["L_vagg_minst_1", "l_override"].includes(name) && tag.values.lang === 0) return "—";
+    if (["L_vagg_minst_1", "l_override"].includes(name) && tag.values.lang === 0 && !tag.values.physical_length) return "—";
     if (name === "glid_L" && !lineLoads(tag.values)) return "—";
     if (name === "lasttyp" && tag.values.lang === 1) return "—";
     if (name === "L_vagg" && !lineLoads(tag.values)) return "—";
-    if (name === "L_vagg" && tag.values.lang === 1 && tag.values.L_vagg_minst_1) return "1";
+
     if (value == null || value === "") return "—";
     const field = tableSchema.get(name);
     if (field?.type === "bool") return value ? "Ja" : "Nej";
@@ -4488,7 +4510,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (name === "label") draft.label = raw;
       else draft.values[name] = raw;
       if (draft.values.endast_h_stabilitet) draft.values.isolering = false;
-      if (name === "l_override" && !value && target.values.lang === 1) draft.values.l = "1";
+      if (name === "l_override" && !value && target.values.lang === 1) draft.values.l = target.values.physical_length ? String(target.values.L_vagg ?? "") : "1";
       drafts.set(target.id, draft);
       if (calculationInput && value !== target.values[name]) dirty.add(target.id);
       const revision = (edits.get(target.id) || 0) + 1;
@@ -4663,11 +4685,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (["L_vagg_minst_1", "l_override"].includes(name) && Number(values.lang) === 0)
+        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (name === "L_vagg_minst_1" || name === "l_override" && Number(values.lang) === 0 && !values.physical_length)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
-          || ignored || (name === "l" && tag.values.lang === 1 && !ownLength)
-          || (name === "L_vagg" && Number(values.lang) === 1 && atLeastOne);
+          || ignored || (name === "l" && (tag.values.lang === 1 || values.physical_length && physicalType(tag) === "vaggsula") && !ownLength)
+          || (name === "L_vagg" && sourceLengthLocked(tag)) || (name === "length_end" && (Number(values.lang) !== 1 || !ownLength))
+          ;
         control.title = inputLocked(tag) ? "Indata är låsta. Lås upp indata för att redigera."
           : inactiveField ? "Inaktiv sula: endast kommentaren kan ändras. Avmarkera Inaktiv för att ändra indata."
           : ignored ? name === "isolering" ? "Endast H-stabilitet använder alltid Utan isolering."
@@ -4675,8 +4698,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           : blocked ? "Välj samma beräkningsmodell och lasttyp för att ändra detta fält gemensamt."
           : name === "label" || name === "lang" ? "Ändras endast för denna sula."
           : selected.has(tag.id) && editableTags.length > 1 ? "Ändrar denna kolumn för " + editableTags.length + " markerade sulor med upplåsta indata."
-          : name === "L_vagg" && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Avmarkera för att ange ett kortare linjestöd. Glidning använder L_su."
-          : name === "l" && tag.values.lang === 1 ? "Aktivera Egen längd för att ändra fördelningslängden 1 m. bᵧ ändrar kontaktarean, inte den yttre lastresultanten." : "";
+          : name === "L_vagg" && sourceLengthLocked(tag) ? "Importerad L_stöd är låst; uppdateras genom lastimport."
+          : name === "L_vagg" && !values.physical_length && Number(values.lang) === 1 && atLeastOne ? "Minst 1 m: lokal kontroll använder 1 m. Avmarkera för att ange ett kortare linjestöd. Glidning använder L_su."
+          : name === "l" && tag.values.lang === 1 ? "Aktivera Justerad längd för att ändra bᵧ. Totalresultanten behålls och lastintensiteten räknas om." : "";
       }
     }
     if (tableSoilEditing && !soilBusy && tableSoilEditing.basis !== tableSoilBasis(tableSoilEditing.id)) closeTableSoilEditor();
@@ -4716,8 +4740,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (control === document.activeElement) continue;
         const value = name === "label" ? draft?.label ?? tag.label : draft?.values[name] ?? tableSettingValue(tag, name);
         if (field?.type === "bool") control.checked = value ?? false;
-        else control.value = name === "L_vagg" && tag.values.lang === 1
-          && (draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1) ? "1" : tableText(value);
+        else control.value = tableText(value);
       }
     }
     tableSort = tableView().sort;
@@ -4768,7 +4791,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (settlementResultFields.has(name)) return tableSettlementResult(tag, name).value;
         if (field?.type === "result") return dirty.has(tag.id) ? null : tag.load_resultants?.[field.phase];
         const raw = drafts.get(tag.id)?.values[name] ?? tableSettingValue(tag, name);
-        if (name === "L_vagg" && tag.values.lang === 1 && tag.values.L_vagg_minst_1) return 1;
+
         if (tableDisplayValue(name, raw, tag) === "—" || typeof raw === "string" && !raw.trim()) return null;
         return ["text", "choice", "profile", "foundation"].includes(field?.type) ? tableDisplayValue(name, raw, tag)
           : field?.type === "bool" ? Number(raw) : Number(String(raw).replace(",", "."));
@@ -5230,12 +5253,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const hasInactive = tags.some(tag => tag.values.inaktiv);
     const syncLength = () => {
       const length = bulkInputs.get("l"), override = bulkInputs.get("l_override");
-      if (strip && length && override) {
+      if ((strip || tags.every(t=>t.values.physical_length && physicalType(t)==="vaggsula")) && length && override) {
         const enabled = override.choose.checked ? override.input.value === "true" : tags.every(tag => tag.values.l_override);
         length.input.disabled = length.choose.disabled = !enabled;
         if (!enabled) length.choose.checked = false;
-        length.row.title = enabled ? "" : "Aktivera Egen längd för att ändra bᵧ.";
+        length.row.title = enabled ? "" : "Aktivera Justerad längd för att ändra bᵧ.";
       }
+      const source = bulkInputs.get("L_vagg");
+
       const support = bulkInputs.get("L_vagg"), minimum = bulkInputs.get("L_vagg_minst_1");
       if (strip && support && minimum) {
         const enabled = minimum.choose.checked ? minimum.input.value === "false" : tags.every(tag => !tag.values.L_vagg_minst_1);
@@ -5269,6 +5294,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           if (unitElement) unitElement.textContent = common && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
         }
       }
+      if(source && tags.some(sourceLengthLocked)) {source.blocked = true;source.input.disabled = source.choose.disabled = true;source.choose.checked = false;source.row.title = "Importerad L_stöd är låst.";}
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (all.length > tags.length ? (all.length - tags.length) + " sulor med låsta indata hoppas över. " : "")
@@ -5282,7 +5308,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         && (!hasInactive || ["inaktiv", "kommentar"].includes(name))
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
         && !(strip && name === "lasttyp")
-        && !(!mixed && !strip && ["L_vagg_minst_1", "l_override"].includes(name)));
+        && !(!mixed && !strip && ["L_vagg_minst_1", "l_override"].includes(name) && !tags.every(t=>t.values.physical_length && physicalType(t)==="vaggsula")));
       if (!available.length) continue;
       const group = node("details", "gp-group");
       group.open = index === 0 || label === "Isolering";
@@ -5440,38 +5466,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (note && !readOnly) group.append(mathText("p", "gp-field-note", note));
       for (const name of names) {
         const field = fieldSchema.get(name);
-        if (!field || ["l_override", "L_vagg_minst_1"].includes(name)) continue;
+        if (!field || ["l_override", "L_vagg_minst_1", "glid_L"].includes(name)) continue;
         const row = node(readOnly || ["l", "L_vagg"].includes(name) ? "div" : "label", "gp-field");
         const caption = node("span", "gp-field-caption", field.label);
         if (name === "l" && fieldSchema.has("l_override")) {
           const override = node(readOnly ? "span" : "label", "gp-length-override");
           const control = node(readOnly ? "span" : "input");
-          if (readOnly) {control.textContent = "Egen längd: " + (tag.values.l_override ? "Ja" : "Nej"); override.append(control);}
+          if (readOnly) {control.textContent = "Justerad längd: " + (tag.values.l_override ? "Ja" : "Nej"); override.append(control);}
           else {
             control.type = "checkbox"; control.name = "l_override";
-            control.setAttribute("aria-label", "Egen längd för bᵧ");
+            control.setAttribute("aria-label", "Justerad längd för bᵧ");
             control.checked = draft?.values.l_override ?? tag.values.l_override ?? false;
-            control.title = "Avmarkerad använder bᵧ = 1 m. Markerad tillåter eget mått.";
-            override.append(control, node("span", "", "Egen längd"));
+            control.title = "Avmarkerad följer bᵧ importerad L_stöd. Markerad tillåter justerad sullängd.";
+            override.append(control, node("span", "", "Justerad längd"));
             control.addEventListener("input", () => edit(true));
           }
           caption.append(override);
           inputs.set("l_override", {input: control, row: override, unit: node("span"), group});
-        }
-        if (name === "L_vagg" && fieldSchema.has("L_vagg_minst_1")) {
-          const override = node(readOnly ? "span" : "label", "gp-length-override");
-          const control = node(readOnly ? "span" : "input");
-          if (readOnly) {control.textContent = "Minst 1 m: " + (tag.values.L_vagg_minst_1 ? "Ja" : "Nej"); override.append(control);}
-          else {
-            control.type = "checkbox"; control.name = "L_vagg_minst_1";
-            control.setAttribute("aria-label", "Linjestöd minst 1 m vid lokal kontroll");
-            control.checked = draft?.values.L_vagg_minst_1 ?? tag.values.L_vagg_minst_1 ?? true;
-            control.title = "Lokal bärighets- och isoleringskontroll använder 1 m. Global glidning använder L_su.";
-            override.append(control, node("span", "", "Minst 1 m"));
-            control.addEventListener("input", () => edit(true));
-          }
-          caption.append(override);
-          inputs.set("L_vagg_minst_1", {input: control, row: override, unit: node("span"), group});
         }
         const notation = field.display_symbol || {};
         const symbol = symbolNode(notation, "gp-field-symbol");
@@ -5600,10 +5611,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         : "Pelarsula: ange punktlaster och moment. Egentyngd tillkommer i beräkningen.";
     if (strip) {
       basis.replaceChildren(mathText("span", "", "Väggsula: laster och moment anges per meter linjestöd. Yttre lastresultant = angivet värde × "
-        + (atLeastOne ? "1 m (Minst 1 m)." : "kort L_vägg.")
+        + (current()?.values.physical_length ? "L_stöd. Beräknad intensitet följer L_stöd / b_y." : "den äldre lokala referenslängden.")
         + " Sulmåttet b_y anger fördelningslängden under sulan och ändrar inte den yttre lastresultanten. Egentyngd tillkommer."));
     }
-    if (!strip && line) basis.replaceChildren(mathText("span", "", "Pelarsulemodell med linjelast: laster och moment anges per meter linjestöd och multipliceras med hela L_vägg. b_x och b_y anger kontaktmåtten. Egentyngd tillkommer i beräkningen."));
+    if (!strip && line) basis.replaceChildren(mathText("span", "", "Pelarsulemodell med linjelast: laster och moment anges per meter linjestöd och multipliceras med hela L_stöd. b_x och b_y anger kontaktmåtten. Egentyngd tillkommer i beräkningen."));
     if (onlyH) basis.replaceChildren(mathText("span", "", "Endast H-stabilitet: jordens bärighet och isolering kontrolleras inte. Sättning och styvhet beräknas när jordprofil och sulmått finns. Sättningen använder Brukslast inklusive sulans egentyngd. V_Ed,EQU ska redan innehålla sulans egentyngd."));
     for (const [name, entry] of inputs) {
       if (name === "lang") {
@@ -5618,8 +5629,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         continue;
       }
       if (name === "l_override") {
-        entry.row.hidden = !strip;
-        if (!readOnly) {entry.input.disabled = !strip; entry.input.required = false;}
+        const adjustable = strip || current()?.values.physical_length && physicalType(current()) === "vaggsula";
+        entry.row.hidden = !adjustable;
+        if (!readOnly) {entry.input.disabled = !adjustable; entry.input.required = false;}
+        continue;
+      }
+      if (name === "length_end") {
+        entry.row.hidden = !strip || !inputs.get("l_override")?.input.checked;
+        if (!readOnly) entry.input.disabled = entry.row.hidden;
         continue;
       }
       if (name === "L_vagg_minst_1") {
@@ -5628,18 +5645,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         continue;
       }
       if (name === "L_vagg") {
-        entry.row.hidden = !line;
-        entry.unit.textContent = "m";
-        entry.row.title = strip ? "Lokal lastomräkning: Minst 1 m använder 1 m, annars angiven kort längd. Glidning använder L_su."
-          : "Hela linjestödslängden används för att omräkna linjelasten till total kraft. Sulmåtten ändrar inte resultanten.";
-        if (readOnly) entry.input.textContent = strip && atLeastOne ? "1" : current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg, 10);
+        entry.row.hidden = !line; entry.unit.textContent = "m";
+        entry.row.title = "Importerad L_stöd är källdata och ändras endast genom ny lastimport.";
+        if (readOnly) entry.input.textContent = current()?.values.L_vagg == null ? "—" : number(current().values.L_vagg,10);
         else {
-          entry.input.hidden = strip && atLeastOne;
-          entry.fixed.hidden = !entry.input.hidden;
-          entry.input.disabled = !line || (strip && atLeastOne);
-          entry.input.required = line && !(strip && atLeastOne) && !onlyH;
-          entry.input.placeholder = !strip ? "Hela linjestödslängden" : "Kortare än 1 m";
-          if (entry.input.disabled) entry.input.setCustomValidity("");
+          entry.input.hidden = false; if(entry.fixed) entry.fixed.hidden = true;
+          entry.input.disabled = !line || sourceLengthLocked(current());
+          entry.input.required = line && !onlyH && !entry.input.disabled;
+          entry.input.placeholder = "Lastgivande stödlängd";
+          if(entry.input.disabled)entry.input.setCustomValidity("");
         }
         continue;
       }
@@ -5662,8 +5676,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         continue;
       }
       entry.input.disabled = ignored || (insulationField && !insulated)
-        || (name === "l" && strip && !inputs.get("l_override")?.input.checked);
-      if (name === "l" && strip && !inputs.get("l_override")?.input.checked) entry.input.value = "1";
+        || (name === "l" && (strip || current()?.values.physical_length && physicalType(current()) === "vaggsula") && !inputs.get("l_override")?.input.checked);
+      if (name === "l" && (strip || current()?.values.physical_length && physicalType(current()) === "vaggsula") && !inputs.get("l_override")?.input.checked) entry.input.value = current()?.values.physical_length ? current().values.L_vagg ?? "" : "1";
       entry.input.required = entry.input.type !== "checkbox" && fieldSchema.get(name).type !== "text"
         && !entry.input.disabled && !onlyH && (insulated || !name.endsWith("_bruk"));
       if (entry.input.disabled) entry.input.setCustomValidity("");
@@ -5859,7 +5873,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     results.append(table, node("p", "gp-result-note", "Jord: U = last / bärförmåga i brottgränstillstånd enligt befintlig modell."));
     if (r.load_conversion) {
       const c = r.load_conversion;
-      results.append(mathText("p", "gp-field-note", "Yttre V i brott: " + precise(tag.values.F_vy) + " kN/m × L_vägg "
+      results.append(mathText("p", "gp-field-note", "Yttre V i brott: " + precise(tag.values.F_vy) + " kN/m × L_stöd "
         + precise(c.support_length) + " m" + (c.at_least_one ? " (Minst 1 m)" : "") + " = " + precise(c.brott) + " kN. Fördelningslängd b_y = " + precise(c.by)
         + " m och påverkar inte den yttre lastresultanten. Resultatet ovan inkluderar sulans egentyngd."));
     }
@@ -6226,7 +6240,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const geometry = footprintGeometry({...tag, values: drag.contourValues}, p, bg, calibration()); if (!geometry) return;
       if (drag.handle) {
         const next = JSON.parse(JSON.stringify(p));
-        if (drag.handle === "angle") next.angle_deg = Math.atan2(-(point.y*bg.height-geometry.anchor.y), point.x*bg.width-geometry.anchor.x)*180/Math.PI;
+        if (drag.handle === "angle") {
+          const origin = p.kind === "wall" ? {x:p.start.x*bg.width,y:p.start.y*bg.height} : geometry.anchor;
+          next.angle_deg = Math.atan2(-(point.y*bg.height-origin.y),point.x*bg.width-origin.x)*180/Math.PI;
+        }
         else next[drag.handle] = point;
         contourPlacementDraft = {id: tag.id, placement: next};
       } else {

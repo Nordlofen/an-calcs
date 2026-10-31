@@ -17,6 +17,10 @@ def bearing_load_length(values):
     if not line_loads(values):
         return None
     strip = values["lang"] == 1
+    if values.get("physical_length"):
+        length = _number(values.get("L_vagg"), "L_stöd")
+        if length <= 0: raise ValueError("L_stöd måste vara större än noll.")
+        return length
     length = 1.0 if strip and values.get("L_vagg_minst_1", True) else values.get("L_vagg")
     if length is None:
         raise ValueError("Ange linjestödslängden L_vägg." if not strip else
@@ -109,6 +113,10 @@ def read_loads(data, *, existing_labels=(), available=1000):
                 raise ValueError(f"{label}: linjestödslängden måste vara större än noll.")
             # Independent inputs, with the same initial value. The project
             # updater preserves a footing length that was subsequently edited.
+            values["physical_length"] = True
+            values["equ_reference_length"] = values["L_vagg"]
+            values["l"] = values["L_vagg"]
+            values["l_override"] = False
             values["glid_L"] = values["L_vagg"]
             values["L_vagg_minst_1"] = values["L_vagg"] >= 1
         results = support.get("results")

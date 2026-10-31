@@ -3,6 +3,7 @@
 import copy
 import json
 import math
+from .grundplan_lengths import intensity_data
 from .grundplan_canvas import DEFAULT_BOUNDS, valid_coordinate
 import re
 from bisect import bisect_right
@@ -292,7 +293,10 @@ def group_data(tags, settings):
             group["count"] += 1
             assignments[tag["id"]] = group
             continue
-        value = values.get(LOAD_FIELDS[phase] if category == "V" else category)
+        value = values.get(category)
+        if category == "V":
+            name = LOAD_FIELDS[phase]
+            value = (intensity_data(values) or {}).get("current", {}).get(name, values.get(name))
         if not _finite(value):
             key = "missing"
             if key not in special:

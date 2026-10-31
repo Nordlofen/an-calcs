@@ -94,7 +94,7 @@ class TestCommonFoundations(unittest.TestCase):
 
     def test_missing_load_or_full_length_never_produces_partial_settlement(self):
         self.create()
-        for changes in ({'F_vy_bruk': None}, {'F_vy_bruk': 100, 'L_vagg': None}):
+        for changes in ({'F_vy_bruk': None},):
             self.plan.uppdatera(self.ids[0], indata=changes)
             item = self.plan.gemensamma_fundament[0]
             self.assertIsNone(item['external'])
@@ -121,9 +121,9 @@ class TestCommonFoundations(unittest.TestCase):
         self.create()
         before = self.plan._document()
         reply = self.command(**self.payload(values={'b': 5, 'l': 6, 't': .5},
-            member_updates={self.ids[0]: {'F_vy_bruk': 150, 'L_vagg': 4}}))
+            member_updates={self.ids[0]: {'F_vy_bruk': 150}}))
         self.assertTrue(reply['ok'])
-        self.assertEqual(self.plan.gemensamma_fundament[0]['external'], 1270)
+        self.assertEqual(self.plan.gemensamma_fundament[0]['external'], 970)
         self.assertTrue(self.plan._tag(self.ids[0])['values']['L_vagg_minst_1'])
         self.assertEqual(self.plan._history.state['undo_count'], 1)
         after = self.plan._document()

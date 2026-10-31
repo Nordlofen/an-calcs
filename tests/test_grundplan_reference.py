@@ -72,7 +72,7 @@ class TestReference(unittest.TestCase):
         for i, values in enumerate(({"t": .3}, {"b": 1.5}, {"phi_k": 33},
                                      {"l_override": True, "l": 2}), 3):
             self.add("VS." + str(i), **values)
-        self.assertEqual(len(self.plan.referensgrupper["groups"]), 5)
+        self.assertEqual(len(self.plan.referensgrupper["groups"]), 4)
 
     def test_short_and_standard_walls_share_references_without_changing_local_results(self):
         from an_calcs.notebook.grundplan_loads import load_resultants
@@ -88,7 +88,7 @@ class TestReference(unittest.TestCase):
             pairs.append(pair)
             for i, (ident, length) in enumerate(zip(pair, lengths)):
                 self.assertAlmostEqual(load_resultants(self.plan._tag(ident)["values"])["brott"],
-                                       (100 + i * 50) * min(length, 1))
+                                       (100 + i * 50) * length)
         before = copy.deepcopy((self.plan.taggar, self.plan.resultat))
         self.plan.referens = {"enabled": True}
         groups = self.plan.referensgrupper["groups"]

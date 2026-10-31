@@ -52,7 +52,7 @@ class TestLoadParser(unittest.TestCase):
         before = copy.deepcopy(data)
         items = read_loads(encode(data))
         self.assertEqual(items, [
-            {"label": "W1", "kind": "vaggsula", "values": {"lasttyp": 1, "F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2, "L_vagg_minst_1": True}},
+            {"label": "W1", "kind": "vaggsula", "values": {"lasttyp": 1, "F_vy": 80, "F_vy_bruk": 25, "V_Ed_EQU": 30, "glid_L": 6.2, "L_vagg": 6.2, "L_vagg_minst_1": True, "physical_length": True, "equ_reference_length":6.2, "l":6.2,"l_override":False}},
             {"label": "P1", "kind": "pelarsula", "values": {"lasttyp": 0, "F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60}}])
         self.assertEqual(data, before)
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
@@ -79,7 +79,7 @@ class TestLoadParser(unittest.TestCase):
         self.assertTrue(items[0]["values"]["L_vagg_minst_1"])
         self.assertEqual(items[1]["values"], {"lasttyp": 0, "F_vy": 120, "F_vy_bruk": 50, "V_Ed_EQU": 60})
         self.assertEqual(items[2]["values"], {"lasttyp": 1, "F_vy": -10.5, "F_vy_bruk": 0,
-            "V_Ed_EQU": 30, "glid_L": .6, "L_vagg": .6, "L_vagg_minst_1": False})
+            "V_Ed_EQU": 30, "glid_L": .6, "L_vagg": .6, "L_vagg_minst_1": False, "physical_length":True,"equ_reference_length":.6,"l":.6,"l_override":False})
         self.assertEqual(read_loads(b"\xef\xbb\xbf" + encode(data)), items)
         self.assertEqual(data, before)
 
@@ -160,7 +160,7 @@ class TestLoadPlacement(unittest.TestCase):
     def test_both_versions_can_place_and_update_the_same_project(self):
         self.file.write_bytes(encode(document_v2()))
         wall, pad = self.place_both()
-        self.plan.uppdatera(wall, indata={"lang": 0, "b": .9, "l": 1.3, "glid_L": 8})
+        self.plan.uppdatera(wall, indata={"lang": 0, "b": .9, "l": 1.3})
         self.plan.uppdatera(pad, indata={"b": 1.8, "l": 2.1})
         for factory, extra_load in ((document, 10), (document_v2, 20)):
             data = factory()
@@ -182,7 +182,7 @@ class TestLoadPlacement(unittest.TestCase):
             self.assertEqual(wall_tag["values"]["V_Ed_EQU"], 30 + extra_load)
             self.assertEqual(wall_tag["values"]["L_vagg"], .6)
             self.assertFalse(wall_tag["values"]["L_vagg_minst_1"])
-            self.assertEqual(wall_tag["values"]["glid_L"], 8)
+            self.assertEqual(wall_tag["values"]["equ_reference_length"], .6)
             self.assertAlmostEqual(wall_tag["summary"]["load_conversion"]["brott"], (80 + extra_load) * .6)
             self.assertEqual(pad_tag["values"]["F_vy"], 120 + extra_load)
 
@@ -210,7 +210,7 @@ class TestLoadPlacement(unittest.TestCase):
             tag = self.plan._tag(ident)
             for name in ("id", "label", "x", "y", "page"):
                 self.assertEqual(tag[name], before[ident][name])
-            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"glid_L", "L_vagg"} if ident == wall else set())
+            updated_fields = {"F_vy", "F_vy_bruk", "V_Ed_EQU"} | ({"l", "equ_reference_length", "glid_L", "L_vagg"} if ident == wall else set())
             for name, value in before[ident]["values"].items():
                 if name not in updated_fields:
                     self.assertEqual(tag["values"][name], value)
@@ -246,7 +246,7 @@ class TestLoadPlacement(unittest.TestCase):
         data["supports"][0]["results"][2]["V"] = 50
         self.plan._start_load_import(encode(data), "equ.json")
         self.assertNotEqual((self.plan._tag(wall)["summary"], self.plan.resultat), before)
-        self.assertEqual(self.plan._tag(wall)["summary"]["load_conversion"]["brott"], 80)
+        self.assertEqual(self.plan._tag(wall)["summary"]["load_conversion"]["brott"], 800)
         self.assertAlmostEqual(self.plan.glidningsresultat["x"]["H_Rd"], 200)
 
     def test_ambiguous_labels_type_conflict_and_invalid_late_support_do_not_partially_update(self):
@@ -326,7 +326,7 @@ class TestLoadPlacement(unittest.TestCase):
             self.assertEqual(tag["status"], "calculated")
             self.assertIsNotNone(tag["summary"])
         self.assertEqual(self.plan._tag(first)["values"]["glid_L"], 6.2)
-        self.assertNotEqual(self.plan._tag(first)["values"]["l"], 6.2)
+        self.assertEqual(self.plan._tag(first)["values"]["l"], 6.2)
         self.assertIsNone(self.plan._tag(second)["values"]["glid_L"])
         self.plan.uppdatera(first, indata={"b": .9})
         self.assertNotEqual(self.plan._tag(second)["values"]["b"], .9)

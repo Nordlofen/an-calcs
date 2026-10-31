@@ -568,3 +568,7 @@
 
 .an-grundplan .gp-contour-shortcut { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gp-line); }
 .an-grundplan .gp-contour-editor select { max-width: 100%; min-width: 220px; padding: 7px; border: 1px solid var(--gp-line); border-radius: 5px; background: white; color: var(--gp-ink); }
+
+.an-grundplan .gp-load-adjusted { display: block; font-size: .9em; font-weight: 400; padding: 2px 0; }
+.an-grundplan .gp-load-original { font-size: .85em; font-weight: 400; opacity: .8; }
+.an-grundplan .gp-tag-load-values { font-weight: 400; }

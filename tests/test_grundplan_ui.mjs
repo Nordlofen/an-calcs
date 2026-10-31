@@ -139,7 +139,7 @@ const { createResultModel } = await import("data:text/javascript;base64," + Buff
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
 names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
-names.push("L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "inaktiv", "kommentar", "lasttyp");
+names.push("length_end", "L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "inaktiv", "kommentar", "lasttyp");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
 const loadGroups = [{label: "Brott", fields: [["F_vy", "V", "kN"], ["F_hb", "Hₓ", "kN"], ["F_hl", "Hᵧ", "kN"], ["M_insp_b", "Mₓ", "kNm"], ["M_insp_l", "Mᵧ", "kNm"]]},
   {label: "Bruk", fields: [["F_vy_bruk", "V", "kN"], ["M_insp_b_bruk", "Mₓ", "kNm"], ["M_insp_l_bruk", "Mᵧ", "kNm"]]}]
@@ -161,12 +161,13 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
   tag.values.l_override = false;
   tag.values.endast_h_stabilitet = false;
   tag.values.inaktiv = false;
+  tag.values.length_end = 0;
   tag.values.lasttyp = 0; // A wall model always uses line units; pads default to total inputs.
   const data = { state: { title: "Test", subtitle: "Projektets underrubrik", tags: [tag], label_size: 100 },
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
-      display_symbol: name === "L_vagg" ? {base: "L", subscript: "vägg"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
-      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp"].includes(name) ? "choice" : "number",
+      display_symbol: name === "L_vagg" ? {base: "L", subscript: "stöd"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp", "length_end"].includes(name) ? "choice" : "number",
       unit: loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
       options: name === "lasttyp" ? [{value: 0, label: "Punktlast [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
@@ -1095,7 +1096,7 @@ test("load import uploads JSON bytes without replacing existing footing drafts",
 test("placement advances once per acknowledged click, shows types and creates no dialog", t => {
   const ui = setup(t), imported = importFixture(ui);
   assert.equal(ui.byClass("gp-import-bar").hidden, false);
-  ui.byText("Brott V 80 kN/m · Bruk V 25 kN/m · EQU V 30 kN/m · Lvägg 6,2 m");
+  ui.byText("Brott V 80 kN/m · Bruk V 25 kN/m · EQU V 30 kN/m · Lstöd 6,2 m");
   ui.place();
   const first = ui.sent.at(-1);
   assert.equal(first.action, "place_import");
@@ -1184,7 +1185,7 @@ test("imported footing inputs remain editable including unused Bruk and EQU load
   const marker = () => ui.find(e => e.dataset.tagId === "W1");
   marker().click();
   for (const [name, text, value] of [["F_vy", "150", 150], ["F_vy_bruk", "60", 60],
-      ["V_Ed_EQU", "70", 70], ["glid_L", "7,5", 7.5], ["b", "0,9", .9]]) {
+      ["V_Ed_EQU", "70", 70], ["b", "0,9", .9]]) {
     const field = ui.field(name);
     assert.equal(field.disabled, false, name + " is editable");
     assert.equal(field.parent.hidden, false, name + " is visible");
@@ -1197,7 +1198,7 @@ test("imported footing inputs remain editable including unused Bruk and EQU load
   assert.deepEqual(ui.tag, original);
   assert.deepEqual(ui.data.state.tags.find(tag => tag.id === "P1"), pad);
   ui.byText("Minimera").click(); marker().click();
-  assert.equal(ui.field("glid_L").value, "7,5");
+  assert.ok(!ui.elements().some(e=>e.name === "glid_L"));
   assert.equal(ui.field("V_Ed_EQU").value, "70");
   assert.equal(ui.field("F_vy_bruk").value, "60");
   assert.equal(wall.values.glid_x, false); assert.equal(wall.values.isolering, false);
@@ -1206,7 +1207,7 @@ test("imported footing inputs remain editable including unused Bruk and EQU load
 test("update-only import replaces old load drafts, preserves geometry drafts and remains repeatable", async t => {
   const ui = setup(t);
   ui.data.state.sliding = {enabled: true}; ui.changed(); ui.marker().click();
-  for (const [name, text] of [["F_vy", "99"], ["F_vy_bruk", "40"], ["V_Ed_EQU", "50"], ["glid_L", "3"], ["b", "0,8"]]) {
+  for (const [name, text] of [["F_vy", "99"], ["F_vy_bruk", "40"], ["V_Ed_EQU", "50"], ["b", "0,8"]]) {
     ui.field(name).value = text; ui.field(name).dispatch("input");
     Object.assign(ui.tag.values, ui.sent.at(-1).values); ui.ack(ui.sent.at(-1));
   }
@@ -1223,7 +1224,7 @@ test("update-only import replaces old load drafts, preserves geometry drafts and
   assert.equal(ui.byClass("gp-status").textContent, "1 befintliga sulor uppdaterade. Inga nya sulor att placera.");
   assert.equal(ui.byText("Importera/Uppdatera lasteffekt").disabled, false);
   ui.marker().click();
-  for (const [name, text] of [["F_vy", "160"], ["F_vy_bruk", "0"], ["V_Ed_EQU", "70"], ["glid_L", "7,5"], ["b", "0,8"]]) {
+  for (const [name, text] of [["F_vy", "160"], ["F_vy_bruk", "0"], ["V_Ed_EQU", "70"], ["b", "0,8"]]) {
     assert.equal(ui.field(name).value, text, name + " reflects the import and preserves unrelated drafts");
     assert.equal(ui.field(name).disabled, false);
   }
@@ -1405,7 +1406,7 @@ test("wall by is editable in table and dialog and can be overridden for selected
   const ui = setup(t);
   const length = tableField(ui, ui.tag.id, "l");
   assert.equal(length.value, "1"); assert.equal(length.disabled, true);
-  assert.match(length.title, /Aktivera Egen längd/);
+  assert.match(length.title, /Aktivera Justerad längd/);
   ui.marker().click();
   assert.equal(ui.field("l").parent.parent.hidden, false);
   assert.equal(ui.field("l").disabled, true);
@@ -1423,8 +1424,8 @@ test("wall by is editable in table and dialog and can be overridden for selected
   assert.deepEqual(ui.sent.at(-1).values, {l: 2.4});
   ui.tag.values.l = second.values.l = 2.4; ui.changed(); ui.ack(ui.sent.at(-1));
   assert.equal(length.value, "2,4"); assert.equal(length.disabled, false);
-  assert.match(ui.byClass("gp-tag-result").textContent, /bₓ 1 m · bᵧ 2,4 m · t 1 m/);
-  assert.match(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
+  assert.equal(ui.byClass("gp-tag-result").textContent,"U 75 % · bₓ 1 m · t 1 m");
+  assert.doesNotMatch(ui.marker().getAttribute("aria-label"), /bₓ × bᵧ/);
   ui.byText("Ändra markerade").click();
   assert.ok(ui.find(e => e.name === "bulk_l"), "Bulk dialog also includes wall by");
   const bulkOwn = ui.find(e => e.name === "bulk_l_override");
@@ -1434,20 +1435,12 @@ test("wall by is editable in table and dialog and can be overridden for selected
   assert.deepEqual(ui.sent.at(-1).values, {l_override: false});
 });
 
-test("compact dialog checkbox enables wall by and restores one metre when unchecked", t => {
-  const ui = setup(t);
-  ui.marker().click();
-  const own = ui.field("l_override"), length = ui.field("l");
-  assert.equal(own.checked, false); assert.equal(length.disabled, true); assert.equal(length.value, "1");
-  own.checked = true; own.dispatch("input");
-  assert.equal(length.disabled, false);
-  length.value = "2,5"; length.dispatch("input");
-  assert.equal(ui.sent.at(-1).values.l, 2.5); assert.equal(ui.sent.at(-1).values.l_override, true);
-  own.checked = false; own.dispatch("input");
-  assert.equal(length.value, "1"); assert.equal(length.disabled, true);
-  assert.equal(ui.sent.at(-1).values.l, 1); assert.equal(ui.sent.at(-1).values.l_override, false);
-  ui.field("lang").value = "0"; ui.field("lang").dispatch("input");
-  assert.equal(length.disabled, false); assert.equal(own.parent.hidden, true);
+test("adjusted length checkbox restores source length and exposes end selection",t=>{
+  const ui=setup(t);Object.assign(ui.tag.values,{physical_length:true,L_vagg:2.6,l:2.6});ui.tag.imported_length=2.6;ui.changed();ui.marker().click();
+  const own=ui.field('l_override'),length=ui.field('l');assert.equal(length.value,'2.6');assert.equal(length.disabled,true);
+  own.checked=true;own.dispatch('input');assert.equal(length.disabled,false);assert.equal(ui.field('length_end').parent.hidden,false);
+  length.value='2';length.dispatch('input');assert.equal(ui.sent.at(-1).values.l,2);
+  own.checked=false;own.dispatch('input');assert.equal(length.value,'2.6');assert.equal(ui.sent.at(-1).values.l,2.6);
 });
 
 test("bulk wall length requires enabling own length and can be reset for all selected walls", t => {
@@ -2270,12 +2263,12 @@ test("gliding inputs follow load basis and edits hide old resistance without inv
   ui.changed(); ui.ack(edit);
   assert.equal(ui.byClass("gp-tag-sliding-capacities").children[1].textContent, "192 kN");
   ui.field("lang").value = 0; ui.field("lang").dispatch("input");
-  assert.equal(ui.field("glid_L").parent.hidden, false, "A wall checked as a pad still has line EQU input");
-  assert.equal(ui.field("glid_L").disabled, false);
+
+  assert.ok(!ui.elements().some(e=>e.name === "glid_L"));
   assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN/m");
   ui.field("lasttyp").value = 0; ui.field("lasttyp").dispatch("input");
-  assert.equal(ui.field("glid_L").parent.hidden, true);
-  assert.equal(ui.field("glid_L").disabled, true);
+
+
   assert.equal(ui.field("V_Ed_EQU").parent.children.at(-1).textContent, "kN");
   ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
   assert.equal(ui.field("glid_x").disabled, true);
@@ -2303,30 +2296,12 @@ for (const readOnly of [false, true]) test(`H_Rd displays at most one decimal wi
   assert.equal(ui.tag.sliding.x, 1240.704);
 });
 
-for (const readOnly of [false, true]) test(`wall length is editable but hidden on labels without sliding directions (readOnly=${readOnly})`, t => {
-  const ui = setup(t, {readOnly});
-  slidingFixture(ui);
-  ui.tag.values.glid_x = ui.tag.values.glid_y = false; ui.changed();
-  assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · t 1 m");
-  assert.ok(!ui.elements().some(e => e.className === "gp-tag-sliding"));
-  ui.marker().click();
-  const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("glid_L")) : ui.field("glid_L").parent;
-  assert.equal(row.hidden, false);
-  assert.equal(row.parent.hidden, false);
-  if (!readOnly) {
-    assert.equal(ui.field("glid_L").disabled, false);
-    assert.equal(ui.field("glid_L").required, false);
-    ui.field("glid_L").value = "6,2"; ui.field("glid_L").dispatch("input");
-    assert.equal(ui.sent.at(-1).values.glid_L, 6.2);
-    assert.ok(!ui.byClass("gp-tag-result").textContent.includes(" · L "));
-    assert.match(ui.marker().className, /gp-tag-ok/, "Length alone does not invalidate bearing");
-    ui.field("glid_L").value = ""; ui.field("glid_L").dispatch("input");
-    assert.equal(ui.field("glid_L").validity.valid, true, "Unused length may be left empty");
-    assert.ok(!ui.byClass("gp-tag-result").textContent.includes(" · L "));
-    ui.field("isolering").checked = true; ui.field("isolering").dispatch("input");
-    assert.equal(ui.field("glid_L").parent.hidden, false);
-    assert.equal(ui.field("glid_L").disabled, false, "Insulation does not remove wall geometry");
-  }
+for (const readOnly of [false, true]) test(`physical wall hides by on label and has no separate sliding length (readOnly=${readOnly})`, t => {
+  const ui=setup(t,{readOnly}); slidingFixture(ui);
+  Object.assign(ui.tag.values,{physical_length:true,L_vagg:3,l:2,l_override:true});ui.changed();ui.marker().click();
+  assert.doesNotMatch(elementText(ui.byClass("gp-tag-result")),/bᵧ/);
+  assert.ok(!ui.elements().some(e=>e.name === "glid_L"));
+  assert.doesNotMatch(elementText(ui.byClass("gp-tag-sliding-inputs")),/by/);
 });
 
 for (const readOnly of [false, true]) test(`sliding details stay on inactive/new wall labels, with length only in the summary (readOnly=${readOnly})`, t => {
@@ -3518,7 +3493,7 @@ test("inactive checkbox locks engineering inputs, keeps comments and restores sa
   let request = ui.sent.at(-1);
   assert.deepEqual(request.values, {inaktiv: true, kommentar: saved.kommentar});
   assert.equal(ui.label().disabled, true);
-  for (const name of names.filter(name => !['inaktiv', 'kommentar'].includes(name))) {
+  for (const name of names.filter(name => !['inaktiv', 'kommentar', 'glid_L', 'L_vagg_minst_1'].includes(name))) {
     assert.equal(ui.field(name).disabled, true, `${name} is locked`);
   }
   assert.equal(ui.field('kommentar').disabled, false);
@@ -3546,7 +3521,7 @@ test("inactive checkbox locks engineering inputs, keeps comments and restores sa
   assert.equal(request.values.inaktiv, false);
   assert.equal(request.values.b, .95); assert.equal(request.values.t, .3);
   assert.equal(request.values.isolering, true);
-  assert.equal(request.values.glid_L, 3);
+  assert.equal(request.values.glid_L, undefined);
   assert.equal(ui.field('b').disabled, false); assert.equal(ui.field('isolering').disabled, false);
   assert.equal(ui.label().disabled, false);
   Object.assign(ui.tag.values, request.values); Object.assign(ui.tag, {status: 'calculated', summary});
@@ -3630,7 +3605,7 @@ test("H-only checkbox hides bearing inputs but keeps settlement geometry and ser
   assert.equal(ui.sent.at(-1).values.b, .95);
   assert.equal(ui.sent.at(-1).values.l, 2.4, "The overridden wall dimension is preserved");
   assert.equal(ui.sent.at(-1).values.l_override, true);
-  assert.equal(ui.field("glid_L").disabled, false);
+  assert.ok(!ui.elements().some(e=>e.name === "glid_L"));
   assert.equal(ui.field("V_Ed_EQU").parent.parent.hidden, false, "Gliding data can be configured without global control");
   Object.assign(ui.tag.values, ui.sent.at(-1).values);
   ui.tag.summary = structuredClone(onlyHSummary); ui.changed(); ui.ack(ui.sent.at(-1));
@@ -4378,29 +4353,12 @@ test("insulation widget toggle retains placement and drag, resize and cancel lea
   assert.deepEqual(ui.tag, before);
 });
 
-for (const readOnly of [false, true]) test(`support length has independent geometry and notation (readOnly=${readOnly})`, t => {
-  const ui = setup(t, {readOnly});
-  slidingFixture(ui);
-  ui.tag.values.L_vagg = .6; ui.tag.values.L_vagg_minst_1 = false; ui.tag.values.glid_L = 3;
-  ui.changed(); ui.marker().click();
-  const row = readOnly ? ui.find(e => e.getAttribute("aria-label")?.startsWith("L_vagg")) : ui.field("L_vagg").parent;
-  assert.equal(row.hidden, false);
-  assert.equal(row.parent.children[0].textContent, "Geometri");
-  assert.match(elementText(ui.byClass("gp-basis")), /Lvägg/);
-  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu3 m/);
-  assert.doesNotMatch(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lvägg/);
-  if (!readOnly) {
-    assert.equal(ui.field("L_vagg").required, true);
-    assert.equal(ui.field("glid_L").required, true, "Sliding requires its own footing length even with known wall length");
-    ui.field("L_vagg").value = "0,4"; ui.field("L_vagg").dispatch("input");
-    assert.equal(ui.sent.at(-1).values.L_vagg, .4);
-    assert.equal(ui.sent.at(-1).values.glid_L, 3);
-    assert.equal(ui.field("glid_L").value, "3");
-    ui.field("endast_h_stabilitet").checked = true;
-    ui.field("endast_h_stabilitet").dispatch("input");
-    assert.equal(ui.field("L_vagg").parent.hidden, false, "H-only uses the local wall length for settlement");
-    assert.equal(ui.field("L_vagg").disabled, false);
-  }
+for (const readOnly of [false, true]) test(`imported support is shown as L_stöd and locked (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});Object.assign(ui.tag.values,{physical_length:true,L_vagg:.6,l:.6});ui.tag.imported_length=.6;
+  ui.changed();ui.marker().click();
+  assert.ok(!ui.elements().some(e=>e.name === "L_vagg_minst_1"));
+  if(!readOnly){assert.equal(ui.field("L_vagg").disabled,true);assert.equal(ui.field("L_vagg").value,"0.6");assert.equal(tableField(ui,"tag1","L_vagg").disabled,true);}
+  else assert.equal(resultTableValue(ui,"tag1","L_vagg").textContent,"0,6");
 });
 
 test("support length is excluded from pads and mixed bulk length edits", t => {
@@ -4421,91 +4379,29 @@ test("support length table edits preserve the separate footing length and invali
   assert.match(ui.marker().className, /gp-tag-stale/);
 });
 
-for (const readOnly of [false, true]) test(`long support uses compact local checkbox while retaining full sliding length (readOnly=${readOnly})`, t => {
-  const ui = setup(t, {readOnly});
-  slidingFixture(ui);
-  Object.assign(ui.tag.values, {L_vagg: 5, L_vagg_minst_1: true, glid_L: 7});
-  ui.changed(); ui.marker().click();
-  assert.match(elementText(ui.byClass("gp-basis")), /1 m \(Minst 1 m\)/);
-  assert.match(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lsu7 m/);
-  assert.doesNotMatch(elementText(ui.byClass("gp-tag-sliding-inputs")), /Lvägg/);
-  if (readOnly) {
-    assert.equal(resultTableValue(ui, "tag1", "L_vagg").textContent, "1");
-    assert.equal(resultTableValue(ui, "tag1", "L_vagg_minst_1").textContent, "Ja");
-    assert.equal(ui.sent.length, 0);
-  } else {
-    const minimum = ui.field("L_vagg_minst_1"), length = ui.field("L_vagg");
-    assert.equal(minimum.checked, true);
-    assert.equal(minimum.parent.className, "gp-length-override");
-    assert.equal(length.hidden, true); assert.equal(length.disabled, true);
-    assert.equal(length.value, "5", "Full support length is retained for global EQU");
-    assert.equal(ui.byClass("gp-wall-length-default").textContent, "1");
-    assert.equal(tableField(ui, "tag1", "L_vagg").value, "1");
-    assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
-    minimum.checked = false; minimum.dispatch("input");
-    assert.equal(length.hidden, false); assert.equal(length.disabled, false);
-    assert.equal(length.required, true);
-    assert.equal(ui.sent.at(-1).values.L_vagg, 5);
-    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, false);
-    length.value = "0,6"; length.dispatch("input");
-    assert.equal(ui.sent.at(-1).values.L_vagg, .6);
-    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, false);
-    assert.equal(ui.sent.at(-1).values.glid_L, 7);
-    minimum.checked = true; minimum.dispatch("input");
-    assert.equal(length.hidden, true);
-    assert.equal(ui.sent.at(-1).values.L_vagg, .6, "Local toggle does not overwrite global support data");
-    assert.equal(ui.sent.at(-1).values.L_vagg_minst_1, true);
-  }
+for (const readOnly of [false, true]) test(`long support keeps source and actual footing length visible (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});Object.assign(ui.tag.values,{physical_length:true,L_vagg:5,l:5});ui.tag.imported_length=5;
+  ui.changed();ui.marker().click();
+  assert.doesNotMatch(elementText(ui.byClass("gp-basis")),/Minst 1 m/);
+  if(!readOnly){assert.equal(ui.field("l").value,"5");assert.equal(ui.field("l").disabled,true);assert.equal(tableField(ui,"tag1","L_vagg").value,"5");}
+  else assert.equal(resultTableValue(ui,"tag1","L_vagg").textContent,"5");
 });
 
-test("local minimum can be changed for selected table rows and bulk short lengths", t => {
-  const ui = setup(t);
-  Object.assign(ui.tag.values, {L_vagg: 5, L_vagg_minst_1: true});
-  const second = {...structuredClone(ui.tag), id: "tag2", label: "VS2"};
-  second.values.L_vagg = 3;
-  ui.data.state.tags.push(second); ui.changed();
-  selectTableRow(ui, "VS1"); selectTableRow(ui, "VS2");
-  const minimum = tableField(ui, "tag1", "L_vagg_minst_1");
-  minimum.checked = false; minimum.dispatch("change");
-  assert.deepEqual(ui.sent.at(-1).ids, ["tag1", "tag2"]);
-  assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false});
-  assert.equal(tableField(ui, "tag1", "L_vagg").disabled, false);
-  assert.equal(tableField(ui, "tag2", "L_vagg").disabled, false);
-  ui.tag.values.L_vagg_minst_1 = second.values.L_vagg_minst_1 = false;
-  ui.changed(); ui.ack(ui.sent.at(-1));
-  const length = tableField(ui, "tag1", "L_vagg");
-  length.value = "0,6"; length.dispatch("input");
-  assert.deepEqual(ui.sent.at(-1).values, {L_vagg: .6});
-  assert.equal(ui.tag.values.L_vagg, 5); assert.equal(second.values.L_vagg, 3);
-  ui.tag.values.L_vagg_minst_1 = second.values.L_vagg_minst_1 = true;
-  ui.changed(); ui.ack(ui.sent.at(-1));
-  ui.byText("Ändra markerade").click();
-  assert.equal(ui.field("bulk_L_vagg").disabled, true);
-  const bulkMinimum = ui.field("bulk_L_vagg_minst_1");
-  bulkMinimum.value = "false"; bulkMinimum.dispatch("change");
-  assert.equal(ui.field("bulk_L_vagg").disabled, false);
-  ui.field("bulk_L_vagg").value = "0,4"; ui.field("bulk_L_vagg").dispatch("input");
-  ui.byText("Tillämpa").click();
-  assert.deepEqual(ui.sent.at(-1).values, {L_vagg_minst_1: false, L_vagg: .4});
+test("bulk source length stays locked while adjusted by is editable",t=>{
+  const ui=setup(t);Object.assign(ui.tag.values,{physical_length:true,L_vagg:3,l:3});ui.tag.imported_length=3;
+  const second=structuredClone(ui.tag);second.id="tag2";second.label="VS2";second.values.L_vagg=second.imported_length=4;
+  ui.data.state.tags.push(second);ui.changed();selectTableRow(ui,"VS1");selectTableRow(ui,"VS2");
+  ui.byText("Ändra markerade").click();assert.equal(ui.field("bulk_L_vagg").disabled,true);
+  ui.field("bulk_l_override").value="true";ui.field("bulk_l_override").dispatch("change");
+  assert.equal(ui.field("bulk_l").disabled,false);ui.field("bulk_l").value="2,5";ui.field("bulk_l").dispatch("input");
+  ui.byText("Tillämpa").click();assert.deepEqual(ui.sent.at(-1).values,{l:2.5,l_override:true});
 });
 
-test("H-only exposes local wall length for settlement and keeps the independent sliding length", t => {
-  const ui = setup(t);
-  Object.assign(ui.tag.values, {endast_h_stabilitet: true, L_vagg: 5, L_vagg_minst_1: true, glid_L: 3});
-  ui.changed(); ui.marker().click();
-  assert.equal(ui.field("L_vagg_minst_1").parent.hidden, false);
-  assert.equal(ui.field("L_vagg").parent.hidden, false);
-  assert.equal(ui.field("L_vagg").disabled, true);
-  assert.equal(ui.field("L_vagg").value, "5");
-  assert.equal(tableField(ui, "tag1", "L_vagg").value, "1");
-  assert.equal(tableField(ui, "tag1", "L_vagg").disabled, true);
-  assert.equal(tableField(ui, "tag1", "L_vagg_minst_1").disabled, false);
-  assert.equal(ui.field("glid_L").parent.hidden, false);
-  assert.equal(ui.field("glid_L").disabled, false);
-  assert.equal(ui.field("glid_L").value, "3");
-  ui.field('L_vagg_minst_1').checked = false; ui.field('L_vagg_minst_1').dispatch('input');
-  assert.equal(ui.field('L_vagg').disabled, false);
-  assert.equal(ui.field('L_vagg').required, false);
+test("H-only keeps source and adjustable physical length for settlement",t=>{
+  const ui=setup(t);Object.assign(ui.tag.values,{physical_length:true,endast_h_stabilitet:true,L_vagg:5,l:5});ui.tag.imported_length=5;
+  ui.changed();ui.marker().click();assert.equal(ui.field("L_vagg").value,"5");assert.equal(ui.field("L_vagg").disabled,true);
+  ui.field("l_override").checked=true;ui.field("l_override").dispatch("input");
+  assert.equal(ui.field("l").disabled,false);assert.equal(ui.field("l").parent.hidden,false);
 });
 
 test("support length sorting uses the local displayed length and leaves pads without a value", t => {
@@ -4519,7 +4415,7 @@ test("support length sorting uses the local displayed length and leaves pads wit
   ui.changed();
   assert.equal(tableField(ui, "tag4", "L_vagg").value, "");
   tableSortButton(ui, "L_vagg").click();
-  assert.deepEqual(tableOrder(ui), ["tag3", "tag2", "tag1", "tag4"]);
+  assert.deepEqual(tableOrder(ui), ["tag3", "tag1", "tag2", "tag4"]);
   tableSortButton(ui, "L_vagg").click();
   assert.deepEqual(tableOrder(ui), ["tag2", "tag1", "tag3", "tag4"]);
 });
@@ -4657,7 +4553,7 @@ for (const readOnly of [false, true]) test(`pad models expose the load basis and
     F_vy: 200, F_vy_bruk: 100, V_Ed_EQU: 150, isolering: true});
   ui.tag.load_resultants = {brott: 480, bruk: 240};
   ui.data.state.sliding = {enabled: true}; ui.changed(); ui.marker().click();
-  assert.match(elementText(ui.byClass('gp-basis')), /hela Lvägg/);
+  assert.match(elementText(ui.byClass('gp-basis')), /hela Lstöd/);
   assert.match(elementText(ui.marker()), /V 200 kN\/m → 480 kN/);
   assert.equal(ui.byClass("gp-tag-result").textContent, "U 75 % · bₓ 1 m · bᵧ 1 m · t 0,275 m");
   assert.equal(ui.byClass("gp-governing").textContent, "Styrande: Jord · brott");
@@ -4669,7 +4565,7 @@ for (const readOnly of [false, true]) test(`pad models expose the load basis and
     assert.equal(ui.field('L_vagg').hidden, false);
     assert.equal(ui.field('L_vagg').required, true);
     assert.equal(ui.field('L_vagg').value, '2.4');
-    assert.equal(ui.field('L_vagg_minst_1').parent.hidden, true);
+    assert.ok(!ui.elements().some(e=>e.name === 'L_vagg_minst_1'));
     assert.equal(ui.field('F_vy').parent.children.find(e => e.className === 'gp-unit').textContent, 'kN/m');
     assert.equal(tableField(ui, 'tag1', 'L_vagg').value, '2,4');
     assert.equal(tableField(ui, 'tag1', 'L_vagg').disabled, false);
@@ -4740,26 +4636,10 @@ test('line pad import updates discard old load and length drafts but retain chos
   assert.equal(ui.sent.at(-1).values.b, 1.23);
 });
 
-for (const readOnly of [false, true]) test(`line pad exposes Lsu for sliding independently of local Lwall (readOnly=${readOnly})`, t => {
-  const ui = setup(t, {readOnly});
-  slidingFixture(ui);
-  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, L_vagg: .6, glid_L: 3});
-  ui.changed(); ui.marker().click();
-  const text = elementText(ui.byClass('gp-tag-sliding-inputs'));
-  assert.match(text, /Lsu3 m/);
-  assert.doesNotMatch(text, /Lvägg/);
-  if (readOnly) {
-    assert.equal(resultTableValue(ui, 'tag1', 'glid_L').textContent, '3');
-  } else {
-    assert.equal(ui.field('glid_L').parent.hidden, false);
-    assert.equal(ui.field('glid_L').required, true);
-    assert.equal(tableField(ui, 'tag1', 'glid_L').disabled, false);
-    ui.field('glid_L').value = '4'; ui.field('glid_L').dispatch('input');
-    assert.equal(ui.sent.at(-1).values.glid_L, 4);
-    assert.equal(ui.sent.at(-1).values.L_vagg, .6);
-    assert.equal(ui.byClass('gp-tag-sliding-capacities').children[1].textContent, '—');
-    assert.match(ui.marker().className, /gp-tag-ok/, 'Sliding edits preserve the local bearing result');
-  }
+for (const readOnly of [false,true]) test(`wall pad has physical by and no independent sliding length (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});slidingFixture(ui);Object.assign(ui.tag.values,{lang:0,lasttyp:1,physical_length:true,L_vagg:.6,l:3,l_override:true});
+  ui.changed();ui.marker().click();assert.ok(!ui.elements().some(e=>e.name==='glid_L'));
+  assert.doesNotMatch(elementText(ui.byClass('gp-tag-sliding-inputs')),/by/);
 });
 
 test('mixed load units block joint loads while allowing geometry and an explicit common load basis', t => {
@@ -6119,7 +5999,7 @@ test('menu editing keeps the placement-status dropdown and display settings inde
   const ui=contourSetup(t);ui.byText('Redigera sulkonturer…').click();
   assert.equal(ui.byClass('gp-dialog').hidden,true);assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
   const select=ui.find(e=>e.getAttribute('aria-label')==='Sula för konturplacering');
-  assert.match(select.children[0].textContent,/VS1.*✓.*Placering definierad/);
+  assert.match(select.children[0].textContent,/VS1.*Placerad ✓/);
   ui.byText('Konturinställningar…').click();assert.equal(ui.byClass('gp-contour-bar').hidden,false);
   ui.byText('Stäng konturinställningar').click();assert.equal(ui.byClass('gp-contour-bar').hidden,true);
   assert.equal(ui.byClass('gp-contour-editbar').hidden,false);
@@ -6133,26 +6013,26 @@ test('placement dropdown distinguishes stored and missing positions and follows 
   const ui=contourSetup(t),second=structuredClone(ui.tag);Object.assign(second,{id:'second',label:'PS.2',x:.7});
   ui.data.state.tags.push(second);ui.changed();ui.byText('Redigera sulkonturer…').click();
   const select=ui.find(e=>e.getAttribute('aria-label')==='Sula för konturplacering');
-  assert.match(select.children.find(e=>e.value==='tag1').textContent,/✓.*Placering definierad/);
-  assert.match(select.children.find(e=>e.value==='second').textContent,/Saknar placering/);
+  assert.match(select.children.find(e=>e.value==='tag1').textContent,/Placerad ✓/);
+  assert.match(select.children.find(e=>e.value==='second').textContent,/---/);
   select.value='second';select.dispatch('change');ui.byText('Definiera placering').click();
   ui.place(300,250);ui.place(400,250);let req=ui.sent.at(-1);
   assert.equal(req.action,'contour_placement');assert.equal(req.id,'second');
   ui.data.state.contours.placements.second=req.placement;ui.changed();ui.ack(req);
-  assert.match(select.children.find(e=>e.value==='second').textContent,/✓.*Placering definierad/);
+  assert.match(select.children.find(e=>e.value==='second').textContent,/Placerad ✓/);
   const angle=ui.find(e=>e.getAttribute('aria-label')==='Riktning x [°]');angle.value='90';
-  ui.byText('Tillämpa riktning/längd').click();req=ui.sent.at(-1);assert.equal(req.id,'second');assert.equal(req.placement.angle_deg,90);
+  ui.byText('Tillämpa riktning').click();req=ui.sent.at(-1);assert.equal(req.id,'second');assert.equal(req.placement.angle_deg,90);
   ui.data.state.contours.placements.second=req.placement;ui.changed();ui.ack(req);
   ui.byText('Ta bort konturplacering').click();req=ui.sent.at(-1);assert.equal(req.id,'second');assert.equal(req.placement,null);
   delete ui.data.state.contours.placements.second;ui.changed();ui.ack(req);
-  assert.match(select.children.find(e=>e.value==='second').textContent,/Saknar placering/);
+  assert.match(select.children.find(e=>e.value==='second').textContent,/---/);
   assert.deepEqual(ui.data.state.contours.placements.tag1,padPlacement);
 });
 
 test('stored placement status stays visible when the drawing needs recalibration',t=>{
   const ui=contourSetup(t);ui.data.state.calibration=null;ui.changed();ui.byText('Redigera sulkonturer…').click();
   const select=ui.find(e=>e.getAttribute('aria-label')==='Sula för konturplacering');
-  assert.match(select.children[0].textContent,/✓.*Placering definierad/);
+  assert.match(select.children[0].textContent,/Placerad ✓/);
   assert.match(ui.byClass('gp-contour-editbar').children[0].textContent,/1\/1 definierade/);
   assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
 });
@@ -6178,4 +6058,20 @@ test('outside-click handling keeps menu-driven contour picking active',t=>{
   const options=ui.byText('Konturinställningar…');
   document.dispatch('pointerdown',{target:options,clientX:500,clientY:500});document.dispatch('pointerup',{target:options,clientX:500,clientY:500});options.click();
   assert.equal(ui.byClass('gp-contour-editbar').hidden,false);assert.equal(ui.byClass('gp-contour-bar').hidden,false);
+});
+
+for(const readOnly of [false,true]) test(`adjusted load labels show derived and original values without bold current values (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});Object.assign(ui.tag.values,{physical_length:true,L_vagg:2.6,l:2,l_override:true,F_vy:500,F_vy_bruk:400});ui.changed();
+  assert.equal(ui.byClass('gp-load-adjusted').textContent,'Omräknad last');
+  assert.match(elementText(ui.marker()),/V 650 kN\/m.*urspr. 500/);
+  assert.match(elementText(ui.marker()),/V 520 kN\/m.*urspr. 400/);
+  assert.equal(ui.elements().find(e=>e.className==='gp-load-original').tag,'span');
+  assert.doesNotMatch(elementText(ui.byClass('gp-tag-result')),/bᵧ/);
+});
+
+test('wall placement uses start and positive x direction; second click does not choose its length',t=>{
+  const ui=contourSetup(t);ui.tag.footing_type='vaggsula';Object.assign(ui.tag.values,{lang:1,lasttyp:1,physical_length:true,L_vagg:3,l:3});
+  delete ui.data.state.contours.placements.tag1;ui.changed();ui.byText('Redigera sulkonturer…').click();ui.byText('Definiera placering').click();
+  ui.place(300,250);ui.place(400,250);const r=ui.sent.at(-1);assert.equal(r.placement.kind,'wall');assert.ok(Math.abs(r.placement.angle_deg)<1e-10);
+  assert.equal('end' in r.placement,false);const g=footprintGeometry(ui.tag,r.placement,ui.data.background,ui.data.state.calibration);assert.equal(g.length,3);
 });

@@ -8,6 +8,7 @@ import re
 
 from .grundplan_loads import line_loads, load_resultants
 from .grundplan_types import footing_category
+from .grundplan_lengths import intensity_data
 
 DEFAULT_SETTINGS = {"enabled": False, "x": .05, "y": .3, "size": 410}
 # Insulation may differ within a group and is documented explicitly. Soil,
@@ -53,7 +54,7 @@ def group_geometry(tag, *, width=None):
     """Shared geometry for the widget and Auto b_x, without rounding."""
     values, category = tag["values"], footing_category(tag)
     geometry = {"t": values.get("t"), "b": values.get("b") if width is None else width}
-    if category != "wall" or values.get("l") != 1:
+    if category != "wall":
         geometry["l"] = values.get("l")
     if category == "wall_pad" and line_loads(values):
         geometry["L_vagg"] = values.get("L_vagg")
@@ -113,7 +114,8 @@ def group_data(tags):
                                              "max": reference["summary"]["utnyttjandegrad"]},
                        "members": [{"id": tag["id"], "label": tag["label"]} for tag in members],
                        "unit": "kN/m" if line_loads(values) else "kN",
-                       "loads": {"brott": values.get("F_vy"), "bruk": values.get("F_vy_bruk")},
+                       "loads": {phase: (intensity_data(values) or {}).get("current", {}).get(name, values.get(name))
+                                 for phase, name in (("brott", "F_vy"), ("bruk", "F_vy_bruk"))},
                        "resultants": load_resultants(values), "comments": comments})
     category_order = {"wall": 0, "wall_pad": 1, "pad": 2}
     result.sort(key=lambda group: (category_order[group["category"]], _order({"label": group["label"], "id": group["reference_id"]})))
