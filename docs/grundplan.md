@@ -861,13 +861,18 @@ Exempel: ursprunglig V = 200 kN/m och L_stöd = 0,6 m ger alltid 120 kN.
 Om bᵧ ändras till 0,4 m blir intensiteten 300 kN/m och totalen förblir 120 kN.
 Samma faktor gäller yttre brott-/brukmoment och horisontallaster i brott.
 Källvärdena skalas aldrig om i lagringen. Etiketten får **Omräknad last** och
-visar aktuellt värde följt av `(urspr. …)` i mindre normal text. Det gäller även
+visar aktuellt värde följt av `(urspr. …)` i mindre normal text. Omräknade
+lastvärden avrundas till högst en decimal vid visning; beräkningarna behåller
+full precision. Det gäller även
 PDF och resultat-HTML. Tabellens indata är källvärden; V_res visar resultatanten.
 
 Egentyngden beräknas från sulans geometri med befintliga faktorer 1,5 i brott
 respektive 1,0 i bruk. q_Ed är total vertikallast inklusive egentyngd delad med
 effektiv area. Den gemensamma väggsulemotorn använder ekvivalenta värden per
-meter; Grundplans sammanfattning och areaskiss visar totala krafter/moment.
+meter. Popupens resultat och areaskiss för väggsulemodellen visar en
+enmetersremsa: krafter i kN/m, moment i kNm/m och effektiv area i m²/m.
+Jordtryck och utnyttjandegrad är oförändrade. Internt bevaras hela sulans
+resultat och totala lastresultant; pelarsulemodellen visas fortsatt för hela sulan.
 
 Projektformat 32 migrerar äldre importerade stöd med sparad `imported_length`.
 En gammal lokal enmetersremsa blir inte sulans fysiska längd. En kalibrerad

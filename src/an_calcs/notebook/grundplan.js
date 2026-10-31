@@ -279,6 +279,31 @@ const adjustedLineLoad = tag => {
   return v.physical_length && lineLoads(v) && source > 0 && by > 0 && Math.abs(source / by - 1) > 1e-10;
 };
 
+// A wall's popup is a one-metre strip; persisted calculation data stays total.
+export function popupCalculationResult(tag) {
+  const r = tag.summary;
+  if (!r || r.endast_h_stabilitet || r.inaktiv || Number(tag.values.lang) !== 1) return r;
+  const length = r.effective_area?.brott?.by ?? r.load_conversion?.by ?? tag.values.l;
+  if (!(length > 0)) return r;
+  const forceLength = r.lastenhet === "kN/m" ? 1 : length;
+  const result = {...r, last: r.last / forceLength, barformaga: r.barformaga / forceLength,
+    lastenhet: "kN/m", display_per_metre: true, area_unit: "m²/m"};
+  if (r.effective_area) result.effective_area = Object.fromEntries(Object.entries(r.effective_area).map(([phase,a]) => [phase, {
+    ...a, by: 1, by_eff: a.by_eff / a.by, area: a.area / a.by,
+    V: a.V / forceLength, Mx: a.Mx / forceLength, My: a.My / forceLength,
+    ey: a.ey / a.by, ey_placement: a.ey_placement / a.by, ey_moment: a.ey_moment / a.by,
+  }]));
+  if (r.isolering) {
+    result.isolering = {...r.isolering};
+    for (const name of ["isolering_EG_k", "isolering_N_brott", "isolering_N_bruk"])
+      if (Number.isFinite(r.isolering[name])) result.isolering[name] /= forceLength;
+    for (const phase of ["brott", "bruk"]) for (const name of ["A_eff", "l_eff"])
+      if (Number.isFinite(r.isolering["isolering_" + name + "_" + phase]))
+        result.isolering["isolering_" + name + "_" + phase] /= length;
+  }
+  return result;
+}
+
 // Screen strokes are CSS pixels. For print preview/export, convert the desired
 // paper millimetres to CSS pixels using the SAME physical canvas as the PDF
 // merger. Crop and underlay transforms do not change the paper line weight.
@@ -3423,7 +3448,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       info.append(node("p", "gp-reference-caption", group.unit === "kN/m" ? "Linjelast" : "Punktlast"));
       for (const phase of ["brott", "bruk"]) {
         const line = node("p", "gp-reference-load"), value = group.loads[phase];
-        let caption = value == null ? "—" : compactNumber(value, 2) + " " + group.unit;
+        const reference = state().tags.find(tag => tag.id === group.reference_id);
+        let caption = value == null ? "—" : compactNumber(value, reference && adjustedLineLoad(reference) ? 1 : 2) + " " + group.unit;
         if (category === "wall_pad" && group.unit === "kN/m" && group.resultants[phase] != null)
           caption += " → " + compactNumber(group.resultants[phase], 2) + " kN";
         line.append(symbolNode({base: "V", subscript: phase}), node("span", "", caption));
@@ -4083,13 +4109,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           const value = typeof raw === "string" ? Number(raw.replace(",", ".")) : raw;
           if (typeof value !== "number" || !Number.isFinite(value) || value === 0) continue;
           const unit = field.unit + (lineLoads(values) ? "/m" : "");
-          let token = field.symbol + " " + precise(value) + " " + unit;
+          let token = field.symbol + " " + (adjusted ? compactNumber(value, 1) : precise(value)) + " " + unit;
           if (Number(values.lang) === 0 && lineLoads(values) && ["F_vy", "F_vy_bruk"].includes(field.name)) {
             const total = dirty.has(tag.id) ? null : tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"];
             token += " → " + (Number.isFinite(total) ? precise(total) + " kN" : "—");
           }
           const original = draftNumber(values[field.name]);
-          if (adjusted && Number.isFinite(original)) token += " (urspr. " + precise(original) + ")";
+          if (adjusted && Number.isFinite(original)) token += " (urspr. " + compactNumber(original, 1) + ")";
           tokens.push(token);
         }
         if (!tokens.length) continue;
@@ -4122,11 +4148,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const value = (name, unit) => {
           const raw = name === "glid_L" && values.physical_length ? values.l : name === "V_Ed_EQU" ? displayedLineLoad({...tag,values},name) : values[name];
           const n = raw == null || raw === "" ? NaN : Number(String(raw).replace(",", "."));
-          return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
+          return Number.isFinite(n) ? compactNumber(n, adjusted && name === "V_Ed_EQU" ? 1 : 3) + " " + unit : "—";
         };
         add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
         if (values.physical_length && Number.isFinite(draftNumber(values.V_Ed_EQU)) && displayedLineLoad({...tag,values},"V_Ed_EQU") !== draftNumber(values.V_Ed_EQU))
-          data.children[data.children.length-1].append(node("span", "gp-load-original", " (urspr. " + precise(draftNumber(values.V_Ed_EQU)) + ")"));
+          data.children[data.children.length-1].append(node("span", "gp-load-original", " (urspr. " + compactNumber(draftNumber(values.V_Ed_EQU), 1) + ")"));
         if (lineLoads(values) && !values.physical_length) add(data, "L", "su", value("glid_L", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
@@ -5733,9 +5759,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   labelInput.addEventListener("input", () => edit(false));
   form.addEventListener("submit", event => event.preventDefault());
-  function areaResult(tag) {
-    const group = makeSection(tag.id, "result:area", "Effektiv area – planvy", true, resultSections);
-    const phases = tag.summary.effective_area;
+  function areaResult(tag, result) {
+    const perMetre = result.display_per_metre;
+    const group = makeSection(tag.id, "result:area", perMetre ? "Effektiv area – per meter sula" : "Effektiv area – planvy", true, resultSections);
+    const phases = result.effective_area;
+    const areaUnit = result.area_unit || "m²";
     const select = node("select", "gp-area-phase");
     select.setAttribute("aria-label", "Lastkombination för effektiv area");
     for (const phase of Object.keys(phases)) {
@@ -5756,7 +5784,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         return element;
       };
       const svg = make("svg", {viewBox: "0 0 320 260", role: "img", "aria-label":
-        `Effektiv area ${precise(a.area)} m². Resultant: eₓ ${precise(a.ex)} m, eᵧ ${precise(a.ey)} m.`});
+        `Effektiv area ${precise(a.area)} ${areaUnit}. Resultant: eₓ ${precise(a.ex)} m, eᵧ ${precise(a.ey)} m.`});
       // One scale for both axes. Include the placement point even if opposing
       // moments move a point outside the footing back inside it.
       const xmin = Math.min(-a.bx / 2, a.ex_placement), xmax = Math.max(a.bx / 2, a.ex_placement);
@@ -5794,25 +5822,25 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const areaLabel = make("text", {x: 160, y: 248, "font-size": 12, "text-anchor": "middle", fill: "#267c69"});
       areaLabel.append(make("tspan", {"font-style": "italic"}, "A"),
         make("tspan", {"baseline-shift": "sub", "font-size": 9}, "eff"),
-        make("tspan", {}, ` = ${precise(a.area)} m²`));
+        make("tspan", {}, ` = ${precise(a.area)} ${areaUnit}`));
       svg.append(areaLabel);
       const legend = node("div", "gp-area-legend");
-      for (const [className, caption] of [["outline", "□ Hela sulan"], ["area", "Effektiv area"], ["placement", "○ Placering"],
+      for (const [className, caption] of [["outline", perMetre ? "□ Enmetersremsa" : "□ Hela sulan"], ["area", "Effektiv area"], ["placement", "○ Placering"],
         ["moment-x", "→ M_y/V i x-led"], ["moment-y", "→ M_x/V i y-led"]]) {
         legend.append(mathText("span", "gp-area-key-" + className, caption));
       }
       const list = node("dl", "gp-result-list gp-area-numbers");
       for (const [caption, value] of [
-        ["V inkl. egentyngd", precise(a.V) + " " + tag.summary.lastenhet],
-        ["M_y → x-led", precise(a.My) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
-        ["M_x → y-led", precise(a.Mx) + " " + tag.summary.lastenhet.replace("kN", "kNm")],
+        ["V inkl. egentyngd", precise(a.V) + " " + result.lastenhet],
+        ["M_y → x-led", precise(a.My) + " " + result.lastenhet.replace("kN", "kNm")],
+        ["M_x → y-led", precise(a.Mx) + " " + result.lastenhet.replace("kN", "kNm")],
         ["b_x,eff", precise(a.bx_eff) + " m"], ["b_y,eff", precise(a.by_eff) + " m"],
       ]) list.append(mathText("dt", "", caption), node("dd", "", value));
       content.append(svg, legend, list,
         mathText("p", "gp-area-equation", `e_x = ${precise(a.ex_placement)} + (${precise(a.ex_moment)}) = ${precise(a.ex)} m`),
-        mathText("p", "gp-area-equation", `e_y = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`),
+        ...(perMetre ? [] : [mathText("p", "gp-area-equation", `e_y = ${precise(a.ey_placement)} + (${precise(a.ey_moment)}) = ${precise(a.ey)} m`)]),
         node("p", "gp-field-note", "e = placering + moment/V. R är lastresultanten och centrum för den effektiva arean. Effektiva mått = sulmått − 2|e|. Tecken enligt beräkningens pilar; x åt höger, y uppåt."),
-        node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (tag.values.lang === 1 ? "Väggsulan visas som en " + precise(a.by) + " m-remsa." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
+        node("p", "gp-result-note", "Ekvivalent effektiv area för bärighetskontroll, inte en beräknad kontakttrycksfördelning. " + (perMetre ? "Enmetersremsa: area och krafter per meter sula. Längdriktningen i skissen är normaliserad." : "Lokala axlar; skissen är inte orienterad efter ritningen.")));
     };
     select.addEventListener("change", () => { areaPhases.set(tag.id, select.value); draw(); });
     group.append(select, content);
@@ -5839,7 +5867,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       results.append(node("p", "gp-error-text", tag.error));
       return;
     }
-    const r = tag.summary;
+    const r = popupCalculationResult(tag);
     if (!r) {
       results.append(node("p", "", readOnly ? "Sulan var inte beräknad vid exporten." : "Kontrollera indata. Resultatet uppdateras automatiskt."));
       return;
@@ -5887,9 +5915,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const c = r.load_conversion;
       results.append(mathText("p", "gp-field-note", "Yttre V i brott: " + precise(tag.values.F_vy) + " kN/m × L_stöd "
         + precise(c.support_length) + " m" + (c.at_least_one ? " (Minst 1 m)" : "") + " = " + precise(c.brott) + " kN. Fördelningslängd b_y = " + precise(c.by)
-        + " m och påverkar inte den yttre lastresultanten. Resultatet ovan inkluderar sulans egentyngd."));
+        + " m och påverkar inte den yttre lastresultanten. "
+        + (r.display_per_metre ? "Resultatet ovan och areaskissen visas per meter sula, inklusive sulans egentyngd." : "Resultatet ovan inkluderar sulans egentyngd.")));
     }
-    if (r.effective_area) results.append(areaResult(tag));
+    if (r.effective_area) results.append(areaResult(tag, r));
     if (r.isolering) {
       for (const [phase, label] of [["brott", "Brott"], ["bruk", "Bruk · långtidslast"]]) {
         const values = r.isolering;
@@ -5899,15 +5928,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         for (const [name, caption, unit] of [
           ["N", "V inkl. egentyngd", r.lastenhet],
           ["b_eff", "Effektivt mått b_x,eff", "m"], ["l_eff", "Effektivt mått b_y,eff", "m"],
-          ["A_eff", "Effektiv area A_eff", "m²"],
+          ["A_eff", "Effektiv area A_eff", r.area_unit || "m²"],
           ["q_Ed", "Lasteffekt q_Ed", "kPa"], ["f_d", "Bärförmåga f_d," + phase, "kPa"],
         ]) list.append(mathText("dt", "", caption), node("dd", "", number(values["isolering_" + name + "_" + phase], 3) + " " + unit));
         group.append(list);
         results.append(group);
       }
       results.append(mathText("p", "gp-result-note", "Isolering: q_Ed = "
-        + (tag.values.lang === 1 && !r.load_conversion ? "V × b_y" : "V") + " / (b_x,eff × b_y,eff). U = q_Ed / f_d. "
-        + (tag.values.lang === 1 && !r.load_conversion ? "V avser last per meter vägg. " : "V avser total kraft. ")
+        + (r.display_per_metre ? "V / A_eff" : "V / (b_x,eff × b_y,eff)") + ". U = q_Ed / f_d. "
+        + (r.display_per_metre ? "Last och effektiv area redovisas per meter sula. " : "V avser total kraft. ")
         + "Isoleringens deformation och krypning beräknas inte. Jordens sättning redovisas separat när jordprofil finns."));
     }
   }

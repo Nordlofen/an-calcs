@@ -133,7 +133,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
-  footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  popupCalculationResult, footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -2503,6 +2503,7 @@ for (const readOnly of [false, true]) test(`nonzero external loads and definitio
 
 for (const readOnly of [false, true]) test(`effective-area plot preserves signed coordinates and phase selection (readOnly=${readOnly})`, t => {
   const ui = setup(t, {readOnly});
+  ui.tag.values.lang = 0;
   const a = {bx: 2, by: 3, bx_eff: 1.6, by_eff: 2.4, area: 3.84, V: 300,
     Mx: -60, My: 30, ex_placement: .1, ey_placement: -.1,
     ex_moment: .1, ey_moment: -.2, ex: .2, ey: -.3};
@@ -6119,4 +6120,71 @@ test('wall footprint ignores saved longitudinal placement eccentricity',()=>{
   const bg={width:800,height:600},cal={start:{x:0,y:0},end:{x:.1,y:0},length_m:1};
   const p={kind:'wall',start:{x:.5,y:.7},angle_deg:0};
   const g=footprintGeometry(tag,p,bg,cal);assert.deepEqual(g.center,g.anchor);
+});
+
+function wallPopupFixture() {
+  const by=26.2, V=13117.685, area=28.82;
+  const a={bx:1.1,by,bx_eff:1.1,by_eff:by,area,V,Mx:0,My:0,
+    ex_placement:0,ey_placement:0,ex_moment:0,ey_moment:0,ex:0,ey:0};
+  return {values:{lang:1,l:by},summary:{utnyttjandegrad:V/15536.64,last:V,barformaga:15536.64,
+    lastenhet:'kN',q_Ed:V/area,q_bd:539.09,b:1.1,b_ef:1.1,
+    effective_area:{brott:a,bruk:{...a,V:10000}},load_conversion:{support_length:by,by,brott:12793.46}}};
+}
+
+test('wall popup presents a one-metre strip and preserves pressure, utilization and source totals',()=>{
+  const tag=wallPopupFixture(),before=structuredClone(tag),r=popupCalculationResult(tag),a=r.effective_area.brott;
+  assert.equal(r.lastenhet,'kN/m');near(r.last,500.675);near(r.barformaga,15536.64/26.2);
+  assert.equal(a.by,1);near(a.area,1.1);assert.equal(r.area_unit,'m²/m');
+  near(a.V/a.area,tag.summary.q_Ed);near(r.last/r.barformaga,tag.summary.utnyttjandegrad);
+  assert.equal(r.load_conversion.brott,12793.46);assert.deepEqual(tag,before);
+});
+
+test('adjusted wall strip includes the converted intensity and normalizes both effective-area phases',()=>{
+  const tag=wallPopupFixture();tag.values.l=2;
+  for(const a of Object.values(tag.summary.effective_area))Object.assign(a,{by:2,by_eff:1.6,area:1.76,Mx:100,My:50,ey:.2,ey_moment:.2});
+  const before=structuredClone(tag),r=popupCalculationResult(tag);
+  for(const phase of ['brott','bruk']){
+    const a=r.effective_area[phase],total=tag.summary.effective_area[phase];
+    near(a.V/a.area,total.V/total.area);near(a.My/a.V,total.My/total.V);
+    assert.equal(a.by,1);near(a.by_eff,.8);near(a.area,.88);
+  }
+  assert.deepEqual(tag,before);
+});
+
+test('wall insulation quantities share the same per-metre force and area basis',()=>{
+  const tag=wallPopupFixture();tag.summary.isolering={isolering_N_brott:13117.685,isolering_N_bruk:10000,
+    isolering_EG_k:216.15,isolering_A_eff_brott:28.82,isolering_A_eff_bruk:28.82,
+    isolering_l_eff_brott:26.2,isolering_l_eff_bruk:26.2,isolering_q_Ed_brott:13117.685/28.82};
+  const r=popupCalculationResult(tag),i=r.isolering;
+  near(i.isolering_N_brott/i.isolering_A_eff_brott,i.isolering_q_Ed_brott);
+  near(i.isolering_A_eff_bruk,1.1);assert.equal(i.isolering_l_eff_bruk,1);
+});
+
+test('wall with pad model retains whole-footing popup results',()=>{
+  const tag=wallPopupFixture();tag.values.lang=0;tag.footing_type='vaggsula';
+  assert.equal(popupCalculationResult(tag),tag.summary);
+});
+
+for(const readOnly of [false,true]) test(`wall popup shows per-metre result units and a square strip rather than full wall length (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly}),fixture=wallPopupFixture();
+  Object.assign(ui.tag.values,fixture.values);ui.tag.summary=fixture.summary;ui.changed();ui.marker().click();
+  assert.ok(ui.elements().some(e=>e.textContent==='Effektiv area – per meter sula'));
+  const text=elementText(ui.byClass('gp-results'));
+  assert.match(text,/500,68 kN\/m/);assert.match(text,/1,1 m²\/m/);
+  assert.match(text,/bₓ = 1,1 m · bᵧ = 1 m/);
+  assert.doesNotMatch(text,/e_y =|eᵧ =/);
+  const outline=ui.find(e=>e.getAttribute('class')==='gp-footing-outline');
+  near(Number(outline.getAttribute('width'))/Number(outline.getAttribute('height')),1.1);
+  assert.equal(ui.tag.summary.last,13117.685);
+});
+
+for(const readOnly of [false,true]) test(`converted load labels use one decimal without rounding stored inputs (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});
+  Object.assign(ui.tag.values,{physical_length:true,L_vagg:2.6,l:2.05,l_override:true,F_vy:491.6,F_vy_bruk:388.3});
+  const before=structuredClone(ui.tag);ui.changed();
+  const text=elementText(ui.marker());
+  assert.match(text,/V 623,5 kN\/m \(urspr. 491,6\)/);
+  assert.match(text,/V 492,5 kN\/m \(urspr. 388,3\)/);
+  assert.doesNotMatch(text,/623,492683|492,478049/);
+  assert.deepEqual(ui.tag,before);
 });
