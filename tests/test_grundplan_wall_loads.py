@@ -140,14 +140,14 @@ class TestWallLoads(unittest.TestCase):
         original={"kind":"wall","start":{"x":.5,"y":.7},"angle_deg":0}
         self.plan.placera_sulkontur(ident,original)
         self.plan.uppdatera(ident,indata={"l":.4,"length_end":0})
-        self.assertEqual(self.plan.sulkonturer["placements"][ident],original)
+        self.assertEqual(self.plan.sulkonturer["placements"][ident],{**original,"reference_start":original["start"]})
         self.plan.uppdatera(ident,indata={"l":.2,"length_end":1})
         p=self.plan.sulkonturer["placements"][ident]
-        self.assertAlmostEqual(p["start"]["y"],.7-.2*80/600)
+        self.assertAlmostEqual(p["start"]["y"],.7-.4*80/600)
         end=p["start"]["y"]-.2*80/600
-        self.assertAlmostEqual(end,.7-.4*80/600)
+        self.assertAlmostEqual(end,.7-.6*80/600)
         self.plan._start_load_import(loads(.8),"new.json")
-        self.assertEqual(self.plan.sulkonturer["placements"][ident],p)
+        self.assertAlmostEqual(self.plan.sulkonturer["placements"][ident]["start"]["y"],p["start"]["y"])
 
     def test_unadjusted_reimport_moves_start_when_end_is_pinned(self):
         ident=self.imported()
@@ -195,7 +195,7 @@ class TestWallLoads(unittest.TestCase):
         doc["contours"]["placements"][ident]={"kind":"wall","start":{"x":.5,"y":.7},"end":{"x":.5,"y":.5}}
         self.plan._load_document(json.dumps(doc).encode())
         self.assertAlmostEqual(self.plan.taggar[0]["values"]["l"],1.5)
-        self.assertEqual(self.plan.sulkonturer["placements"][ident],{"kind":"wall","start":{"x":.5,"y":.7},"angle_deg":0})
+        self.assertEqual(self.plan.sulkonturer["placements"][ident],{"kind":"wall","start":{"x":.5,"y":.7},"angle_deg":0,"reference_start":{"x":.5,"y":.7}})
 
     def test_wall_by_is_excluded_from_reference_geometry(self):
         ident=self.imported();twin=self.plan.kopiera(ident,.5,.5)
@@ -256,3 +256,72 @@ class TestWallLoads(unittest.TestCase):
                 point=self.plan.sulkonturer["placements"][ident]["start"]
                 for axis,direction,span in zip(("x","y"),wall_axes(angle),(800,600)):
                     self.assertAlmostEqual(point[axis]+direction*.4*80/span,.5+direction*.6*80/span)
+
+    def test_switching_trimmed_end_and_reset_never_moves_the_full_length_origin(self):
+        ident=self.imported()
+        self.plan._start_load_import(loads(2.6),"new.json")
+        self.plan.kalibrering={"start":{"x":0,"y":0},"end":{"x":.1,"y":0},"length_m":1}
+        start={"x":.5,"y":.7}
+        self.plan.placera_sulkontur(ident,{"kind":"wall","start":start,"angle_deg":0})
+        original=self.plan.sulkonturer["placements"][ident]
+        for _ in range(4):
+            self.plan.uppdatera(ident,indata={"l":2.05,"l_override":True,"length_end":0})
+            self.assertEqual(self.plan.sulkonturer["placements"][ident]["start"],start)
+            self.plan.uppdatera(ident,indata={"length_end":1})
+            placed=self.plan.sulkonturer["placements"][ident]
+            self.assertAlmostEqual(placed["start"]["y"],.7-.55*80/600)
+            self.assertAlmostEqual(placed["start"]["y"]-2.05*80/600,.7-2.6*80/600)
+            self.plan.uppdatera(ident,indata={"length_end":0})
+            self.assertEqual(self.plan.sulkonturer["placements"][ident]["start"],start)
+            self.plan.uppdatera(ident,indata={"length_end":1})
+            self.plan.uppdatera(ident,indata={"l_override":False})
+            self.assertEqual(self.plan.sulkonturer["placements"][ident],original)
+            self.assertEqual(self.plan.taggar[0]["values"]["l"],2.6)
+            self.assertEqual(self.plan.taggar[0]["load_resultants"]["brott"],520)
+
+    def test_trim_reference_survives_save_undo_and_legacy_migration_without_moving_visible_contour(self):
+        from unittest.mock import patch
+        ident=self.imported()
+        self.plan.kalibrering={"start":{"x":0,"y":0},"end":{"x":.1,"y":0},"length_m":1}
+        self.plan.placera_sulkontur(ident,{"kind":"wall","start":{"x":.5,"y":.7},"angle_deg":0})
+        self.plan.uppdatera(ident,indata={"l":.4,"length_end":0})
+        before=self.plan.sulkonturer
+        with patch.object(self.plan,"send"):
+            self.plan._on_message(self.plan,{"action":"update","id":ident,"values":{"length_end":1},"view":"test","request":1},[])
+        after=self.plan.sulkonturer
+        self.assertNotEqual(before,after)
+        self.plan.angra();self.assertEqual(self.plan.sulkonturer,before)
+        self.plan.gor_om();self.assertEqual(self.plan.sulkonturer,after)
+        doc=self.plan._document()
+        self.plan._load_document(json.dumps(doc).encode())
+        self.assertEqual(self.plan.sulkonturer,after)
+        doc["version"]=31
+        doc["contours"]["placements"][ident].pop("reference_start")
+        self.plan._load_document(json.dumps(doc).encode())
+        p=self.plan.sulkonturer["placements"][ident]
+        self.assertEqual(p["start"],after["placements"][ident]["start"])
+        self.assertAlmostEqual(p["reference_start"]["y"],.7)
+        self.plan.uppdatera(ident,indata={"l_override":False})
+        self.assertAlmostEqual(self.plan.sulkonturer["placements"][ident]["start"]["y"],.7)
+
+    def test_wall_ignores_longitudinal_placement_eccentricity_but_pad_model_retains_it(self):
+        ident=self.imported()
+        before=copy.deepcopy(self.plan._tag(ident)["summary"])
+        self.plan.uppdatera(ident,indata={"e_l_plac":.1})
+        self.assertEqual(self.plan._tag(ident)["summary"],before)
+        self.assertEqual(self.plan._tag(ident)["summary"]["effective_area"]["brott"]["ey_placement"],0)
+        self.plan.uppdatera(ident,indata={"lang":0,"b":.5,"l":1.3})
+        self.assertEqual(self.plan._tag(ident)["summary"]["effective_area"]["brott"]["ey_placement"],.1)
+
+    def test_new_calibration_preserves_full_length_origin_for_a_trimmed_start(self):
+        ident=self.imported()
+        calibration={"start":{"x":0,"y":0},"end":{"x":.1,"y":0},"length_m":1}
+        self.plan.kalibrering=calibration
+        self.plan.placera_sulkontur(ident,{"kind":"wall","start":{"x":.5,"y":.7},"angle_deg":0})
+        self.plan.uppdatera(ident,indata={"l":.4,"length_end":1})
+        self.plan.kalibrering={**calibration,"length_m":2}
+        placed=self.plan.sulkonturer["placements"][ident]
+        self.assertEqual(placed["reference_start"],{"x":.5,"y":.7})
+        self.assertAlmostEqual(placed["start"]["y"],.7-.2*40/600)
+        self.plan.uppdatera(ident,indata={"l_override":False})
+        self.assertEqual(self.plan.sulkonturer["placements"][ident]["start"],{"x":.5,"y":.7})

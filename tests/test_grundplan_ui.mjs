@@ -6084,3 +6084,39 @@ for (const [dx,dy] of [[100,0],[0,100],[-100,0],[0,-100],[100,-100]])
     assert.ok(Math.abs(g.yAxis.x-dx/Math.hypot(dx,dy))<1e-10);
     assert.ok(Math.abs(g.yAxis.y-dy/Math.hypot(dx,dy))<1e-10);
   });
+
+test('live popup length edits keep conversion metadata and display current/original loads through acknowledgement',t=>{
+  const ui=setup(t);slidingFixture(ui);
+  Object.assign(ui.tag.values,{physical_length:true,L_vagg:2.6,l:2.6,l_override:false,F_vy:500,F_vy_bruk:400,V_Ed_EQU:300});
+  ui.tag.imported_length=2.6;ui.changed();ui.marker().click();
+  ui.field('l_override').checked=true;ui.field('l_override').dispatch('input');
+  let r=ui.sent.at(-1);Object.assign(ui.tag.values,r.values);ui.changed();ui.ack(r);
+  ui.field('l').value='2,0';ui.field('l').dispatch('input');
+  const check=()=>{
+    const text=elementText(ui.marker());
+    assert.match(text,/V 650 kN\/m \(urspr. 500\)/);
+    assert.match(text,/V 520 kN\/m \(urspr. 400\)/);
+    assert.match(text,/390 kN\/m \(urspr. 300\)/);
+    assert.equal(ui.byClass('gp-load-adjusted').textContent,'Omräknad last');
+  };
+  check();r=ui.sent.at(-1);Object.assign(ui.tag.values,r.values);ui.changed();ui.ack(r);check();
+  ui.field('t').value='0,4';ui.field('t').dispatch('input');check();
+  ui.field('l_override').checked=false;ui.field('l_override').dispatch('input');
+  assert.match(elementText(ui.marker()),/V 500 kN\/m/);
+  assert.ok(!ui.elements().some(e=>e.className==='gp-load-adjusted'));
+});
+
+for(const readOnly of [false,true]) test(`wall model hides ey placement while pad model exposes it (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});ui.changed();ui.marker().click();
+  if(!readOnly){assert.equal(ui.field('e_l_plac').parent.hidden,true);assert.equal(ui.field('e_l_plac').disabled,true);assert.equal(tableField(ui,'tag1','e_l_plac').disabled,true);}
+  else assert.equal(resultTableValue(ui,'tag1','e_l_plac').textContent,'—');
+  ui.tag.values.lang=0;ui.changed();
+  if(!readOnly){ui.byText('Minimera').click();ui.marker().click();assert.equal(ui.field('e_l_plac').parent.hidden,false);assert.equal(ui.field('e_l_plac').disabled,false);}
+});
+
+test('wall footprint ignores saved longitudinal placement eccentricity',()=>{
+  const tag={footing_type:'vaggsula',values:{lang:1,b:1,l:3,e_b_plac:0,e_l_plac:1}};
+  const bg={width:800,height:600},cal={start:{x:0,y:0},end:{x:.1,y:0},length_m:1};
+  const p={kind:'wall',start:{x:.5,y:.7},angle_deg:0};
+  const g=footprintGeometry(tag,p,bg,cal);assert.deepEqual(g.center,g.anchor);
+});

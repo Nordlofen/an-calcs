@@ -61,17 +61,46 @@ def metres_per_pixel(calibration, background):
     return calibration["length_m"] / distance
 
 
+def _shift_point(point, distance, angle, background, calibration):
+    if distance == 0:
+        return dict(point)
+    units = 1 / metres_per_pixel(calibration, background)
+    yx, yy = wall_axes(angle)
+    return {"x": point["x"] + yx * distance * units / background["width"],
+            "y": point["y"] + yy * distance * units / background["height"]}
+
+
+def referenced_placement(placement, values, background, calibration):
+    """Remember the full-length origin while preserving the visible placement."""
+    result = migrate_wall(placement, background)
+    if result.get("kind") != "wall" or not values.get("physical_length") or "reference_start" in result:
+        return result
+    source, by = values.get("L_vagg"), values.get("l")
+    if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (source, by)):
+        return result
+    offset = source - by if values.get("length_end", 0) == 1 else 0
+    if offset and not calibration:
+        return result  # A replaced underlay must be calibrated first.
+    result["reference_start"] = _shift_point(result["start"], -offset, result["angle_deg"], background, calibration)
+    return result
+
+
 def resized_placement(placement, before, after, background, calibration):
-    """Move only the selected end, leaving the opposite end fixed."""
+    """Derive either trimmed end from one full-length placement, without drift."""
     if not placement or placement.get("kind") != "wall" or not after.get("physical_length"):
         return copy.deepcopy(placement)
-    result = migrate_wall(placement, background)
-    if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (before["l"], after["l"])):
+    basis = before if before.get("physical_length") else {**before, "physical_length": True, "L_vagg": after.get("L_vagg")}
+    result = referenced_placement(placement, basis, background, calibration)
+    if "reference_start" not in result:
+        raise ValueError("Kalibrera ritningsskalan före längdjustering av sulkonturen.")
+    source, by = after.get("L_vagg"), after.get("l")
+    if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (source, by)):
         return result
-    if after.get("length_end", 0) == 1 and after["l"] != before["l"]:
-        units = 1 / metres_per_pixel(calibration, background)
-        yx, yy = wall_axes(result["angle_deg"])
-        delta = (before["l"] - after["l"]) * units
-        result["start"] = {"x": result["start"]["x"] + yx*delta/background["width"],
-                           "y": result["start"]["y"] + yy*delta/background["height"]}
+    reference = result["reference_start"]
+    if after.get("length_end", 0) == 1 and before.get("L_vagg") is not None:
+        # A new imported source length keeps the opposite full-length end fixed.
+        reference = _shift_point(reference, before["L_vagg"] - source, result["angle_deg"], background, calibration)
+    offset = source - by if after.get("length_end", 0) == 1 else 0
+    result["reference_start"] = reference
+    result["start"] = _shift_point(reference, offset, result["angle_deg"], background, calibration)
     return result

@@ -75,7 +75,7 @@ def exclusion_reason(tag):
 def group_key(tag, *, width=None):
     values = tag["values"]
     return json.dumps(_canonical([footing_category(tag), group_geometry(tag, width=width), line_loads(values),
-                      [values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
+                      [0 if values.get("lang") == 1 and name == "e_l_plac" else values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
 
 
 def group_keys(tags):

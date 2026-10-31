@@ -300,7 +300,8 @@ jordens bärighet.
 **bᵧ** är sulans verkliga längd och följer initialt L_stöd. Aktivera
 **Justerad längd** för att ändra bᵧ i popupen, tabellen eller flerredigeringen.
 Välj **Startpunkt** eller **Slutpunkt** som ska flyttas när längden ändras.
-Avmarkering återställer bᵧ till L_stöd. Även stöd kortare än en meter behåller
+Byte mellan start- och slutpunkt flyttar den befintliga justeringen direkt.
+Avmarkering återställer både bᵧ och konturens utgångsläge. Även stöd kortare än en meter behåller
 sin verkliga importerade längd; valet Minst 1 m finns inte längre.
 Lastintensiteten härleds som `v_ny = v_ursprunglig × L_stöd / bᵧ` så att hela
 reaktionen stannar på samma sula. Etiketten visar **Omräknad last** och både

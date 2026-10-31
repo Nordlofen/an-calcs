@@ -262,14 +262,22 @@ export function measuredDistance(start, end, background, calibration) {
   return drawingDistance(start, end, background) / drawingDistance(calibration.start, calibration.end, background) * calibration.length_m;
 }
 
+function draftNumber(value) {
+  if (typeof value === "number") return value;
+  return typeof value === "string" && value.trim() ? Number(value.trim().replace(",", ".")) : NaN;
+}
 function displayedLineLoad(tag, name) {
   const v = tag.values;
-  if (!v.physical_length || !lineLoads(v) || !(v.L_vagg > 0) || !(v.l > 0)) return v[name];
-  return v[name] == null ? null : v[name] * (name === "V_Ed_EQU" ? (v.equ_reference_length ?? v.L_vagg) : v.L_vagg) / v.l;
+  if (!v.physical_length || !lineLoads(v)) return v[name];
+  const source = draftNumber(v.L_vagg), by = draftNumber(v.l);
+  const reference = name === "V_Ed_EQU" ? draftNumber(v.equ_reference_length ?? v.L_vagg) : source;
+  return source > 0 && by > 0 ? draftNumber(v[name]) * reference / by : null;
 }
 const sourceLengthLocked = tag => tag?.imported_length != null || !!tag?.values.physical_length && tag.values.L_vagg != null;
-const adjustedLineLoad = tag => tag.values.physical_length && lineLoads(tag.values)
-  && tag.values.l > 0 && tag.values.L_vagg > 0 && Math.abs(tag.values.L_vagg/tag.values.l-1) > 1e-10;
+const adjustedLineLoad = tag => {
+  const v = tag.values, source = draftNumber(v.L_vagg), by = draftNumber(v.l);
+  return v.physical_length && lineLoads(v) && source > 0 && by > 0 && Math.abs(source / by - 1) > 1e-10;
+};
 
 // Screen strokes are CSS pixels. For print preview/export, convert the desired
 // paper millimetres to CSS pixels using the SAME physical canvas as the PDF
@@ -304,7 +312,7 @@ export function footprintGeometry(tag, placement, bg, cal) {
   if (!(length > 0)) return null;
   // e_plac is the support/load position relative to the footing centre.
   // A fixed support therefore gives a footing centre displaced by minus e_plac.
-  const ex = Number(v.e_b_plac || 0), ey = Number(v.e_l_plac || 0);
+  const ex = Number(v.e_b_plac || 0), ey = Number(v.lang) === 1 ? 0 : Number(v.e_l_plac || 0);
   const center = {x: anchor.x - units * (ex * xAxis.x + ey * yAxis.x), y: anchor.y - units * (ex * xAxis.y + ey * yAxis.y)};
   const points = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b]) => ({
     x: center.x + units * (a * width * xAxis.x + b * length * yAxis.x) / 2,
@@ -3985,7 +3993,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const summary = dirty.has(tag.id) ? null : tag.summary;
       const tagState = dirty.has(tag.id) ? "stale" : tag.status;
       const draft = drafts.get(tag.id);
-      const values = draft?.values || tag.values;
+      const values = {...tag.values, ...draft?.values};
       const inactive = values.inaktiv === true;
       const onlyH = values.endast_h_stabilitet === true;
       const color = inactive ? "inactive" : summary ? (onlyH ? "horizontal" : summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
@@ -4060,7 +4068,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       marker.append(heading, mathText("span", "gp-tag-result", text));
       if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
-      const adjusted = adjustedLineLoad(tag);
+      const adjusted = adjustedLineLoad({...tag, values});
       if (adjusted && !onlyH) {
         const badge = node("span","gp-load-adjusted","Omräknad last");
         badge.title = "Omräknad för justerad sullängd. Totallasten är oförändrad."; loads.append(badge);
@@ -4080,7 +4088,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
             const total = dirty.has(tag.id) ? null : tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"];
             token += " → " + (Number.isFinite(total) ? precise(total) + " kN" : "—");
           }
-          if (adjusted && Number.isFinite(values[field.name])) token += " (urspr. " + precise(values[field.name]) + ")";
+          const original = draftNumber(values[field.name]);
+          if (adjusted && Number.isFinite(original)) token += " (urspr. " + precise(original) + ")";
           tokens.push(token);
         }
         if (!tokens.length) continue;
@@ -4116,8 +4125,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           return Number.isFinite(n) ? compactNumber(n, 3) + " " + unit : "—";
         };
         add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
-        if (values.physical_length && Number.isFinite(values.V_Ed_EQU) && displayedLineLoad({...tag,values},"V_Ed_EQU") !== values.V_Ed_EQU)
-          data.children[data.children.length-1].append(node("span", "gp-load-original", " (urspr. " + precise(values.V_Ed_EQU) + ")"));
+        if (values.physical_length && Number.isFinite(draftNumber(values.V_Ed_EQU)) && displayedLineLoad({...tag,values},"V_Ed_EQU") !== draftNumber(values.V_Ed_EQU))
+          data.children[data.children.length-1].append(node("span", "gp-load-original", " (urspr. " + precise(draftNumber(values.V_Ed_EQU)) + ")"));
         if (lineLoads(values) && !values.physical_length) add(data, "L", "su", value("glid_L", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
@@ -4279,7 +4288,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     if (tag.values.endast_h_stabilitet && name === "isolering") return "Nej";
     if (tag.values.endast_h_stabilitet && insulationNames.has(name)) return "—";
-    if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name)) return "—";
+    if (tag.values.endast_h_stabilitet && bearingOnlyNames.has(name) || name === "e_l_plac" && Number(tag.values.lang) === 1) return "—";
     if (["L_vagg_minst_1", "l_override"].includes(name) && tag.values.lang === 0 && !tag.values.physical_length) return "—";
     if (name === "glid_L" && !lineLoads(tag.values)) return "—";
     if (name === "lasttyp" && tag.values.lang === 1) return "—";
@@ -4688,7 +4697,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const ignored = (drafts.get(tag.id)?.values.endast_h_stabilitet ?? tag.values.endast_h_stabilitet)
           && (bearingOnlyNames.has(name) || insulationNames.has(name));
         control.hidden = name === "lasttyp" && Number(values.lang) === 1;
-        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || (name === "lang" && physicalType(tag) === "pelarsula") || (name === "L_vagg_minst_1" || name === "l_override" && Number(values.lang) === 0 && !values.physical_length)
+        control.disabled = inputLocked(tag) || inactiveField || busy || blocked || name === "e_l_plac" && Number(values.lang) === 1 || (name === "lang" && physicalType(tag) === "pelarsula") || (name === "L_vagg_minst_1" || name === "l_override" && Number(values.lang) === 0 && !values.physical_length)
           || (name === "glid_L" && !lineLoads(values))
           || (name === "lasttyp" && Number(values.lang) === 1) || (name === "L_vagg" && !lineLoads(values))
           || ignored || (name === "l" && (tag.values.lang === 1 || values.physical_length && physicalType(tag) === "vaggsula") && !ownLength)
@@ -4813,7 +4822,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     placeTableSoilEditor();
   }
   const sameTypeFields = new Set(model.get("schema").bulk_same_type ||
-    ["lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
+    ["e_l_plac", "lasttyp", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   const loadTypeFields = new Set(["L_vagg", "glid_L", "V_Ed_EQU", ...groups[1][1], ...groups[2][1]]);
   function beginDrawingEdit() {
     if (readOnly || drawingBusy || drawingPending || importBusy || bulkBusy || calibrationBusy) return;
@@ -5307,7 +5316,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       + "Urval: " + tags.map(tag => tag.label).join(", ");
     for (const [index, [label, names, note]] of groups.entries()) {
       if (label === "Glidning" && !sliding().enabled && !tags.some(tag => tag.values.endast_h_stabilitet)) continue;
-      const available = names.filter(name => fieldSchema.has(name) && name !== "lang"
+      const available = names.filter(name => fieldSchema.has(name) && name !== "lang" && !(strip && name === "e_l_plac")
         && (!hasInactive || ["inaktiv", "kommentar"].includes(name))
         && !(onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)))
         && !(strip && name === "lasttyp")
@@ -5673,7 +5682,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const unit = (fieldSchema.get(name).unit || "").replace("^3", "³").replace(/^deg$/, "°");
       entry.unit.textContent = line && ["kN", "kNm"].includes(unit) ? unit + "/m" : unit;
       const insulationField = name.startsWith("f_d_");
-      const ignored = onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name));
+      const ignored = onlyH && (bearingOnlyNames.has(name) || insulationNames.has(name)) || strip && name === "e_l_plac";
       if (readOnly) {
         entry.row.hidden = ignored || !insulated && (insulationField || name.endsWith("_bruk") && !current()?.settlement);
         continue;
@@ -6252,7 +6261,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       } else {
         const x = dx / zoom, y = dy / zoom;
         drag.contourChanges = {e_b_plac: Number(drag.contourValues.e_b_plac || 0) - (x*geometry.xAxis.x+y*geometry.xAxis.y)/geometry.units,
-          e_l_plac: Number(drag.contourValues.e_l_plac || 0) - (x*geometry.yAxis.x+y*geometry.yAxis.y)/geometry.units};
+          e_l_plac: Number(tag.values.lang) === 1 ? Number(drag.contourValues.e_l_plac || 0)
+            : Number(drag.contourValues.e_l_plac || 0) - (x*geometry.yAxis.x+y*geometry.yAxis.y)/geometry.units};
         // Preview values only; the kernel calculates once on pointerup.
         contourPlacementDraft = {id: tag.id, placement: p, values: {...drag.contourValues,...drag.contourChanges}};
       }

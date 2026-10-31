@@ -29,7 +29,7 @@ from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
-from .grundplan_lengths import intensity_data, lock_source, resized_placement, migrate_wall, metres_per_pixel
+from .grundplan_lengths import intensity_data, lock_source, resized_placement, referenced_placement, metres_per_pixel
 from .grundplan_contours import settings as contour_settings, placement as contour_placement
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
@@ -48,7 +48,7 @@ _ASSETS = Path(__file__).parent
 _CALCULATOR_FILE = _ASSETS.parent / "geo" / "allmanna_barighetsekvationen.py"
 _INSULATION_FILE = _ASSETS.parent / "geo" / "isolering_under_sula.py"
 _CALCULATOR_VERSION = hashlib.sha256(
-    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:physical-support-length-v8"
+    _CALCULATOR_FILE.read_bytes() + _INSULATION_FILE.read_bytes() + b"\0grundplan:fixed-length-origin-wall-placement-v9"
 ).hexdigest()
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
@@ -97,7 +97,7 @@ _TABLE_GROUPS = {"lang", "F_vy", "F_vy_bruk", "c_prime", "isolering", "glid_x", 
 _INSULATION_WIDGET_DEFAULTS = {"enabled": False, "x": .65, "y": .55, "size": 300}
 _COMMENT_WIDGET_DEFAULTS = {"enabled": False, "x": .08, "y": .55, "size": 410}
 # These fields have different meanings/units for strips and pads.
-_BULK_SAME_TYPE = {"length_end", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
+_BULK_SAME_TYPE = {"e_l_plac", "length_end", "l", "l_override", "L_vagg", "L_vagg_minst_1", "glid_L", "V_Ed_EQU", "F_vy", "F_hb", "F_hl",
                    "M_insp_l", "M_insp_b", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "lasttyp"}
 _BULK_LOAD_FIELDS = {"V_Ed_EQU", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b",
                      "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk", "L_vagg", "glid_L"}
@@ -138,7 +138,7 @@ def _values(values, *, draft=False):
                 raise ValueError(f"{name} måste vara en text.")
             continue
         optional = name not in _NAMES and not values["isolering"]
-        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name in {"L_vagg", "equ_reference_length"}) and value is None and name not in {"lang", "lasttyp"}:
+        if (draft or values["inaktiv"] or values["endast_h_stabilitet"] or optional or name in SLIDING_NAMES or name in {"L_vagg", "equ_reference_length"} or name == "e_l_plac" and values["lang"] == 1) and value is None and name not in {"lang", "lasttyp"}:
             continue
         _number(value, name)
     if values["lang"] not in (0, 1):
@@ -366,6 +366,8 @@ def _calculate(values):
     # Keep the shared calculation APIs compatible; Grundplan always supplies
     # zero lever arms so its user-entered moments act directly at the footing.
     engine_values = {**values, **dict.fromkeys(_REMOVED_FIELDS, 0.0)}
+    if values["lang"] == 1:
+        engine_values["e_l_plac"] = 0.0
     support_length = bearing_load_length(values)
     if support_length is not None:
         if values["lang"] == 1 and values["l"] <= 0:
@@ -430,9 +432,9 @@ def _calculate(values):
             "bx": values["b"], "by": intermediate["l_ref"],
             "bx_eff": bx, "by_eff": by, "area": bx * by, "V": normal,
             "Mx": moment_x, "My": moment_y,
-            "ex_placement": values["e_b_plac"], "ey_placement": values["e_l_plac"],
+            "ex_placement": values["e_b_plac"], "ey_placement": engine_values["e_l_plac"],
             "ex_moment": dx, "ey_moment": dy,
-            "ex": values["e_b_plac"] + dx, "ey": values["e_l_plac"] + dy,
+            "ex": values["e_b_plac"] + dx, "ey": engine_values["e_l_plac"] + dy,
         }
     summary["effective_area"] = areas
     if support_length is not None:
@@ -1752,7 +1754,16 @@ class Grundplan(anywidget.AnyWidget):
 
     @kalibrering.setter
     def kalibrering(self, value):
-        self._calibration = _calibration(value, self.background)
+        calibration = _calibration(value, self.background)
+        placements = copy.deepcopy(self._contours["placements"])
+        if calibration:
+            for tag in self._tags:
+                placement = placements.get(tag["id"])
+                if placement and "reference_start" in placement and tag["values"].get("physical_length"):
+                    placements[tag["id"]] = contour_placement(resized_placement(
+                        placement, tag["values"], tag["values"], self.background, calibration))
+        self._calibration = calibration
+        self._contours = {**self._contours, "placements": placements}
         self._publish()
 
     @property
@@ -1779,7 +1790,10 @@ class Grundplan(anywidget.AnyWidget):
             placements.pop(tagg, None)
         else:
             item = contour_placement(placering)
-            if tag["values"].get("physical_length"): item = migrate_wall(item, self.background)
+            if tag["values"].get("physical_length"):
+                item.pop("reference_start", None)  # A deliberate placement/rotation defines a fresh origin.
+                item = referenced_placement(item, tag["values"], self.background, self._calibration)
+                item = contour_placement(item)
             expected = "wall" if footing_category(tag) == "wall" else "pad"
             if item["kind"] != expected:
                 raise ValueError("Konturtypen måste motsvara sulans beräkningsmodell.")
@@ -1789,7 +1803,7 @@ class Grundplan(anywidget.AnyWidget):
 
     def _resized_contour(self, tag, values):
         placement = self._contours["placements"].get(tag["id"])
-        if placement is None or values["l"] == tag["values"]["l"]: return None
+        if placement is None or all(values.get(name) == tag["values"].get(name) for name in ("l", "length_end", "L_vagg")): return None
         if values.get("physical_length") and (type(values["l"]) not in (int, float) or values["l"] <= 0):
             raise ValueError("Ange ett positivt b_y för den placerade sulkonturen.")
         result = resized_placement(placement, tag["values"], values, self.background, self._calibration)
@@ -1798,7 +1812,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 31,
+            "version": 32,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -1980,8 +1994,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 32):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–31.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 33):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–32.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -2091,8 +2105,10 @@ class Grundplan(anywidget.AnyWidget):
                 tag["soil_profile"] = profile
             valid_tags.append(tag)
         saved_contours = contour_settings(document.get("contours", {}), valid_tags)
-        physical_ids = {t["id"] for t in valid_tags if t["values"].get("physical_length")}
-        saved_contours["placements"] = {ident: migrate_wall(p, rendered) if ident in physical_ids else p for ident, p in saved_contours.get("placements", {}).items()}
+        physical_values = {t["id"]: t["values"] for t in valid_tags if t["values"].get("physical_length")}
+        saved_contours["placements"] = {ident: referenced_placement(p, physical_values[ident], rendered, calibration)
+                                        if ident in physical_values else p
+                                        for ident, p in saved_contours.get("placements", {}).items()}
         contours = contour_settings(saved_contours, valid_tags)
         common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,

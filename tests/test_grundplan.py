@@ -379,7 +379,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 31)
+        self.assertEqual(loaded._document()["version"], 32)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
@@ -431,7 +431,7 @@ class TestGrundplan(unittest.TestCase):
                     ("bruk", 300 + 25 * 2 * length * .4, -36, 18),
                 ):
                     b_eff = 2 - 2 * abs(.1 + moment_b / normal)
-                    l_eff = length - 2 * abs(-.02 + moment_l / normal)
+                    l_eff = length - 2 * abs((-.02 if kind == "pelarsula" else 0) + moment_l / normal)
                     self.assertAlmostEqual(result[f"isolering_b_eff_{phase}"], b_eff)
                     self.assertAlmostEqual(result[f"isolering_l_eff_{phase}"], l_eff)
                     if phase == "brott":
@@ -446,7 +446,7 @@ class TestGrundplan(unittest.TestCase):
                     self.assertAlmostEqual(area["ex_moment"], moment_b / normal)
                     self.assertAlmostEqual(area["ey_moment"], moment_l / normal)
                     self.assertAlmostEqual(area["ex"], .1 + moment_b / normal)
-                    self.assertAlmostEqual(area["ey"], -.02 + moment_l / normal)
+                    self.assertAlmostEqual(area["ey"], (-.02 if kind == "pelarsula" else 0) + moment_l / normal)
                     self.assertAlmostEqual(area["bx_eff"], b_eff)
                     self.assertAlmostEqual(area["by_eff"], l_eff)
                     self.assertAlmostEqual(area["area"], b_eff * l_eff)
@@ -479,9 +479,9 @@ class TestGrundplan(unittest.TestCase):
                     self.assertEqual(set(phases), {"brott"})
                     a = phases["brott"]
                     self.assertAlmostEqual(a["ex"], .1 + dx)
-                    self.assertAlmostEqual(a["ey"], -.1 + dy)
+                    self.assertAlmostEqual(a["ey"], (-.1 if kind == "pelarsula" else 0) + dy)
                     self.assertAlmostEqual(a["bx_eff"], 2 - 2 * abs(.1 + dx))
-                    self.assertAlmostEqual(a["by_eff"], (1 if kind == "vaggsula" else 3) - 2 * abs(-.1 + dy))
+                    self.assertAlmostEqual(a["by_eff"], (1 if kind == "vaggsula" else 3) - 2 * abs((-.1 if kind == "pelarsula" else 0) + dy))
             loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "axes.json"))
             self.addCleanup(loaded.close)
             self.assertEqual(loaded._tag(ident)["summary"], self.plan._tag(ident)["summary"])

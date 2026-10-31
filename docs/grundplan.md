@@ -512,7 +512,10 @@ vid blandat urval, eftersom laster anges per meter för väggsulor och totalt
 för pelarsulor. bᵧ är redigerbart även för väggsulor, i dialogen, tabellen
 och vid flerredigering. **Justerad längd** låser upp bᵧ; avmarkerad följer det
 L_stöd och är skrivskyddat. För väggkonturer väljs **Justera vid: Startpunkt /
-Slutpunkt**; motsatt ändpunkt hålls kvar. Måttet används i beräkning och kontur.
+Slutpunkt**; motsatt ändpunkt hålls kvar. Byter du detta val flyttas även en
+redan gjord justering till den valda änden. Avmarkering återställer både
+längden och det sparade utgångsläget, utan förskjutning efter upprepade byten.
+Måttet används i beräkning och kontur.
 Väggsulemodellen redovisar inte bᵧ i etiketter eller grupperingar. Rena
 pelarsulors bᵧ är fortsatt redigerbart. Python `indata={"l": 2.4}` aktiverar
 justeringen; `indata={"l_override": False}` återställer källängden.
@@ -866,7 +869,7 @@ respektive 1,0 i bruk. q_Ed är total vertikallast inklusive egentyngd delad med
 effektiv area. Den gemensamma väggsulemotorn använder ekvivalenta värden per
 meter; Grundplans sammanfattning och areaskiss visar totala krafter/moment.
 
-Projektformat 31 migrerar äldre importerade stöd med sparad `imported_length`.
+Projektformat 32 migrerar äldre importerade stöd med sparad `imported_length`.
 En gammal lokal enmetersremsa blir inte sulans fysiska längd. En kalibrerad
 väggkontur ger den tidigare verkliga längden när sådan finns; annars följer
 bᵧ källängden, med bevarade avsiktliga längdjusteringar. Etikettplacering och
@@ -1710,6 +1713,10 @@ startpunkt och en punkt i positiv bᵧ-riktning, längs väggsulan. Den andra
 punktens avstånd bestämmer inte längden; den kommer från bᵧ. Väggsulor med
 pelarsulemodell visas som bₓ × bᵧ-rektanglar.
 
+Konturen sparar ett utgångsläge för full längd L_stöd. Alla längdjusteringar
+härleds från detta läge. Äldre konturer behåller sitt synliga läge när de
+öppnas och får en motsvarande längdreferens.
+
 Cirklarna flyttar centrum/startpunkt eller vrider de lokala axlarna.
 Drag i själva konturen ändrar placeringsexcentriciteten och räknar om sulan;
 stödets fasta placering behålls. Positiv excentricitet anger stödets läge
@@ -1717,7 +1724,9 @@ relativt sulans centrum. Därför flyttas konturen i motsatt riktning vid
 ökad excentricitet. Lastmoment flyttar inte betongkonturen. Måtten bₓ/bᵧ
 följer alltid objektets indata, även efter Auto bₓ. Etikettens läge är separat.
 Placeringslås skyddar konturplacering och excentricitetsdrag; indatalås skyddar
-mått och excentriciteter.
+mått och excentriciteter. eᵧ,plac används endast i pelarsulemodellen. Fältet
+döljs i popupen och inaktiveras i tabellen för väggsulemodellen; ett äldre
+sparat värde påverkar då varken beräkningen eller konturen.
 
 **Klar** eller **Esc** avslutar redigeringen. I normalläget går musdrag rakt
 igenom konturerna till panoreringen. **Konturinställningar… → Färgfyllning**
