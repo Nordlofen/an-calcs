@@ -22,7 +22,7 @@ DEFAULT_SETTINGS = {"enabled": False, "category": "t", "secondary": None, "categ
                     "bounds": {"pad": [100, 200, 400], "wall": [100, 200, 400]},
                     "result_bounds": RESULT_BOUNDS,
                     "colors": {}, "styles": {}, "legend": {"x": .65, "y": .08, "size": 300}}
-CATEGORIES = {"sultyp": "Sultyp", "t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "V": "Vertikallast V", "isolering": "Isolering",
+CATEGORIES = {"sultyp": "Sultyp", "t": "Tjocklek t", "b": "Bredd bₓ", "l": "Längd bᵧ", "B_x": "Konstruktionsdel Bₓ", "B_y": "Konstruktionsdel Bᵧ", "V": "Vertikallast V", "isolering": "Isolering",
               "s": "Sättning s", "k": "Ytstyvhet k", "K": "Styvhet (vald form)"}
 PHASES = {"brott": "Brott", "bruk": "Bruk", "EQU": "EQU"}
 LOAD_FIELDS = {"brott": "F_vy", "bruk": "F_vy_bruk", "EQU": "V_Ed_EQU"}
@@ -195,6 +195,17 @@ def remember_styles(tags, settings):
     return result
 
 
+def _geometry_value(tag, category):
+    values = tag["values"]
+    value = values.get(category)
+    if category == "B_y" and values.get("lang") == 1:
+        length = values.get("l")
+        value = length * 1000 if _finite(length) else None
+    if category in {"B_x", "B_y"} and (not _finite(value) or value <= 0):
+        return None
+    return value
+
+
 def group_data(tags, settings):
     """Return groups with counts and tag assignments, including every interval."""
     categories = selected_categories(settings)
@@ -260,13 +271,14 @@ def group_data(tags, settings):
     else:
         if category == "l" and any(footing_category(tag) == "wall" for tag in tags):
             by_key["omitted"] = make("l:wall", label="", kind="omitted", unit="")
-        unique = sorted({tag["values"][category] for tag in tags
-                         if not tag["values"].get("endast_h_stabilitet") and _finite(tag["values"].get(category))
+        unique = sorted({_geometry_value(tag, category) for tag in tags
+                         if (category in {"B_x", "B_y"} or not tag["values"].get("endast_h_stabilitet"))
+                         and _finite(_geometry_value(tag, category))
                          and (category != "l" or footing_category(tag) != "wall")})
         for value in unique:
             key = category + ":" + number_key(value)
             if key not in by_key:
-                by_key[key] = make(key, value=value, unit="m", kind="geometry")
+                by_key[key] = make(key, value=value, unit="mm" if category in {"B_x", "B_y"} else "m", kind="geometry")
     special = {}
     for tag in tags:
         values = tag["values"]
@@ -293,14 +305,14 @@ def group_data(tags, settings):
             group["count"] += 1
             assignments[tag["id"]] = group
             continue
-        value = values.get(category)
+        value = _geometry_value(tag, category)
         if category == "V":
             name = LOAD_FIELDS[phase]
             value = (intensity_data(values) or {}).get("current", {}).get(name, values.get(name))
         if not _finite(value):
             key = "missing"
             if key not in special:
-                group = make(key, label="Saknar värde", kind="special", unit="")
+                group = make(key, label="Ej angivet" if category in {"B_x", "B_y"} else "Saknar värde", kind="special", unit="")
                 special[key] = group
             group = special[key]
         elif category == "V":

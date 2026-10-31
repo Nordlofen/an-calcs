@@ -33,6 +33,31 @@ class TestGrundplanColour(unittest.TestCase):
     def add(self, **values):
         return self.plan.lagg_till(.2, .22, indata=values)
 
+    def test_construction_dimension_groups_use_mm_and_keep_undefined_objects(self):
+        tags = [
+            {"id": "a", "values": {"lang": 0, "B_x": 300, "B_y": 400}},
+            {"id": "b", "values": {"lang": 0, "B_x": 300, "B_y": 500}},
+            {"id": "old", "values": {"lang": 0}},
+            {"id": "wall", "values": {"lang": 1, "l": 2.6, "B_x": 200, "B_y": 999}},
+            {"id": "h", "values": {"lang": 0, "B_x": 200, "B_y": 400, "endast_h_stabilitet": True}},
+        ]
+        for key in ('B_x', 'B_y'):
+            settings = validate_settings({'categories': [key], 'include_only_h': True})
+            data = group_data(tags, settings)
+            self.assertEqual(set(data['assignments']), {tag['id'] for tag in tags})
+            self.assertEqual(data['assignments']['old']['label'], 'Ej angivet')
+            self.assertTrue(all(group['unit'] == 'mm' for group in data['groups'] if group['kind'] == 'geometry'))
+        data = group_data(tags, validate_settings({'categories': ['B_x', 'B_y']}))
+        self.assertNotEqual(data['assignments']['a']['key'], data['assignments']['b']['key'])
+        by = group_data(tags, validate_settings({'category': 'B_y'}))
+        self.assertEqual(by['assignments']['wall']['value'], 2600)
+        first = self.plan.lagg_till(.2,.2,typ='pelarsula',indata={'B_x':300,'B_y':400})
+        self.plan.farggruppering = {'enabled':True,'categories':['sultyp','b','B_x','B_y']}
+        settings = self.plan.farggruppering
+        loaded = Grundplan.oppna(self.plan.spara(self.folder/'construction.json')); self.addCleanup(loaded.close)
+        self.assertEqual(loaded.farggruppering, settings)
+        self.assertEqual(group_data(loaded.taggar, settings), group_data(self.plan.taggar, settings))
+
     def test_set3_original_colours_then_patterns_cover_many_groups(self):
         tags = [{"id": str(i), "values": {"t": i + 1}} for i in range(73)]
         settings = validate_settings({})
@@ -538,6 +563,10 @@ class TestGrundplanColour(unittest.TestCase):
                 ":" + settings["phase"] if settings["category"] == "V" else "")
             cases.append({**settings, "styles": {scope: {**{"retired-" + str(i): i for i in range(12)},
                                                        **{key: i + 24 for i, key in enumerate(keys)}}}})
+        for i, tag in enumerate(self.plan._tags[:4]):
+            self.plan.uppdatera(tag['id'], indata={'B_x':200+i*100,'B_y':300+i*100})
+        cases += [validate_settings({'categories': selected}) for selected in
+                  (['B_x'], ['B_y'], ['B_x','B_y'], ['sultyp','B_x','B_y'], ['t','b','B_x','B_y'], ['B_x','V'])]
         cases += [{**settings, "include_only_h": True} for settings in cases]
         source = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook/grundplan.js"
         script = '''import {readFileSync} from 'node:fs';

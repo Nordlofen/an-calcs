@@ -7,7 +7,7 @@ const REFERENCE_WIDGET_DEFAULTS = {enabled: false, x: .05, y: .3, size: 410};
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
-const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", V: "Vertikallast V", isolering: "Isolering", s: "Sättning s", k: "Ytstyvhet k", K: "Styvhet (vald form)"};
+const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", B_x: "Konstruktionsdel Bₓ", B_y: "Konstruktionsdel Bᵧ", V: "Vertikallast V", isolering: "Isolering", s: "Sättning s", k: "Ytstyvhet k", K: "Styvhet (vald form)"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
   .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
@@ -107,6 +107,11 @@ const colourResultValue = (tag, category) => {
 };
 const colourResultKind = (tag, category) => category !== "K" ? category
   : ({yta: "K_area", linje: "K_line", punkt: "K_point"})[tag.settlement.display_form || (tag.settlement.model === "VS" ? "linje" : "punkt")];
+const colourGeometryValue = (tag, category) => {
+  const v = tag.values;
+  const value = category === "B_y" && Number(v.lang) === 1 ? (Number.isFinite(v.l) ? v.l * 1000 : null) : v[category];
+  return ["B_x","B_y"].includes(category) && !(Number.isFinite(value) && value > 0) ? null : value;
+};
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   const categories = selectedColourCategories(settings);
   const includeH = settings.include_only_h === true && !onlyHColourRestriction(settings);
@@ -169,12 +174,12 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
   } else {
     if (category === "l" && tags.some(tag => footingCategory(tag) === "wall"))
       byKey.set("omitted", make("l:wall", {label: "", kind: "omitted", unit: ""}));
-    const values = [...new Set(tags.filter(tag => !tag.values.endast_h_stabilitet && finite(tag.values[category])
+    const values = [...new Set(tags.filter(tag => (["B_x","B_y"].includes(category) || !tag.values.endast_h_stabilitet) && finite(colourGeometryValue(tag, category))
       && (category !== "l" || footingCategory(tag) !== "wall"))
-      .map(tag => tag.values[category]))].sort((a, b) => a - b);
+      .map(tag => colourGeometryValue(tag, category)))].sort((a, b) => a - b);
     for (const value of values) {
       const key = category + ":" + colourNumberKey(value);
-      if (!byKey.has(key)) byKey.set(key, make(key, {value, unit: "m", kind: "geometry"}));
+      if (!byKey.has(key)) byKey.set(key, make(key, {value, unit: ["B_x","B_y"].includes(category) ? "mm" : "m", kind: "geometry"}));
     }
   }
   for (const tag of tags) {
@@ -199,12 +204,12 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       const group = byKey.get("omitted");
       group.count++; assignments.set(tag.id, group); continue;
     }
-    const value = category === "V" ? displayedLineLoad({...tag,values},{brott:"F_vy",bruk:"F_vy_bruk",EQU:"V_Ed_EQU"}[phase]) : values[category];
+    const value = category === "V" ? displayedLineLoad({...tag,values},{brott:"F_vy",bruk:"F_vy_bruk",EQU:"V_Ed_EQU"}[phase]) : colourGeometryValue(tag, category);
     let group;
     if (!finite(value)) {
       const key = "missing";
       if (!special.has(key)) {
-        const item = make(key, {label: "Saknar värde", kind: "special", unit: ""});
+        const item = make(key, {label: ["B_x","B_y"].includes(category) ? "Ej angivet" : "Saknar värde", kind: "special", unit: ""});
         special.set(key, item);
       }
       group = special.get(key);
@@ -3292,7 +3297,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (group.kind === "omitted") return "";
     if (group.kind === "combination") return group.parts.map((part, index) => colourPartCaption(group, index)).filter(Boolean).join(" · ");
     if (group.label) return group.label;
-    if (group.kind === "geometry") return precise(group.value) + " m";
+    if (group.kind === "geometry") return precise(group.value) + " " + group.unit;
     if (group.kind === "result") {
       const format = group.result_kind === "s" ? precise : scientificText;
       const value = group.low == null ? group.symbol + " < " + format(group.high) : group.high == null ? group.symbol + " ≥ " + format(group.low)
@@ -3305,10 +3310,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function colourPartCaption(group, index) {
     const part = group.parts[index], category = group.categories[index];
     if (part.kind === "omitted") return "";
-    const prefix = {t: "t ", b: "b_x ", l: "b_y "}[category] || (category === "V" && part.kind === "special" ? "V " : "");
+    const prefix = {t: "t ", b: "b_x ", l: "b_y ", B_x: "B_x ", B_y: "B_y "}[category] || (category === "V" && part.kind === "special" ? "V " : "");
     return prefix + colourGroupCaption(part) + (["pad", "wall"].includes(part.kind) ? " " + part.unit : "");
   }
-  function supportLines(tags) {
+  function supportLines(tags, omit = []) {
     if (!tags.length) return [];
     const values = tags.map(tag => supportAnnotation({...tag, values:{...tag.values, ...drafts.get(tag.id)?.values}}));
     const range = (key, optional) => {
@@ -3318,7 +3323,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const lo = Math.min(...nums), hi = Math.max(...nums);
       return compactNumber(lo,1) + (hi === lo ? "" : "–" + compactNumber(hi,1));
     };
-    return [["B_x","B_y"],["e_x","e_y"]].map((keys,i) => keys.map(key => {
+    return [["B_x","B_y"],["e_x","e_y"]].map((keys,i) => keys.filter(key => !omit.includes(key)).map(key => {
       const value = range(key,i===0); return value == null ? null : key + " " + value;
     }).filter(Boolean).join(" · ")).filter(Boolean).map(line => line + " mm");
   }
@@ -3382,7 +3387,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     colourLegendBody.replaceChildren(node("p", "gp-colour-legend-title",
       categories.length > 1 ? categories.map(category => category === "V" ? "V" : COLOUR_CATEGORIES[category]).join(" + ") + (hasV ? " · " + (settings.phase === "EQU" ? "EQU" : settings.phase) : "")
         : categories[0] === "isolering" ? "Isolering och glidmotstånd"
-        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : ["sultyp", "s", "k", "K"].includes(categories[0]) ? "" : " [m]")));
+        : COLOUR_CATEGORIES[categories[0]] + (categories[0] === "V" ? " · " + COLOUR_PHASES[settings.phase] : ["sultyp", "s", "k", "K"].includes(categories[0]) ? "" : ["B_x","B_y"].includes(categories[0]) ? " [mm]" : " [m]")));
     let previousKind = null, previousFooting = null, previousThickness = null;
     for (const group of data.groups.filter(group => group.count > 0 && group.kind !== "omitted")) {
       const typePart = group.parts?.find(part => part.kind === "footing_type") || (group.kind === "footing_type" ? group : null);
@@ -3418,7 +3423,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
       }
       const members = groupingTags().filter(tag => data.assignments.get(tag.id)?.key === group.key);
-      const annotations = categories.some(key => ["sultyp","t","b","l"].includes(key)) ? supportLines(members) : [];
+      const annotations = categories.some(key => ["sultyp","t","b","l","B_x","B_y"].includes(key)) ? supportLines(members, categories) : [];
       if (annotations.length) {
         for (const line of annotations) caption.append(mathText("span", "gp-support-details", line));
       }

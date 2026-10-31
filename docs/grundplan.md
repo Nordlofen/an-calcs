@@ -1788,8 +1788,16 @@ Etiketten visar en kompakt rad med B-måtten i mm samt en rad för relevanta,
 icke nollställda placeringsexcentriciteter i mm, utan tecken. Väggsulemodellen
 visar bara eₓ. Referenswidgeten och färglegender med måttgrupper visar samma
 information. Skiljer sig värdena inom en grupp visas intervall; saknas mått
-på någon av sulorna anges blandade värden. Grupperna delas inte upp av B-måtten.
+på någon av sulorna anges blandade värden. Grupperna delas bara upp av B-måtten när dessa uttryckligen väljs som färggrupperingsparametrar. Referensgrupperingen påverkas inte.
 
 Måtten följer med vid kopiering, Ångra/Gör om, projektsparning samt HTML- och
 vektor-PDF-export. Indatalås skyddar även B-måtten. Äldre filer öppnas utan
 påhittade pelar-/väggbredder; ingen övre kontur visas innan måtten fyllts i.
+
+
+**Färggruppering:** välj **Konstruktionsdel Bₓ** och/eller **Konstruktionsdel Bᵧ**
+för en färg per unikt mått i mm. Valen kan kombineras med sultyp, sulmått och
+övriga parametrar. Saknade mått bildar gruppen **Ej angivet**. I väggsulemodellen
+används automatiskt Bᵧ = bᵧ, omräknat till mm. De nya valen är avstängda i äldre
+projekt; befintliga färgval behålls. Även Endast H-objekt kan grupperas efter
+B-måtten när **Endast H** är aktiverat och övriga gruppval tillåter detta.

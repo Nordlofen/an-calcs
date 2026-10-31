@@ -6280,3 +6280,36 @@ test('old objects without B dimensions keep their labels and footing contours wi
   assert.equal(ui.field('B_x').required,false);assert.equal(ui.field('B_y').required,false);
   assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
 });
+
+
+test('construction grouping splits upper dimensions in millimetres and preserves missing and H-only objects',()=>{
+  const tags=[
+    {id:'a',values:{lang:0,B_x:300,B_y:400}},
+    {id:'b',values:{lang:0,B_x:300,B_y:500}},
+    {id:'old',values:{lang:0}},
+    {id:'wall',values:{lang:1,l:2.6,B_x:200,B_y:999}},
+    {id:'h',values:{lang:0,B_x:200,B_y:400,endast_h_stabilitet:true}},
+  ];
+  const settings={...defaultColour,categories:['B_x','B_y'],include_only_h:true};
+  const data=colourGroups(tags,settings);
+  assert.equal(data.assignments.size,5);
+  assert.notEqual(data.assignments.get('a').key,data.assignments.get('b').key);
+  const old=colourGroups(tags,{...settings,categories:['B_x']}).assignments.get('old');
+  assert.equal(old.label,'Ej angivet');
+  const by=colourGroups(tags,{...settings,categories:['B_y']}).assignments.get('wall');
+  assert.equal(by.value,2600);assert.equal(by.unit,'mm');
+});
+
+for(const readOnly of [false,true]) test(`construction colour choices and legend use mm without duplicating selected dimensions (readOnly=${readOnly})`,t=>{
+  const ui=setup(t,{readOnly});Object.assign(ui.tag.values,{B_x:200,B_y:1000,e_b_plac:0});
+  colourFixture(ui,{categories:['B_x','B_y']});
+  const text=elementText(ui.byClass('gp-colour-legend-body'));
+  assert.match(text,/Bx 200 mm.*By 1.*000 mm/);
+  assert.equal((text.match(/200/g)||[]).length,1);
+  colourFixture(ui,{categories:['B_x']});
+  assert.match(elementText(ui.byClass('gp-colour-legend-title')),/Bₓ \[mm\]/);
+  if(!readOnly){
+    const choice=ui.byText('Konstruktionsdel Bᵧ');choice.click();
+    assert.deepEqual(ui.sent.at(-1).settings.categories,['B_x','B_y']);
+  }
+});
