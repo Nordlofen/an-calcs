@@ -39,6 +39,9 @@ class TestGrundplanColour(unittest.TestCase):
             {"id": "b", "values": {"lang": 0, "B_x": 300, "B_y": 500}},
             {"id": "old", "values": {"lang": 0}},
             {"id": "wall", "values": {"lang": 1, "l": 2.6, "B_x": 200, "B_y": 999}},
+            {"id": "wall2", "values": {"lang": 1, "l": 11.5, "B_x": 200, "B_y": 11500}},
+            {"id": "wall_pad1", "footing_type": "vaggsula", "values": {"lang": 0, "B_x": 200, "B_y": 400}},
+            {"id": "wall_pad2", "footing_type": "vaggsula", "values": {"lang": 0, "B_x": 200, "B_y": 500}},
             {"id": "h", "values": {"lang": 0, "B_x": 200, "B_y": 400, "endast_h_stabilitet": True}},
         ]
         for key in ('B_x', 'B_y'):
@@ -49,8 +52,11 @@ class TestGrundplanColour(unittest.TestCase):
             self.assertTrue(all(group['unit'] == 'mm' for group in data['groups'] if group['kind'] == 'geometry'))
         data = group_data(tags, validate_settings({'categories': ['B_x', 'B_y']}))
         self.assertNotEqual(data['assignments']['a']['key'], data['assignments']['b']['key'])
+        self.assertEqual(data['assignments']['wall']['key'], data['assignments']['wall2']['key'])
+        self.assertNotEqual(data['assignments']['wall_pad1']['key'], data['assignments']['wall_pad2']['key'])
         by = group_data(tags, validate_settings({'category': 'B_y'}))
-        self.assertEqual(by['assignments']['wall']['value'], 2600)
+        self.assertEqual(by['assignments']['wall']['kind'], 'omitted')
+        self.assertEqual(by['assignments']['wall2']['kind'], 'omitted')
         first = self.plan.lagg_till(.2,.2,typ='pelarsula',indata={'B_x':300,'B_y':400})
         self.plan.farggruppering = {'enabled':True,'categories':['sultyp','b','B_x','B_y']}
         settings = self.plan.farggruppering

@@ -7,7 +7,7 @@ const REFERENCE_WIDGET_DEFAULTS = {enabled: false, x: .05, y: .3, size: 410};
 const lineLoads = values => Number(values.lang) === 1 || Number(values.lasttyp ?? 0) === 1;
 const COLOUR_DEFAULTS = {enabled: false, category: "t", secondary: null, categories: null, phase: "brott", edit_type: "pad", show_legend: true,
   include_only_h: false, bounds: {pad: [100, 200, 400], wall: [100, 200, 400]}, colors: {}, styles: {}, legend: {x: .65, y: .08, size: 300}};
-const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", B_x: "Konstruktionsdel Bₓ", B_y: "Konstruktionsdel Bᵧ", V: "Vertikallast V", isolering: "Isolering", s: "Sättning s", k: "Ytstyvhet k", K: "Styvhet (vald form)"};
+const COLOUR_CATEGORIES = {sultyp: "Sultyp", t: "Tjocklek t", b: "Bredd bₓ", l: "Längd bᵧ", B_x: "Pelare/vägg Bₓ", B_y: "Pelare Bᵧ", V: "Vertikallast V", isolering: "Isolering", s: "Sättning s", k: "Ytstyvhet k", K: "Styvhet (vald form)"};
 const COLOUR_PHASES = {brott: "Brott", bruk: "Bruk", EQU: "EQU"};
 const selectedColourCategories = settings => Object.keys(COLOUR_CATEGORIES)
   .filter(name => (settings.categories || [settings.category, settings.secondary]).includes(name));
@@ -109,7 +109,7 @@ const colourResultKind = (tag, category) => category !== "K" ? category
   : ({yta: "K_area", linje: "K_line", punkt: "K_point"})[tag.settlement.display_form || (tag.settlement.model === "VS" ? "linje" : "punkt")];
 const colourGeometryValue = (tag, category) => {
   const v = tag.values;
-  const value = category === "B_y" && Number(v.lang) === 1 ? (Number.isFinite(v.l) ? v.l * 1000 : null) : v[category];
+  const value = v[category];
   return ["B_x","B_y"].includes(category) && !(Number.isFinite(value) && value > 0) ? null : value;
 };
 export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
@@ -172,10 +172,10 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       }
     }
   } else {
-    if (category === "l" && tags.some(tag => footingCategory(tag) === "wall"))
-      byKey.set("omitted", make("l:wall", {label: "", kind: "omitted", unit: ""}));
+    if (["l","B_y"].includes(category) && tags.some(tag => footingCategory(tag) === "wall"))
+      byKey.set("omitted", make(category + ":wall", {label: "", kind: "omitted", unit: ""}));
     const values = [...new Set(tags.filter(tag => (["B_x","B_y"].includes(category) || !tag.values.endast_h_stabilitet) && finite(colourGeometryValue(tag, category))
-      && (category !== "l" || footingCategory(tag) !== "wall"))
+      && (!["l","B_y"].includes(category) || footingCategory(tag) !== "wall"))
       .map(tag => colourGeometryValue(tag, category)))].sort((a, b) => a - b);
     for (const value of values) {
       const key = category + ":" + colourNumberKey(value);
@@ -200,7 +200,7 @@ export function colourGroups(tags, settings = COLOUR_DEFAULTS) {
       const group = byKey.get(insulated ? "1" : direction || "0");
       group.count++; assignments.set(tag.id, group); continue;
     }
-    if (category === "l" && footingCategory(tag) === "wall") {
+    if (["l","B_y"].includes(category) && footingCategory(tag) === "wall") {
       const group = byKey.get("omitted");
       group.count++; assignments.set(tag.id, group); continue;
     }

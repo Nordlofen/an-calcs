@@ -1872,10 +1872,12 @@ vektor-PDF-export. Indatalås skyddar även B-måtten. Äldre filer öppnas utan
 påhittade pelar-/väggbredder; ingen övre kontur visas innan måtten fyllts i.
 
 
-**Färggruppering:** välj **Konstruktionsdel Bₓ** och/eller **Konstruktionsdel Bᵧ**
+**Färggruppering:** välj **Pelare/vägg Bₓ** och/eller **Pelare Bᵧ**
 för en färg per unikt mått i mm. Valen kan kombineras med sultyp, sulmått och
-övriga parametrar. Saknade mått bildar gruppen **Ej angivet**. I väggsulemodellen
-används automatiskt Bᵧ = bᵧ, omräknat till mm. De nya valen är avstängda i äldre
+övriga parametrar. Saknade pelarmått bildar gruppen **Ej angivet**.
+**Pelare Bᵧ** gäller pelarsulor och väggsulor med pelarsulemodell. För vanlig
+väggsulemodell utelämnas denna parameter: sulängden bᵧ används inte som
+pelarmått och skapar inga extra färggrupper. De nya valen är avstängda i äldre
 projekt; befintliga färgval behålls. Även Endast H-objekt kan grupperas efter
 B-måtten när **Endast H** är aktiverat och övriga gruppval tillåter detta.
 

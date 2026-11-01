@@ -6251,20 +6251,26 @@ test('construction grouping splits upper dimensions in millimetres and preserves
     {id:'b',values:{lang:0,B_x:300,B_y:500}},
     {id:'old',values:{lang:0}},
     {id:'wall',values:{lang:1,l:2.6,B_x:200,B_y:999}},
+    {id:'wall2',values:{lang:1,l:11.5,B_x:200,B_y:11500}},
+    {id:'wall_pad1',footing_type:'vaggsula',values:{lang:0,B_x:200,B_y:400}},
+    {id:'wall_pad2',footing_type:'vaggsula',values:{lang:0,B_x:200,B_y:500}},
     {id:'h',values:{lang:0,B_x:200,B_y:400,endast_h_stabilitet:true}},
   ];
   const settings={...defaultColour,categories:['B_x','B_y'],include_only_h:true};
   const data=colourGroups(tags,settings);
-  assert.equal(data.assignments.size,5);
+  assert.equal(data.assignments.size,8);
   assert.notEqual(data.assignments.get('a').key,data.assignments.get('b').key);
+  assert.equal(data.assignments.get('wall').key,data.assignments.get('wall2').key);
+  assert.notEqual(data.assignments.get('wall_pad1').key,data.assignments.get('wall_pad2').key);
   const old=colourGroups(tags,{...settings,categories:['B_x']}).assignments.get('old');
   assert.equal(old.label,'Ej angivet');
   const by=colourGroups(tags,{...settings,categories:['B_y']}).assignments.get('wall');
-  assert.equal(by.value,2600);assert.equal(by.unit,'mm');
+  assert.equal(by.kind,'omitted');
 });
 
 for(const readOnly of [false,true]) test(`construction colour choices and legend use mm without duplicating selected dimensions (readOnly=${readOnly})`,t=>{
-  const ui=setup(t,{readOnly});Object.assign(ui.tag.values,{B_x:200,B_y:1000,e_b_plac:0});
+  const ui=setup(t,{readOnly});ui.tag.footing_type='pelarsula';
+  Object.assign(ui.tag.values,{lang:0,B_x:200,B_y:1000,e_b_plac:0});
   colourFixture(ui,{categories:['B_x','B_y']});
   const text=elementText(ui.byClass('gp-colour-legend-body'));
   assert.match(text,/Bx 200 mm.*By 1.*000 mm/);
@@ -6272,7 +6278,7 @@ for(const readOnly of [false,true]) test(`construction colour choices and legend
   colourFixture(ui,{categories:['B_x']});
   assert.match(elementText(ui.byClass('gp-colour-legend-title')),/Bₓ \[mm\]/);
   if(!readOnly){
-    const choice=ui.byText('Konstruktionsdel Bᵧ');choice.click();
+    const choice=ui.byText('Pelare Bᵧ');choice.click();
     assert.deepEqual(ui.sent.at(-1).settings.categories,['B_x','B_y']);
   }
 });
