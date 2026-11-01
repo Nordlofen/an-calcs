@@ -6206,6 +6206,9 @@ for (const readOnly of [false,true]) test(`dimension widgets summarize differing
     assert.match(text,/0–150/);
     assert.doesNotMatch(text,/ey/);
   }
+  assert.match(elementText(ui.byClass('gp-reference-body')),/By/);
+  ui.data.state.reference_data.groups[0].category='wall';ui.changed();
+  assert.doesNotMatch(elementText(ui.byClass('gp-reference-body')),/By/);
   other.values.B_x=null;ui.changed();
   assert.match(elementText(ui.byClass('gp-reference-body')),/blandat/);
 });

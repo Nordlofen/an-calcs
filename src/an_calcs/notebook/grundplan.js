@@ -3781,7 +3781,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         info.append(line);
       }
       const memberIds = new Set(group.members.map(member => member.id));
-      for (const line of supportLines(state().tags.filter(tag => memberIds.has(tag.id))))
+      for (const line of supportLines(state().tags.filter(tag => memberIds.has(tag.id)), category === "wall" ? ["B_y"] : []))
         info.append(mathText("p", "gp-reference-geometry gp-support-details", line));
       info.append(node("p", "gp-reference-caption", "Gäller för"),
         node("p", "gp-reference-members", group.members.map(member => member.label).join(", ") + " (" + group.members.length + " st)"));

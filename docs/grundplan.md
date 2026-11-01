@@ -1861,7 +1861,8 @@ eller drag från befintliga verktyg.
 
 Etiketten visar en kompakt rad med B-måtten i mm samt en rad för relevanta,
 icke nollställda placeringsexcentriciteter i mm, utan tecken. Väggsulemodellen
-visar bara eₓ. Referenswidgeten visar samma information. Färglegenden visar
+visar bara eₓ. Referenswidgeten visar Bₓ för alla sultyper och Bᵧ endast för
+pelarsulor och väggsulor med pelarsulemodell. Färglegenden visar
 Bₓ och Bᵧ endast när respektive mått är valt som färggrupperingsparameter;
 måtten redovisas då en gång i gruppbeskrivningen. Färglegender med måttgrupper
 visar även excentriciteter. Skiljer sig värdena inom en grupp visas intervall; saknas mått
