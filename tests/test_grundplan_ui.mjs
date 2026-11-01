@@ -6201,7 +6201,9 @@ for (const readOnly of [false,true]) test(`dimension widgets summarize differing
   assert.equal(ui.byClass('gp-colour-legend-body').children.filter(e=>e.className.includes('gp-colour-legend-row')).length,1);
   for (const cls of ['gp-colour-legend-body','gp-reference-body']) {
     const text=elementText(ui.byClass(cls));
-    assert.match(text,/200–300/);assert.match(text,/0–150/);
+    if(cls==='gp-reference-body')assert.match(text,/200–300/);
+    else assert.doesNotMatch(text,/Bx|By|200–300/);
+    assert.match(text,/0–150/);
     assert.doesNotMatch(text,/ey/);
   }
   other.values.B_x=null;ui.changed();
@@ -6274,7 +6276,6 @@ for(const readOnly of [false,true]) test(`construction colour choices and legend
     assert.deepEqual(ui.sent.at(-1).settings.categories,['B_x','B_y']);
   }
 });
-
 
 for(const pdfMode of [false,true]) test(`construction hatching follows print line width and independent density (pdfMode=${pdfMode})`,t=>{
   const ui=contourSetup(t,{pdfMode,readOnly:pdfMode});Object.assign(ui.tag.values,{B_x:300,B_y:400});

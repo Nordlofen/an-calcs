@@ -3685,7 +3685,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         mathText("span", "gp-colour-legend-load", colourPartCaption(group, index)));
       }
       const members = groupingTags().filter(tag => data.assignments.get(tag.id)?.key === group.key);
-      const annotations = categories.some(key => ["sultyp","t","b","l","B_x","B_y"].includes(key)) ? supportLines(members, categories) : [];
+      // Selected construction dimensions are already in the group caption.
+      // Do not append unselected B dimensions as supplemental information.
+      const annotations = categories.some(key => ["sultyp","t","b","l","B_x","B_y"].includes(key)) ? supportLines(members, ["B_x","B_y"]) : [];
       if (annotations.length) {
         for (const line of annotations) caption.append(mathText("span", "gp-support-details", line));
       }

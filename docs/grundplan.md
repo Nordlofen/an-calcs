@@ -1861,8 +1861,10 @@ eller drag från befintliga verktyg.
 
 Etiketten visar en kompakt rad med B-måtten i mm samt en rad för relevanta,
 icke nollställda placeringsexcentriciteter i mm, utan tecken. Väggsulemodellen
-visar bara eₓ. Referenswidgeten och färglegender med måttgrupper visar samma
-information. Skiljer sig värdena inom en grupp visas intervall; saknas mått
+visar bara eₓ. Referenswidgeten visar samma information. Färglegenden visar
+Bₓ och Bᵧ endast när respektive mått är valt som färggrupperingsparameter;
+måtten redovisas då en gång i gruppbeskrivningen. Färglegender med måttgrupper
+visar även excentriciteter. Skiljer sig värdena inom en grupp visas intervall; saknas mått
 på någon av sulorna anges blandade värden. Grupperna delas bara upp av B-måtten när dessa uttryckligen väljs som färggrupperingsparametrar. Referensgrupperingen påverkas inte.
 
 Måtten följer med vid kopiering, Ångra/Gör om, projektsparning samt HTML- och
