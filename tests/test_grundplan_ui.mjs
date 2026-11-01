@@ -6584,3 +6584,24 @@ test('Escape pauses calibration for guided import and resume returns to the requ
   assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
   assert.ok(!ui.sent.some(r=>r.action==='place_import'));
 });
+
+test('active import keeps canvas objects visible but suppresses label, comment and widget commands until pause',t=>{
+  const ui=setup(t);ui.tag.values.kommentar='Befintlig kommentar';
+  ui.data.state.reference_widget={enabled:true,x:.1,y:.2,size:410};ui.changed();
+  const queue=guidedImport(ui),before=structuredClone(ui.data.state.tags),reference=ui.byClass('gp-reference-widget');
+  assert.match(ui.byClass('an-grundplan').className,/gp-import-placing/);
+  assert.equal(ui.byClass('gp-sheet').inert,true);
+  assert.equal(ui.marker().hidden,false);assert.equal(reference.hidden,false);
+  ui.marker().click();ui.byClass('gp-tag-comment').click();reference.dispatch('click',{target:reference});
+  assert.equal(ui.byClass('gp-dialog').hidden,true);assert.equal(ui.sent.length,0);
+  pickImport(ui,.2,.5,ui.marker());assert.match(ui.byClass('gp-import-instruction').textContent,/positiv bᵧ/);
+  assert.deepEqual(ui.data.state.tags,before);
+  ui.byText('Pausa placering').click();const pause=ui.sent.at(-1);queue.paused=true;ui.changed();ui.ack(pause);
+  assert.doesNotMatch(ui.byClass('an-grundplan').className,/gp-import-placing/);
+  assert.equal(ui.byClass('gp-sheet').inert,false);
+  ui.marker().click();assert.equal(ui.byClass('gp-dialog').hidden,false);
+  ui.byText('Minimera').click();ui.byText('Fortsätt placera').click();const resume=ui.sent.at(-1);queue.paused=false;ui.changed();ui.ack(resume);
+  assert.equal(ui.byClass('gp-sheet').inert,true);
+  ui.byText('Avbryt import').click();const cancel=ui.sent.at(-1);ui.data.state.load_import=null;ui.changed();ui.ack(cancel);
+  assert.equal(ui.byClass('gp-sheet').inert,false);
+});

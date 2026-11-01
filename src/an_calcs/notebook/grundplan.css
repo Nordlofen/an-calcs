@@ -600,3 +600,8 @@
   .an-grundplan .gp-selection-count { flex-basis: 100%; }
 }
 .an-grundplan .gp-menu-panel button.gp-colour-toggle.gp-selected { background: #e1f0eb; border-color: transparent; color: var(--gp-accent); }
+
+/* Active import owns canvas gestures; existing drawing objects remain visible. */
+.an-grundplan.gp-import-placing .gp-sheet *,
+.an-grundplan.gp-import-placing .gp-object-frame,
+.an-grundplan.gp-import-placing .gp-object-frame * { pointer-events: none !important; }

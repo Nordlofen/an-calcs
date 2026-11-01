@@ -114,3 +114,64 @@ class TestImportContours(unittest.TestCase):
         self.assertEqual(self.plan._tag(wall)["values"]["l"], 2)
         self.assertEqual(self.plan.sulkonturer["placements"][wall]["kind"], "pad")
         self.assertEqual(len(self.plan.taggar), 2)
+
+    @unittest.skipUnless(importlib.util.find_spec("playwright"), "Installera Playwright.")
+    def test_native_clicks_pass_through_visible_labels_widgets_and_text_during_import(self):
+        import json
+        from playwright.sync_api import sync_playwright, Error
+        ident = self.plan.lagg_till(.3, .4, littera="OLD", indata={"kommentar": "Befintlig kommentar"})
+        self.plan.lagg_till_rubrik("Befintlig ritningstext", x=.5, y=.3)
+        self.plan.glidning = {"enabled": True}
+        self.start()
+        assets = Path(__file__).resolve().parents[1] / "src/an_calcs/notebook"
+        script = (assets / "grundplan.js").read_text().replace("export default { render };", "").replace("export function ", "function ")
+        data = json.dumps({"state": self.plan.state, "schema": self.plan.schema, "background": self.plan.background}).replace("<", "\\u003c")
+        html = ('<!doctype html><style>body{margin:8px}' + (assets / "grundplan.css").read_text()
+                + '</style><div id="host"></div><script id="data" type="application/json">' + data
+                + '</script><script type="module">' + script + '''
+const fixture=JSON.parse(document.getElementById('data').textContent),handlers=new Map();
+window.fixture=fixture;window.commands=[];window.refresh=()=>handlers.get('change:state')?.();
+window.reply=r=>handlers.get('msg:custom')?.(r);
+render({model:{get:n=>fixture[n],on:(n,f)=>handlers.set(n,f),off:n=>handlers.delete(n),send:r=>window.commands.push(r)},el:document.getElementById('host')});
+</script>''')
+        with sync_playwright() as runtime:
+            browser = None
+            for channel in ("chrome", "msedge", None):
+                try:
+                    browser = runtime.chromium.launch(channel=channel, headless=True, chromium_sandbox=True)
+                    break
+                except Error:
+                    continue
+            if browser is None:
+                self.skipTest("Ingen lokal Chromium, Chrome eller Edge.")
+            try:
+                context = browser.new_context(viewport={"width": 1450, "height": 1200})
+                context.route("**/*", lambda route: route.abort())
+                page = context.new_page(); errors = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.set_content(html)
+                page.locator(".gp-import-placing").wait_for()
+                original = page.evaluate("JSON.stringify(fixture.state)")
+                for selector, instruction in ((f'.gp-tag[data-tag-id="{ident}"]', "positiv bᵧ"),
+                                              (".gp-sliding-header", "etiketten"), (".gp-annotation-text", None)):
+                    element = page.locator(selector).first
+                    self.assertTrue(element.is_visible())
+                    self.assertEqual(element.evaluate("el=>getComputedStyle(el).opacity"), "1")
+                    point = element.bounding_box()
+                    x, y = point["x"] + point["width"] / 2, point["y"] + point["height"] / 2
+                    self.assertFalse(page.evaluate("p=>!!document.elementFromPoint(p.x,p.y)?.closest('.gp-tag,.gp-sliding-overlay')", {"x": x, "y": y}))
+                    page.mouse.click(x, y)
+                    if instruction:
+                        self.assertIn(instruction, page.locator(".gp-import-instruction").text_content())
+                    self.assertEqual(page.locator(".gp-dialog:visible").count(), 0)
+                actions = page.evaluate("commands.map(r=>r.action)")
+                self.assertEqual(actions, ["place_import"])
+                self.assertEqual(page.evaluate("JSON.stringify(fixture.state)"), original)
+                # Ending the command immediately restores normal canvas interaction.
+                page.evaluate("()=>{fixture.state.load_import=null;refresh();reply({...commands[0],ok:true,finished:true,total:1});}")
+                self.assertFalse(page.locator(".gp-sheet").evaluate("el=>el.inert"))
+                page.locator(f'.gp-tag[data-tag-id="{ident}"]').click()
+                self.assertEqual(page.locator(".gp-dialog:visible").count(), 1)
+                self.assertEqual(errors, [])
+            finally:
+                browser.close()

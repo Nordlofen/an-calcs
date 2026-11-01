@@ -3044,6 +3044,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       b.classList.toggle("gp-selected", key === value);
       b.setAttribute("aria-pressed", String(key === value));
     }
+    syncImportCanvas();
     viewport.style.cursor = value === "pan" ? "grab" : "crosshair";
     showMeasurement();
     showContours();
@@ -3116,6 +3117,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     measurementSvg.append(svgNode("rect", {x: x - width / 2, y: y - 17, width, height: 24, rx: 4, fill: "white", stroke: color}),
       svgNode("text", {x, y, fill: color, "text-anchor": "middle", "font-size": 14, "font-weight": 600}, caption));
   }
+  function importCanvasActive() {
+    return !readOnly && !!loadImport() && !loadImport().paused && (mode === "import" || importCalibrating);
+  }
+  function syncImportCanvas() {
+    const active = importCanvasActive();
+    root.classList.toggle("gp-import-placing", active);
+    sheet.inert = active;
+  }
   function importTag() {
     const item = loadImport()?.next;
     return item && (state().tags.find(tag => tag.id === item.existing_id)
@@ -3128,6 +3137,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function beginImportFlow() {
     const queue = loadImport(); if (!queue || queue.paused) return;
+    closeDialog(); closeBulk();
     if (queue.define_contours && !calibration()) {
       importCalibrating = true; setMode("calibrate");
       showMessage("Kalibrera ritningsskalan först: välj två punkter och ange deras kända avstånd. Därefter fortsätter importplaceringen.");
@@ -3187,6 +3197,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   function showLoadImport() {
     const queue = loadImport();
     syncImportDraft(queue);
+    syncImportCanvas();
     importBar.hidden = readOnly || !queue;
     importBack.hidden = !queue?.define_contours;
     importBack.disabled = importBusy || !importDraft?.points.length || importCalibrating;
@@ -3204,6 +3215,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       lastImportToken = queue.token;
       if (!queue.paused) { closeDialog(); closeBulk(); beginImportFlow(); }
     }
+    syncImportCanvas();
     importInstruction.textContent = (queue.paused ? "Placering pausad · " : "") + importCaption();
     importPause.textContent = queue.paused ? "Fortsätt placera" : "Pausa placering";
     const strip = queue.next.kind === "vaggsula", values = queue.next.values, unit = strip ? "kN/m" : "kN";
@@ -3272,6 +3284,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       : "Dra från etikettens ram till önskad pilspets för att rita banan. Ett klick på ritningen skapar en enkel spline. Escape avbryter.");
   }
   function beginLeaderEdit(id) {
+    if (importCanvasActive()) return;
     if (readOnly || placementLocked({type: "tag", id}) || state().tags.find(tag => tag.id === id)?.values.inaktiv) return;
     setMode("pan"); closeDialog(); closeBulk();
     leaderEdit = id; leaderNode = null; renderLeaders();
@@ -4181,9 +4194,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       dot.setAttribute("fill", "currentColor"); icon.append(dot);
     }
     bubble.append(icon);
-    bubble.addEventListener("click", event => {event.stopPropagation(); if (!event.detail || pickedTarget(event).closest(".gp-tag-comment") === bubble) openComment(tag);});
+    bubble.addEventListener("click", event => {event.stopPropagation(); if (importCanvasActive()) return; if (!event.detail || pickedTarget(event).closest(".gp-tag-comment") === bubble) openComment(tag);});
     bubble.addEventListener("keydown", event => {
       event.stopPropagation();
+      if (importCanvasActive()) return;
       if (["Enter", " "].includes(event.key)) {event.preventDefault(); openComment(tag);}
     });
     return bubble;
@@ -4341,6 +4355,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const color = inactive ? "inactive" : summary ? (onlyH ? "horizontal" : summary.utnyttjandegrad <= 1 ? "ok" : "over") : tagState;
       const marker = button("", (event) => {
         event.stopPropagation();
+        if (importCanvasActive()) return;
         // Pointer clicks are handled on pointerup, so dragging never opens the form.
         if (!event.detail) {
           if (measuring() && !(event.shiftKey || event.ctrlKey || event.metaKey)) return;
@@ -5464,7 +5479,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderMarkers(); renderSlidingGeometry(); showSelection();
   }
   function selectOverlayClick(kind, event) {
-    if (readOnly) return;
+    if (readOnly || importCanvasActive()) return;
     // A pointer gesture already handled selection on pointerup. Keyboard clicks
     // still select here; body clicks are handled by their enclosing widget.
     if (event?.detail && overlayClickHandled) {overlayClickHandled = null; return;}

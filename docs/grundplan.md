@@ -401,6 +401,11 @@ aktuellt stöd, lastvärden och vilket klick som återstår:
 
 Klickavståndet bestämmer bara riktningen. Sulmåtten hämtas från objektets
 indata; väggsulans längd är bᵧ. En tillfällig kontur visas före sista klicket.
+Etiketter, widgets, texter, koordinatsymboler och hänvisningslinjer ligger
+kvar synliga under placeringen, men klick går igenom dem till ritningsytan.
+De kan inte öppnas, markeras eller flyttas av vanliga placeringsklick.
+Samma regel gäller när skalan kalibreras som del av importen. Vid paus eller
+avslutad import återkommer vanlig objektinteraktion.
 **Föregående steg** låter dig göra om ett pågående val. Ingen indatadialog
 öppnas mellan placeringarna. Sula, kontur och etikett skapas tillsammans i
 ett ångringssteg; inga halvfärdiga sulor läggs till vid de första två klicken.
