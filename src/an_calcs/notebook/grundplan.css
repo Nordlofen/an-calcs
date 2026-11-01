@@ -300,28 +300,11 @@
 .an-grundplan .gp-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid var(--gp-line); cursor: move; user-select: none; touch-action: none; }
 .an-grundplan .gp-dialog-header strong { font-size: 16px; }
 .an-grundplan .gp-bulk-dialog { width: 560px; }
-.an-grundplan .gp-common-dialog { width: 660px; z-index: 7; }
-.an-grundplan .gp-common-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 14px; }
-.an-grundplan .gp-common-field { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.an-grundplan .gp-common-field input:not([type="checkbox"]), .an-grundplan .gp-common-field select { width: 100%; }
-.an-grundplan .gp-common-loads-scroll, .an-grundplan .gp-common-list { overflow-x: auto; }
-.an-grundplan .gp-common-loads, .an-grundplan .gp-common-summary { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 12px; }
-.an-grundplan .gp-common-loads th, .an-grundplan .gp-common-loads td, .an-grundplan .gp-common-summary th, .an-grundplan .gp-common-summary td { padding: 7px; border-bottom: 1px solid var(--gp-line); text-align: left; }
-.an-grundplan .gp-common-loads th, .an-grundplan .gp-common-summary th { background: #eef5f3; }
-.an-grundplan .gp-common-loads input { width: 90px; }
-.an-grundplan .gp-common-dialog h5 { margin: 14px 0 6px; }
 .an-grundplan .gp-common-result { padding: 8px 0; }
 .an-grundplan .gp-common-measures, .an-grundplan .gp-common-members, .an-grundplan .gp-common-load-note { display: block; margin: 3px 0; }
-.an-grundplan .gp-common-section { padding: 16px; border-top: 1px solid var(--gp-line); }
-.an-grundplan .gp-common-result-cell { background: #f0f4f2; color: #687778; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.an-grundplan .gp-common-summary th button { border: 0; background: transparent; padding: 0; font-weight: 600; }
-.an-grundplan .gp-table-foundation { min-width: 150px; }
-.an-grundplan .gp-table-foundation-link { overflow-wrap: anywhere; }
 .an-grundplan .gp-tag-foundation-link { display: block; margin-top: 5px; }
 .an-grundplan .gp-tag-common-foundation { display: block; border-top: 1px solid var(--gp-line); margin-top: 5px; padding-top: 5px; }
 .an-grundplan .gp-tag-common-foundation .gp-tag-settlement { border-top: 0; }
-.an-grundplan.gp-pdf .gp-common-section, .an-grundplan.gp-pdf .gp-common-dialog { display: none; }
-@media (max-width: 600px) { .an-grundplan .gp-common-fields { grid-template-columns: minmax(0, 1fr); } }
 .an-grundplan .gp-select-all { display: inline-flex; position: relative; gap: 0; }
 .an-grundplan .gp-select-all > button:first-child { border-radius: 5px 0 0 5px; }
 .an-grundplan .gp-select-all > button:nth-child(2) { border-radius: 0 5px 5px 0; border-left: 0; padding-inline: 9px; }
@@ -589,3 +572,31 @@
 .an-grundplan .gp-axis-rotate { position:absolute; transform:translate(-50%,-50%); border-radius:50%; padding:0; width:25px; height:25px; min-height:25px; touch-action:none; cursor:crosshair; }
 .an-grundplan .gp-axis-rotate[hidden] { display:none; }
 .an-grundplan.gp-stability-picking .gp-viewport { cursor:crosshair; }
+
+/* Compact navigation; the original tools and their state live inside menus. */
+.an-grundplan .gp-menubar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.an-grundplan .gp-toolbar-save { margin-left: auto; }
+.an-grundplan .gp-menu { display: inline-flex; }
+.an-grundplan .gp-menu-trigger::after { content: '▾'; font-size: 10px; margin-left: 9px; color: var(--gp-muted); }
+.an-grundplan .gp-menubar .gp-menu-trigger { border-color: transparent; padding: 9px 12px; }
+.an-grundplan .gp-menu-trigger[aria-expanded="true"] { background: #e1efeb; border-color: #83b5ac; }
+.an-grundplan .gp-menu-panel { position: fixed; z-index: 2147483646; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 250px; max-width: calc(100vw - 16px); padding: 8px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--gp-line); border-radius: 8px; background: white; color: var(--gp-ink); box-shadow: 0 6px 24px #18333b30; }
+.an-grundplan .gp-menu-panel > button { flex-shrink: 0; text-align: left; border-color: transparent; padding: 9px 12px; }
+.an-grundplan .gp-menu-panel > hr { width: 100%; margin: 5px 0; border: 0; border-top: 1px solid var(--gp-line); }
+.an-grundplan .gp-menu-panel > label { display: flex; gap: 8px; align-items: center; padding: 9px 12px; }
+.an-grundplan .gp-menu-panel > [role="menuitemcheckbox"] { padding-left: 32px; position: relative; }
+.an-grundplan .gp-menu-panel > [role="menuitemcheckbox"][aria-checked="true"]::before { content: '✓'; position: absolute; left: 11px; color: var(--gp-accent); font-weight: 700; }
+.an-grundplan .gp-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.an-grundplan .gp-view-status { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between; padding: 8px 16px; margin-bottom: 12px; border-block: 1px solid var(--gp-line); background: #f5faf8; color: var(--gp-muted); }
+.an-grundplan .gp-view-status .gp-project-file { padding: 0; }
+.an-grundplan button.gp-colour-summary { border: 0; background: transparent; color: var(--gp-muted); text-align: left; padding: 2px 0; }
+.an-grundplan .gp-size-panel, .an-grundplan .gp-workspace > .gp-sliding-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 16px 12px; padding: 12px; border: 1px solid var(--gp-line); border-radius: 7px; background: #f5faf8; }
+.an-grundplan .gp-menu-panel .gp-object-scale { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .an-grundplan .gp-toolbar { padding-inline: 10px; gap: 5px; }
+  .an-grundplan .gp-menubar { order: 3; width: 100%; }
+  .an-grundplan .gp-menubar .gp-menu-trigger { padding: 8px; }
+  .an-grundplan .gp-selection-bar { margin-inline: 10px; }
+  .an-grundplan .gp-selection-count { flex-basis: 100%; }
+}
+.an-grundplan .gp-menu-panel button.gp-colour-toggle.gp-selected { background: #e1f0eb; border-color: transparent; color: var(--gp-accent); }

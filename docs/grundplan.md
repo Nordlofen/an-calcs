@@ -1,5 +1,35 @@
 # Grundplan i JupyterLab
 
+## Menyraden
+
+Grundplans redigeringsvy samlar verktygen i fem menyer:
+
+| Meny | Innehåll |
+| --- | --- |
+| **Projekt** | Öppna/spara, importera lasteffekt, kopiera projekt + key, exportera JSON/PDF/HTML och radera samtliga sulor. |
+| **Skapa** | Väggsula, pelarsula, rubrik och datum. |
+| **Visa** | Färggruppering och dess inställningar, etikettstorlek, färglegend, Referens, isolerings-/kommentarwidget och sulkonturernas visningsinställningar. |
+| **Beräkning** | Gemensam jordprofil, glidningskontroll med husinställningar samt Auto bₓ för markerade. |
+| **Ritning** | Redigera ritningsunderlag, mät/kalibrera, beskär och redigera sulkonturer. |
+
+Ångra/Gör om och **Spara projekt** finns direkt i verktygsraden. Statusraden
+visar aktuell färggruppering och projekt/fall. Klick på färgtexten öppnar
+inställningarna. Inställningspaneler öppnas vid behov; stängning ändrar inte
+visningen av redan aktiverade widgets eller grupperingar.
+
+**Markera samtliga** med underfunktionerna **Sulor**, **Widgets** och **Text**
+är alltid åtkomligt. Vid markering visas **Ändra markerade**, **Auto bₓ**,
+**Lås**, **Ordna**, **Skala…** och **Avmarkera**. Låsmenyn innehåller separata
+val för indatalås och placeringslås. Ordna innehåller samtliga fyra lagerkommandon.
+Skala öppnar det befintliga procentfältet och tillämpningsknappen.
+
+Menyer stängs efter val, vid klick utanför eller med Esc. Piltangenter,
+Home/End och Tab kan användas för tangentbordsnavigering. Menyradsbytet
+ändrar inte sulornas popupdialoger, tabellens redigerings-/sorteringsfunktioner,
+beräkningar eller sparade inställningar. Endast kolumnen för den borttagna
+funktionen Gemensamt fundament har tagits bort från tabellen.
+HTML-exporten behåller sin befintliga läsvy.
+
 ## Starta
 
 Kräver Python 3.13 eller senare och notebook-tilläggen i notebookens
@@ -203,62 +233,17 @@ Brukslast inklusive egentyngd som övriga aktiva sulor. Saknad Brukslast
 hindrar sättningen men inte styvheten. Resultaten visas i tabellen, dialogen
 och, om **Visa på etikett** är valt, på etiketten samt i PDF och HTML.
 
-### Gemensamt fundament
+### Äldre projekt med gemensamt fundament
 
-Markera stöd som står på samma fysiska platta, exempelvis **H-GR.1–4**, och
-välj **Gemensamt fundament** i markeringsraden. Ange ett namn, plattans
-**bₓ, bᵧ och t** samt projektets jordprofil eller en egen lagerföljd.
-Plattmåtten väljs uttryckligen och hämtas inte automatiskt från stödens
-enskilda sulmått. Avsluta med **Spara fundament**.
+**Gemensamt fundament** är tills vidare borttaget från gränssnittet, inklusive
+knapp, redigeringsdialog, tabellkolumn och separat sammanställning. Enskilda
+sulors sättnings- och styvhetsberäkningar finns kvar, även för **Endast H-stabilitet**.
 
-Dialogen visar varje stöds yttre **Brukslast** och vid linjelast **L_stöd**.
-Brukslasten kan ändras tillsammans med plattan i ett ångringssteg. L_stöd är
-låst när den importerats och uppdateras genom ny lastimport. Punktlast
-används direkt i kN; linjelast multipliceras med hela ursprungliga L_stöd.
-Ändrad Brukslast eller ny lastimport uppdaterar fundamentets resultat automatiskt.
-
-Sättningen beräknas med `sattning()` för rektangulär pelarsulemodell och
-stödens sammanlagda yttre Brukslast plus **plattans egentyngd en gång**.
-Stödens separata sulmått och egentyngder ingår inte i plattberäkningen.
-`baddmodul()` ger ytstyvheten och hela plattans punktstyvhet. Det är ett
-resultat för fundamentet som helhet; rotation och differenssättningar mellan
-stöd beräknas inte. Välj ytstyvhet **[kN/m²/m]** eller punktstyvhet **[kN/m]**.
-
-Under sulornas tabell finns **Gemensamma fundament**, med en rad per platta
-och sorterbara resultatkolumner. Stödens egna resultatrutor visar **Se
-fundament**, och kolumnen **Gemensamt fundament** öppnar plattans dialog.
-Resultaten upprepas alltså inte som separata stödresultat. På ritningen
-väljer du **Resultat på stödets etikett** för den gemensamma sammanställningen;
-övriga anslutna etiketter visar fundamentets namn. Resultatet följer med i
-PDF och HTML. **Visa plattans resultat på etikett** styr hela resultatblocket,
-inklusive jordlagermäktigheter. Om det valda stödet inaktiveras visas blocket
-i stället på ett aktivt anslutet stöd.
-
-Inaktiva stöd undantas från lastsummeringen. Saknas Brukslast eller positiv
-belastad längd för ett aktivt stöd visas vad som saknas; ingen partiell
-lastsumma används för sättningen. Styvheten kan fortfarande beräknas med
-giltig geometri och jordprofil. Saknas aktiva stöd visas inget beräknat
-resultat. **Endast H-stabilitet** fortsätter att stänga av bärighet och
-isolering; glidningskontrollerna påverkas inte av fundamentkopplingen.
-
-Varje stöd kan tillhöra en platta. **Lägg till stöd…**, **Koppla loss** och
-**Lös upp fundament** ändrar kopplingarna utan att radera stöd eller deras
-ursprungliga individuella mått/profiler. En kopierad sula är fristående och
-kopplas inte automatiskt till plattan. Låsta indata för ett anslutet stöd
-skyddar även plattan mot ändring. Alla kopplingar och plattindata sparas i
-projektformat version 28; äldre projekt öppnas utan gemensamma fundament.
-Endast H-sulor utan koppling kan fortsatt beräkna sättning och styvhet
-separat. **Referens** grupperar fortfarande separata sulor och skapar ingen
-fysisk platta.
-
-```python
-fundament_id = plan.satt_gemensamt_fundament(
-    [hgr1, hgr2, hgr3, hgr4], namn="Hissgrop 1", bx=4, by=5, t=0.4,
-    jordprofil=None,  # ärver projektets jordprofil
-)
-plattresultat = plan.gemensamma_fundament
-plan.los_upp_fundament(fundament_id)
-```
+Äldre sparade plattor, kopplingar och indata läses och sparas fortfarande.
+Befintliga plattresultat bevaras på etiketterna och kan avläsas i tabellens
+resultatkolumner, med information om att resultatet gäller hela den sparade
+plattan. Detta ändrar inte tidigare beräkningar eller projektsparningar.
+Python-API:t finns kvar för kompatibilitet.
 
 ### Individuella sulor
 
@@ -1695,7 +1680,7 @@ avstängd som standard, även när ett äldre projekt öppnas. Första aktiverin
 En befintlig kalibrering återanvänds; annars används Mät-verktygets två punkter
 och ett känt avstånd. Endast färdigdefinierade konturer visas.
 
-**Visa → Redigera sulkonturer…** öppnar konturernas redigeringspanel ovanför
+**Ritning → Redigera sulkonturer…** öppnar konturernas redigeringspanel ovanför
 ritningen. Här finns rullistan för sula, **Definiera placering**, riktning och **Ta bort konturplacering**. Rullistan visar tydligt
 **Placerad ✓** respektive **---**. Sparade placeringar
 behåller sin status även när ritningen behöver ny kalibrering. Valet i listan
@@ -1747,8 +1732,8 @@ och placeringsdata sparas i projektformat 35. Äldre projektformat 1–34 stöds
 fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
 av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
 
-Gemensamt fundament för sättning/styvhet skapar inte automatiskt en gemensam
-betongkontur; varje definierat sulobjekt har fortfarande sin egen kontur.
+Äldre sparade gemensamma fundament har ingen separat gemensam betongkontur;
+varje definierat sulobjekt har fortfarande sin egen kontur.
 Tabellvyn och popupdialogen behåller sina befintliga redigeringsflöden.
 
 

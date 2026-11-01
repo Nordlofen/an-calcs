@@ -264,7 +264,7 @@ test('bulk/table edits skip locked members of a mixed selection', t => {
 
 test('Auto bx previews server proposals, invalidates on setting changes and assigns only its token', t => {
   const ui = setup(t); ui.byText('Markera samtliga').click();
-  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   assert.equal(ui.byClass('gp-auto-bx-dialog').hidden, false);
   const previewButton = ui.byText('Förhandsvisa'); previewButton.click();
   let request = ui.sent.at(-1); assert.equal(request.action, 'auto_bx_preview');
@@ -284,7 +284,7 @@ test('Auto bx previews server proposals, invalidates on setting changes and assi
 
 test('Auto bx supports a custom step and invalidates proposals after external input-lock changes', t => {
   const ui = setup(t); ui.byText('Markera samtliga').click();
-  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   const step = ui.find(el => el.getAttribute('aria-label') === 'Måttsteg [mm]'); step.value='custom'; step.dispatch('change');
   ui.field('auto_bx_step_mm').value='150'; ui.byText('Förhandsvisa').click(); const request=ui.sent.at(-1);
   assert.equal(request.settings.step_mm,150);
@@ -298,7 +298,7 @@ test('Auto bx supports a custom step and invalidates proposals after external in
 
 test('Auto bx sends a group cap, shows whole-project counts and invalidates when the cap changes', t => {
   const ui = setup(t); ui.byText('Markera samtliga').click();
-  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   const cap = ui.field('auto_bx_max_reference_groups');
   assert.equal(cap.placeholder, 'Obegränsat');
   cap.value='6'; cap.dispatch('input'); ui.byText('Förhandsvisa').click();
@@ -316,7 +316,7 @@ test('Auto bx sends a group cap, shows whole-project counts and invalidates when
 
 test('Auto bx explains an impossible group cap and cannot assign an infeasible preview', t => {
   const ui = setup(t); ui.byText('Markera samtliga').click();
-  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   ui.field('auto_bx_max_reference_groups').value='1'; ui.byText('Förhandsvisa').click();
   const request=ui.sent.at(-1);
   ui.ack(request,{preview:{token:'impossible',changed:0,unchanged:0,skipped:1,feasible:false,
@@ -331,7 +331,7 @@ test('Auto bx explains an impossible group cap and cannot assign an infeasible p
 test('Auto bx invalidates whole-project counts when an unselected footing changes', t => {
   const ui = setup(t); ui.byText('Markera samtliga').click();
   ui.data.state.tags.push({...structuredClone(ui.tag),id:'other',label:'VS2'}); ui.changed();
-  ui.byClass('gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   ui.byText('Förhandsvisa').click(); const request=ui.sent.at(-1);
   assert.deepEqual(request.ids,['tag1']);
   ui.ack(request,{preview:{token:'stale-project',changed:1,unchanged:0,skipped:0,feasible:true,
@@ -510,7 +510,7 @@ test('marquee can select widgets with labels, and Escape clears the whole mixed 
   assert.equal(ui.byClass('gp-selection-count').textContent, '2 markerade');
   assert.match(ui.reference.className, /gp-overlay-selected/); assert.doesNotMatch(ui.comments.className, /gp-overlay-selected/);
   ui.byClass('an-grundplan').dispatch('keydown', {key: 'Escape'});
-  assert.equal(ui.byClass('gp-selection-bar').hidden, true); assert.doesNotMatch(ui.reference.className, /gp-overlay-selected/);
+  assert.equal(ui.byClass('gp-selection-actions').hidden, true); assert.doesNotMatch(ui.reference.className, /gp-overlay-selected/);
 });
 
 test('heading and date widgets join mixed movement and locking without editing their text', t => {
@@ -1761,7 +1761,7 @@ test("Shift-left marquee previews two labels without moving the canvas and opens
   assert.equal(box.hidden, false);
   assert.equal(box.style.width, "500px"); assert.equal(box.style.height, "300px");
   assert.deepEqual(selectedIds(ui), ["tag1", "tag2"]);
-  assert.equal(ui.byClass("gp-selection-bar").hidden, true, "Preview does not shift the canvas by inserting a toolbar");
+  assert.equal(ui.byClass("gp-selection-actions").hidden, true, "Preview does not shift the canvas by inserting a toolbar");
   assert.deepEqual(picture.getBoundingClientRect(), initial);
   ui.finish(700, 500);
   assert.equal(box.hidden, true);
@@ -1797,7 +1797,7 @@ test("Shift marquee toggles overlapping labels once, adds new labels and preserv
   assert.deepEqual(selectedIds(ui), ["tag1"], "An empty Shift rectangle retains the selection");
   marquee(ui, [200, 200], [420, 320]);
   assert.deepEqual(selectedIds(ui), []);
-  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+  assert.equal(ui.byClass("gp-selection-actions").hidden, true);
 });
 
 for (const cancel of ["pointercancel", "lostpointercapture"]) {
@@ -1836,7 +1836,7 @@ for (const entry of ["Shift-click", "marquee", "unfinished marquee"]) {
     assert.equal(prevented, true);
     assert.deepEqual(selectedIds(ui), []);
     assert.equal(ui.byClass("gp-selection-box").hidden, true);
-    assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+    assert.equal(ui.byClass("gp-selection-actions").hidden, true);
     assert.equal(ui.elements().some(e => e.tag === "button" && e.textContent === "Markera flera"), false);
     assert.equal(ui.viewport.style.cursor, "grab");
     assert.ok(!ui.viewport.className.includes("gp-selecting"));
@@ -2035,11 +2035,11 @@ test("Shift pointer clicks toggle selection without dragging or opening single f
   ui.viewport.dispatch("pointerdown", {target: bulk.marker("tag2"), shiftKey: true, clientX: 300, clientY: 300});
   ui.move(500, 500); ui.finish(500, 500);
   assert.equal(ui.sent.length, 0, "Dragging with a selection modifier cannot move a footing");
-  assert.equal(ui.byClass("gp-selection-count").textContent, "0 markerade", "Shift-drag from an object performs marquee selection");
+  assert.equal(ui.byClass("gp-selection-count").textContent, "Ingen markering", "Shift-drag from an object performs marquee selection");
   bulk.marker("tag1").dispatch("click", {shiftKey: true});
   assert.equal(ui.byClass("gp-selection-count").textContent, "1 markerade");
   ui.byClass("an-grundplan").dispatch("keydown", {key: "Escape"});
-  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+  assert.equal(ui.byClass("gp-selection-actions").hidden, true);
   assert.ok(ui.elements().filter(e => e.dataset.tagId).every(e => !e.className.includes("gp-multi-selected")));
 });
 
@@ -2116,7 +2116,7 @@ test("standalone HTML allows local selection without exposing editing controls",
   assert.ok(!ui.elements().some(e => e.className.includes("gp-bulk-dialog")));
   ui.byText("Avmarkera").click();
   assert.deepEqual(selectedIds(ui), []);
-  assert.equal(ui.byClass("gp-selection-bar").hidden, true);
+  assert.equal(ui.byClass("gp-selection-actions").hidden, true);
   assert.deepEqual(ui.snapshot, original);
   assert.equal(replies.length, 0, "Selecting never sends a calculation or mutation command");
 });
@@ -4129,7 +4129,7 @@ test("all columns sort numerically or by text with natural littera ties and miss
     {id: "tag4", label: "VS4", values: {b: .4, kommentar: "", endast_h_stabilitet: true, glid_mu: .6}},
   ].map(item => ({...structuredClone(ui.tag), ...item, values: {...ui.tag.values, ...item.values}}));
   ui.changed();
-  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 10);
+  assert.equal(ui.elements().filter(e => e.className === "gp-table-sort").length, names.length + 9);
   tableSortButton(ui, "b").click();
   assert.deepEqual(tableOrder(ui), ["tag4", "tag2", "tag1", "tag3"]);
   tableSortButton(ui, "b").click();
@@ -5317,67 +5317,18 @@ const commonFixture = ui => {
   ui.data.state.common_foundations = [item]; ui.changed(); return item;
 };
 
-for (const readOnly of [false, true]) test('shared plate has one label result and one sortable summary, with linked supports (readOnly=' + readOnly + ')', t => {
-  const ui = setup(t, {readOnly}), item = commonFixture(ui);
+for (const readOnly of [false, true]) test('retired shared foundations keep saved results but expose no creation or editing tools (readOnly=' + readOnly + ')', t => {
+  const ui = setup(t, {readOnly}), item = commonFixture(ui), before = structuredClone(ui.data.state);
   assert.equal(ui.elements().filter(el => el.className === 'gp-tag-common-foundation').length, 1);
-  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_s').textContent, 'Se fundament');
-  assert.equal(resultTableValue(ui, 'second', 'settlement_stiffness').textContent, 'Se fundament');
-  assert.equal(ui.byClass('gp-common-section').hidden, false);
-  assert.ok(elementText(ui.byClass('gp-common-summary')).includes('4,00 × 10⁵ kN/m'));
-  const link = tableField(ui, 'second', 'common_foundation');
-  assert.equal(link.textContent, 'Hissgrop 1'); link.click();
-  assert.equal(ui.byClass('gp-common-dialog').hidden, false);
-  assert.equal(ui.field('common_b').value, '4');
-  assert.equal(ui.field('common_b').disabled, readOnly);
-  assert.ok(elementText(ui.byClass('gp-common-saved-result')).includes('440 kN'));
-  if (!readOnly) {
-    assert.equal(tableField(ui, 'second', 'settlement_form').disabled, true);
-    assert.equal(ui.elements().filter(el => el.dataset.profileField && el.dataset.tagId === 'second').length, 0);
-    ui.byText('Lös upp fundament').click();
-    assert.equal(ui.sent.at(-1).action, 'common_foundation_delete'); assert.equal(ui.sent.at(-1).id, item.id);
-    ui.data.state.common_foundations = []; ui.changed(); ui.ack(ui.sent.at(-1));
-    assert.equal(ui.byClass('gp-common-section').hidden, true);
-  }
-});
-
-test('shared plate creation stages dimensions, full line lengths and soil until one save, and cancellation sends nothing', t => {
-  const ui = setup(t); settlementFixture(ui);
-  ui.tag.values.L_vagg = 3;
-  const other = {...structuredClone(ui.tag), id: 'second', label: 'H-GR.2'};
-  ui.data.state.tags.push(other); ui.changed();
-  selectTableRow(ui, ui.tag.label); selectTableRow(ui, other.label);
-  ui.byText('Gemensamt fundament').click();
-  assert.equal(ui.byClass('gp-common-dialog').hidden, false);
-  assert.equal(ui.field('common_b').value, '', 'Never infer physical plate dimensions from individual support widths');
-  ui.find(el => el.textContent === 'Stäng' && el.closest('.gp-common-dialog')).click();
-  assert.equal(ui.sent.length, 0);
-  ui.byText('Gemensamt fundament').click();
-  for (const [name, value] of [['label', 'Hissgrop 1'], ['b', '4'], ['l', '5'], ['t', '0,4']]) ui.field('common_' + name).value = value;
-  const load = ui.find(el => el.dataset.memberId === ui.tag.id && el.dataset.memberField === 'F_vy_bruk');
-  load.value = '150'; load.dispatch('input');
-  ui.byText('Spara fundament').click();
-  const request = ui.sent.at(-1);
-  assert.equal(request.action, 'common_foundation'); assert.deepEqual(request.ids, [ui.tag.id, 'second']);
-  assert.deepEqual(request.values, {b: 4, l: 5, t: .4});
-  assert.deepEqual(request.member_updates, {[ui.tag.id]: {F_vy_bruk: 150}});
-  assert.equal(request.soil_profile, null); assert.equal(request.form, 'punkt');
-  assert.equal(ui.tag.values.F_vy_bruk, 120, 'Drafts do not alter support state before acknowledgement');
-  assert.equal(ui.field('common_b').disabled, true); assert.equal(load.disabled, true);
-  ui.ack(request, {ok: false, error: 'Ogiltig profil'});
-  assert.equal(ui.field('common_b').disabled, false); assert.equal(ui.field('common_b').value, '4');
-  assert.ok(elementText(ui.byClass('gp-common-dialog')).includes('Ogiltig profil'));
-});
-
-test('shared plate uses an active display host and input locks protect the whole plate', t => {
-  const ui = setup(t), item = commonFixture(ui);
+  assert.equal(resultTableValue(ui, ui.tag.id, 'settlement_s').textContent, '2,2');
+  assert.equal(resultTableValue(ui, 'second', 'settlement_stiffness').textContent, '4,00 × 10⁵ kN/m');
+  assert.ok(!ui.elements().some(el => ['gp-common-section','gp-common-dialog','gp-table-foundation-link'].includes(el.className)));
+  assert.ok(!ui.elements().some(el => el.tag === 'button' && /gemensamt fundament|plattans jordprofil/i.test(el.textContent)));
+  ui.marker().click();
+  assert.ok(elementText(ui.byClass('gp-footing-soil')).includes('Äldre sparad fundamentkoppling: Hissgrop 1'));
+  assert.deepEqual(ui.data.state, before); assert.equal(ui.sent.length, 0);
   ui.tag.values.inaktiv = true; item.display_member = 'second'; ui.changed();
-  const plateLabel = ui.byClass('gp-tag-common-foundation');
-  assert.equal(plateLabel.closest('.gp-tag').dataset.tagId, 'second');
-  ui.data.state.tags[1].input_locked = true; ui.changed();
-  tableField(ui, 'second', 'common_foundation').click();
-  assert.equal(ui.field('common_b').disabled, true);
-  assert.equal(ui.byText('Spara fundament').disabled, true);
-  assert.equal(ui.byText('Lös upp fundament').disabled, true);
+  assert.equal(ui.byClass('gp-tag-common-foundation').closest('.gp-tag').dataset.tagId, 'second');
 });
 
 for (const readOnly of [false, true]) test('H-only footings expose settlement results and soil profiles in table, label and dialog (readOnly=' + readOnly + ')', t => {
@@ -5799,7 +5750,7 @@ test('Auto bx preview shows both pad axes while wall model pads remain width-onl
   const wallPad = {...structuredClone(ui.tag), id: 'wallpad', label: 'VS.1', footing_type: 'vaggsula'};
   wallPad.values.l = 1.5; ui.data.state.tags.push(wallPad); ui.changed();
   ui.byText('Markera samtliga').click();
-  ui.find(el => el.className === 'gp-selection-bar').children.find(el => elementText(el) === 'Auto bx').click();
+  ui.byClass('gp-selection-actions').children.find(el => elementText(el) === 'Auto bx').click();
   ui.byText('Förhandsvisa').click();
   ui.ack(ui.sent.at(-1), {preview: {token: 'square', changed: 2, unchanged: 0, skipped: 0, rows: [
     {id: ui.tag.id, label: 'PS.1', status: 'changed', square_pad: true, b_before: 1, l_before: .5, b_after: 4.8, l_after: 4.8, u_before: 10, u_after: .94},
@@ -6454,4 +6405,88 @@ for(const options of [{},{readOnly:true},{readOnly:true,pdfMode:true}])test(`mat
   assert.equal(origin0.getAttribute('cx'),'32');assert.equal(origin0.getAttribute('cy'),'156');
   assert.equal(origin1.getAttribute('cx'),'100');assert.equal(origin1.getAttribute('cy'),'100');
   assert.deepEqual(ui.data.state,before);assert.equal(ui.sent.length,0);
+});
+
+const menuTrigger = (ui, text) => ui.find(el => el.className === 'gp-menu-trigger' && el.textContent === text);
+const menuPanel = (ui, text) => menuTrigger(ui, text).closest('.gp-menu').children[1];
+
+test('menubar preserves all tool entry points and hides only on-demand settings', t => {
+  const ui = setup(t);
+  assert.deepEqual(ui.byClass('gp-menubar').children.map(el=>el.children[0].textContent), ['Projekt','Skapa','Visa','Beräkning','Ritning']);
+  const contents = name => elementText(menuPanel(ui, name));
+  for (const text of ['Öppna projekt','Spara projekt…','Importera/Uppdatera lasteffekt','Kopiera projekt + key','Exportera JSON','Exportera PDF','Exportera HTML','Radera samtliga sulor']) assert.ok(contents('Projekt').includes(text));
+  for (const text of ['+ Väggsula','+ Pelarsula','Lägg till rubrik','Lägg till datum']) assert.ok(contents('Skapa').includes(text));
+  for (const text of ['Färggruppering','Inställningar för färggruppering…','Etikettstorlek…','Färglegend','Referens','Widget: Isolering','Lägg till kommentarer','Visa sulkonturer','Konturinställningar…']) assert.ok(contents('Visa').includes(text));
+  for (const text of ['Jordprofil','Glidningskontroll','Inställningar för glidningskontroll…','Auto bₓ för markerade…']) assert.ok(contents('Beräkning').includes(text));
+  for (const text of ['Redigera ritningsunderlag','Mät','Beskär','Redigera sulkonturer…']) assert.ok(contents('Ritning').includes(text));
+  assert.equal(ui.byClass('gp-colour-controls').hidden,true);
+  assert.equal(ui.byClass('gp-sliding-controls').hidden,true);
+  assert.equal(ui.byClass('gp-selection-bar').hidden,false);
+  assert.equal(ui.byClass('gp-selection-actions').hidden,true);
+  assert.ok(!ui.elements().some(el => el.name === 'table_common_foundation'));
+  assert.equal(ui.sent.length,0);
+});
+
+test('menus close each other, dismiss outside, and Escape preserves selection', t => {
+  const ui=setup(t), before=structuredClone(ui.data.state);
+  ui.byText('Markera samtliga').click();
+  menuTrigger(ui,'Projekt').click(); assert.equal(menuPanel(ui,'Projekt').hidden,false);
+  menuTrigger(ui,'Visa').click(); assert.equal(menuPanel(ui,'Projekt').hidden,true); assert.equal(menuPanel(ui,'Visa').hidden,false);
+  ui.byClass('an-grundplan').dispatch('keydown',{key:'Escape'});
+  assert.equal(menuPanel(ui,'Visa').hidden,true); assert.equal(document.activeElement,menuTrigger(ui,'Visa'));
+  assert.match(ui.byClass('gp-selection-count').textContent,/1 markerade/);
+  menuTrigger(ui,'Lås').click();
+  document.dispatch('pointerdown',{target:ui.viewport});
+  assert.equal(menuPanel(ui,'Lås').hidden,true);
+  assert.deepEqual(ui.data.state,before);assert.equal(ui.sent.length,0);
+});
+
+test('menus support arrow navigation, skip disabled tools and return focus on Escape',t=>{
+  const ui=setup(t), project=menuTrigger(ui,'Projekt'), panel=menuPanel(ui,'Projekt');
+  project.dispatch('keydown',{key:'ArrowDown'});
+  assert.equal(panel.hidden,false);assert.equal(document.activeElement,ui.byText('Öppna projekt'));
+  panel.dispatch('keydown',{key:'ArrowDown'});assert.equal(document.activeElement,ui.byText('Spara projekt…'));
+  panel.dispatch('keydown',{key:'End'});assert.equal(document.activeElement,ui.byText('Radera samtliga sulor'));
+  panel.dispatch('keydown',{key:'Escape'});assert.equal(panel.hidden,true);assert.equal(document.activeElement,project);
+  project.dispatch('keydown',{key:'ArrowRight'});assert.equal(document.activeElement,menuTrigger(ui,'Skapa'));
+  project.dispatch('keydown',{key:'ArrowLeft'});assert.equal(document.activeElement,menuTrigger(ui,'Ritning'));
+});
+
+test('settings panels do not change visibility settings, and compact actions reuse original commands',t=>{
+  const ui=setup(t);stabilityFixture(ui);
+  ui.data.state.colour={enabled:true,categories:['t','b'],show_legend:true};ui.changed();
+  const before=structuredClone(ui.data.state);
+  assert.equal(ui.byClass('gp-sliding-controls').hidden,true);
+  assert.equal(ui.byClass('gp-colour-controls').hidden,true);
+  ui.byText('Inställningar för färggruppering…').click();assert.equal(ui.byClass('gp-colour-controls').hidden,false);
+  ui.byText('Stäng färginställningar').click();assert.equal(ui.byClass('gp-colour-controls').hidden,true);
+  ui.byText('Inställningar för glidningskontroll…').click();assert.equal(ui.byClass('gp-sliding-controls').hidden,false);
+  ui.byText('Stäng glidningsinställningar').click();assert.equal(ui.byClass('gp-sliding-controls').hidden,true);
+  ui.byText('Etikettstorlek…').click();assert.equal(ui.byClass('gp-size-panel').hidden,false);
+  ui.byText('Stäng etikettstorlek').click();assert.equal(ui.byClass('gp-size-panel').hidden,true);
+  assert.deepEqual(ui.data.state,before);assert.equal(ui.sent.length,0);
+  ui.byText('Markera samtliga').click();
+  for(const name of ['Lås','Ordna','Skala…']){menuTrigger(ui,name).click();assert.equal(menuPanel(ui,name).hidden,false);}
+  menuTrigger(ui,'Ordna').click();
+  ui.byText('Flytta fram').click();assert.equal(ui.sent.at(-1).action,'object_order');
+  assert.equal(menuPanel(ui,'Skala…').hidden,true);
+});
+
+test('menu actions restore useful focus without stealing focus from opened forms',t=>{
+  const ui=setup(t), create=menuTrigger(ui,'Skapa');
+  create.click();const add=ui.byText('+ Pelarsula');add.focus();add.click();
+  assert.equal(document.activeElement,create);
+  assert.equal(menuPanel(ui,'Skapa').hidden,true);
+  ui.byClass('an-grundplan').dispatch('keydown',{key:'Escape',target:create});
+  assert.equal(add.getAttribute('aria-pressed'),'false');
+  menuTrigger(ui,'Visa').click();const sizes=ui.byText('Etikettstorlek…');sizes.focus();sizes.click();
+  assert.equal(document.activeElement,ui.byClass('gp-size-number'));
+});
+
+test('scale menu keeps its input visible when validation rejects a value',t=>{
+  const ui=setup(t);ui.byText('Markera samtliga').click();menuTrigger(ui,'Skala…').click();
+  const input=ui.find(el=>el.getAttribute('aria-label')==='Skala markerade objekt i procent');
+  input.value='0';ui.byText('Skala').click();
+  assert.equal(ui.sent.length,0);assert.equal(menuPanel(ui,'Skala…').hidden,false);
+  assert.match(ui.byClass('gp-status').textContent,/10–1000/);
 });
