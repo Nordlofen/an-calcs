@@ -6686,3 +6686,76 @@ test('zoom buttons exceed the old cap, stop at 3200 percent and still fit the dr
   near(picture.getBoundingClientRect().width, original.width);
   assert.equal(ui.sent.length, 0);
 });
+
+function numericImportDirection(ui, value) {
+  const mode = ui.find(e=>e.getAttribute('aria-label')==='Riktning vid import');
+  mode.value='angle'; mode.dispatch('change');
+  const input = ui.find(e=>e.getAttribute('aria-label')==='Riktning x vid import [°]');
+  input.value=value; input.dispatch('input'); return {mode,input};
+}
+
+for (const kind of ['vaggsula','pelarsula']) test('numeric import skips the direction click and keeps the label separate: '+kind,t=>{
+  const ui=setup(t);guidedImport(ui,{kind});numericImportDirection(ui,'37,5');
+  pickImport(ui,.3,.6);
+  assert.equal(ui.sent.length,0);
+  assert.match(ui.byClass('gp-import-instruction').textContent,/etiketten/);
+  assert.ok(ui.byClass('gp-import-preview').children.some(e=>e.tag==='polygon'));
+  pickImport(ui,.7,.8);
+  const request=ui.sent.at(-1);
+  assert.equal(request.action,'place_import');near(request.placement.angle_deg,37.5);
+  assert.equal(request.placement.kind,kind==='vaggsula'?'wall':'pad');
+  assert.deepEqual(request.placement[kind==='vaggsula'?'start':'center'],{x:.3,y:.6});
+  near(request.x,.7);near(request.y,.8);
+});
+
+test('numeric direction on an existing wall takes one click and preserves its label, including pad models',t=>{
+  for (const model of [1,0]) {
+    const ui=setup(t);guidedImport(ui,{existing:true,model});numericImportDirection(ui,'90');
+    const position=[ui.tag.x,ui.tag.y];pickImport(ui,.5,.6);
+    assert.equal(ui.sent.length,1);const request=ui.sent[0];
+    assert.deepEqual([request.x,request.y],position);near(request.placement.angle_deg,90);
+    if(model===1)assert.deepEqual(request.placement.start,{x:.5,y:.6});
+    else {near(request.placement.center.x,.5-6.2*40/(2*800));near(request.placement.center.y,.6);}
+  }
+});
+
+test('numeric import validates angles, refreshes its preview and steps back to the anchor',t=>{
+  const ui=setup(t);guidedImport(ui);const {input}=numericImportDirection(ui,'');
+  for(const invalid of ['', 'NaN', 'Infinity', '36001']) {
+    input.value=invalid;input.dispatch('input');pickImport(ui,.2,.5);
+    assert.equal(ui.sent.length,0);assert.match(ui.byClass('gp-import-instruction').textContent,/startpunkt/);
+  }
+  input.value='0';input.dispatch('input');pickImport(ui,.2,.5);
+  const preview=ui.byClass('gp-import-preview').children.find(e=>e.tag==='polygon').getAttribute('points');
+  input.value='90';input.dispatch('input');
+  assert.notEqual(ui.byClass('gp-import-preview').children.find(e=>e.tag==='polygon').getAttribute('points'),preview);
+  ui.byText('Föregående steg').click();assert.match(ui.byClass('gp-import-instruction').textContent,/startpunkt/);
+  pickImport(ui,.4,.6);pickImport(ui,.7,.8);
+  assert.deepEqual(ui.sent[0].placement,{kind:'wall',start:{x:.4,y:.6},angle_deg:90});
+});
+
+test('switching import direction method discards unfinished points and restores the three-click path',t=>{
+  const ui=setup(t);guidedImport(ui);const {mode}=numericImportDirection(ui,'45');
+  pickImport(ui,.2,.5);mode.value='click';mode.dispatch('change');
+  assert.match(ui.byClass('gp-import-instruction').textContent,/startpunkt/);
+  pickImport(ui,.4,.6);pickImport(ui,.4,.4);
+  assert.equal(ui.sent.length,0);pickImport(ui,.7,.8);
+  assert.deepEqual(ui.sent[0].placement,{kind:'wall',start:{x:.4,y:.6},angle_deg:0});
+});
+
+for(const wall of [false,true]) test('ordinary contour definition accepts numeric direction with one anchor click: '+wall,t=>{
+  const ui=contourSetup(t);
+  if(wall){ui.tag.footing_type='vaggsula';ui.tag.values.lang=1;}
+  delete ui.data.state.contours.placements.tag1;ui.changed();
+  ui.byText('Redigera sulkonturer…').click();ui.byText('Definiera placering').click();
+  const mode=ui.find(e=>e.getAttribute('aria-label')==='Riktning vid konturplacering');
+  mode.value='angle';mode.dispatch('change');
+  const angle=ui.find(e=>e.getAttribute('aria-label')==='Riktning x [°]');
+  angle.value='-22,5';angle.dispatch('input');
+  const labels=structuredClone(ui.data.state.tags);pickImport(ui,.3,.5);
+  assert.equal(ui.sent.length,1);const request=ui.sent[0];
+  assert.equal(request.action,'contour_placement');assert.equal(request.placement.kind,wall?'wall':'pad');
+  near(request.placement.angle_deg,-22.5);
+  assert.deepEqual(request.placement[wall?'start':'center'],{x:.3,y:.5});
+  assert.deepEqual(ui.data.state.tags,labels);
+});

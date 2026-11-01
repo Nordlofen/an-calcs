@@ -58,6 +58,9 @@
 .an-grundplan .gp-import-instruction { display: block; font-size: 15px; margin-bottom: 5px; }
 .an-grundplan .gp-import-loads { font-size: 12px; margin-bottom: 5px; }
 .an-grundplan .gp-import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.an-grundplan .gp-placement-direction { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.an-grundplan .gp-import-bar .gp-placement-direction { margin: 8px 0; }
+.an-grundplan .gp-placement-direction select { padding: 7px; border: 1px solid var(--gp-line); border-radius: 5px; background: white; color: var(--gp-ink); }
 .an-grundplan .gp-project-file { padding: 0 16px 10px; color: var(--gp-muted); font-size: 11px; overflow-wrap: anywhere; }
 .an-grundplan .gp-save-panel { margin: 0 16px 14px; padding: 14px; background: #f5faf8; border: 1px solid #a2b9ba; border-radius: 8px; }
 .an-grundplan .gp-save-panel h4 { margin-bottom: 10px; font-size: 15px; }

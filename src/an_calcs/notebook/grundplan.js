@@ -1076,6 +1076,24 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const importInstruction = node("strong", "gp-import-instruction");
   importInstruction.setAttribute("aria-live", "polite");
   const importLoads = node("p", "gp-import-loads");
+  const importDirection = directionMethod("Riktning vid import", () => {
+    if (importDraft) {importDraft.points = []; importDraft.placement = null;}
+    showLoadImport(); renderContours();
+  });
+  const importAngleField = node("label", "gp-contour-field");
+  const importAngleInput = node("input");
+  importAngleInput.type = "text"; importAngleInput.inputMode = "decimal"; importAngleInput.value = "0";
+  importAngleInput.setAttribute("aria-label", "Riktning x vid import [°]");
+  importAngleField.append(node("span", "", "Riktning x [°]"), importAngleInput);
+  importDirection.wrap.append(importAngleField);
+  importAngleInput.addEventListener("input", () => {
+    importAngleInput.setCustomValidity("");
+    if (importDraft?.points.length && importDirection.select.value === "angle") {
+      const angle = placementAngle(importAngleInput);
+      importDraft.placement = angle === null ? null : importedPlacement(importDraft.points[0], angle);
+    }
+    showLoadImport(); renderContours();
+  });
   const importPause = button("Pausa placering", () => controlImport(loadImport()?.paused ? "resume" : "pause"));
   const importCancel = button("Avbryt import", () => controlImport("cancel"));
   importCancel.title = "Avsluta kön. Redan placerade sulor behålls; återstående stöd skapas inte.";
@@ -1086,7 +1104,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   });
   const importHint = node("p", "gp-field-note");
   importActions.append(importBack, importPause, importCancel);
-  importBar.append(importInstruction, importLoads,
+  importBar.append(importInstruction, importLoads, importDirection.wrap,
     importHint, importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
@@ -2063,6 +2081,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     input.setAttribute("aria-label", label); contourInputs[name] = input; wrap.append(input); return wrap;
   };
   const contourAngle = contourField("angle", "Riktning x [°]");
+  contourInputs.angle.value = "0";
+  contourInputs.angle.addEventListener("input", () => contourInputs.angle.setCustomValidity(""));
+  const contourDirection = directionMethod("Riktning vid konturplacering", () => {
+    contourPoints = []; showContours();
+  });
   const contourGeometryApply = button("Tillämpa riktning", () => {
     const tag = contourTag(), p = contourPlacement(tag); if (!p) return;
     const value = Number(contourInputs.angle.value.trim().replace(",", "."));
@@ -2073,7 +2096,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const contourRemove = button("Ta bort konturplacering", () => {const tag = contourTag(); if (tag) saveContour(tag.id, null);});
   const contourDone = button("Klar", () => finishContours());
   contourShortcut.append(contourStart);
-  contourEditor.append(contourSelect, contourDefine, contourAngle, contourGeometryApply, contourRemove);
+  contourEditor.append(contourSelect, contourDefine, contourDirection.wrap, contourAngle, contourGeometryApply, contourRemove);
   contourSelect.addEventListener("change", () => {
     const id = contourSelect.value;
     cancelDrag(); closeDialog(); contourTarget = id; contourPoints = []; contourPlacing = false; showContours();
@@ -2136,14 +2159,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function chooseContourPoint(event) {
     const point = measurementPoint(event), tag = contourTag(); if (!point || !tag) return;
+    const numeric = contourDirection.select.value === "angle";
+    let angle = numeric ? placementAngle(contourInputs.angle, true) : null;
+    if (numeric && angle === null) return;
     contourPoints.push(point);
-    if (contourPoints.length === 2) {
+    if (numeric || contourPoints.length === 2) {
       const [a,b] = contourPoints, bg = background();
-      if (drawingDistance(a,b,bg) < 1e-6) {contourPoints.pop(); showMessage("Välj två olika punkter.", true); return;}
       const wall = footingCategory(tag) === "wall";
-      const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
-      // Placements store the x-axis angle; a wall is picked along positive y.
-      const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI || 0;
+      if (!numeric) {
+        if (drawingDistance(a,b,bg) < 1e-6) {contourPoints.pop(); showMessage("Välj två olika punkter.", true); return;}
+        const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
+        // Placements store the x-axis angle; a wall is picked along positive y.
+        angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI || 0;
+      }
       saveContour(tag.id, wall ? {kind:"wall",start:a,angle_deg:angle}
         : {kind:"pad",center:a,angle_deg:angle});
       contourPoints = []; contourPlacing = false;
@@ -2176,13 +2204,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const locked = !tag || placementLocked({type: "tag", id: tag.id});
     contourEditor.hidden = !contourEditing || readOnly || !tag;
     contourDefine.disabled = blocked || locked;
+    contourDirection.select.disabled = blocked || locked;
     contourStart.disabled = blocked || !current() || placementLocked({type: "tag", id: current()?.id});
-    contourAngle.hidden = !p;
-    if (document.activeElement !== contourInputs.angle) contourInputs.angle.value = p?.angle_deg ?? "";
-    contourGeometryApply.hidden = contourRemove.hidden = !p;
+    const numeric = contourDirection.select.value === "angle";
+    contourAngle.hidden = !p && !numeric;
+    contourInputs.angle.disabled = blocked || locked;
+    if (!contourPlacing && p && document.activeElement !== contourInputs.angle) contourInputs.angle.value = p.angle_deg ?? "0";
+    contourGeometryApply.hidden = !p || contourPlacing;
+    contourRemove.hidden = !p;
     contourGeometryApply.disabled = contourRemove.disabled = blocked || !p || locked || !calibration();
     contourEditStatus.textContent = "Redigera sulkonturer · " + tags.filter(t => contourDefined(t)).length + "/" + tags.length + " definierade";
     contourEditHint.textContent = !calibration() ? "Kalibrera ritningsskalan med två punkter och ett känt mått."
+      : contourPlacing && tag && numeric ? "Ange vinkel och klicka på " + (wall ? "väggsulans startpunkt." : "stödets centrum.") + " Inget riktningsklick behövs. Vinkeln avser lokal x: 0° åt höger, 90° uppåt."
       : contourPlacing && tag ? (wall ? "Klicka på " + (contourPoints.length ? "en punkt i positiv bᵧ-riktning, längs väggsulan." : "väggsulans startpunkt på centrumlinjen.")
         : "Klicka på " + (contourPoints.length ? "en punkt i lokal positiv x-riktning." : "stödets fasta centrum."))
       : "Välj sula i listan. Dra cirklar för centrum/startpunkt och riktning, eller konturen för excentricitet. Klar eller Esc avslutar.";
@@ -3150,6 +3183,26 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return item && (state().tags.find(tag => tag.id === item.existing_id)
       || {id: "import-preview", footing_type: item.kind, values: item.values});
   }
+  function directionMethod(label, changed) {
+    const wrap = node("div", "gp-placement-direction"), field = node("label", "gp-contour-field");
+    const select = node("select"); select.setAttribute("aria-label", label);
+    for (const [value, caption] of [["click", "Klicka riktning"], ["angle", "Ange vinkel"]]) {
+      const option = node("option", "", caption); option.value = value; select.append(option);
+    }
+    select.value = "click";
+    select.addEventListener("change", changed);
+    field.append(node("span", "", "Riktning vid placering"), select); wrap.append(field);
+    return {wrap, select};
+  }
+  function placementAngle(input, report = false) {
+    const raw = input.value.trim().replace(",", "."), angle = Number(raw);
+    const valid = raw !== "" && Number.isFinite(angle) && Math.abs(angle) <= 36000;
+    if (!valid && report) {
+      input.setCustomValidity("Ange en vinkel mellan −36000 och 36000 grader.");
+      input.reportValidity(); showMessage("Ange en giltig riktning i grader före placering.", true);
+    }
+    return valid ? angle : null;
+  }
   function syncImportDraft(queue) {
     if (!queue?.define_contours) {importDraft = null; return;}
     const key = JSON.stringify([queue.token, queue.index, background().page, calibration(), physicalType(importTag()), importTag()?.values]);
@@ -3171,14 +3224,42 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!queue.define_contours) return caption;
     if (!calibration()) return caption + " · Kalibrera ritningsskalan före placering.";
     const step = importDraft?.points.length || 0, wall = physicalType(importTag()) === "vaggsula";
+    const numeric = importDirection.select.value === "angle";
     return caption + " · " + (step === 0 ? wall ? "Klicka på väggsulans startpunkt." : "Klicka på stödets centrum."
+      : numeric ? "Klicka där etiketten ska placeras."
       : step === 1 ? wall ? "Klicka i positiv bᵧ-riktning längs väggen." : "Klicka i positiv x-riktning."
       : "Klicka där etiketten ska placeras.");
+  }
+  function importedPlacement(start, angle, report = false) {
+    const tag = importTag(), bg = background(), wall = physicalType(tag) === "vaggsula";
+    if (wall && footingCategory(tag) !== "wall") {
+      const length = Number(tag.values.l), cal = calibration();
+      if (!(length > 0)) {
+        if (report) showMessage("Ange ett positivt bᵧ före konturplaceringen.", true);
+        return null;
+      }
+      const units = drawingDistance(cal.start,cal.end,bg)/cal.length_m, rad = angle*Math.PI/180;
+      return {kind:"pad",center:{x:start.x-Math.sin(rad)*length*units/(2*bg.width),y:start.y-Math.cos(rad)*length*units/(2*bg.height)},angle_deg:angle};
+    }
+    return wall ? {kind:"wall",start,angle_deg:angle} : {kind:"pad",center:start,angle_deg:angle};
   }
   function chooseImportedPoint(point) {
     const queue = loadImport();
     if (!queue?.define_contours || queue.paused || importBusy || !calibration()) return;
     syncImportDraft(queue);
+    if (importDirection.select.value === "angle") {
+      const angle = placementAngle(importAngleInput, true);
+      if (angle === null) return;
+      const start = importDraft.points[0] || point, placement = importedPlacement(start, angle, true);
+      if (!placement) return;
+      importDraft.placement = placement;
+      if (queue.next.existing_id) {
+        const tag = importTag(); commitImportedPoint({x:tag.x,y:tag.y}, placement); return;
+      }
+      if (importDraft.points.length) commitImportedPoint(point, placement);
+      else {importDraft.points.push(point); showLoadImport(); renderContours();}
+      return;
+    }
     if (importDraft.points.length < 2) {
       if (importDraft.points.length && drawingDistance(importDraft.points[0], point, background()) < 1e-6) {
         showMessage("Välj en annan punkt för riktningen.", true); return;
@@ -3188,12 +3269,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const [a,b] = importDraft.points, bg = background(), wall = physicalType(importTag()) === "vaggsula";
         const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
         const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI || 0;
-        if (wall && footingCategory(importTag()) !== "wall") {
-          const length = Number(importTag().values.l), cal = calibration();
-          if (!(length > 0)) {importDraft.points.pop();showMessage("Ange ett positivt bᵧ före konturplaceringen.",true);return;}
-          const units = drawingDistance(cal.start,cal.end,bg)/cal.length_m, rad = angle*Math.PI/180;
-          importDraft.placement = {kind:"pad",center:{x:a.x-Math.sin(rad)*length*units/(2*bg.width),y:a.y-Math.cos(rad)*length*units/(2*bg.height)},angle_deg:angle};
-        } else importDraft.placement = wall ? {kind:"wall",start:a,angle_deg:angle} : {kind:"pad",center:a,angle_deg:angle};
+        importDraft.placement = importedPlacement(a, angle, true);
+        if (!importDraft.placement) {importDraft.points.pop(); return;}
         if (queue.next.existing_id) {
           const tag = importTag(); commitImportedPoint({x:tag.x,y:tag.y}, importDraft.placement); return;
         }
@@ -3221,7 +3298,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     importBar.hidden = readOnly || !queue;
     importBack.hidden = !queue?.define_contours;
     importBack.disabled = importBusy || !importDraft?.points.length || importCalibrating;
-    importHint.textContent = (queue?.define_contours ? "Centrum/startpunkt → riktning → etikett. Befintliga etiketter flyttas inte. Föregående steg ändrar ett pågående val. " : "Vänsterklick placerar nästa etikett. ")
+    importDirection.wrap.hidden = !queue?.define_contours;
+    const numeric = importDirection.select.value === "angle";
+    importAngleField.hidden = !numeric;
+    importDirection.select.disabled = importAngleInput.disabled = importBusy || importCalibrating;
+    importHint.textContent = (queue?.define_contours ? (numeric
+      ? "Ange vinkel → klicka centrum/startpunkt → klicka etikett. Vinkeln avser lokal x: 0° åt höger, 90° uppåt. "
+      : "Centrum/startpunkt → riktning → etikett. ") + "Befintliga etiketter flyttas inte. Föregående steg ändrar ett pågående val. " : "Vänsterklick placerar nästa etikett. ")
       + "Dra för att panorera, Shift + scroll zoomar. Escape pausar kön. Endast färdiga placeringar sparas.";
     loadEffects.disabled = !background().url || !!queue || importBusy || drawingBusy || bulkBusy || deleteBusy;
     deleteAll.disabled = (!state().tags.length && !queue) || importBusy || bulkBusy || deleteBusy;

@@ -401,6 +401,13 @@ aktuellt stöd, lastvärden och vilket klick som återstår:
 
 Klickavståndet bestämmer bara riktningen. Sulmåtten hämtas från objektets
 indata; väggsulans längd är bᵧ. En tillfällig kontur visas före sista klicket.
+Välj **Ange vinkel** i stället för **Klicka riktning** för att hoppa över
+riktningsklicket. Ange lokal x-riktning i grader (0° åt höger, 90° uppåt),
+klicka centrum/sulstart och därefter etikettens plats. För ett befintligt objekt
+som bara saknar kontur räcker centrum-/startklicket. Komma och punkt stöds.
+Metod och vinkel behålls för nästa sula i kön. Byte av metod börjar om det
+pågående punktvalet; **Föregående steg** återgår till centrum-/startvalet vid
+sifferinmatad riktning.
 Etiketter, widgets, texter, koordinatsymboler och hänvisningslinjer ligger
 kvar synliga under placeringen, men klick går igenom dem till ritningsytan.
 De kan inte öppnas, markeras eller flyttas av vanliga placeringsklick.
@@ -408,7 +415,7 @@ Samma regel gäller när skalan kalibreras som del av importen. Vid paus eller
 avslutad import återkommer vanlig objektinteraktion.
 **Föregående steg** låter dig göra om ett pågående val. Ingen indatadialog
 öppnas mellan placeringarna. Sula, kontur och etikett skapas tillsammans i
-ett ångringssteg; inga halvfärdiga sulor läggs till vid de första två klicken.
+ett ångringssteg; inga halvfärdiga sulor läggs till innan sista placeringsklicket.
 
 Befintliga konturplaceringar och etikettpositioner behålls vid återimport.
 Matchade aktiva, olåsta sulor på aktuell ritningssida som saknar konturplacering
@@ -1745,6 +1752,9 @@ och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
 startpunkt och en punkt i positiv bᵧ-riktning, längs väggsulan. Den andra
 punktens avstånd bestämmer inte längden; den kommer från bᵧ. Väggsulor med
 pelarsulemodell visas som bₓ × bᵧ-rektanglar.
+Panelens **Riktning vid placering** kan också sättas till **Ange vinkel**.
+Ange **Riktning x [°]**, välj **Definiera placering** och klicka centrum/startpunkt.
+Konturen får då den inmatade riktningen direkt, utan ett andra klick.
 
 Konturen sparar ett utgångsläge för full längd L_stöd. Alla längdjusteringar
 härleds från detta läge. Äldre konturer behåller sitt synliga läge när de
