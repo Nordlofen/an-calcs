@@ -1752,6 +1752,16 @@ och en punkt i positiv lokal x-riktning. För väggsulor väljs centrumlinjens
 startpunkt och en punkt i positiv bᵧ-riktning, längs väggsulan. Den andra
 punktens avstånd bestämmer inte längden; den kommer från bᵧ. Väggsulor med
 pelarsulemodell visas som bₓ × bᵧ-rektanglar.
+Vid byte från väggsulemodell till pelarsulemodell blir den definierade
+väggkonturens mittpunkt ett fast stödcentrum. Riktningen behålls. Senare
+ändringar av bᵧ fördelas lika i lokal y+ och y−, och ovanliggande pelare/vägg
+ligger kvar vid stödcentrum. Excentricitet förskjuter grundsulan relativt detta
+centrum. L_stöd, importerade laster och deras yttre lastresultant behålls.
+Återbyte till väggsulemodell härleder sulstart från samma centrum och aktuell bᵧ.
+En giltig måttkalibrering behövs för modellbyte av en placerad kontur.
+Äldre sparade centrumplaceringar behålls; äldre kombinationer med en väggkontur
+till en pelarsulemodell konverteras när giltig kalibrering finns.
+
 Panelens **Riktning vid placering** kan också sättas till **Ange vinkel**.
 Ange **Riktning x [°]**, välj **Definiera placering** och klicka centrum/startpunkt.
 Konturen får då den inmatade riktningen direkt, utan ett andra klick.

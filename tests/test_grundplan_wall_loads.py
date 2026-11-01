@@ -105,6 +105,89 @@ class TestWallLoads(unittest.TestCase):
             self.plan.uppdatera(ident,indata={"lang":model,"b":1.2,"l":1.3})
             self.assertEqual(self.plan.taggar[0]["load_resultants"],{"brott":120,"bruk":60})
 
+    def test_wall_to_pad_freezes_visible_midpoint_before_any_simultaneous_length_change(self):
+        from an_calcs.notebook.grundplan_lengths import wall_axes
+        ident = self.imported()
+        self.plan.kalibrering = {"start":{"x":.1,"y":.1},"end":{"x":.6,"y":.1},"length_m":10}
+        for angle in (0, 37, 90, 215):
+            with self.subTest(angle=angle):
+                self.plan.uppdatera(ident, indata={"lang":1,"l":.4,"length_end":1})
+                self.plan.placera_sulkontur(ident, {"kind":"wall","start":{"x":.5,"y":.5},"angle_deg":angle})
+                wall = self.plan.sulkonturer["placements"][ident]
+                axis = wall_axes(angle)
+                center = {a:wall["start"][a]+d*.4*40/(2*span) for a,d,span in zip(("x","y"),axis,(800,600))}
+                self.plan.uppdatera(ident, indata={"lang":0,"l":1.4})
+                pad = self.plan.sulkonturer["placements"][ident]
+                self.assertEqual(pad["kind"], "pad")
+                self.assertEqual(pad["angle_deg"], angle)
+                for a in ("x","y"): self.assertAlmostEqual(pad["center"][a],center[a])
+                for by in (2.4, .8, 1.6):
+                    self.plan.uppdatera(ident, indata={"l":by})
+                    self.assertEqual(self.plan.sulkonturer["placements"][ident],pad)
+                    tag = self.plan.taggar[0]
+                    self.assertEqual(tag["values"]["L_vagg"], .6)
+                    self.assertEqual(tag["load_resultants"], {"brott":120,"bruk":60})
+                    self.assertEqual(tag["values"]["F_vy"],200)
+                    self.assertEqual(tag["values"]["V_Ed_EQU"],150)
+                self.plan.uppdatera(ident, indata={"lang":1})
+                again = self.plan.sulkonturer["placements"][ident]
+                for a,d,span in zip(("x","y"),axis,(800,600)):
+                    self.assertAlmostEqual(again["start"][a]+d*1.6*40/(2*span),center[a])
+
+    def test_model_conversion_roundtrip_history_and_legacy_mismatched_placements(self):
+        from unittest.mock import patch
+        ident = self.imported()
+        calibration = {"start":{"x":.1,"y":.1},"end":{"x":.6,"y":.1},"length_m":10}
+        self.plan.kalibrering = calibration
+        self.plan.placera_sulkontur(ident,{"kind":"wall","start":{"x":.5,"y":.5},"angle_deg":0})
+        before = self.plan._document()
+        def command(action, **payload):
+            with patch.object(self.plan,"send") as send:
+                self.plan._on_message(self.plan,{"action":action,"view":"test","request":1,**payload},[])
+            self.assertTrue(send.call_args.args[0]["ok"],send.call_args.args[0])
+        command("update",id=ident,values={"lang":0})
+        after = self.plan._document()
+        command("undo"); self.assertEqual(self.plan._document(),before)
+        command("redo"); self.assertEqual(self.plan._document(),after)
+        self.plan._load_document(json.dumps(after).encode())
+        self.assertEqual(self.plan._document(),after)
+        # Older files could contain a wall placement after switching to the pad model.
+        old = copy.deepcopy(after)
+        old["contours"]["placements"] = before["contours"]["placements"]
+        self.plan._load_document(json.dumps(old).encode())
+        self.assertEqual(self.plan.sulkonturer["placements"],after["contours"]["placements"])
+        self.assertEqual(self.plan.taggar[0]["values"],after["tags"][0]["values"])
+        old["calibration"] = None
+        self.plan._load_document(json.dumps(old).encode())
+        self.assertEqual(self.plan.sulkonturer["placements"],before["contours"]["placements"])
+        self.plan.kalibrering = calibration
+        self.assertEqual(self.plan.sulkonturer["placements"],after["contours"]["placements"])
+
+    def test_legacy_endpoint_wall_uses_its_actual_midpoint_and_uncalibrated_changes_are_atomic(self):
+        ident = self.imported()
+        self.plan.kalibrering = {"start":{"x":.1,"y":.1},"end":{"x":.6,"y":.1},"length_m":10}
+        self.plan._contours["placements"][ident] = {"kind":"wall","start":{"x":.2,"y":.3},"end":{"x":.6,"y":.7}}
+        self.plan.uppdatera(ident,indata={"lang":0})
+        pad = self.plan.sulkonturer["placements"][ident]
+        self.assertEqual(pad["center"],{"x":.4,"y":.5})
+        old = self.plan._document()
+        old["contours"]["placements"][ident] = {"kind":"wall","start":{"x":.2,"y":.3},"end":{"x":.6,"y":.7}}
+        self.plan._load_document(json.dumps(old).encode())
+        self.assertEqual(self.plan.sulkonturer["placements"][ident],pad)
+        calibration = old["calibration"]
+        old["calibration"] = None
+        self.plan._load_document(json.dumps(old).encode())
+        self.assertIn("end",self.plan.sulkonturer["placements"][ident])
+        self.plan.uppdatera(ident,indata={"kommentar":"Äldre placering behålls före kalibrering."})
+        self.assertIn("end",self.plan.sulkonturer["placements"][ident])
+        self.plan.kalibrering = calibration
+        self.assertEqual(self.plan.sulkonturer["placements"][ident],pad)
+        self.plan.kalibrering = None
+        before = self.plan._document()
+        with self.assertRaisesRegex(ValueError,"Kalibrera"):
+            self.plan.uppdatera(ident,indata={"lang":1})
+        self.assertEqual(self.plan._document(),before)
+
     def test_imported_support_length_is_locked_in_api_bulk_copy_and_common_foundation(self):
         ident=self.imported()
         before=copy.deepcopy(self.plan._document())

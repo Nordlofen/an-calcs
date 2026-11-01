@@ -6759,3 +6759,26 @@ for(const wall of [false,true]) test('ordinary contour definition accepts numeri
   assert.deepEqual(request.placement[wall?'start':'center'],{x:.3,y:.5});
   assert.deepEqual(ui.data.state.tags,labels);
 });
+
+test('a wall with pad model grows equally in both local y directions around its fixed support',()=>{
+  const bg={width:800,height:600},tag={footing_type:'vaggsula',values:{lang:1,b:1.4,l:.6,L_vagg:.6,
+    physical_length:true,e_b_plac:0,e_l_plac:0,B_x:250,B_y:300}};
+  for(const angle of [0,37,90,215]) {
+    const wall=footprintGeometry(tag,{kind:'wall',start:{x:.5,y:.5},angle_deg:angle},bg,contourCalibration);
+    const placement={kind:'pad',center:{x:wall.anchor.x/bg.width,y:wall.anchor.y/bg.height},angle_deg:angle};
+    for(const length of [.6,1.4,2.4]) {
+      const pad={...tag,values:{...tag.values,lang:0,l:length}};
+      const g=footprintGeometry(pad,placement,bg,contourCalibration),upper=constructionGeometry(pad,placement,bg,contourCalibration);
+      near(g.anchor.x,wall.anchor.x);near(g.anchor.y,wall.anchor.y);
+      near(g.center.x,g.anchor.x);near(g.center.y,g.anchor.y);
+      near(upper.center.x,g.anchor.x);near(upper.center.y,g.anchor.y);
+      const projection=g.points.map(p=>(p.x-g.anchor.x)*g.yAxis.x+(p.y-g.anchor.y)*g.yAxis.y);
+      near(Math.max(...projection),length*g.units/2);near(Math.min(...projection),-length*g.units/2);
+      pad.values.e_l_plac=.15;
+      const eccentric=footprintGeometry(pad,placement,bg,contourCalibration);
+      near(eccentric.anchor.x,g.anchor.x);near(eccentric.anchor.y,g.anchor.y);
+      near(eccentric.center.x,g.center.x-.15*g.units*g.yAxis.x);
+      near(eccentric.center.y,g.center.y-.15*g.units*g.yAxis.y);
+    }
+  }
+});

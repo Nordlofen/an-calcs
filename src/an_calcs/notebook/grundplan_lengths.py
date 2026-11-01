@@ -85,6 +85,36 @@ def referenced_placement(placement, values, background, calibration):
     return result
 
 
+def model_placement(placement, before, after, background, calibration):
+    """Convert anchors on a bearing-model change without moving the support.
+
+    A strip's visible start and length define its support midpoint. Once a pad
+    model is used that midpoint is stored directly, independently of later b_y.
+    Existing valid placements keep their original representation.
+    """
+    expected = "wall" if after.get("lang") == 1 else "pad"
+    if placement["kind"] == expected:
+        return copy.deepcopy(placement)
+    if not calibration and not (expected == "pad" and "end" in placement):
+        raise ValueError("Kalibrera ritningsskalan före byte av beräkningsmodell för en placerad sulkontur.")
+    if expected == "pad":
+        wall = migrate_wall(placement, background)
+        if "end" in placement:
+            center = {axis: (placement["start"][axis] + placement["end"][axis]) / 2 for axis in ("x", "y")}
+        else:
+            length = before.get("l")
+            if type(length) not in (int, float) or not math.isfinite(length) or length <= 0:
+                raise ValueError("Ange ett positivt b_y före byte av beräkningsmodell.")
+            center = _shift_point(wall["start"], length / 2, wall["angle_deg"], background, calibration)
+        return {"kind": "pad", "center": center, "angle_deg": wall["angle_deg"]}
+    length = after.get("l")
+    if type(length) not in (int, float) or not math.isfinite(length) or length <= 0:
+        raise ValueError("Ange ett positivt b_y före byte av beräkningsmodell.")
+    wall = {"kind": "wall", "start": _shift_point(placement["center"], -length / 2,
+            placement["angle_deg"], background, calibration), "angle_deg": placement["angle_deg"]}
+    return referenced_placement(wall, after, background, calibration)
+
+
 def resized_placement(placement, before, after, background, calibration):
     """Derive either trimmed end from one full-length placement, without drift."""
     if not placement or placement.get("kind") != "wall" or not after.get("physical_length"):

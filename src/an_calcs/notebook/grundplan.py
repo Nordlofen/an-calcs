@@ -29,7 +29,7 @@ from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
-from .grundplan_lengths import intensity_data, lock_source, resized_placement, referenced_placement, metres_per_pixel, migrate_wall
+from .grundplan_lengths import intensity_data, lock_source, resized_placement, referenced_placement, metres_per_pixel, migrate_wall, model_placement
 from .grundplan_contours import settings as contour_settings, placement as contour_placement
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
@@ -1880,7 +1880,10 @@ class Grundplan(anywidget.AnyWidget):
         if calibration:
             for tag in self._tags:
                 placement = placements.get(tag["id"])
-                if placement and "reference_start" in placement and tag["values"].get("physical_length"):
+                if placement and placement["kind"] != ("wall" if tag["values"]["lang"] == 1 else "pad"):
+                    placements[tag["id"]] = contour_placement(model_placement(
+                        placement, tag["values"], tag["values"], self.background, calibration))
+                elif placement and "reference_start" in placement and tag["values"].get("physical_length"):
                     placements[tag["id"]] = contour_placement(resized_placement(
                         placement, tag["values"], tag["values"], self.background, calibration))
         self._calibration = calibration
@@ -1968,7 +1971,12 @@ class Grundplan(anywidget.AnyWidget):
 
     def _resized_contour(self, tag, values):
         placement = self._contours["placements"].get(tag["id"])
-        if placement is None or all(values.get(name) == tag["values"].get(name) for name in ("l", "length_end", "L_vagg")): return None
+        if placement is None: return None
+        if placement["kind"] != ("wall" if values["lang"] == 1 else "pad"):
+            if not self._calibration and values["lang"] == tag["values"]["lang"]:
+                return None  # An older unresolved contour must not block unrelated edits.
+            return contour_placement(model_placement(placement, tag["values"], values, self.background, self._calibration))
+        if all(values.get(name) == tag["values"].get(name) for name in ("l", "length_end", "L_vagg")): return None
         if values.get("physical_length") and (type(values["l"]) not in (int, float) or values["l"] <= 0):
             raise ValueError("Ange ett positivt b_y för den placerade sulkonturen.")
         result = resized_placement(placement, tag["values"], values, self.background, self._calibration)
@@ -2271,9 +2279,14 @@ class Grundplan(anywidget.AnyWidget):
                 tag["soil_profile"] = profile
             valid_tags.append(tag)
         saved_contours = contour_settings(document.get("contours", {}), valid_tags)
+        if calibration:
+            by_id = {tag["id"]: tag["values"] for tag in valid_tags}
+            saved_contours["placements"] = {ident: model_placement(p, by_id[ident], by_id[ident], rendered, calibration)
+                                            for ident, p in saved_contours["placements"].items()}
         physical_values = {t["id"]: t["values"] for t in valid_tags if t["values"].get("physical_length")}
         saved_contours["placements"] = {ident: referenced_placement(p, physical_values[ident], rendered, calibration)
-                                        if ident in physical_values else p
+                                        if ident in physical_values and (calibration or p["kind"] ==
+                                            ("wall" if physical_values[ident]["lang"] == 1 else "pad")) else p
                                         for ident, p in saved_contours.get("placements", {}).items()}
         contours = contour_settings(saved_contours, valid_tags)
         common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
