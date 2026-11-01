@@ -1048,7 +1048,8 @@ anropas med en hävarm.
 - Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. Väggsulemotorn använder
   ekvivalenta värden per meter. För väggsulor multipliceras både last och
   bärförmåga med bᵧ i Grundplans sammanfattning; kvoten är densamma.
-  Motorns `F_bd` är `q_bd * b` respektive `q_bd * b * l`.
+  Motorns `F_bd` är `q_bd * b_eff * l_eff/l_ref` respektive
+  `q_bd * b_eff * l_eff`. Utan längdexcentricitet är `l_eff/l_ref = 1`.
   Denna jordkontroll är oförändrad när isoleringskontrollen aktiveras.
 - I den befintliga funktionens `details` står vissa lastposter i kN även
   för enmetersremsan. Planvyn visar total kraft för den lokala kontrollen.
@@ -1058,6 +1059,31 @@ anropas med en hävarm.
 Jordkontrollen avser bärighet i brottgränstillstånd enligt repositoryts
 befintliga Mathcad-baserade modell. Sättningar, betongdimensionering,
 armering och pålbärförmåga ingår inte i taggens utnyttjandegrad.
+
+### Effektiv area och beräkningsmått för jord
+
+Placeringsexcentricitet och moment ger först effektiva mått i de ursprungliga
+axlarna: `b_eff = b − 2|e_b,plac + M_y/V|` och
+`l_eff = l_ref − 2|e_l,plac + M_x/V|`. Grundplan tillför inga extra moment från
+horisontallaster. Dessa axelbundna mått behålls för planskiss och etiketter.
+
+För pelarsulemodellen används därefter `B_eff = min(b_eff, l_eff)` och
+`L_eff = max(b_eff, l_eff)` i jordmodellens geometrifaktorer och breddterm.
+Formfaktorn `s_gamma = 1 − 0,4 B_eff/L_eff` ligger då mellan 0,6 och 1.
+Långsträckta väggsulor behåller sin tvärgående beräkningsbredd och formfaktorn 1;
+deras valda referenslängd används inte för att växla bredd och längd.
+
+Total jordbärförmåga är `F_bd = q_bd × A_eff`. För pelarsulor är
+`A_eff = b_eff × l_eff`; väggsulemotorn redovisar bärförmåga per meter och
+använder `b_eff × l_eff/l_ref`. Utan längdexcentricitet blir detta `b_eff × 1 m`.
+Det gör jordens kontrollkvot `F_v/F_bd` likvärdig med `q_Ed/q_bd`.
+Se [Caltrans om effektiv area och grundtryck](https://dot.ca.gov/-/media/dot-media/programs/engineering/documents/bridge-design-practices/202501bdpchapter101shallowfoundationsa11y.pdf).
+
+Rättningen ändrar inte resultaten för centriska kvadratiska sulor utan moment.
+Även centriska rektangulära sulor med redan korrekt måttordning behåller sina
+resultat. Andra fall kan ändras genom rättad måttordning och/eller reducerad
+bärarea. Äldre projekt öppnas med samma indata och placeringar, men resultaten
+beräknas om med den aktuella beräkningsmotorn.
 
 ## Isolering under sulan
 

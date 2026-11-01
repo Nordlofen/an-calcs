@@ -266,12 +266,18 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
     if l_ef <= 0:
         raise ValueError("l_ef måste vara > 0.")
 
+    # Keep b_ef/l_ef tied to the input axes for moments and plotting. The
+    # rectangular bearing model instead uses the shorter effective dimension
+    # as its width. A strip retains its transverse width, independent of the
+    # arbitrary reference length used for a per-metre calculation.
+    B_ef, L_ef = (b_ef, l_ef) if lang == 1 else (min(b_ef, l_ef), max(b_ef, l_ef))
+
     q_d_prime = gamma * d
 
     if delta_h <= 0:
         gamma_fri = gamma_prime
-    elif delta_h < b_ef:
-        gamma_fri = gamma * (delta_h / b_ef) + gamma_prime * ((b_ef - delta_h) / b_ef)
+    elif delta_h < B_ef:
+        gamma_fri = gamma * (delta_h / B_ef) + gamma_prime * ((B_ef - delta_h) / B_ef)
     else:
         gamma_fri = gamma
 
@@ -290,7 +296,7 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
             ((1.0 + sin_phi_d) / (1.0 - sin_phi_d)) * math.exp(1.5 * math.pi * tan_phi_d) - 1.0
         )
 
-    d_c_raw = 1.0 + 0.35 * d / b_ef
+    d_c_raw = 1.0 + 0.35 * d / B_ef
     d_c = min(d_c_raw, 1.7)
     d_q = d_c
     d_gamma = 1.0
@@ -301,13 +307,13 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
         s_gamma = 1.0
     else:
         if _ar_noll(phi_d_rad):
-            s_c = 1.0 + 0.2 * b_ef / l_ef
+            s_c = 1.0 + 0.2 * B_ef / L_ef
         else:
-            s_c = 1.0 + N_q * b_ef / (N_c * l_ef)
-        s_q = 1.0 + tan_phi_d * b_ef / l_ef
-        s_gamma = 1.0 - 0.4 * b_ef / l_ef
+            s_c = 1.0 + N_q * B_ef / (N_c * L_ef)
+        s_q = 1.0 + tan_phi_d * B_ef / L_ef
+        s_gamma = 1.0 - 0.4 * B_ef / L_ef
 
-    m_i = (2.0 * l_ef + b_ef) / (l_ef + b_ef)
+    m_i = (2.0 * L_ef + B_ef) / (L_ef + B_ef)
 
     if _ar_noll(F_h) or lang == 1 or _ar_noll(phi_d_rad):
         i_q = 1.0
@@ -363,15 +369,17 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
     xi_gamma = d_gamma * s_gamma * i_gamma * g_gamma * b_gamma
 
     q_bd = (
-        c_ud * N_c * xi_c + q_d_prime * N_q * xi_q + 0.5 * gamma_fri * b_ef * N_gamma * xi_gamma
+        c_ud * N_c * xi_c + q_d_prime * N_q * xi_q + 0.5 * gamma_fri * B_ef * N_gamma * xi_gamma
     ) / gamma_Rd
 
     if lang == 1:
-        F_bd = q_bd * b
+        # Forces are per metre; reduce the reference strip's effective area
+        # back to one metre when a longitudinal moment also reduces l_ef.
+        F_bd = q_bd * b_ef * (l_ef / l_ref)
         F_bd_unit = "kN/m"
         F_bd_etikett = "dimensionerande bärförmåga för jord som linjelast"
     else:
-        F_bd = q_bd * b * l
+        F_bd = q_bd * b_ef * l_ef
         F_bd_unit = "kN"
         F_bd_etikett = "dimensionerande bärförmåga för jord som punktlast"
 
@@ -398,6 +406,17 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
                         "dimensionerande jordparametrar, effektiv geometri, "
                         "bärighetsfaktorer samt korrektioner för geometri, last och "
                         "omgivande förhållanden."
+                    ),
+                },
+                {
+                    "rubrik": "Effektiv geometri",
+                    "text": (
+                        "Effektiva mått i indataaxlarna beräknas från summan av "
+                        "placeringsexcentricitet och moment/vertikallast. För pelarsula "
+                        "används det kortare effektiva måttet som beräkningsbredd B_ef "
+                        "och det längre som L_ef i jordmodellens geometrifaktorer. "
+                        "Total bärförmåga beräknas på effektiv area. För långsträckt "
+                        "fundament behålls tvärbredden och bärförmågan redovisas per meter."
                     ),
                 },
                 {
@@ -471,6 +490,8 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
                 _post("e_l", r"e_l", e_l, "m", "total excentricitet i längdriktning"),
                 _post("b_ef", r"b_{ef}", b_ef, "m", "effektiv bredd"),
                 _post("l_ef", r"l_{ef}", l_ef, "m", "effektiv längd"),
+                _post("B_ef", r"B_{ef}", B_ef, "m", "beräkningsbredd, kortare effektivt mått för pelarsula"),
+                _post("L_ef", r"L_{ef}", L_ef, "m", "beräkningslängd, längre effektivt mått för pelarsula"),
                 _post("q_d_prime", r"q^{\prime}_d", q_d_prime, "kPa", "stapellast på grundläggningsnivå"),
                 _post("gamma_fri", r"\gamma_{fri}", gamma_fri, "kN/m^3", "tunghet för friktionsjord under G-nivå"),
                 _post("F", "F", F, "", "hjälpparameter för N-gamma"),
@@ -521,9 +542,11 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
                 _ekvation(r"e_l = \left|e_{l,plac} + e_{l,last}\right|", "total excentricitet i längdriktning"),
                 _ekvation(r"b_{ef} = b - 2 e_b", "effektiv bredd"),
                 _ekvation(r"l_{ef} = l_{ref} - 2 e_l", "effektiv längd"),
+                _ekvation(r"B_{ef} = \min(b_{ef}, l_{ef}),\quad L_{ef} = \max(b_{ef}, l_{ef})", "beräkningsmått för pelarsula, oberoende av indataaxlarna"),
+                _ekvation(r"B_{ef} = b_{ef},\quad L_{ef} = l_{ef}", "beräkningsmått för långsträckt fundament"),
                 _ekvation(r"q^{\prime}_d = \gamma d", "stapellast på grundläggningsnivå"),
                 _ekvation(r"\gamma_{fri} = \gamma^{\prime}", "tunghet för friktionsjord under G-nivå, grundvatten vid eller över G-nivå"),
-                _ekvation(r"\gamma_{fri} = \gamma \frac{\Delta h}{b_{ef}} + \gamma^{\prime}\frac{b_{ef} - \Delta h}{b_{ef}}", "tunghet för friktionsjord under G-nivå, grundvatten inom effektiv bredd"),
+                _ekvation(r"\gamma_{fri} = \gamma \frac{\Delta h}{B_{ef}} + \gamma^{\prime}\frac{B_{ef} - \Delta h}{B_{ef}}", "tunghet för friktionsjord under G-nivå, grundvatten inom effektiv bredd"),
                 _ekvation(r"\gamma_{fri} = \gamma", "tunghet för friktionsjord under G-nivå, grundvatten under effektiv bredd"),
                 _ekvation(r"F = 0.08705 + 0.3231\sin(2\phi^{\prime}_d) - 0.04836\sin^2(2\phi^{\prime}_d)", "hjälpparameter för N-gamma"),
                 _ekvation(r"N_{c,0} = \pi + 2", "specialvärde för N-c vid phi-d = 0"),
@@ -531,18 +554,18 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
                 _ekvation(r"N_c = \pi + 2", "bärighetsfaktor N-c för phi-d = 0"),
                 _ekvation(r"N_c = \frac{N_q - 1}{\tan(\phi^{\prime}_d)}", "bärighetsfaktor N-c för phi-d > 0"),
                 _ekvation(r"N_{\gamma} = F \left(\frac{1 + \sin(\phi^{\prime}_d)}{1 - \sin(\phi^{\prime}_d)} e^{1.5 \pi \tan(\phi^{\prime}_d)} - 1\right)", "bärighetsfaktor N-gamma"),
-                _ekvation(r"d_{c,raw} = 1 + 0.35 \frac{d}{b_{ef}}", "oklippt djupfaktor för c-termen"),
+                _ekvation(r"d_{c,raw} = 1 + 0.35 \frac{d}{B_{ef}}", "oklippt djupfaktor för c-termen"),
                 _ekvation(r"d_c = \min(d_{c,raw}, 1.7)", "djupfaktor för c-termen"),
                 _ekvation(r"d_q = d_c", "djupfaktor för q-termen"),
                 _ekvation(r"d_{\gamma} = 1", "djupfaktor för gamma-termen"),
                 _ekvation(r"s_c = 1", "formfaktor för c-termen, långsträckt fundament"),
-                _ekvation(r"s_c = 1 + 0.2 \frac{b_{ef}}{l_{ef}}", "formfaktor för c-termen, phi-d = 0"),
-                _ekvation(r"s_c = 1 + \frac{N_q b_{ef}}{N_c l_{ef}}", "formfaktor för c-termen, phi-d > 0"),
+                _ekvation(r"s_c = 1 + 0.2 \frac{B_{ef}}{L_{ef}}", "formfaktor för c-termen, phi-d = 0"),
+                _ekvation(r"s_c = 1 + \frac{N_q B_{ef}}{N_c L_{ef}}", "formfaktor för c-termen, phi-d > 0"),
                 _ekvation(r"s_q = 1", "formfaktor för q-termen, långsträckt fundament"),
-                _ekvation(r"s_q = 1 + \tan(\phi^{\prime}_d)\frac{b_{ef}}{l_{ef}}", "formfaktor för q-termen"),
+                _ekvation(r"s_q = 1 + \tan(\phi^{\prime}_d)\frac{B_{ef}}{L_{ef}}", "formfaktor för q-termen"),
                 _ekvation(r"s_{\gamma} = 1", "formfaktor för gamma-termen, långsträckt fundament"),
-                _ekvation(r"s_{\gamma} = 1 - 0.4 \frac{b_{ef}}{l_{ef}}", "formfaktor för gamma-termen"),
-                _ekvation(r"m_i = \frac{2 l_{ef} + b_{ef}}{l_{ef} + b_{ef}}", "hjälpparameter för lastlutning"),
+                _ekvation(r"s_{\gamma} = 1 - 0.4 \frac{B_{ef}}{L_{ef}}", "formfaktor för gamma-termen"),
+                _ekvation(r"m_i = \frac{2 L_{ef} + B_{ef}}{L_{ef} + B_{ef}}", "hjälpparameter för lastlutning"),
                 _ekvation(r"i_q = 1", "lastlutningsfaktor för q-termen, specialfall"),
                 _ekvation(r"i_q = \left(1 - \frac{F_h}{F_v + b_{ef} l_{ef} c_{ud} / \tan(\phi^{\prime}_d)}\right)^{m_i}", "lastlutningsfaktor för q-termen"),
                 _ekvation(r"i_{\gamma} = 1", "lastlutningsfaktor för gamma-termen, specialfall"),
@@ -568,11 +591,11 @@ def allmanna_barighetsekvationen(px, *, remslangd=None):
                 _ekvation(r"\xi_q = d_q s_q i_q g_q b_q", "sammanlagd korrektionsfaktor för q-termen"),
                 _ekvation(r"\xi_{\gamma} = d_{\gamma} s_{\gamma} i_{\gamma} g_{\gamma} b_{\gamma}", "sammanlagd korrektionsfaktor för gamma-termen"),
                 _ekvation(
-                    r"q_{bd} = \frac{c_{ud} N_c \xi_c + q^{\prime}_d N_q \xi_q + 0.5 \gamma_{fri} b_{ef} N_{\gamma} \xi_{\gamma}}{\gamma_{Rd}}",
+                    r"q_{bd} = \frac{c_{ud} N_c \xi_c + q^{\prime}_d N_q \xi_q + 0.5 \gamma_{fri} B_{ef} N_{\gamma} \xi_{\gamma}}{\gamma_{Rd}}",
                     "dimensionerande bärförmåga",
                 ),
-                _ekvation(r"F_{bd} = q_{bd} b", "dimensionerande bärförmåga som linjelast för långsträckt sula"),
-                _ekvation(r"F_{bd} = q_{bd} b l", "dimensionerande bärförmåga som punktlast för punktfundament"),
+                _ekvation(r"F_{bd} = q_{bd} b_{ef} \frac{l_{ef}}{l_{ref}}", "dimensionerande bärförmåga per meter långsträckt sula"),
+                _ekvation(r"F_{bd} = q_{bd} b_{ef} l_{ef}", "dimensionerande bärförmåga som punktlast för punktfundament"),
             ],
         },
     }
