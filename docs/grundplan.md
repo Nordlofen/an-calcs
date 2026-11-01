@@ -1853,6 +1853,11 @@ att sulorna behöver tilldelas på nytt. En tom extragrupp kan tas bort;
 standardgruppen kan byta namn. Gruppinställningar, tilldelningar och
 placeringar följer Ångra/Gör om, projektsparning och HTML-/vektor-PDF-export.
 
+Husens koordinatsymboler har samma axellängd och textstorlek vid samma
+skalning. Axeltexterna hålls vågräta nära pilspetsarna och husnamnet placeras
+kompakt under symbolen, även när axlarna roteras. Befintliga origo, riktningar
+och individuella skalningar behålls. Samma utseende används i HTML och PDF.
+
 **Bakåtkompatibilitet:** projekt före version 35 öppnas med befintlig kontroll
 och alla sulor i standardgruppen Hus 1 (id 0). Tidigare laster, bidragsval,
 resultat, symbol-/widgetplaceringar och lås behålls. Tills de nya gruppverktygen

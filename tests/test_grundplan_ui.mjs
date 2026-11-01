@@ -133,7 +133,7 @@ class Element {
 
 const source = await readFile(new URL("../src/an_calcs/notebook/grundplan.js", import.meta.url), "utf8");
 const { default: widget, validateCalibration, measuredDistance, colourGroups, colourPatternGeometry, validateLayout, validateCanvasBounds,
-  popupCalculationResult, supportAnnotation, constructionGeometry, footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+  popupCalculationResult, stabilityAxesGeometry, supportAnnotation, constructionGeometry, footprintGeometry, contourStrokeWidth, leaderEndpoint, leaderAttachment, leaderVertices, leaderCurvePoint, leaderTip, splitLeader, leaderFromStroke } = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_html.js", import.meta.url), "utf8");
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
@@ -6422,4 +6422,36 @@ test('new coordinate symbols rotate by handle, resize by keyboard and respect pl
   const resize=axes.children.find(e=>e.className==='gp-axis-resize');resize.dispatch('keydown',{key:'+'});
   const move=ui.sent.at(-1);assert.equal(move.action,'sliding_placement');assert.equal(move.kind,'stability:1:symbol');assert.equal(move.position.size,165);
   ui.data.state.placement_locks=[{type:'overlay',page:1,kind:'stability:1:symbol'}];ui.changed();assert.equal(rotate.hidden,true);
+});
+
+
+test('all house axes share one size and compact text layout while keeping legacy and centred origins',()=>{
+  for(const angle of [0,20,30,90,135,180,270,315]){
+    for(const id of [0,1,12]){
+      const g=stabilityAxesGeometry(id,angle);
+      assert.deepEqual(g.origin,id===0?{x:32,y:156}:{x:100,y:100});
+      assert.equal(g.fontSize,25);assert.equal(g.nameFontSize,20);
+      for(const axis of g.axes){
+        near(Math.hypot(axis.tip.x-g.origin.x,axis.tip.y-g.origin.y),120);
+        near(Math.hypot(axis.label.x-axis.tip.x,axis.label.y-axis.tip.y),19);
+      }
+      assert.ok(g.name.y>=Math.max(...g.axes.map(v=>v.label.y+15))+24-1e-10);
+    }
+  }
+});
+
+for(const options of [{},{readOnly:true},{readOnly:true,pdfMode:true}])test(`matching symbol sizes preserve saved placement, angle and data ${JSON.stringify(options)}`,t=>{
+  const ui=setup(t,options);stabilityFixture(ui);const before=structuredClone(ui.data.state);
+  const first=ui.byClass('gp-global-axes'),second=ui.find(e=>e.dataset.kind==='stability:1:symbol');
+  assert.equal(first.style.width,second.style.width);
+  for(const element of [first,second]){
+    const svg=element.children[0].children[0],lines=svg.children.filter(e=>e.className==='gp-stability-axis');
+    assert.equal(lines.length,2);
+    for(const line of lines)near(Math.hypot(Number(line.getAttribute('x2'))-Number(line.getAttribute('x1')),Number(line.getAttribute('y2'))-Number(line.getAttribute('y1'))),120);
+  }
+  const origin0=first.children[0].children[0].children.find(e=>e.className==='gp-stability-origin');
+  const origin1=second.children[0].children[0].children.find(e=>e.className==='gp-stability-origin');
+  assert.equal(origin0.getAttribute('cx'),'32');assert.equal(origin0.getAttribute('cy'),'156');
+  assert.equal(origin1.getAttribute('cx'),'100');assert.equal(origin1.getAttribute('cy'),'100');
+  assert.deepEqual(ui.data.state,before);assert.equal(ui.sent.length,0);
 });

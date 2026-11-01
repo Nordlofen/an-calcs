@@ -319,6 +319,27 @@ export function contourStrokeWidth(settings, background, layout, zoom = 1, pdfMo
   return mm * 72 / 25.4 * background.width / widthPt * zoom;
 }
 
+// Keep saved origins in the established SVG frame: the original group uses
+// its legacy anchor, later groups use the centre. Styling never moves either.
+export function stabilityAxesGeometry(id, angle) {
+  const origin = Number(id) === 0 ? {x:32,y:156} : {x:100,y:100};
+  const length = 120, fontSize = 25, nameFontSize = 20, labelGap = 19;
+  const a = angle * Math.PI / 180;
+  const axes = ["x","y"].map(axis => {
+    const unit = axis === "x" ? {x:Math.cos(a),y:-Math.sin(a)} : {x:-Math.sin(a),y:-Math.cos(a)};
+    const at = distance => ({x:origin.x+distance*unit.x,y:origin.y+distance*unit.y});
+    return {axis, unit, tip:at(length), label:at(length+labelGap)};
+  });
+  // Horizontal axis text and a house name below the complete symbol. Reserve
+  // room for subscripts, including multi-digit group numbers, at every angle.
+  const halfTextWidth = (fontSize * .7 + 15 * .7 * String(Number(id)+1).length) / 2;
+  const minX = Math.min(origin.x-4,...axes.map(v=>v.label.x-halfTextWidth));
+  const maxX = Math.max(origin.x+4,...axes.map(v=>v.label.x+halfTextWidth));
+  const maxY = Math.max(origin.y+4,...axes.map(v=>v.label.y+15));
+  return {origin, length, fontSize, nameFontSize, axes,
+    name:{x:(minX+maxX)/2,y:Math.max(origin.y+37.5,maxY+24)}};
+}
+
 // Plan coordinates are normalized to the stable drawing frame, never to a label.
 export function footprintGeometry(tag, placement, bg, cal) {
   if (!placement || !cal || !bg.width || !bg.height) return null;
@@ -3732,9 +3753,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const [a,b]=picking.points,bg=background();
     if(drawingDistance(a,b,bg)<1e-6){picking.points.pop();showMessage("Välj en annan punkt än origo.",true);return;}
     const id=picking.id,kind=stabilityKind(id,"symbol"),group=stabilityGroup(id),p={...overlayPosition(kind)};
-    const origin=id===0?{x:.16,y:.78}:{x:.5,y:.5};
-    p.x=a.x-origin.x*p.size*objectScale(overlayObject(kind))/bg.width;
-    p.y=a.y-origin.y*p.size*objectScale(overlayObject(kind))/bg.height;
+    const origin=stabilityAxesGeometry(id,0).origin;
+    p.x=a.x-origin.x/200*p.size*objectScale(overlayObject(kind))/bg.width;
+    p.y=a.y-origin.y/200*p.size*objectScale(overlayObject(kind))/bg.height;
     const angle_deg=Math.atan2(-(b.y-a.y)*bg.height,(b.x-a.x)*bg.width)*180/Math.PI;
     const placements=JSON.parse(JSON.stringify(group.placements||{}));
     placements[bg.page]={...(placements[bg.page]||{}),symbol:p};
@@ -3747,19 +3768,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       return;
     }
     entry.legacy=false;
-    const a=angle*Math.PI/180,origin=group.id===0?{x:32,y:156}:{x:100,y:100},L=group.id===0?120:60;
-    const p=(distance,axis)=>({x:origin.x+distance*(axis==="x"?Math.cos(a):-Math.sin(a)),y:origin.y+distance*(axis==="x"?-Math.sin(a):-Math.cos(a))});
+    const geometry=stabilityAxesGeometry(group.id,angle),{origin}=geometry;
     entry.svg.replaceChildren();
-    for(const axis of ["x","y"]){
-      const tip=p(L,axis),ux=(tip.x-origin.x)/L,uy=(tip.y-origin.y)/L;
-      entry.svg.append(svgNode("line",{x1:origin.x,y1:origin.y,x2:tip.x,y2:tip.y,stroke:"currentColor","stroke-width":3}),
+    for(const {axis,tip,unit,label} of geometry.axes){
+      const {x:ux,y:uy}=unit;
+      entry.svg.append(svgNode("line",{x1:origin.x,y1:origin.y,x2:tip.x,y2:tip.y,stroke:"currentColor","stroke-width":3,class:"gp-stability-axis", "data-axis":axis}),
         svgNode("path",{d:`M${tip.x} ${tip.y}L${tip.x-10*ux+5*uy} ${tip.y-10*uy-5*ux}L${tip.x-10*ux-5*uy} ${tip.y-10*uy+5*ux}Z`,fill:"currentColor"}));
-      const label=p(L+17,axis),text=svgNode("text",{x:label.x,y:label.y+6,fill:"currentColor","font-size":22,"font-style":"italic","text-anchor":"middle"},axis.toUpperCase());
-      text.append(svgNode("tspan",{"baseline-shift":"sub","font-size":13},stabilitySymbol(group.id)));entry.svg.append(text);
+      const text=svgNode("text",{x:label.x,y:label.y,fill:"currentColor","font-size":geometry.fontSize,"font-style":"italic","text-anchor":"middle","dominant-baseline":"middle",class:"gp-stability-axis-label"},axis.toUpperCase());
+      text.append(svgNode("tspan",{"baseline-shift":"sub","font-size":15},stabilitySymbol(group.id)));entry.svg.append(text);
     }
-    entry.svg.append(svgNode("circle",{cx:origin.x,cy:origin.y,r:4,stroke:"currentColor","stroke-width":2,fill:"white"}),
-      svgNode("text",{x:100,y:196,"font-size":17,"text-anchor":"middle",fill:"currentColor"},group.name));
-    const tip=p(L,"x");entry.rotate.style.left=tip.x/2+"%";entry.rotate.style.top=tip.y/2+"%";
+    entry.svg.append(svgNode("circle",{cx:origin.x,cy:origin.y,r:4,stroke:"currentColor","stroke-width":2,fill:"white",class:"gp-stability-origin"}),
+      svgNode("text",{x:geometry.name.x,y:geometry.name.y,"font-size":geometry.nameFontSize,"text-anchor":"middle",fill:"currentColor",class:"gp-stability-house-name"},group.name));
+    const tip=geometry.axes[0].tip;entry.rotate.style.left=tip.x/2+"%";entry.rotate.style.top=tip.y/2+"%";
     entry.axesButton.setAttribute("aria-label",group.name+", X/Y-riktningar vridna "+compactNumber(angle,1)+" grader");
   }
   function showTextObjects() {
@@ -6454,8 +6474,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const id=Number(rotationHandle.dataset.stabilityId),entry=stabilityWidgets.get(id),kind=stabilityKind(id,"symbol");
       if(stabilityBusy || placementLocked(overlayObject(kind)))return;
       event.preventDefault();viewport.focus({preventScroll:true});
-      const rect=entry.axes.getBoundingClientRect(),origin=id===0?{x:.16,y:.78}:{x:.5,y:.5};
-      drag={stabilityRotate:true,stabilityId:id,cx:rect.left+rect.width*origin.x,cy:rect.top+rect.height*origin.y,
+      const rect=entry.axes.getBoundingClientRect(),origin=stabilityAxesGeometry(id,0).origin;
+      drag={stabilityRotate:true,stabilityId:id,cx:rect.left+rect.width*origin.x/200,cy:rect.top+rect.height*origin.y/200,
         x:event.clientX,y:event.clientY,moved:false,pointerId:event.pointerId};
       viewport.setPointerCapture(event.pointerId);return;
     }
