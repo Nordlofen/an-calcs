@@ -208,6 +208,71 @@ class TestContours(unittest.TestCase):
         self.assertEqual(self.plan.sulkonturer['hatch_density'], 1)
 
     @unittest.skipUnless(importlib.util.find_spec("pymupdf"), "Installera PyMuPDF.")
+    def test_exported_group_patterns_match_screen_without_pdf_tiling_resources(self):
+        """Keep the drawing-grid pattern through PDF merging and viewer scaling."""
+        import io
+        import pymupdf
+        from PIL import ImageChops
+        from pypdf import PdfReader
+        from playwright.sync_api import sync_playwright, Error
+        from reportlab.pdfgen.canvas import Canvas
+        from an_calcs.notebook.grundplan_html import render_html
+
+        source = Path(self.tmp.name) / "patterns.pdf"
+        canvas = Canvas(str(source), pagesize=(400, 300)); canvas.showPage(); canvas.save()
+        plan = Grundplan(source); self.addCleanup(plan.close)
+        plan.etikettstorlek = 20
+        plan.kalibrering = {"start":{"x":0,"y":0}, "end":{"x":.5,"y":0}, "length_m":10}
+        # One placed red footing in each pattern family, some with rotated axes.
+        for index in range(72):
+            ident = plan.lagg_till(.02, .02, typ="pelarsula", indata={"b":2,"l":2,"t":.2+index*.001,"F_vy":100})
+            if index in (15, 27, 39, 51, 63):
+                column = index // 12 - 1
+                plan.placera_sulkontur(ident, {"kind":"pad", "center":{"x":.12+column*.18,"y":.6}, "angle_deg":column*15})
+        plan.farggruppering = {"enabled":True, "categories":["t"], "show_legend":False}
+        plan.sulkonturer = {"enabled":True, "fill_opacity":.3}
+        snapshot = {"state":plan.state,"schema":plan.schema,"pages":[plan.background],"page":1}
+        with sync_playwright() as runtime:
+            browser = None
+            for channel in (None, "chrome", "msedge"):
+                try:
+                    browser = runtime.chromium.launch(channel=channel, headless=True, chromium_sandbox=True)
+                    break
+                except Error:
+                    continue
+            self.assertIsNotNone(browser, "PDF-export kräver Chromium, Chrome eller Edge")
+            try:
+                page = browser.new_page(viewport={"width":800,"height":600})
+                page.route("**/*", lambda route: route.abort())
+                page.set_content(render_html(snapshot, pdf_mode=True).decode())
+                page.locator('html[data-pdf-ready="true"]').wait_for(state="attached")
+                self.assertEqual(page.locator('.gp-contour-fills > g').count(), 5)
+                screen = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
+            finally:
+                browser.close()
+        exported = plan._pdf_bytes()
+        # Pattern resources inside transparency forms are interpreted differently
+        # by PDF viewers. All group marks must instead be explicit vector paths.
+        def check_resources(resources):
+            resources = resources.get_object()
+            self.assertFalse(resources.get("/Pattern"))
+            for item in resources.get("/XObject", {}).values():
+                item = item.get_object()
+                self.assertNotEqual(item.get("/Subtype"), "/Image")
+                if "/Resources" in item:
+                    check_resources(item["/Resources"])
+        check_resources(PdfReader(io.BytesIO(exported)).pages[0]["/Resources"])
+        with pymupdf.open(stream=exported, filetype="pdf") as document:
+            pixels = document[0].get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            printed = Image.frombytes("RGB", (pixels.width, pixels.height), pixels.samples)
+        # Exclude labels and contour edges; allow different vector antialiasing.
+        region = (0, 280, 800, 440)
+        r, g, b = ImageChops.difference(screen.crop(region), printed.crop(region)).split()
+        histogram = ImageChops.lighter(ImageChops.lighter(r, g), b).histogram()
+        mismatch = sum(count for value, count in enumerate(histogram) if value > 16)
+        self.assertLess(mismatch / (800 * 160), .03)
+
+    @unittest.skipUnless(importlib.util.find_spec("pymupdf"), "Installera PyMuPDF.")
     def test_pdf_paper_line_width_is_exact_across_page_sizes_crop_and_preview_choice(self):
         import pymupdf
         from reportlab.lib.pagesizes import A0, A1, landscape

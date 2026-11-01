@@ -1819,6 +1819,9 @@ styr fyllningens opacitet; 0 % lämnar endast konturlinjer. Färg och mönster
 hämtas från samma färggruppering som etiketterna. Alla konturlinjer ligger
 ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskild
 överlappningsvarning skapas.
+Sulornas gruppmönster ritas med samma explicita vektorformer i gränssnittet
+och PDF-exporten. Mönsteravstånd, färg och opacitet behålls när vektorlagret
+skalas till originalritningens PDF-format; inga upprepade PDF-mönsterrutor behövs.
 
 En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
 eller öppnad suletikett. Den ersätter inte befintliga fritt formade

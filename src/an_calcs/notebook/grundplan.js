@@ -250,6 +250,36 @@ export function colourPatternGeometry(pattern, width, height, scale = 1, compact
   return {pitch, band, radius, shapes};
 }
 
+// Expand the existing tile on the drawing's coordinate grid. PDF viewers can
+// scale SVG tiling paints differently after the overlay is merged with the
+// source page; clipped, explicit paths keep the screen and export identical.
+export function contourPatternGeometry(pattern, bounds, variant = 0) {
+  const {pitch, band, radius} = colourPatternGeometry(pattern, 1, 1, 1, false, variant);
+  const shapes = [], lines = [];
+  if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return shapes;
+  const margin = Math.max(band, radius), left = bounds.left - margin, right = bounds.right + margin,
+    top = bounds.top - margin, bottom = bounds.bottom + margin;
+  if (pattern === "bands" || pattern === "cross") {
+    for (let n = Math.floor((left - bottom) / pitch); n <= (right - top) / pitch; n++)
+      lines.push(`M${left} ${left - n * pitch}L${right} ${right - n * pitch}`);
+    if (pattern === "cross")
+      for (let n = Math.floor((left + top) / pitch); n <= (right + bottom) / pitch; n++)
+        lines.push(`M${left} ${n * pitch - left}L${right} ${n * pitch - right}`);
+  } else if (pattern === "horizontal") {
+    for (let y = (Math.floor(top / pitch) + .5) * pitch; y < bottom + pitch; y += pitch)
+      lines.push(`M${left} ${y}L${right} ${y}`);
+  } else if (pattern === "vertical") {
+    for (let x = (Math.floor(left / pitch) + .5) * pitch; x < right + pitch; x += pitch)
+      lines.push(`M${x} ${top}L${x} ${bottom}`);
+  } else if (pattern === "dots") {
+    for (let y = (Math.floor(top / pitch) + .5) * pitch; y < bottom + pitch; y += pitch)
+      for (let x = (Math.floor(left / pitch) + .5) * pitch; x < right + pitch; x += pitch)
+        shapes.push({tag:"circle", cx:x, cy:y, r:radius, fill:"#35515c"});
+  }
+  if (lines.length) shapes.push({tag:"path", d:lines.join(""), fill:"none", stroke:"#35515c", "stroke-width":band});
+  return shapes;
+}
+
 const drawingDistance = (start, end, background) => Math.hypot(
   (end.x - start.x) * background.width, (end.y - start.y) * background.height);
 export function validateCalibration(value, background) {
@@ -2246,12 +2276,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       group.append(svgNode("polygon", {points: pointsText, fill: color}));
       if (style?.pattern && style.pattern !== "plain") {
         const patternId = "gp-contour-pattern-" + view + "-" + tag.id;
-        const pitch = colourPatternGeometry(style.pattern, 1, 1, 1, false, style.pattern_variant).pitch;
-        const pattern = svgNode("pattern", {id: patternId, patternUnits: "userSpaceOnUse", width: pitch, height: pitch});
-        const geometry = colourPatternGeometry(style.pattern, pitch, pitch, 1, false, style.pattern_variant);
-        pattern.append(...geometry.shapes.map(({tag: shape, ...attrs}) => svgNode(shape,
-          {...attrs, fill: shape === "path" ? "none" : "#35515c", stroke: shape === "path" ? "#35515c" : "none"})));
-        defs.append(pattern); group.append(svgNode("polygon", {points: pointsText, fill: `url(#${patternId})`}));
+        const clip = svgNode("clipPath", {id:patternId}); clip.append(svgNode("polygon", {points:pointsText})); defs.append(clip);
+        const frame = canvasBounds(), xs = points.map(p => p.x), ys = points.map(p => p.y);
+        const shapes = contourPatternGeometry(style.pattern, {
+          left:Math.max(Math.min(...xs), frame.left * bg.width), right:Math.min(Math.max(...xs), frame.right * bg.width),
+          top:Math.max(Math.min(...ys), frame.top * bg.height), bottom:Math.min(Math.max(...ys), frame.bottom * bg.height),
+        }, style.pattern_variant);
+        const pattern = svgNode("g", {"clip-path":`url(#${patternId})`});
+        pattern.append(...shapes.map(({tag:shape, ...attrs}) => svgNode(shape, attrs))); group.append(pattern);
       }
       fills.append(group);
       const chosen = selected.has(tag.id) || active === tag.id || contourEditing && contourTarget === tag.id;
