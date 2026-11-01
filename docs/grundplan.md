@@ -23,7 +23,9 @@ visningen av redan aktiverade widgets eller grupperingar.
 val för indatalås och placeringslås. Ordna innehåller samtliga fyra lagerkommandon.
 Skala öppnar det befintliga procentfältet och tillämpningsknappen.
 
-Menyer stängs efter val, vid klick utanför eller med Esc. Piltangenter,
+Menyerna förankras direkt vid sina knappar, även i Jupyters transformerade
+eller skalade utmatningsytor. De anpassas till det synliga utrymmet och öppnas
+uppåt vid behov. Menyer stängs efter val, vid klick utanför eller med Esc. Piltangenter,
 Home/End och Tab kan användas för tangentbordsnavigering. Menyradsbytet
 ändrar inte sulornas popupdialoger, tabellens redigerings-/sorteringsfunktioner,
 beräkningar eller sparade inställningar. Endast kolumnen för den borttagna

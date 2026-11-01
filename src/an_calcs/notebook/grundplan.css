@@ -576,11 +576,11 @@
 /* Compact navigation; the original tools and their state live inside menus. */
 .an-grundplan .gp-menubar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
 .an-grundplan .gp-toolbar-save { margin-left: auto; }
-.an-grundplan .gp-menu { display: inline-flex; }
+.an-grundplan .gp-menu { display: inline-flex; position: relative; }
 .an-grundplan .gp-menu-trigger::after { content: '▾'; font-size: 10px; margin-left: 9px; color: var(--gp-muted); }
 .an-grundplan .gp-menubar .gp-menu-trigger { border-color: transparent; padding: 9px 12px; }
 .an-grundplan .gp-menu-trigger[aria-expanded="true"] { background: #e1efeb; border-color: #83b5ac; }
-.an-grundplan .gp-menu-panel { position: fixed; z-index: 2147483646; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 250px; max-width: calc(100vw - 16px); padding: 8px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--gp-line); border-radius: 8px; background: white; color: var(--gp-ink); box-shadow: 0 6px 24px #18333b30; }
+.an-grundplan .gp-menu-panel { position: absolute; width: max-content; z-index: 2147483646; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 250px; max-width: calc(100vw - 16px); padding: 8px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--gp-line); border-radius: 8px; background: white; color: var(--gp-ink); box-shadow: 0 6px 24px #18333b30; }
 .an-grundplan .gp-menu-panel > button { flex-shrink: 0; text-align: left; border-color: transparent; padding: 9px 12px; }
 .an-grundplan .gp-menu-panel > hr { width: 100%; margin: 5px 0; border: 0; border-top: 1px solid var(--gp-line); }
 .an-grundplan .gp-menu-panel > label { display: flex; gap: 8px; align-items: center; padding: 9px 12px; }

@@ -833,12 +833,29 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     return menu.controls.filter(control => !control.disabled && !control.hidden);
   }
   function placeMenu(menu) {
-    const rect = menu.trigger.getBoundingClientRect();
+    const rect = menu.trigger.getBoundingClientRect(), anchor = menu.wrap.getBoundingClientRect();
+    const bounds = root.getBoundingClientRect();
     const width = globalThis.innerWidth || document.documentElement?.clientWidth || 1024;
     const height = globalThis.innerHeight || document.documentElement?.clientHeight || 768;
-    menu.panel.style.maxHeight = Math.max(100, height - 24) + "px";
-    menu.panel.style.left = Math.max(8, Math.min(rect.left, width - menu.panel.offsetWidth - 8)) + "px";
-    menu.panel.style.top = Math.max(8, Math.min(rect.top + rect.height + 5, height - Math.min(menu.panel.offsetHeight, height - 24) - 8)) + "px";
+    // Jupyter's virtualized output can establish a transformed containing block.
+    // Anchor locally, converting viewport bounds back to the menu's CSS units.
+    const sx = rect.width / menu.trigger.offsetWidth || 1;
+    const sy = rect.height / menu.trigger.offsetHeight || 1;
+    const left = Math.max(8, bounds.left + 2 * sx), right = Math.min(width - 8, bounds.left + bounds.width - 2 * sx);
+    const top = Math.max(8, bounds.top + 2 * sy), bottom = Math.min(height - 8, bounds.top + bounds.height - 2 * sy);
+    const availableWidth = Math.max(1, (right - left) / sx);
+    menu.panel.style.minWidth = Math.min(250, availableWidth) + "px";
+    menu.panel.style.maxWidth = availableWidth + "px";
+    menu.panel.style.maxHeight = Math.max(1, (bottom - top) / sy) + "px";
+    const gap = 5 * sy, below = Math.max(0, bottom - rect.top - rect.height - gap);
+    const above = Math.max(0, rect.top - gap - top);
+    const upwards = menu.panel.offsetHeight * sy > below && above > below;
+    menu.panel.style.maxHeight = Math.max(1, (upwards ? above : below) / sy) + "px";
+    const panelWidth = menu.panel.offsetWidth * sx, panelHeight = menu.panel.offsetHeight * sy;
+    const x = Math.max(left, Math.min(rect.left, right - panelWidth));
+    const y = upwards ? rect.top - gap - panelHeight : rect.top + rect.height + gap;
+    menu.panel.style.left = (x - anchor.left) / sx + "px";
+    menu.panel.style.top = (y - anchor.top) / sy + "px";
   }
   function toggleMenu(menu, keyboard = false, last = false) {
     if (openMenu === menu && !keyboard) {closeMenus(); return;}
