@@ -577,3 +577,5 @@
 .an-grundplan .gp-support-details { display: block; font-size: .92em; }
 .an-grundplan .gp-construction-hatches,
 .an-grundplan .gp-construction-outlines { pointer-events: none; }
+
+.an-grundplan .gp-size-label .gp-size-number { width: 54px; padding: 5px; border: 1px solid var(--gp-line); border-radius: 5px; }

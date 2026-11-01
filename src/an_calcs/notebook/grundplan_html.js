@@ -20,7 +20,7 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
     send(message) {
       const reply = { request: message.request, view: message.view, ok: true };
       if (message.action === "label_size" && typeof message.value === "number" &&
-                 Number.isFinite(message.value) && message.value >= 20 && message.value <= 180) {
+                 Number.isFinite(message.value) && message.value >= 1 && message.value <= 180) {
         data.state = { ...data.state, label_size: message.value };
         emit("change:state");
       } else if (message.action === "layout") {
@@ -42,10 +42,11 @@ export function createResultModel(snapshot, validateCalibration, validateLayout)
         } catch (error) {Object.assign(reply, {ok: false, error: error.message});}
       } else if (message.action === "contours") {
         const settings = message.settings;
-        if (!settings || typeof settings !== "object" || Array.isArray(settings) || Object.keys(settings).some(k => !["enabled","fill_opacity","line_width_mm","show_print_width"].includes(k))
+        if (!settings || typeof settings !== "object" || Array.isArray(settings) || Object.keys(settings).some(k => !["enabled","fill_opacity","line_width_mm","show_print_width","hatch_density"].includes(k))
             || "enabled" in settings && typeof settings.enabled !== "boolean"
             || "show_print_width" in settings && typeof settings.show_print_width !== "boolean"
             || "line_width_mm" in settings && (typeof settings.line_width_mm !== "number" || !Number.isFinite(settings.line_width_mm) || settings.line_width_mm < .01 || settings.line_width_mm > 2)
+            || "hatch_density" in settings && (typeof settings.hatch_density !== "number" || !Number.isFinite(settings.hatch_density) || settings.hatch_density < .25 || settings.hatch_density > 4)
             || "fill_opacity" in settings && (typeof settings.fill_opacity !== "number" || !Number.isFinite(settings.fill_opacity) || settings.fill_opacity < 0 || settings.fill_opacity > 1)) {
           reply.ok = false; reply.error = "Ogiltiga konturinställningar.";
         } else {data.state = {...data.state, contours: {...(data.state.contours || {}), ...settings}}; emit("change:state");}

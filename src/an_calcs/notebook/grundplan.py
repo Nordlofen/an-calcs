@@ -275,8 +275,8 @@ def _page_number(page, count):
 
 
 def _label_size(value):
-    if not 20 <= _number(value, "Etikettstorlek") <= 180:
-        raise ValueError("Etikettstorlek måste ligga mellan 20 och 180 procent.")
+    if not 1 <= _number(value, "Etikettstorlek") <= 180:
+        raise ValueError("Etikettstorlek måste ligga mellan 1 och 180 procent.")
     return value
 
 
@@ -1714,7 +1714,7 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def etikettstorlek(self):
-        """Etiketternas grundstorlek i procent (20–180), vid 100 % ritningszoom."""
+        """Etiketternas grundstorlek i procent (1–180), vid 100 % ritningszoom."""
         return self._label_size
 
     @etikettstorlek.setter
@@ -1723,7 +1723,7 @@ class Grundplan(anywidget.AnyWidget):
         layout = self.objektlayout
         for key in self._placement_locks:
             if key.startswith("tag:"):
-                layout["scales"][key] = scale_value(layout["scales"].get(key, 1) * self._label_size / value)
+                layout["scales"][key] = scale_value(layout["scales"].get(key, 1) * self._label_size / value, compensated=True)
         self._object_layout = layout
         self._label_size = value
         self._publish()
@@ -1784,8 +1784,8 @@ class Grundplan(anywidget.AnyWidget):
 
     @sulkonturer.setter
     def sulkonturer(self, changes):
-        if not isinstance(changes, dict) or set(changes) - {"enabled", "fill_opacity", "line_width_mm", "show_print_width"}:
-            raise ValueError("Ange konturvisning, fyllning, linjetjocklek eller utskriftsvisning.")
+        if not isinstance(changes, dict) or set(changes) - {"enabled", "fill_opacity", "line_width_mm", "show_print_width", "hatch_density"}:
+            raise ValueError("Ange konturvisning, fyllning, linjetjocklek, skrafferingstäthet eller utskriftsvisning.")
         self._contours = contour_settings({**self._contours, **changes}, self._tags)
         self._publish()
 
@@ -1823,7 +1823,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 33,
+            "version": 34,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -2005,8 +2005,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 34):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–33.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 35):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–34.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))

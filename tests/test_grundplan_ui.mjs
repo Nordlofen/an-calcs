@@ -2990,7 +2990,7 @@ test("standalone keeps the exported label size without a slider and rejects page
   assert.equal(ui.model.get("background").page, 2);
   assert.equal(ui.byClass("gp-markers").children.length, 1);
   ui.marker().click();
-  assert.equal(ui.elements().some(e => e.className.includes("gp-size-label") || e.tag === "input" && e.type === "range"), false);
+  assert.equal(ui.elements().some(e => e.className.includes("gp-size-label") || e.tag === "input" && e.type === "range" && e.getAttribute("aria-label") !== "Skrafferingstäthet för pelare och vägg i procent"), false);
   assert.equal(ui.model.get("state").label_size, original.state.label_size);
   assert.equal(ui.byClass("gp-dialog").hidden, false);
   for (const action of ["calculate", "update", "move_tags", "delete", "copy", "add", "save", "export_pdf", "sliding", "sliding_placement"]) {
@@ -3180,7 +3180,7 @@ test("copy places one independent snapshot with unsynchronized inputs; Escape ca
 test("labels follow drawing zoom while the size control persists their base size", t => {
   const ui = setup(t);
   const slider = ui.find(element => element.type === "range");
-  assert.equal(slider.min, "20"); assert.equal(slider.max, "180");
+  assert.equal(slider.min, "1"); assert.equal(slider.max, "180");
   const root = ui.byClass("an-grundplan");
   const sheet = ui.byClass("gp-paper");
   const initialWidth = sheet.style.width;
@@ -3207,7 +3207,7 @@ test("labels follow drawing zoom while the size control persists their base size
   ui.byText("Anpassa").dispatch("click");
   assert.equal(root.style["--gp-tag-scale"], "1.6");
   assert.equal(slider.value, "160");
-  for (const value of [20, 180]) {
+  for (const value of [1, 19, 180]) {
     slider.value = value; slider.dispatch("input"); slider.dispatch("change");
     const request = ui.sent.at(-1);
     assert.equal(request.value, value);
@@ -5972,10 +5972,11 @@ test('contour settings accept comma millimetres and persist the print-preview sw
 
 test('exported HTML permits local print-width inspection, rejects invalid widths and protects placement data',t=>{
   const ui=contourSetup(t,{readOnly:true,standalone:true});const replies=[];ui.model.on('msg:custom',r=>replies.push(r));
-  ui.model.send({action:'contours',settings:{line_width_mm:.2,show_print_width:true}});assert.equal(replies.at(-1).ok,true);
+  ui.model.send({action:'contours',settings:{line_width_mm:.2,show_print_width:true,hatch_density:2}});assert.equal(replies.at(-1).ok,true);
   assert.equal(ui.model.get('state').contours.line_width_mm,.2);
   assert.equal(ui.model.get('state').contours.show_print_width,true);
-  for(const settings of [{line_width_mm:0},{line_width_mm:Infinity},{show_print_width:'yes'},{placements:{}},3,[]]) {
+  assert.equal(ui.model.get('state').contours.hatch_density,2);
+  for(const settings of [{hatch_density:0},{hatch_density:4.1},{hatch_density:Infinity},{hatch_density:true},{line_width_mm:0},{line_width_mm:Infinity},{show_print_width:'yes'},{placements:{}},3,[]]) {
     ui.model.send({action:'contours',settings});assert.equal(replies.at(-1).ok,false);
   }
 });
@@ -6214,8 +6215,10 @@ test('upper contours and transparent hatching stay visible independently of foot
   const hatch=ui.byClass('gp-construction-hatches'),outline=ui.byClass('gp-construction-outlines');
   assert.equal(hatch.getAttribute('opacity'),'1');assert.equal(hatch.getAttribute('pointer-events'),'none');
   assert.equal(outline.getAttribute('pointer-events'),'none');assert.equal(outline.children[0].getAttribute('fill'),'none');
-  const svg=hatch.parent,pattern=svg.children[0].children.find(e=>e.getAttribute('id')?.startsWith('gp-construction-hatch-'));
-  assert.ok(pattern);assert.equal(pattern.children.length,1);assert.equal(pattern.children[0].tagName,'PATH');
+  const svg=hatch.parent,clip=svg.children[0].children.find(e=>e.getAttribute('id')?.startsWith('gp-construction-hatch-'));
+  assert.ok(clip);assert.equal(clip.tagName,'CLIPPATH');assert.equal(clip.children[0].tagName,'POLYGON');
+  assert.equal(hatch.children[0].children[0].tagName,'PATH');
+  assert.equal(hatch.children[0].children[0].getAttribute('fill'),'none');
   assert.match(elementText(ui.byClass('gp-tag-support')),/B.*300.*400.*mm/);
   assert.ok(ui.elements().some(e=>e.className==='gp-tag-support' && /150.*100.*mm/.test(elementText(e))));
   for (const opacity of [0,.3,1]) {
@@ -6317,5 +6320,43 @@ for(const readOnly of [false,true]) test(`construction colour choices and legend
   if(!readOnly){
     const choice=ui.byText('Konstruktionsdel Bᵧ');choice.click();
     assert.deepEqual(ui.sent.at(-1).settings.categories,['B_x','B_y']);
+  }
+});
+
+
+for(const pdfMode of [false,true]) test(`construction hatching follows print line width and independent density (pdfMode=${pdfMode})`,t=>{
+  const ui=contourSetup(t,{pdfMode,readOnly:pdfMode});Object.assign(ui.tag.values,{B_x:300,B_y:400});
+  Object.assign(ui.data.state.contours,{line_width_mm:.1,show_print_width:true,fill_opacity:0});ui.changed();
+  const hatch=()=>ui.byClass('gp-construction-hatch');
+  const countLines=()=>hatch().getAttribute('d').split('M').length-1;
+  const weight=()=>Number(hatch().getAttribute('stroke-width'));
+  const first=weight(),outline=Number(ui.byClass('gp-construction-shape').getAttribute('stroke-width'));
+  assert.ok(first>0);const normalLines=countLines();assert.ok(normalLines>1);
+  ui.data.state.contours.line_width_mm=.2;ui.changed();near(weight(),first*2);
+  near(Number(ui.byClass('gp-construction-shape').getAttribute('stroke-width')),outline*2);
+  ui.data.state.contours.hatch_density=2;ui.changed();near(weight(),first*2);
+  assert.ok(countLines()>normalLines);
+  assert.equal(ui.byClass('gp-construction-hatches').getAttribute('opacity'),'1');
+  if(!pdfMode){
+    const density=ui.find(e=>e.getAttribute('aria-label')==='Skrafferingstäthet för pelare och vägg i procent');
+    const count=ui.sent.length;density.value='50';density.dispatch('input');
+    assert.equal(ui.sent.length,count);assert.ok(countLines()<normalLines);
+    density.dispatch('change');assert.deepEqual(ui.sent.at(-1).settings,{hatch_density:.5});
+  }
+});
+
+
+test('numeric label size previews and persists 1–180 percent with slider synchronization',t=>{
+  const ui=setup(t),number=ui.byClass('gp-size-number');
+  const slider=ui.find(e=>e.getAttribute('aria-label')==='Etikettstorlek i procent');
+  for(const value of [1,37,180]) {
+    number.value=String(value);number.dispatch('input');
+    near(Number(ui.byClass('an-grundplan').style['--gp-tag-scale']),value/100);
+    assert.equal(slider.value,String(value));number.dispatch('change');
+    const request=ui.sent.at(-1);assert.equal(request.action,'label_size');assert.equal(request.value,value);
+    ui.data.state.label_size=value;ui.changed();ui.ack(request);
+  }
+  for(const value of ['','0','181','NaN']) {
+    const count=ui.sent.length;number.value=value;number.dispatch('change');assert.equal(ui.sent.length,count);
   }
 });

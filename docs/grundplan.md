@@ -642,7 +642,7 @@ Anpassa last och geometri; kopian beräknas automatiskt och originalet påverkas
 **Avbryt kopiering** eller Escape avslutar kopieringen utan att skapa en sula.
 
 **Storlek:** reglaget **Etikettstorlek** ändrar etiketternas grundstorlek mellan
-20 och 180 %, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
+1 och 180 %, via reglage eller sifferfält, vid 100 % ritningszoom. Etiketterna förstoras och förminskas
 tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
 Dra på ritningen med vänster eller höger musknapp för att panorera fritt,
 även när hela ritningen redan ryms i vyn. **Shift + scroll** över ritningen
@@ -1743,7 +1743,7 @@ ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskil
 En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
 eller öppnad suletikett. Den ersätter inte befintliga fritt formade
 hänvisningslinjer och följer inte med i PDF/utskrift. Konturer, fyllningsval
-och placeringsdata sparas i projektformat 33. Äldre projektformat 1–32 stöds
+och placeringsdata sparas i projektformat 34. Äldre projektformat 1–33 stöds
 fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
 av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
 
@@ -1802,3 +1802,21 @@ för en färg per unikt mått i mm. Valen kan kombineras med sultyp, sulmått oc
 används automatiskt Bᵧ = bᵧ, omräknat till mm. De nya valen är avstängda i äldre
 projekt; befintliga färgval behålls. Även Endast H-objekt kan grupperas efter
 B-måtten när **Endast H** är aktiverat och övriga gruppval tillåter detta.
+
+
+**Linjetjocklek och skrafferingstäthet:** linjetjockleken vid export gäller
+sulans kantlinjer, pelar-/väggkonturen och dess skrafferingslinjer. Aktivera
+**Visa utskriftstjocklek** för att granska den valda bredden vid aktuell zoom;
+i det vanliga visningsläget behålls konstanta skärmlinjer. PDF använder alltid
+angiven pappersbredd. Skrafferingen exporteras som klippta vektorlinjer.
+
+Under **Konturinställningar…** finns **Skrafferingstäthet**, 25–400 %.
+100 % är normal täthet; högre värden ger tätare linjer. Tätheten påverkar
+varken linjetjockleken, sulans fyllning eller beräkningarna. Pelar-/väggkontur
+och skraffering visas fortfarande med full opacitet även vid 0 % färgfyllning.
+Inställningen sparas per projekt/fall och följer med till HTML och PDF.
+Äldre projekt får 100 % täthet.
+
+Etikettstorlekens reglage och sifferfält är synkroniserade inom **1–180 %**.
+Placeringslåsta etiketter behåller sin synliga storlek även vid 1 % global
+etikettstorlek och efter sparning/återöppning.

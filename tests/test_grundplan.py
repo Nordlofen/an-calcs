@@ -379,7 +379,7 @@ class TestGrundplan(unittest.TestCase):
         self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
         self.assertEqual(loaded.resultat, self.plan.resultat)
-        self.assertEqual(loaded._document()["version"], 33)
+        self.assertEqual(loaded._document()["version"], 34)
         legacy = self.plan._document()
         del legacy["tags"][0]["values"]["isolerprodukt"]
         loaded._load_document(json.dumps(legacy).encode())
@@ -886,7 +886,7 @@ class TestGrundplan(unittest.TestCase):
         self.plan.berakna(ident)
         self.plan.etikettstorlek = 120
         snapshot, state, results = self.plan._document(), copy.deepcopy(self.plan.state), self.plan.resultat
-        for value in (19, 181, float("nan"), float("inf"), True, None, "120"):
+        for value in (0, -1, 181, float("nan"), float("inf"), True, None, "120"):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     self.plan.etikettstorlek = value
@@ -897,7 +897,7 @@ class TestGrundplan(unittest.TestCase):
                 self.assertEqual(self.plan.state, state)
                 self.assertEqual(self.plan._document(), snapshot)
                 self.assertEqual(self.plan.resultat, results)
-        for value in (20, 180):
+        for value in (1, 19, 180):
             self.plan.etikettstorlek = value
             self.assertEqual(self.plan.etikettstorlek, value)
             loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / "size-limit.json"))

@@ -4,8 +4,11 @@ import copy
 import math
 
 
-def scale_value(value):
-    if type(value) not in (int, float) or not math.isfinite(value) or not .1 <= value <= 10:
+def scale_value(value, *, compensated=False):
+    # Locked labels compensate for global sizes from 1–180 %. Their stored
+    # relative scale may exceed the normal range for manual object scaling.
+    low, high = (.0005, 2000) if compensated else (.1, 10)
+    if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
         raise ValueError("Objektets skala ska vara 10–1000 procent.")
     return value
 
@@ -58,7 +61,7 @@ def object_layout(value, tags, texts, page, *, prune=False):
             ordered.insert(index, key)
         else:
             ordered.append(key)
-    return {"scales": {key: scale_value(scale) for key, scale in scales.items() if key in keys}, "order": ordered}
+    return {"scales": {key: scale_value(scale, compensated=key.startswith("tag:")) for key, scale in scales.items() if key in keys}, "order": ordered}
 
 
 def reorder(order, selected, operation):

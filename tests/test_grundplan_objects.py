@@ -53,6 +53,13 @@ class TestObjects(unittest.TestCase):
         self.plan.etikettstorlek = 150
         self.assertAlmostEqual(self.plan.objektlayout['scales']['tag:' + self.a] * 150, 100)
         self.assertNotIn('tag:' + self.b, self.plan.objektlayout['scales'])
+        for value in (1, 180, 1):
+            self.plan.etikettstorlek = value
+            self.assertAlmostEqual(self.plan.objektlayout['scales']['tag:' + self.a] * value, 100)
+            loaded = Grundplan.oppna(self.plan.spara(Path(self.tmp.name) / 'locked-small.json'))
+            self.addCleanup(loaded.close)
+            self.assertAlmostEqual(loaded.objektlayout['scales']['tag:' + self.a] * value, 100)
+
 
     def test_underlay_move_scale_and_replacement_use_fixed_world_coordinates(self):
         original = copy.deepcopy((self.plan.taggar, self.plan.resultat, self.plan.ritningsram))

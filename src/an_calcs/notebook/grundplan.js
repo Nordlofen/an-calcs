@@ -1740,26 +1740,38 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   sizeLabel.title = "Grundstorlek vid 100 % ritningszoom. Etiketterna följer ritningens zoom.";
   const sizeInput = node("input");
   sizeInput.type = "range";
-  sizeInput.min = "20";
+  sizeInput.min = "1";
   sizeInput.max = "180";
-  sizeInput.step = "10";
+  sizeInput.step = "1";
   sizeInput.setAttribute("aria-label", "Etikettstorlek i procent");
-  const sizeText = node("output");
-  sizeLabel.append(sizeInput, sizeText);
+  const sizeNumber = node("input", "gp-size-number"); sizeNumber.type = "number";
+  sizeNumber.min = "1"; sizeNumber.max = "180"; sizeNumber.step = "1";
+  sizeNumber.setAttribute("aria-label", "Ange etikettstorlek i procent");
+  sizeLabel.append(sizeInput, sizeNumber, node("span", "", "%"));
   sizeInput.addEventListener("input", () => {
     sizeDraft = Number(sizeInput.value);
     showLabelSize(sizeDraft);
   });
-  sizeInput.addEventListener("change", () => {
-    const value = Number(sizeInput.value);
-    sizeDraft = value;
+  const applyLabelSize = value => {
+    if (!Number.isFinite(value) || value < 1 || value > 180) {
+      sizeNumber.setCustomValidity("Ange en etikettstorlek mellan 1 och 180 procent."); sizeNumber.reportValidity(); return;
+    }
+    sizeNumber.setCustomValidity(""); sizeDraft = value; showLabelSize(value);
     command("label_size", { value }, [], () => {
       if (sizeDraft === value) {
         sizeDraft = null;
         showLabelSize(state().label_size ?? 100);
       }
     });
+  };
+  sizeInput.addEventListener("change", () => applyLabelSize(Number(sizeInput.value)));
+  sizeNumber.addEventListener("input", () => {
+    const value = Number(sizeNumber.value);
+    sizeNumber.setCustomValidity(Number.isFinite(value) && value >= 1 && value <= 180 ? "" : "Ange 1–180 %.");
+    if (value >= 1 && value <= 180) {sizeDraft = value; showLabelSize(value);}
   });
+  sizeNumber.addEventListener("change", () => applyLabelSize(Number(sizeNumber.value)));
+  sizeNumber.addEventListener("keydown", event => {if (event.key === "Enter") {event.preventDefault(); applyLabelSize(Number(sizeNumber.value));}});
   if (!readOnly) toolbar.append(cancelCopy);
   if (!readOnly) toolbar.append(sizeLabel);
   const measuring = () => mode === "measure" || mode === "calibrate";
@@ -1810,6 +1822,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const contourAlphaText = node("output");
   const contourAlphaLabel = node("label", "gp-contour-fill");
   contourAlphaLabel.append(node("span", "", "Färgfyllning"), contourAlpha, contourAlphaText);
+  const contourDensity = node("input"); contourDensity.type = "range";
+  contourDensity.min = "25"; contourDensity.max = "400"; contourDensity.step = "25";
+  contourDensity.setAttribute("aria-label", "Skrafferingstäthet för pelare och vägg i procent");
+  const contourDensityText = node("output"), contourDensityLabel = node("label", "gp-contour-fill");
+  contourDensityLabel.append(node("span", "", "Skrafferingstäthet"), contourDensity, contourDensityText);
+  contourDensityLabel.title = "25–400 %. Högre värde ger tätare skraffering i pelar-/väggkonturen.";
+  contourDensity.addEventListener("input", () => {
+    contourSettingsDraft = {...contourSettings(), hatch_density: Number(contourDensity.value) / 100};
+    contourDensityText.textContent = contourDensity.value + " %"; renderContours();
+  });
+  contourDensity.addEventListener("change", () => setContourSettings({hatch_density: Number(contourDensity.value) / 100}));
   const contourWidthLabel = node("label", "gp-contour-field");
   contourWidthLabel.append(node("span", "", "Linjetjocklek vid export [mm]"));
   const contourWidth = node("input"); contourWidth.type = "text"; contourWidth.inputMode = "decimal";
@@ -1859,9 +1882,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     cancelDrag(); closeDialog(); contourTarget = id; contourPoints = []; contourPlacing = false; showContours();
   });
   const contourHint = node("p", "gp-contour-hint",
-    "0 % färgfyllning lämnar enbart konturlinjer. PDF använder alltid angiven linjetjocklek. Visa utskriftstjocklek förhandsvisar pappersbredden vid aktuell zoom.");
+    "Färgfyllning gäller bara sulan. Linjetjockleken gäller även pelar-/väggkontur och skraffering. PDF använder alltid angiven linjetjocklek; Visa utskriftstjocklek förhandsvisar den vid aktuell zoom.");
   const contourCloseOptions = button("Stäng konturinställningar", () => {contourPanel = false; showContours();});
-  contourBar.append(contourStatus, contourAlphaLabel, contourWidthLabel, contourPrintLabel, contourHint, contourCloseOptions);
+  contourBar.append(contourStatus, contourAlphaLabel, contourDensityLabel, contourWidthLabel, contourPrintLabel, contourHint, contourCloseOptions);
   const contourEditBar = node("section", "gp-contour-editbar"); contourEditBar.hidden = true;
   const contourEditStatus = node("strong");
   const contourEditHint = node("span", "gp-contour-hint");
@@ -1934,7 +1957,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const settings = contourSettings(), tags = pageTags(), blocked = contourBusy || !!drawingDraft || !!cropDraft || drawingPending || drawingBusy || bulkBusy || importBusy || autoBxBusy || inputLockBusy || deleteBusy;
     contourVisible.checked = !!settings.enabled; contourVisible.disabled = blocked || !background().url;
     contourEdit.disabled = blocked || !tags.length; contourAlpha.disabled = blocked;
-    contourWidth.disabled = contourPrintWidth.disabled = blocked;
+    contourDensity.disabled = contourWidth.disabled = contourPrintWidth.disabled = blocked;
+    if (document.activeElement !== contourDensity) contourDensity.value = Math.round((settings.hatch_density ?? 1) * 100);
+    contourDensityText.textContent = contourDensity.value + " %";
     if (document.activeElement !== contourWidth) contourWidth.value = String(settings.line_width_mm ?? .10).replace(".", ",");
     contourPrintWidth.checked = !!settings.show_print_width;
     contourBar.hidden = !contourPanel;
@@ -2005,11 +2030,27 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const upper = constructionGeometry(visualTag, contourPlacement(tag), bg, calibration());
       if (upper) {
         const id = "gp-construction-hatch-" + view + "-" + tag.id;
-        const pattern = svgNode("pattern", {id, patternUnits:"userSpaceOnUse", width:8, height:8});
-        pattern.append(svgNode("path", {d:"M-2 2L2 -2M0 8L8 0M6 10L10 6", fill:"none", stroke:"#35515c", "stroke-width":.8}));
-        defs.append(pattern);
+        const pitch = 8 / (settings.hatch_density ?? 1);
+        // Pattern paths use drawing units; undo the viewport zoom so their
+        // visible weight matches the non-scaling contour stroke in both modes.
+        const stroke = contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, false);
         const points = upper.points.map(p => `${p.x},${p.y}`).join(" ");
-        upperHatches.append(svgNode("polygon", {points, fill:`url(#${id})`}));
+        const clip = svgNode("clipPath", {id}); clip.append(svgNode("polygon", {points})); defs.append(clip);
+        const xs = upper.points.map(p => p.x), ys = upper.points.map(p => p.y);
+        // Only generate hatch lines within the drawing canvas, including its
+        // expanded margins; very large dimensions must not create unbounded paths.
+        const bounds = canvasBounds();
+        const left = Math.max(Math.min(...xs), bounds.left * bg.width), right = Math.min(Math.max(...xs), bounds.right * bg.width);
+        const top = Math.max(Math.min(...ys), bounds.top * bg.height), bottom = Math.min(Math.max(...ys), bounds.bottom * bg.height);
+        const lines = [];
+        for (let offset = Math.floor((left + top) / pitch) * pitch; right >= left && bottom >= top && offset <= right + bottom + pitch; offset += pitch)
+          lines.push(`M${left-stroke/zoom} ${offset-left+stroke/zoom}L${right+stroke/zoom} ${offset-right-stroke/zoom}`);
+        // Explicit clipped paths stay vectors in Chrome PDF output; SVG pattern
+        // paint can otherwise be flattened to a bitmap by the print engine.
+        const hatch = svgNode("g", {"clip-path":`url(#${id})`});
+        hatch.append(svgNode("path", {d:lines.join(""), fill:"none", stroke:"#35515c",
+          "stroke-width":stroke / zoom, class:"gp-construction-hatch"}));
+        upperHatches.append(hatch);
         upperOutlines.append(svgNode("polygon", {points, fill:"none", stroke:"#35515c",
           "stroke-width":contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, false),
           "vector-effect":"non-scaling-stroke", class:"gp-construction-shape"}));
@@ -3087,7 +3128,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function showLabelSize(value) {
     sizeInput.value = value;
-    sizeText.textContent = value + "%";
+    if (document.activeElement !== sizeNumber) sizeNumber.value = value;
     root.style.setProperty("--gp-tag-scale", String(value / 100 * zoom));
     for (const marker of markers.children) marker.style.setProperty("--gp-tag-scale", String(labelScale(marker.dataset.tagId, value) * zoom));
     refreshGroupPatterns();

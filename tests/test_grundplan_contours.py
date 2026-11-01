@@ -126,6 +126,27 @@ class TestContours(unittest.TestCase):
         self.assertTrue(self.message("redo")["ok"])
         self.assertEqual(self.plan.sulkonturer["line_width_mm"], .20)
 
+    def test_hatch_density_validation_history_and_legacy_default(self):
+        self.assertEqual(self.plan.sulkonturer['hatch_density'], 1)
+        for density in (0, .24, 4.1, True, float('nan'), float('inf'), '2'):
+            before = self.plan._document()
+            with self.subTest(density=density), self.assertRaises(ValueError):
+                self.plan.sulkonturer = {'hatch_density': density}
+            self.assertEqual(self.plan._document(), before)
+        before = copy.deepcopy(self.plan.resultat)
+        with patch.object(self.plan, '_refresh_tag', side_effect=AssertionError('Visual-only setting')):
+            self.assertTrue(self.message('contours', settings={'hatch_density': 2})['ok'])
+            self.assertTrue(self.message('undo')['ok'])
+            self.assertEqual(self.plan.sulkonturer['hatch_density'], 1)
+            self.assertTrue(self.message('redo')['ok'])
+            self.assertEqual(self.plan.sulkonturer['hatch_density'], 2)
+        self.assertEqual(self.plan.resultat, before)
+        saved = self.plan._document(); self.plan._load_document(json.dumps(saved).encode())
+        self.assertEqual(self.plan.sulkonturer['hatch_density'], 2)
+        saved['contours'].pop('hatch_density')
+        self.plan._load_document(json.dumps(saved).encode())
+        self.assertEqual(self.plan.sulkonturer['hatch_density'], 1)
+
     @unittest.skipUnless(importlib.util.find_spec("pymupdf"), "Installera PyMuPDF.")
     def test_pdf_paper_line_width_is_exact_across_page_sizes_crop_and_preview_choice(self):
         import pymupdf
@@ -140,7 +161,7 @@ class TestContours(unittest.TestCase):
                 source = Path(self.tmp.name) / (name + ".pdf")
                 canvas = Canvas(str(source), pagesize=size); canvas.showPage(); canvas.save()
                 plan = Grundplan(source); self.addCleanup(plan.close)
-                ident = plan.lagg_till(.05, .05, typ="pelarsula", indata={"b":2,"l":3,"F_vy":100})
+                ident = plan.lagg_till(.05, .05, typ="pelarsula", indata={"b":2,"l":3,"F_vy":100,"B_x":300,"B_y":400})
                 if cropped:
                     plan.ritningsram = {"left":-.2,"top":-.1,"right":1.2,"bottom":1.1}
                     plan.ritningsunderlag = {"scale":1.4}
@@ -157,5 +178,11 @@ class TestContours(unittest.TestCase):
                     self.assertTrue(outlines, "Exported contour path exists")
                     for outline in outlines:
                         self.assertAlmostEqual(outline["width"] * 25.4 / 72, mm, delta=.001)
+                    upper = [d for d in document[0].get_drawings() if d.get('color')
+                             and all(abs(d['color'][i] - c / 255) < .01 for i,c in enumerate((53,81,92)))]
+                    self.assertGreaterEqual(len(upper), 2, 'Both upper outline and hatch lines are vectors')
+                    for drawing in upper:
+                        self.assertAlmostEqual(drawing['width'] * 25.4 / 72, mm, delta=.001)
+                    self.assertEqual(len(document[0].get_images()), 0)
                     # Keep a rendered export available during local visual QA.
                     document[0].get_pixmap(matrix=pymupdf.Matrix(.6,.6)).save(str(Path(self.tmp.name)/(name+".png")))

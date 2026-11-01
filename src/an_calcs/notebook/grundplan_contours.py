@@ -3,7 +3,7 @@ import copy
 import math
 from .grundplan_canvas import COORDINATE_BOUNDS, valid_coordinate
 
-DEFAULTS = {"enabled": False, "fill_opacity": .18, "line_width_mm": .10, "show_print_width": False, "placements": {}}
+DEFAULTS = {"enabled": False, "fill_opacity": .18, "line_width_mm": .10, "show_print_width": False, "hatch_density": 1.0, "placements": {}}
 
 
 def point(value):
@@ -45,6 +45,9 @@ def settings(value, tags, *, prune=False):
     width = result["line_width_mm"]
     if type(width) not in (int, float) or not math.isfinite(width) or not .01 <= width <= 2:
         raise ValueError("Konturens linjetjocklek ska vara 0,01–2 mm.")
+    density = result["hatch_density"]
+    if type(density) not in (int, float) or not math.isfinite(density) or not .25 <= density <= 4:
+        raise ValueError("Skrafferingstätheten ska vara 25–400 %.")
     if type(result["show_print_width"]) is not bool:
         raise ValueError("Visa utskriftstjocklek ska vara True eller False.")
     if not isinstance(result["placements"], dict) or len(result["placements"]) > 1000:
