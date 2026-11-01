@@ -3308,11 +3308,11 @@ test("wheel units, zoom limits and drag protection work while import placement r
   ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -1, deltaMode: 2, clientX: 400, clientY: 300});
   const pageWidth = picture.getBoundingClientRect().width;
   for (let n = 0; n < 30; n++) ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: -500, deltaMode: 0, clientX: 400, clientY: 300});
-  near(picture.getBoundingClientRect().width, 800 * 4);
+  near(picture.getBoundingClientRect().width, 800 * 32);
   ui.start(picture, 50, 50, {shiftKey: true}); ui.move(80, 80);
   let suppressed = false;
   ui.viewport.dispatch("wheel", {shiftKey: true, deltaY: 200, preventDefault() {suppressed = true;}});
-  assert.equal(suppressed, true); near(picture.getBoundingClientRect().width, 800 * 4);
+  assert.equal(suppressed, true); near(picture.getBoundingClientRect().width, 800 * 32);
   ui.viewport.dispatch("pointercancel");
   ui.byText("Placera W1 – väggsula (1 av 2)");
   assert.equal(ui.sent.length, 0, "Wheel zoom and canceled selection never pause or advance placement");
@@ -6604,4 +6604,85 @@ test('active import keeps canvas objects visible but suppresses label, comment a
   assert.equal(ui.byClass('gp-sheet').inert,true);
   ui.byText('Avbryt import').click();const cancel=ui.sent.at(-1);ui.data.state.load_import=null;ui.changed();ui.ack(cancel);
   assert.equal(ui.byClass('gp-sheet').inert,false);
+});
+
+
+test('batch contour direction supports absolute angles and relative rotation without editing inputs', t => {
+  const ui = contourSetup(t), bulk = bulkFixture(ui, true);
+  ui.data.state.contours.placements.tag2 = {...structuredClone(padPlacement), angle_deg: 45};
+  ui.changed(); bulk.select();
+  const mode = ui.find(e => e.getAttribute('aria-label') === 'Typ av riktningsändring');
+  const angle = ui.find(e => e.getAttribute('aria-label') === 'Vinkel i grader');
+  const apply = ui.byText('Ändra konturriktning');
+  const original = structuredClone(ui.data.state.tags);
+  angle.value = '22,5'; apply.click();
+  let request = ui.sent.at(-1);
+  assert.equal(request.action, 'contour_directions');
+  assert.deepEqual(request.ids, ['tag1','tag2']);
+  assert.equal(request.angle, 22.5); assert.equal(request.relative, false);
+  assert.equal(apply.disabled, true);
+  for (const p of Object.values(ui.data.state.contours.placements)) p.angle_deg = 22.5;
+  ui.changed(); ui.ack(request, {report: {updated: 2, locked: 0, unplaced: 0}});
+  assert.equal(apply.disabled, false);
+  mode.value = 'rotate'; angle.value = '-90';
+  let prevented = false;
+  angle.dispatch('keydown', {key:'Enter', preventDefault(){prevented = true;}, stopPropagation(){}});
+  assert.equal(prevented, true);
+  request = ui.sent.at(-1);
+  assert.equal(request.angle, -90); assert.equal(request.relative, true);
+  ui.ack(request, {ok: false, error: 'Test rejection'});
+  assert.equal(apply.disabled, false);
+  assert.deepEqual(ui.data.state.tags, original);
+  const count = ui.sent.length;
+  for (const value of ['', 'NaN', 'Infinity', '36001']) {angle.value = value; apply.click();}
+  assert.equal(ui.sent.length, count);
+});
+
+test('batch contour rotation respects placement locks while allowing input-locked footings', t => {
+  const ui = contourSetup(t), bulk = bulkFixture(ui, true);
+  ui.tag.input_locked = bulk.second.input_locked = true;
+  ui.data.state.contours.placements.tag2 = structuredClone(padPlacement);
+  ui.data.state.placement_locks = [{type: 'tag', id: 'tag2'}];
+  ui.changed();
+  selectTableRow(ui, ui.tag.label); selectTableRow(ui, bulk.second.label);
+  assert.equal(ui.byText('Ändra markerade').disabled, false);
+  ui.byText('Ändra markerade').click();
+  assert.equal(ui.byText('Tillämpa').disabled, true);
+  assert.equal(ui.byText('Ändra konturriktning').disabled, false);
+  ui.byText('1 av 2 sulor kan ändras. Låsta placeringar och sulor utan kontur undantas. Varje sula vrids kring sitt centrum eller sin sulstart. Etiketterna ligger kvar.');
+  ui.byText('Ändra konturriktning').click();
+  ui.ack(ui.sent.at(-1), {report: {updated: 1, locked: 1, unplaced: 0}});
+  ui.data.state.placement_locks.push({type: 'tag', id: 'tag1'}); ui.changed();
+  assert.equal(ui.byText('Ändra konturriktning').disabled, true);
+  assert.equal(ui.byText('Ändra markerade').disabled, true);
+});
+
+for (const options of [{}, {readOnly:true,standalone:true}, {readOnly:true,pdfMode:true}]) {
+  test('inactive and H-only footings hide all contours and preserve placements ' + JSON.stringify(options), t => {
+    const ui = contourSetup(t, options), original = structuredClone(ui.data.state.contours);
+    Object.assign(ui.tag.values, {B_x:.3,B_y:.4}); ui.changed();
+    assert.ok(ui.elements().some(e => e.className === 'gp-contour-shape'));
+    assert.ok(ui.elements().some(e => e.className === 'gp-construction-shape'));
+    for (const flag of ['inaktiv','endast_h_stabilitet']) {
+      ui.tag.values[flag] = true; ui.changed();
+      assert.equal(ui.elements().some(e => ['gp-contour-shape','gp-construction-shape','gp-contour-handle'].includes(e.className)), false);
+      assert.deepEqual(ui.data.state.contours, original);
+      ui.tag.values[flag] = false; ui.changed();
+      assert.ok(ui.elements().some(e => e.className === 'gp-contour-shape'));
+    }
+  });
+}
+
+test('zoom buttons exceed the old cap, stop at 3200 percent and still fit the drawing', t => {
+  const ui = setup(t), picture = ui.byClass('gp-picture'), original = picture.getBoundingClientRect();
+  for (let n = 0; n < 30; n++) ui.byText('+').click();
+  near(picture.getBoundingClientRect().width, 800 * 32);
+  const before = picture.getBoundingClientRect();
+  ui.viewport.dispatch('wheel', {shiftKey:true,deltaY:100,clientX:200,clientY:150});
+  const after = picture.getBoundingClientRect();
+  near((200-before.left)/before.width, (200-after.left)/after.width);
+  near((150-before.top)/before.height, (150-after.top)/after.height);
+  ui.byText('Anpassa').click();
+  near(picture.getBoundingClientRect().width, original.width);
+  assert.equal(ui.sent.length, 0);
 });

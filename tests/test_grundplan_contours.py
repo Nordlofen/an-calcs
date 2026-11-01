@@ -96,6 +96,66 @@ class TestContours(unittest.TestCase):
         self.assertEqual(render.call_args.kwargs["calibration"], self.calibration)
         self.assertEqual(render.call_args.kwargs["contours"], self.plan.sulkonturer)
 
+    def test_batch_directions_keep_anchors_inputs_and_legacy_wall_length_with_one_undo(self):
+        self.plan.kalibrering = self.calibration
+        self.plan.placera_sulkontur(self.pad, self.position)
+        wall = {"kind": "wall", "start": {"x": .3, "y": .5}, "end": {"x": .5, "y": .5}}
+        self.plan.placera_sulkontur(self.wall, wall)
+        self.plan.las_indata([self.pad, self.wall])
+        before = self.plan._document()
+        with patch.object(self.plan, "_refresh_tag", side_effect=AssertionError("Rotation cannot recalculate")):
+            reply = self.message("contour_directions", ids=[self.pad, self.wall], angle=90, relative=True)
+            self.assertTrue(reply["ok"], reply)
+            self.assertEqual(reply["report"], {"updated": 2, "locked": 0, "unplaced": 0})
+            after = self.plan._document()
+            pad, rotated = (self.plan.sulkonturer["placements"][i] for i in (self.pad, self.wall))
+            self.assertEqual(pad["center"], self.position["center"])
+            self.assertEqual(pad["angle_deg"], 120)
+            self.assertEqual(rotated["start"], wall["start"])
+            self.assertAlmostEqual(rotated["end"]["x"], .3)
+            self.assertAlmostEqual(rotated["end"]["y"], .5 - 160 / 600)
+            self.assertEqual(after["tags"], before["tags"])
+            self.assertEqual(self.plan.state["history"]["undo_count"], 1)
+            self.assertEqual(self.plan.state["history"]["undo"], "Ändra konturriktning för 2 sulor")
+            self.assertTrue(self.message("undo")["ok"])
+            self.assertEqual(self.plan._document(), before)
+            self.assertTrue(self.message("redo")["ok"])
+            self.assertEqual(self.plan._document(), after)
+        self.plan._load_document(json.dumps(after).encode())
+        self.assertEqual(self.plan._document(), after)
+
+    def test_batch_absolute_direction_skips_locked_unplaced_and_rejects_invalid_atomically(self):
+        self.plan.kalibrering = self.calibration
+        self.plan.placera_sulkontur(self.pad, self.position)
+        self.plan.placera_sulkontur(self.wall, {"kind": "wall", "start": {"x": .4, "y": .4}, "angle_deg": 75})
+        self.plan.las_placering([{"type": "tag", "id": self.wall}])
+        unplaced = self.plan.lagg_till(.8, .8)
+        before = self.plan._document()
+        for angle in (True, float("nan"), float("inf"), 36001, "90"):
+            with self.assertRaises(ValueError):
+                self.plan.andra_konturriktning([self.pad, self.wall], vinkel=angle)
+            self.assertEqual(self.plan._document(), before)
+        with self.assertRaises(ValueError):
+            self.plan.andra_konturriktning([self.pad, "missing"], vinkel=45)
+        self.assertEqual(self.plan._document(), before)
+        report = self.plan.andra_konturriktning([self.pad, self.wall, unplaced], vinkel=-45)
+        self.assertEqual(report, {"updated": 1, "locked": 1, "unplaced": 1})
+        self.assertEqual(self.plan.sulkonturer["placements"][self.pad]["angle_deg"], 315)
+        self.assertEqual(self.plan.sulkonturer["placements"][self.wall], before["contours"]["placements"][self.wall])
+
+    def test_batch_rotation_of_trimmed_wall_keeps_visible_start_and_rebases_later_length_edits(self):
+        self.plan.kalibrering = self.calibration
+        ident = self.plan.lagg_till(.5, .5, indata={"L_vagg": 3, "l": 2, "l_override": True, "length_end": 1})
+        self.plan.placera_sulkontur(ident, {"kind": "wall", "start": {"x": .5, "y": .5}, "angle_deg": 0})
+        self.plan.andra_konturriktning([ident], vinkel=90)
+        rotated = self.plan.sulkonturer["placements"][ident]
+        self.assertEqual(rotated["start"], {"x": .5, "y": .5})
+        self.assertAlmostEqual(rotated["reference_start"]["x"], .55)
+        self.plan.uppdatera(ident, indata={"l": 1})
+        shorter = self.plan.sulkonturer["placements"][ident]
+        self.assertAlmostEqual(shorter["start"]["x"], .45)
+        self.assertAlmostEqual(shorter["start"]["y"], .5)
+
     def test_malformed_saved_placements_leave_project_intact(self):
         before = self.plan._document()
         bad = {**before, "contours":{"placements":{"missing":self.position}}}

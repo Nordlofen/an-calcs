@@ -22,7 +22,7 @@ _ACTIONS = {"add", "copy", "import_loads", "place_import", "import_control", "up
             "insulation_placement", "comment_placement", "reference_placement",
             "colour_placement", "sliding_placement", "drawing"}
 _ACTIONS.update({"input_lock", "auto_bx_apply", "soil_profile", "soil_profile_patch", "settlement_display"})
-_ACTIONS.update({"common_foundation", "common_foundation_delete", "contours", "contour_placement", "stability_create", "stability_update", "stability_delete"})
+_ACTIONS.update({"common_foundation", "common_foundation_delete", "contours", "contour_placement", "contour_directions", "stability_create", "stability_update", "stability_delete"})
 
 
 def snapshot(plan):
@@ -92,6 +92,10 @@ def description(content, before, after):
         return {"stability_create":"Skapa stabilitetsgrupp", "stability_update":"Ändra stabilitetsgrupp", "stability_delete":"Ta bort stabilitetsgrupp"}[action]
     if action == "contours": return "Ändra konturvisning"
     if action == "contour_placement": return "Placera sulkontur för " + label
+    if action == "contour_directions":
+        old = before["_contours"]["placements"]
+        changed = sum(old.get(ident) != item for ident, item in after["_contours"]["placements"].items())
+        return f"Ändra konturriktning för {changed} sulor"
     if action == "leader": return "Ändra spline för " + label
     if action == "footing_type": return "Ändra sultyp för " + label
     if action in ("text_update", "text_delete", "text_add"):

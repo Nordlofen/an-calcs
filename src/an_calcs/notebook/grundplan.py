@@ -29,7 +29,7 @@ from .grundplan_canvas import DEFAULT_BOUNDS, COORDINATE_BOUNDS, validate_bounds
 from .grundplan_reference import (DEFAULT_SETTINGS as DEFAULT_REFERENCE,
     validate_settings as validate_reference, group_data as reference_groups)
 from .grundplan_leaders import validate_leader
-from .grundplan_lengths import intensity_data, lock_source, resized_placement, referenced_placement, metres_per_pixel
+from .grundplan_lengths import intensity_data, lock_source, resized_placement, referenced_placement, metres_per_pixel, migrate_wall
 from .grundplan_contours import settings as contour_settings, placement as contour_placement
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
@@ -1922,6 +1922,50 @@ class Grundplan(anywidget.AnyWidget):
         self._contours = contour_settings({**self._contours, "placements": placements}, self._tags)
         self._publish()
 
+    def andra_konturriktning(self, taggar, *, vinkel, relativ=False):
+        """Sätt eller vrid konturriktningar kring befintligt centrum/sulstart.
+
+        Placeringslåsta och oplacerade sulor undantas. Indata och etiketter
+        ändras inte. Hela urvalet valideras innan någon placering sparas.
+        """
+        tags = self._selected_tags(taggar)
+        if type(vinkel) not in (int, float) or not math.isfinite(vinkel) or abs(vinkel) > 36000:
+            raise ValueError("Ange en ändlig vinkel mellan −36000 och 36000 grader.")
+        if type(relativ) is not bool:
+            raise ValueError("Relativ riktning ska vara True eller False.")
+        if not self._calibration:
+            raise ValueError("Kalibrera ritningsskalan före konturredigering.")
+        placements = copy.deepcopy(self._contours["placements"])
+        report = {"updated": 0, "locked": 0, "unplaced": 0}
+        for tag in tags:
+            ident = tag["id"]
+            if object_key({"type": "tag", "id": ident}) in self._placement_locks:
+                report["locked"] += 1
+                continue
+            if ident not in placements:
+                report["unplaced"] += 1
+                continue
+            item = migrate_wall(placements[ident], self.background)
+            item["angle_deg"] = ((item.get("angle_deg", 0) if relativ else 0) + vinkel) % 360
+            old = placements[ident]
+            if "end" in old and not tag["values"].get("physical_length"):
+                # Legacy endpoint contours retain their drawn length, independently of b_y.
+                width, height = self.background["width"], self.background["height"]
+                length = math.hypot((old["end"]["x"] - old["start"]["x"]) * width,
+                                    (old["end"]["y"] - old["start"]["y"]) * height)
+                angle = math.radians(item["angle_deg"])
+                item = {"kind": "wall", "start": old["start"], "end": {
+                    "x": old["start"]["x"] - math.sin(angle) * length / width,
+                    "y": old["start"]["y"] - math.cos(angle) * length / height}}
+            item.pop("reference_start", None)
+            if tag["values"].get("physical_length"):
+                item = referenced_placement(item, tag["values"], self.background, self._calibration)
+            placements[ident] = contour_placement(item)
+            report["updated"] += 1
+        self._contours = contour_settings({**self._contours, "placements": placements}, self._tags)
+        self._publish()
+        return report
+
     def _resized_contour(self, tag, values):
         placement = self._contours["placements"].get(tag["id"])
         if placement is None or all(values.get(name) == tag["values"].get(name) for name in ("l", "length_end", "L_vagg")): return None
@@ -2381,6 +2425,9 @@ class Grundplan(anywidget.AnyWidget):
                 self.sulkonturer = content["settings"]
             elif action == "contour_placement":
                 self.placera_sulkontur(content["id"], content.get("placement"))
+            elif action == "contour_directions":
+                reply["report"] = self.andra_konturriktning(
+                    content["ids"], vinkel=content["angle"], relativ=content.get("relative", False))
             elif action == "calibration":
                 self.kalibrering = content.get("calibration")
             elif action == "heading":

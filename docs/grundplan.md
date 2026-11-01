@@ -664,7 +664,7 @@ tillsammans med ritningen när du zoomar. Grundstorleken sparas i projektet.
 Dra på ritningen med vänster eller höger musknapp för att panorera fritt,
 även när hela ritningen redan ryms i vyn. **Shift + scroll** över ritningen
 zoomar in eller ut kring muspekaren. Scroll utan Shift behåller vanlig
-scrollfunktion. Knapparna + och − styr också zoom;
+scrollfunktion. Knapparna + och − styr också zoom. Zoomintervallet är 2–3200 %;
 **Anpassa** återställer zoom och centrering så att hela ritningen syns.
 Taggarna behåller sina relativa lägen
 vid zoom och panorering. Escape minimerar dialogen och avslutar
@@ -1448,6 +1448,14 @@ för att växla dess markering. Ett vanligt klick på en etikett öppnar alltid
 objektets redigering, även efter ett urval. Markerade etiketter
 får en ram och en bock. Tryck **Ändra markerade** för gemensam indata.
 
+Under **Konturriktning** i samma dialog kan du välja **Sätt riktning x [°]**
+för en gemensam absolut vinkel, eller **Vrid med [°]** för att vrida varje sula
+från dess befintliga riktning. Tryck **Ändra konturriktning** för att tillämpa.
+Varje pelarsula behåller sitt stödcentrum och varje väggsula sin nuvarande
+sulstart. Mått, laster och etikettpositioner behålls. Placeringslåsta sulor och
+sulor utan kontur undantas; låsta indata hindrar däremot inte riktningsändringen.
+Ritningsskalan måste vara kalibrerad. Hela ändringen kan ångras i ett steg.
+
 Vanligt vänsterdrag eller högerdrag panorerar även med ett aktivt urval.
 Det ändrar inga etikettpositioner. Tryck **Avmarkera** för att börja ett nytt urval.
 Dra direkt i en etikett utan Shift för att flytta den, även när ett urval är aktivt.
@@ -1711,6 +1719,9 @@ avstängd som standard, även när ett äldre projekt öppnas. Första aktiverin
 öppnar redigeringsläget om placeringar eller giltig måttkalibrering saknas.
 En befintlig kalibrering återanvänds; annars används Mät-verktygets två punkter
 och ett känt avstånd. Endast färdigdefinierade konturer visas.
+Konturer för **Inaktiv** och **Endast H-stabilitet** döljs, inklusive
+ovanliggande pelare/vägg och hjälplinjer. Detta gäller även PDF- och HTML-export.
+Placeringarna sparas och visas igen om sulan återgår till vanligt aktivt läge.
 
 **Ritning → Redigera sulkonturer…** öppnar konturernas redigeringspanel ovanför
 ritningen. Här finns rullistan för sula, **Definiera placering**, riktning och **Ta bort konturplacering**. Rullistan visar tydligt

@@ -300,6 +300,10 @@
 .an-grundplan .gp-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid var(--gp-line); cursor: move; user-select: none; touch-action: none; }
 .an-grundplan .gp-dialog-header strong { font-size: 16px; }
 .an-grundplan .gp-bulk-dialog { width: 560px; }
+.an-grundplan .gp-bulk-direction { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 0; border-block: 1px solid var(--gp-line); margin-bottom: 10px; }
+.an-grundplan .gp-bulk-direction h3, .an-grundplan .gp-bulk-direction p { flex-basis: 100%; margin: 0; }
+.an-grundplan .gp-bulk-direction input { width: 82px; }
+.an-grundplan .gp-bulk-direction select { padding: 7px; background: white; border: 1px solid #b8c9cd; border-radius: 4px; }
 .an-grundplan .gp-common-result { padding: 8px 0; }
 .an-grundplan .gp-common-measures, .an-grundplan .gp-common-members, .an-grundplan .gp-common-load-note { display: block; margin: 3px 0; }
 .an-grundplan .gp-tag-foundation-link { display: block; margin-top: 5px; }

@@ -2203,6 +2203,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourSvg.append(defs, fills, outlines, upperHatches, upperOutlines, guides);
     const tags = settings.enabled ? pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id))) : [];
     for (const tag of tags) {
+      const visualTag = {...tag, values:{...tag.values, ...drafts.get(tag.id)?.values,
+        ...(contourPlacementDraft?.id === tag.id ? contourPlacementDraft.values : {})}};
+      if (visualTag.values.inaktiv || visualTag.values.endast_h_stabilitet) continue;
       const geometry = contourGeometry(tag); if (!geometry) continue;
       const {points, anchor, xAxis, yAxis} = geometry, style = assignments?.get(tag.id), color = style?.background || "#739b99";
       const pointsText = points.map(p => `${p.x},${p.y}`).join(" ");
@@ -2222,8 +2225,6 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const outline = svgNode("polygon", {points: pointsText, fill: "transparent", stroke: `color-mix(in srgb, ${color} 72%, #18333b)`, "stroke-width": contourStrokeWidth(settings, bg, drawingLayout(), zoom, pdfMode, chosen),
         "vector-effect": "non-scaling-stroke", class: "gp-contour-shape"});
       outline.dataset.contourId = tag.id; outlines.append(outline);
-      const visualTag = {...tag, values:{...tag.values, ...drafts.get(tag.id)?.values,
-        ...(contourPlacementDraft?.id === tag.id ? contourPlacementDraft.values : {})}};
       const upper = constructionGeometry(visualTag, contourPlacement(tag), bg, calibration());
       if (upper) {
         const id = "gp-construction-hatch-" + view + "-" + tag.id;
@@ -2282,7 +2283,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (contourPlacing && contourPoints.length) guides.append(svgNode("circle", {cx:contourPoints[0].x*bg.width,cy:contourPoints[0].y*bg.height,r:5/zoom,fill:"#14695e"}));
     if (mode === "import" && loadImport()?.define_contours && importDraft?.points.length && !pdfMode) {
       const a = importDraft.points[0], group = svgNode("g", {class:"gp-import-preview", "pointer-events":"none"});
-      const geometry = importDraft.placement && footprintGeometry(importTag(), importDraft.placement, bg, calibration());
+      const tag = importTag();
+      const geometry = !tag.values.inaktiv && !tag.values.endast_h_stabilitet && importDraft.placement && footprintGeometry(tag, importDraft.placement, bg, calibration());
       if (geometry) group.append(svgNode("polygon", {points:geometry.points.map(p=>`${p.x},${p.y}`).join(" "),
         fill:"#14695e", "fill-opacity":.15, stroke:"#14695e", "stroke-width":1.5,"vector-effect":"non-scaling-stroke"}));
       group.append(svgNode("circle", {cx:a.x*bg.width,cy:a.y*bg.height,r:5/zoom,fill:"#14695e"}));
@@ -2641,10 +2643,28 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const bulkFields = node("div", "gp-bulk-fields");
   const bulkFeedback = node("div", "gp-bulk-feedback");
   bulkFeedback.setAttribute("role", "status");
+  const bulkDirection = node("section", "gp-bulk-direction");
+  const bulkDirectionMode = node("select");
+  bulkDirectionMode.setAttribute("aria-label", "Typ av riktningsändring");
+  for (const [value, label] of [["set", "Sätt riktning x [°]"], ["rotate", "Vrid med [°]"]]) {
+    const option = node("option", "", label); option.value = value; bulkDirectionMode.append(option);
+  }
+  bulkDirectionMode.value = "set";
+  const bulkDirectionAngle = node("input");
+  bulkDirectionAngle.type = "text"; bulkDirectionAngle.inputMode = "decimal"; bulkDirectionAngle.value = "0";
+  bulkDirectionAngle.setAttribute("aria-label", "Vinkel i grader");
+  bulkDirectionAngle.addEventListener("input", () => bulkDirectionAngle.setCustomValidity(""));
+  bulkDirectionAngle.addEventListener("keydown", event => {
+    if (event.key === "Enter") {event.preventDefault(); event.stopPropagation(); applyBulkDirection();}
+  });
+  const bulkDirectionNote = node("p", "gp-basis");
+  const bulkDirectionApply = button("Ändra konturriktning", applyBulkDirection);
+  bulkDirection.append(node("h3", "", "Konturriktning"), bulkDirectionMode, bulkDirectionAngle,
+    bulkDirectionApply, bulkDirectionNote);
   const bulkFooter = node("div", "gp-dialog-footer");
   const applyMany = button("Tillämpa", applyBulk, "gp-primary");
   bulkFooter.append(applyMany);
-  bulkForm.append(bulkNote, bulkFeedback, bulkFields, bulkFooter);
+  bulkForm.append(bulkNote, bulkFeedback, bulkDirection, bulkFields, bulkFooter);
   bulkForm.addEventListener("submit", event => { event.preventDefault(); applyBulk(); });
   bulkDialog.append(bulkHeader, bulkForm);
   const autoBxDialog = node("section", "gp-dialog gp-auto-bx-dialog"); autoBxDialog.hidden = true;
@@ -4046,7 +4066,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const bg = background();
     if (!bg.width) return;
     const previous = zoom;
-    zoom = Math.max(0.02, Math.min(4, value));
+    zoom = Math.max(0.02, Math.min(32, value));
     const cx = center?.x ?? viewport.clientWidth / 2, cy = center?.y ?? viewport.clientHeight / 2;
     panX = cx + (panX - cx) * zoom / previous;
     panY = cy + (panY - cy) * zoom / previous;
@@ -5568,7 +5588,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     selectionCount.title = titles;
     selectionBar.setAttribute("aria-label", "Markerade objekt: " + titles);
     const inputBusy = bulkBusy || autoBxBusy || inputLockBusy;
-    editMany.disabled = inputBusy || !tags.length || inputLocks === tags.length; clearMany.disabled = inputBusy;
+    editMany.disabled = inputBusy || !tags.length || (inputLocks === tags.length && !directionTags().length); clearMany.disabled = inputBusy;
+    showBulkDirection();
     lockInputs.disabled = inputBusy || !!pending.size || !tags.length || inputLocks === tags.length;
     unlockInputs.disabled = inputBusy || !!pending.size || !inputLocks;
     autoBxButton.disabled = inputBusy || !!pending.size || !tags.length;
@@ -5597,7 +5618,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     bulkDialog.hidden = true;
   }
   function openBulk() {
-    if (readOnly || bulkBusy || autoBxBusy || inputLockBusy || !selectionTags().some(tag => !inputLocked(tag))) return;
+    if (readOnly || bulkBusy || autoBxBusy || inputLockBusy ||
+      (!selectionTags().some(tag => !inputLocked(tag)) && !directionTags().length)) return;
     closeDialog(); closeAutoBx();
     const signature = bulkSelectionSignature();
     if (signature !== bulkSignature) {
@@ -5611,12 +5633,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function buildBulkFields() {
     const all = selectionTags(), tags = all.filter(tag => !inputLocked(tag));
-    if (!tags.length) {bulkFields.replaceChildren(); bulkIds = []; applyMany.disabled = true; return;}
+    bulkSignature = bulkSelectionSignature();
+    bulkTitle.textContent = "Ändra " + all.length + " markerade sulor";
+    showBulkDirection();
+    if (!tags.length) {
+      bulkFields.replaceChildren(); bulkInputs.clear(); bulkIds = []; applyMany.disabled = true;
+      bulkNote.textContent = "Indata är låsta. Konturriktningen kan ändras för sulor vars placering är olåst.";
+      return;
+    }
     applyMany.disabled = false;
     bulkIds = tags.map(tag => tag.id);
-    bulkSignature = bulkSelectionSignature();
     bulkInputs.clear(); bulkFields.replaceChildren();
-    bulkTitle.textContent = "Ändra " + tags.length + " markerade sulor";
     const types = new Set(tags.map(tag => tag.values.lang)), mixed = types.size > 1;
     const strip = !mixed && types.has(1);
     const mixedLoads = new Set(tags.map(tag => lineLoads(tag.values))).size > 1;
@@ -5669,7 +5696,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     };
     bulkNote.textContent = "Kryssa i de fält som ska ersättas för alla markerade sulor. Övriga värden behålls. "
       + (all.length > tags.length ? (all.length - tags.length) + " sulor med låsta indata hoppas över. " : "")
-      + (hasInactive ? "Urvalet innehåller inaktiva sulor. Endast Inaktiv och Kommentar kan ändras. "
+      + (hasInactive ? "Urvalet innehåller inaktiva sulor. För indata kan endast Inaktiv och Kommentar ändras. "
         : mixed ? "Blandade sultyper: last- och längdfält kräver att du väljer enbart väggsulor eller enbart pelarsulor. "
         : strip ? "Väggsulor: laster anges per meter. " : "Pelarsulemodell: lasttypen avgör om lasten anges per meter eller som punktlast. ")
       + "Urval: " + tags.map(tag => tag.label).join(", ");
@@ -5789,7 +5816,44 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     });
   }
   function bulkSelectionSignature() {
-    return selectionTags().map(tag => tag.id + ":" + inputLocked(tag)).sort().join("|");
+    return selectionTags().map(tag => tag.id + ":" + inputLocked(tag) + ":" +
+      placementLocked({type: "tag", id: tag.id}) + ":" + JSON.stringify(contourPlacement(tag))).sort().join("|");
+  }
+  function directionTags() {
+    return state().calibration ? selectionTags().filter(tag => contourPlacement(tag) &&
+      !placementLocked({type: "tag", id: tag.id})) : [];
+  }
+  function showBulkDirection() {
+    const tags = selectionTags(), eligible = directionTags();
+    bulkDirection.hidden = !tags.length;
+    bulkDirectionMode.disabled = bulkDirectionAngle.disabled = bulkDirectionApply.disabled = bulkBusy || !eligible.length;
+    bulkDirectionNote.textContent = !state().calibration ? "Kalibrera ritningsskalan före konturredigering."
+      : eligible.length + " av " + tags.length + " sulor kan ändras. Låsta placeringar och sulor utan kontur undantas. "
+        + "Varje sula vrids kring sitt centrum eller sin sulstart. Etiketterna ligger kvar.";
+  }
+  function applyBulkDirection() {
+    if (readOnly || bulkBusy || autoBxBusy || inputLockBusy || !directionTags().length) return;
+    const raw = bulkDirectionAngle.value.trim().replace(",", "."), angle = Number(raw);
+    if (!raw || !Number.isFinite(angle) || Math.abs(angle) > 36000) {
+      bulkDirectionAngle.setCustomValidity("Ange en vinkel mellan −36000 och 36000 grader.");
+      bulkDirectionAngle.reportValidity(); return;
+    }
+    bulkDirectionAngle.setCustomValidity("");
+    const ids = selectionTags().map(tag => tag.id), relative = bulkDirectionMode.value === "rotate";
+    bulkBusy = true; applyMany.disabled = bulkMinimize.disabled = true;
+    for (const entry of bulkInputs.values()) entry.choose.disabled = entry.input.disabled = true;
+    showSelection(); showLoadImport();
+    bulkFeedback.textContent = "Ändrar konturriktning…";
+    command("contour_directions", {ids, angle, relative}, [], reply => {
+      bulkBusy = false; bulkMinimize.disabled = false;
+      buildBulkFields();
+      const report = reply.report;
+      const message = reply.ok ? report.updated + " sulor har fått ändrad konturriktning."
+        + (report.locked ? " " + report.locked + " placeringslåsta undantagna." : "")
+        + (report.unplaced ? " " + report.unplaced + " utan kontur undantagna." : "") : reply.error;
+      bulkFeedback.textContent = message;
+      showMessage(message, !reply.ok); update();
+    });
   }
   function rememberSections(sections) {
     // Read the DOM before rebuilding; native toggle events can arrive after closing.
