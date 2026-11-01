@@ -718,6 +718,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let measurePoints = [], measureCursor = null, calibrationDraft = null, calibrationBusy = false;
   let contourEditing = false, contourPanel = false, contourTarget = null, contourResume = false, contourBusy = false;
   let contourPoints = [], contourPlacing = false, contourSettingsDraft = null, contourPlacementDraft = null;
+  let importDraft = null, importCalibrating = false;
   const state = () => model.get("state") || { tags: [] };
   const commonFoundations = () => state().common_foundations || [];
   const commonFor = tag => tag && commonFoundations().find(item => item.id === tag.common_foundation_id || item.members.includes(tag.id));
@@ -968,6 +969,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (autoBxBusy || inputLockBusy) return;
     autoBxDialog.hidden = true; invalidateAutoBx(); closeSelectAllMenu();
     hideHistoryTooltip(); historyEditGroup = null; historyBusy = true;
+    importDraft = null; importCalibrating = false;
     cancelDrag(); closeDialog(); closeBulk(); setMode("pan"); copySource = null;
     for (const values of [dirty, drafts, edits, slidingDirty, positions, pendingPositions, overlayPositions,
       pendingOverlayPositions, leaderDrafts, lockDrafts, scaleDrafts, textDrafts]) values.clear();
@@ -1078,9 +1080,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const importCancel = button("Avbryt import", () => controlImport("cancel"));
   importCancel.title = "Avsluta kön. Redan placerade sulor behålls; återstående stöd skapas inte.";
   const importActions = node("div", "gp-import-actions");
-  importActions.append(importPause, importCancel);
+  const importBack = button("Föregående steg", () => {
+    if (importBusy || !importDraft?.points.length) return;
+    importDraft.points.pop(); importDraft.placement = null; showLoadImport(); renderContours();
+  });
+  const importHint = node("p", "gp-field-note");
+  importActions.append(importBack, importPause, importCancel);
   importBar.append(importInstruction, importLoads,
-    node("p", "gp-field-note", "Dra i ritningen för att panorera. Shift + scroll zoomar. Vänsterklick placerar nästa sula; Shift + vänsterdrag markerar flera etiketter. Kontrollera övriga indata före beräkning. Endast placerade sulor sparas. Escape pausar kön."), importActions);
+    importHint, importActions);
   const downloadProject = reply => {
     const url = URL.createObjectURL(new Blob([reply.download], { type: "application/json" }));
     const a = node("a");
@@ -2136,7 +2143,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const wall = footingCategory(tag) === "wall";
       const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
       // Placements store the x-axis angle; a wall is picked along positive y.
-      const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI;
+      const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI || 0;
       saveContour(tag.id, wall ? {kind:"wall",start:a,angle_deg:angle}
         : {kind:"pad",center:a,angle_deg:angle});
       contourPoints = []; contourPlacing = false;
@@ -2185,7 +2192,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
 
   function renderContours() {
     const settings = contourSettings(), bg = background();
-    contourSvg.replaceChildren(); contourSvg.hidden = !settings.enabled || !calibration() || !!drawingDraft || !!cropDraft;
+    contourSvg.replaceChildren(); contourSvg.hidden = (!settings.enabled && !(mode === "import" && loadImport()?.define_contours)) || !calibration() || !!drawingDraft || !!cropDraft;
     contourSvg.style.display = contourSvg.hidden ? "none" : "";
     if (contourSvg.hidden || !bg.width) return;
     contourSvg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
@@ -2194,7 +2201,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const upperHatches = svgNode("g", {class:"gp-construction-hatches", opacity:1, "pointer-events":"none"}),
       upperOutlines = svgNode("g", {class:"gp-construction-outlines", "pointer-events":"none"});
     contourSvg.append(defs, fills, outlines, upperHatches, upperOutlines, guides);
-    const tags = pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id)));
+    const tags = settings.enabled ? pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id))) : [];
     for (const tag of tags) {
       const geometry = contourGeometry(tag); if (!geometry) continue;
       const {points, anchor, xAxis, yAxis} = geometry, style = assignments?.get(tag.id), color = style?.background || "#739b99";
@@ -2273,6 +2280,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     }
     if (contourPlacing && contourPoints.length) guides.append(svgNode("circle", {cx:contourPoints[0].x*bg.width,cy:contourPoints[0].y*bg.height,r:5/zoom,fill:"#14695e"}));
+    if (mode === "import" && loadImport()?.define_contours && importDraft?.points.length && !pdfMode) {
+      const a = importDraft.points[0], group = svgNode("g", {class:"gp-import-preview", "pointer-events":"none"});
+      const geometry = importDraft.placement && footprintGeometry(importTag(), importDraft.placement, bg, calibration());
+      if (geometry) group.append(svgNode("polygon", {points:geometry.points.map(p=>`${p.x},${p.y}`).join(" "),
+        fill:"#14695e", "fill-opacity":.15, stroke:"#14695e", "stroke-width":1.5,"vector-effect":"non-scaling-stroke"}));
+      group.append(svgNode("circle", {cx:a.x*bg.width,cy:a.y*bg.height,r:5/zoom,fill:"#14695e"}));
+      guides.append(group);
+    }
     contourSvg.classList.toggle("gp-contour-editing", contourEditing && mode === "contour" && !readOnly);
   }
 
@@ -2300,7 +2315,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     command("calibration", {calibration: value}, [], reply => {
       calibrationDraft = null; calibrationBusy = false;
       if (reply.ok && mode === "calibrate") {
-        if (contourResume) {contourResume = false; setMode("contour"); contourEditing = true; showContours();}
+        if (importCalibrating && loadImport()?.define_contours && !loadImport().paused) {
+          setMode("import"); showLoadImport(); viewport.focus({preventScroll: true});
+        }
+        else if (contourResume) {contourResume = false; setMode("contour"); contourEditing = true; showContours();}
         else setMode("measure");
       }
       showMeasurement();
@@ -2912,7 +2930,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     try {
       const buffer = await file.arrayBuffer();
       if (disposed) return;
-      command(action, { name: file.name, ...(action === "drawing" && drawingDraft ? {draft: true} : {}) }, [buffer], (reply) => {
+      command(action, { name: file.name, ...(action === "import_loads" ? {define_contours: true} : {}), ...(action === "drawing" && drawingDraft ? {draft: true} : {}) }, [buffer], (reply) => {
         if (action === "drawing") {
           drawingBusy = false;
           if (reply.ok && reply.drawing_preview && drawingDraft) {
@@ -2949,14 +2967,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
             }
             formId = null;
             closeDialog(); closeBulk(); selected.clear(); tableAnchor = null; bulkSignature = "";
-            setMode(loadImport() ? "import" : "pan"); viewport.focus({preventScroll: true});
+            if (loadImport()) beginImportFlow(); else setMode("pan");
+            viewport.focus({preventScroll: true});
           }
           update();
           if (!reply.ok) showMessage(reply.error, true);
           else if (reply.report) showMessage(reply.report.updated + " befintliga sulor uppdaterade. "
             + (reply.report.skipped_inactive ? reply.report.skipped_inactive + " inaktiva sulor överhoppade. " : "")
             + (reply.report.skipped_locked ? reply.report.skipped_locked + " sulor med låsta indata överhoppade. " : "")
-            + (loadImport() ? reply.report.new + " nya sulor att placera. " + importCaption()
+            + (loadImport() ? reply.report.new + " nya sulor att placera. " + (reply.report.contours ? reply.report.contours + " befintliga konturer att definiera. " : "") + importCaption()
               : "Inga nya sulor att placera."));
           return;
         }
@@ -3009,9 +3028,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     leaderPlacement = null; leaderEdit = leaderNode = null;
     viewport.classList.remove("gp-placing-leader");
     renderLeaders();
-    if (mode === "import" && value !== "import" && loadImport() && !loadImport().paused && !importBusy) {
+    if ((mode === "import" || importCalibrating) && value !== "import"
+        && !(value === "calibrate" && importCalibrating) && loadImport() && !loadImport().paused && !importBusy) {
       command("import_control", {token: loadImport().token, operation: "pause"});
     }
+    if (value !== "calibrate") importCalibrating = false;
     if (mode !== value || value === "calibrate") {
       measurePoints = []; measureCursor = null;
       if (value === "calibrate") referenceInput.value = "";
@@ -3095,26 +3116,93 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     measurementSvg.append(svgNode("rect", {x: x - width / 2, y: y - 17, width, height: 24, rx: 4, fill: "white", stroke: color}),
       svgNode("text", {x, y, fill: color, "text-anchor": "middle", "font-size": 14, "font-weight": 600}, caption));
   }
+  function importTag() {
+    const item = loadImport()?.next;
+    return item && (state().tags.find(tag => tag.id === item.existing_id)
+      || {id: "import-preview", footing_type: item.kind, values: item.values});
+  }
+  function syncImportDraft(queue) {
+    if (!queue?.define_contours) {importDraft = null; return;}
+    const key = JSON.stringify([queue.token, queue.index, background().page, calibration(), physicalType(importTag()), importTag()?.values]);
+    if (importDraft?.key !== key) importDraft = {key, points: [], placement: null};
+  }
+  function beginImportFlow() {
+    const queue = loadImport(); if (!queue || queue.paused) return;
+    if (queue.define_contours && !calibration()) {
+      importCalibrating = true; setMode("calibrate");
+      showMessage("Kalibrera ritningsskalan först: välj två punkter och ange deras kända avstånd. Därefter fortsätter importplaceringen.");
+    } else setMode("import");
+  }
   function importCaption() {
     const queue = loadImport();
     if (!queue) return "Importera en lasteffektfil för att placera sulor.";
-    return "Placera " + queue.next.label + " – " + (queue.next.kind === "vaggsula" ? "väggsula" : "pelarsula")
+    const caption = "Placera " + queue.next.label + " – " + ((queue.define_contours ? physicalType(importTag()) : queue.next.kind) === "vaggsula" ? "väggsula" : "pelarsula")
       + " (" + (queue.index + 1) + " av " + queue.total + ")";
+    if (!queue.define_contours) return caption;
+    if (!calibration()) return caption + " · Kalibrera ritningsskalan före placering.";
+    const step = importDraft?.points.length || 0, wall = physicalType(importTag()) === "vaggsula";
+    return caption + " · " + (step === 0 ? wall ? "Klicka på väggsulans startpunkt." : "Klicka på stödets centrum."
+      : step === 1 ? wall ? "Klicka i positiv bᵧ-riktning längs väggen." : "Klicka i positiv x-riktning."
+      : "Klicka där etiketten ska placeras.");
+  }
+  function chooseImportedPoint(point) {
+    const queue = loadImport();
+    if (!queue?.define_contours || queue.paused || importBusy || !calibration()) return;
+    syncImportDraft(queue);
+    if (importDraft.points.length < 2) {
+      if (importDraft.points.length && drawingDistance(importDraft.points[0], point, background()) < 1e-6) {
+        showMessage("Välj en annan punkt för riktningen.", true); return;
+      }
+      importDraft.points.push(point);
+      if (importDraft.points.length === 2) {
+        const [a,b] = importDraft.points, bg = background(), wall = physicalType(importTag()) === "vaggsula";
+        const dx = (b.x-a.x)*bg.width, dy = (b.y-a.y)*bg.height;
+        const angle = (wall ? Math.atan2(-dx,-dy) : Math.atan2(-dy,dx))*180/Math.PI || 0;
+        if (wall && footingCategory(importTag()) !== "wall") {
+          const length = Number(importTag().values.l), cal = calibration();
+          if (!(length > 0)) {importDraft.points.pop();showMessage("Ange ett positivt bᵧ före konturplaceringen.",true);return;}
+          const units = drawingDistance(cal.start,cal.end,bg)/cal.length_m, rad = angle*Math.PI/180;
+          importDraft.placement = {kind:"pad",center:{x:a.x-Math.sin(rad)*length*units/(2*bg.width),y:a.y-Math.cos(rad)*length*units/(2*bg.height)},angle_deg:angle};
+        } else importDraft.placement = wall ? {kind:"wall",start:a,angle_deg:angle} : {kind:"pad",center:a,angle_deg:angle};
+        if (queue.next.existing_id) {
+          const tag = importTag(); commitImportedPoint({x:tag.x,y:tag.y}, importDraft.placement); return;
+        }
+      }
+      showLoadImport(); renderContours(); return;
+    }
+    commitImportedPoint(point, importDraft.placement);
+  }
+  function commitImportedPoint(point, placement = null) {
+    const queue = loadImport(); if (!queue || queue.paused || importBusy) return;
+    importBusy = true; showLoadImport();
+    command("place_import", {token: queue.token, index: queue.index, ...point, page: background().page,
+      ...(placement ? {placement} : {})}, [], reply => {
+      importBusy = false;
+      if (mode !== "import" && loadImport() && !loadImport().paused) command("import_control", {token: loadImport().token, operation: "pause"});
+      update();
+      if (!reply.ok) showMessage(reply.error, true);
+      if (reply.ok && reply.finished) showMessage("Alla " + reply.total + (queue.define_contours ? " importerade placeringar är klara." : " importerade sulor är placerade.") + " Anpassa övriga indata; resultaten uppdateras automatiskt.");
+    });
   }
   function showLoadImport() {
     const queue = loadImport();
+    syncImportDraft(queue);
     importBar.hidden = readOnly || !queue;
+    importBack.hidden = !queue?.define_contours;
+    importBack.disabled = importBusy || !importDraft?.points.length || importCalibrating;
+    importHint.textContent = (queue?.define_contours ? "Centrum/startpunkt → riktning → etikett. Befintliga etiketter flyttas inte. Föregående steg ändrar ett pågående val. " : "Vänsterklick placerar nästa etikett. ")
+      + "Dra för att panorera, Shift + scroll zoomar. Escape pausar kön. Endast färdiga placeringar sparas.";
     loadEffects.disabled = !background().url || !!queue || importBusy || drawingBusy || bulkBusy || deleteBusy;
     deleteAll.disabled = (!state().tags.length && !queue) || importBusy || bulkBusy || deleteBusy;
     importPause.disabled = importCancel.disabled = importBusy || deleteBusy;
     if (!queue) {
       lastImportToken = null;
-      if (mode === "import") setMode("pan");
+      if (mode === "import" || importCalibrating) setMode("pan");
       return;
     }
     if (queue.token !== lastImportToken) {
       lastImportToken = queue.token;
-      if (!queue.paused) { closeDialog(); closeBulk(); setMode("import"); }
+      if (!queue.paused) { closeDialog(); closeBulk(); beginImportFlow(); }
     }
     importInstruction.textContent = (queue.paused ? "Placering pausad · " : "") + importCaption();
     importPause.textContent = queue.paused ? "Fortsätt placera" : "Pausa placering";
@@ -3133,7 +3221,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showLoadImport();
     command("import_control", {token: queue.token, operation}, [], reply => {
       importBusy = false;
-      if (reply.ok && operation === "resume") { setMode("import"); viewport.focus({preventScroll: true}); }
+      if (reply.ok && operation === "resume") { beginImportFlow(); viewport.focus({preventScroll: true}); }
       update();
       if (!reply.ok) showMessage(reply.error, true);
       if (reply.ok && operation === "cancel") showMessage("Importen avslutades. Redan placerade sulor behålls.");
@@ -6398,6 +6486,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       viewport.setPointerCapture(event.pointerId);
       return;
     }
+    if (!readOnly && mode === "import" && loadImport()?.define_contours && !loadImport().paused && !event.shiftKey) {
+      event.preventDefault(); viewport.focus({preventScroll: true});
+      drag = {importPick:true, placementBlocked:importBusy, placementPan:true,
+        x:event.clientX,y:event.clientY,left:panX,top:panY,moved:false,pointerId:event.pointerId};
+      viewport.setPointerCapture(event.pointerId); return;
+    }
     const rotationHandle=event.target.closest(".gp-axis-rotate");
     if(rotationHandle && !readOnly){
       const id=Number(rotationHandle.dataset.stabilityId),entry=stabilityWidgets.get(id),kind=stabilityKind(id,"symbol");
@@ -6676,13 +6770,18 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (drag.box && drag.moved) previewSelection(event);
     const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
       objectPositions, placementPan, resize, crop, drawing, objectScaling,
-      stroke, leaderClick, attachment, contour, contourPick, contourId, contourCanMove, contourChanges, stabilityRotate, stabilityPick, stabilityId } = drag;
+      stroke, leaderClick, attachment, contour, contourPick, contourId, contourCanMove, contourChanges, stabilityRotate, stabilityPick, stabilityId, importPick } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if (importPick) {
+      const point = measurementPoint(event);
+      if (!moved && !placementBlocked && point) chooseImportedPoint(point);
+      return;
+    }
     if(stabilityRotate){
       const angle=stabilityAngles.get(stabilityId);
       if(moved && angle!=null)setStabilitySettings({angle_deg:angle},stabilityId);
@@ -6753,16 +6852,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (mode === "import") {
       const queue = loadImport();
       if (!queue || queue.paused || importBusy) return;
-      importBusy = true; showLoadImport();
-      command("place_import", {token: queue.token, index: queue.index, x, y, page: background().page}, [], reply => {
-        importBusy = false;
-        if (mode !== "import" && loadImport() && !loadImport().paused) {
-          command("import_control", {token: loadImport().token, operation: "pause"});
-        }
-        update();
-        if (!reply.ok) showMessage(reply.error, true);
-        if (reply.ok && reply.finished) showMessage("Alla " + reply.total + " importerade sulor är placerade. Anpassa övriga indata; resultaten uppdateras automatiskt.");
-      });
+      if (queue.define_contours) chooseImportedPoint({x,y}); else commitImportedPoint({x,y});
       return;
     }
     const source = copySource;

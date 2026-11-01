@@ -63,6 +63,11 @@ def description(content, before, after):
         return ("Ändra sättningsvisning för " + label if content.get("id") else
                 f"Ändra sättningsvisning för {len(content['ids'])} sulor" if content.get("ids") else
                 "Ändra redovisning av sättning och styvhet")
+    if action == "place_import" and not any(k.startswith("tag:") and k not in before for k in after):
+        changed = next((value["label"] for key, value in after.items() if key.startswith("tag:")
+                        and value["id"] in after["_contours"]["placements"]
+                        and value["id"] not in before["_contours"]["placements"]), "sula")
+        return "Placera sulkontur för " + changed
     if action in ("add", "copy", "place_import"):
         added = next((v["label"] for k, v in after.items() if k.startswith("tag:") and k not in before), "sula")
         return ("Kopiera " if action == "copy" else "Placera ") + added

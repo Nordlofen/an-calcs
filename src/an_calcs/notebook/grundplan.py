@@ -864,7 +864,8 @@ class Grundplan(anywidget.AnyWidget):
             return None
         return {"token": queue["token"], "filename": queue["filename"],
                 "index": queue["index"], "total": len(queue["items"]), "paused": queue["paused"],
-                "next": copy.deepcopy(queue["items"][queue["index"]])}
+                "next": copy.deepcopy(queue["items"][queue["index"]]),
+                **({"define_contours": True} if queue.get("define_contours") else {})}
 
     def importera_lasteffekt(self, fil):
         """Uppdatera matchande littera och köa nya stöd för manuell placering."""
@@ -874,7 +875,9 @@ class Grundplan(anywidget.AnyWidget):
         self._start_load_import(path.read_bytes(), path.name)
         return self.lasteffekt_import
 
-    def _start_load_import(self, data, filename):
+    def _start_load_import(self, data, filename, *, define_contours=False):
+        if type(define_contours) is not bool:
+            raise ValueError("Ange om konturplacering ska ingå i importen.")
         if not self.background:
             raise ValueError("Öppna en ritning innan du importerar lasteffekter.")
         if self._load_import is not None:
@@ -885,11 +888,15 @@ class Grundplan(anywidget.AnyWidget):
         for tag in self._tags:
             by_label.setdefault(tag["label"], []).append(tag)
         prepared, new_items, skipped_inactive, skipped_locked = [], [], [], []
+        contour_items = []
         # Validate the entire update before changing any footing or starting placement.
         for item in items:
             matches = by_label.get(item["label"], [])
             if not matches:
                 new_items.append(item)
+                if define_contours:
+                    values = _values({**_DEFAULTS, "lang": 1 if item["kind"] == "vaggsula" else 0, **item["values"]}, draft=True)
+                    contour_items.append({**item, "values": values})
                 continue
             if len(matches) != 1:
                 raise ValueError(f"Littera {item['label']} matchar flera sulor. Ge dem unika littera före uppdatering.")
@@ -914,8 +921,14 @@ class Grundplan(anywidget.AnyWidget):
             values = _values({**tag["values"], **updates}, draft=True)
             placement = self._resized_contour(tag, values)
             prepared.append((tag, values, item["values"].get("L_vagg"), placement))
+            if (define_contours and tag["id"] not in self._contours["placements"]
+                    and tag["page"] == self.background["page"]
+                    and object_key({"type": "tag", "id": tag["id"]}) not in self._placement_locks):
+                contour_items.append({**item, "values": copy.deepcopy(values), "existing_id": tag["id"]})
+        queue_items = contour_items if define_contours else new_items
         queue = ({"token": uuid.uuid4().hex, "filename": Path(filename).name,
-                  "items": new_items, "index": 0, "paused": False} if new_items else None)
+                  "items": queue_items, "index": 0, "paused": False,
+                  **({"define_contours": True} if define_contours else {})} if queue_items else None)
         for tag, values, imported_length, placement in prepared:
             changed = any(values[name] != value for name, value in tag["values"].items()
                           if name not in _TEXT_NAMES and name not in SLIDING_NAMES and name not in _VISUAL_FIELDS)
@@ -932,6 +945,7 @@ class Grundplan(anywidget.AnyWidget):
         self._load_import = queue
         self._publish()
         return {"updated": len(prepared), "new": len(new_items),
+                **({"contours": sum("existing_id" in item for item in contour_items)} if define_contours else {}),
                 **({"skipped_inactive": len(skipped_inactive)} if skipped_inactive else {}),
                 **({"skipped_locked": len(skipped_locked)} if skipped_locked else {}),
                 "updated_ids": [tag["id"] for tag, _, _, _ in prepared]}
@@ -951,7 +965,7 @@ class Grundplan(anywidget.AnyWidget):
         """Placera nästa importerade stöd. Returnerar den nya sulans id."""
         return self._place_load_import(x, y, sida=sida)["id"]
 
-    def _place_load_import(self, x, y, *, sida=None, token=None, index=None):
+    def _place_load_import(self, x, y, *, sida=None, token=None, index=None, placement=None):
         queue = self._load_import
         if (queue is None or (token is not None and token != queue["token"])
                 or (index is not None and (type(index) is not int or index != queue["index"]))):
@@ -959,11 +973,43 @@ class Grundplan(anywidget.AnyWidget):
         if queue["paused"]:
             raise ValueError("Placeringen är pausad. Tryck Fortsätt placera.")
         item = queue["items"][queue["index"]]
-        if any(tag["label"] == item["label"] for tag in self._tags):
-            raise ValueError(f"Littera {item['label']} finns redan. Byt littera på den befintliga sulan innan du fortsätter.")
-        ident = self.lagg_till(x, y, littera=item["label"], typ=item["kind"], sida=sida, indata=item["values"])
-        if item["kind"] == "vaggsula":
-            self._tag(ident)["imported_length"] = item["values"]["L_vagg"]
+        existing = self._tag(item["existing_id"]) if item.get("existing_id") else None
+        values = existing["values"] if existing else item["values"]
+        footprint = None
+        if queue.get("define_contours"):
+            if self._view_page(sida) != self.background["page"]:
+                raise ValueError("Placera konturen på den aktiva ritningssidan.")
+            if not self._calibration:
+                raise ValueError("Kalibrera ritningsskalan före konturplacering.")
+            if existing:
+                if existing["page"] != self._view_page(sida):
+                    raise ValueError("Öppna stödets ritningssida innan konturen placeras.")
+                if existing["values"].get("inaktiv") or existing.get("input_locked"):
+                    raise ValueError("Stödet är inaktivt eller har låsta indata.")
+                if object_key({"type": "tag", "id": existing["id"]}) in self._placement_locks:
+                    raise ValueError("Sulans placering är låst.")
+                if existing["id"] in self._contours["placements"]:
+                    raise ValueError("Konturen har redan placerats. Avsluta och importera igen för att behålla placeringen.")
+            footprint = contour_placement(placement)
+            expected = "wall" if int(values.get("lang", 1 if item["kind"] == "vaggsula" else 0)) == 1 else "pad"
+            if footprint["kind"] != expected:
+                raise ValueError("Konturtypen måste motsvara sulans beräkningsmodell.")
+            if values.get("physical_length"):
+                footprint.pop("reference_start", None)
+                footprint = contour_placement(referenced_placement(footprint, values, self.background, self._calibration))
+        elif placement is not None:
+            raise ValueError("Den här importkön använder enbart etikettplacering.")
+        if existing:
+            ident = existing["id"]  # Existing label position and all other geometry stay intact.
+        else:
+            if any(tag["label"] == item["label"] for tag in self._tags):
+                raise ValueError(f"Littera {item['label']} finns redan. Byt littera på den befintliga sulan innan du fortsätter.")
+            ident = self.lagg_till(x, y, littera=item["label"], typ=item["kind"], sida=sida, indata=item["values"])
+            if item["kind"] == "vaggsula":
+                self._tag(ident)["imported_length"] = item["values"]["L_vagg"]
+        if footprint is not None:
+            self._contours["placements"][ident] = footprint
+            self._contours["enabled"] = True
         queue["index"] += 1
         finished = queue["index"] == len(queue["items"])
         if finished:
@@ -2260,12 +2306,14 @@ class Grundplan(anywidget.AnyWidget):
                     sida=content.get("page"), indata=content.get("values"),
                 )
             elif action == "import_loads":
-                reply["report"] = self._start_load_import(bytes(buffers[0]), content["name"])
+                reply["report"] = self._start_load_import(bytes(buffers[0]), content["name"],
+                                                          define_contours=content.get("define_contours", False))
             elif action == "place_import":
                 if not isinstance(content["token"], str) or type(content["index"]) is not int:
                     raise ValueError("Ogiltig placeringsbegäran.")
                 reply.update(self._place_load_import(content["x"], content["y"], sida=content["page"],
-                                                     token=content["token"], index=content["index"]))
+                                                     token=content["token"], index=content["index"],
+                                                     placement=content.get("placement")))
             elif action == "import_control":
                 self._control_load_import(content["token"], content["operation"])
             elif action == "update":

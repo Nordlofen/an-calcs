@@ -6490,3 +6490,97 @@ test('scale menu keeps its input visible when validation rejects a value',t=>{
   assert.equal(ui.sent.length,0);assert.equal(menuPanel(ui,'Skala…').hidden,false);
   assert.match(ui.byClass('gp-status').textContent,/10–1000/);
 });
+
+function guidedImport(ui,{kind='vaggsula',existing=false,calibrated=true,model=null}={}) {
+  if(calibrated)ui.data.state.calibration={start:{x:.1,y:.1},end:{x:.6,y:.1},length_m:10};
+  const values={...ui.tag.values,lang:model??(kind==='vaggsula'?1:0),lasttyp:kind==='vaggsula'?1:0,
+    b:1,l:kind==='vaggsula'?6.2:2,L_vagg:kind==='vaggsula'?6.2:null,F_vy:80,F_vy_bruk:25,V_Ed_EQU:30,
+    physical_length:kind==='vaggsula',e_b_plac:0,e_l_plac:0};
+  if(existing){ui.tag.values=values;ui.tag.footing_type=kind;}
+  const queue={token:'guided',filename:'loads.json',define_contours:true,index:0,total:1,paused:false,
+    next:{kind,label:existing?ui.tag.label:'NEW1',values,...(existing?{existing_id:ui.tag.id}:{})}};
+  ui.data.state.load_import=queue;ui.changed();return queue;
+}
+function pickImport(ui,x,y,target=null) {
+  const rect=ui.byClass('gp-sheet').getBoundingClientRect(),cx=rect.left+x*rect.width,cy=rect.top+y*rect.height;
+  ui.start(target||ui.byClass('gp-picture'),cx,cy);ui.finish(cx,cy);
+}
+
+test('guided wall import picks start, positive by direction and label independently, with a preview and one command',t=>{
+  const ui=setup(t),before=structuredClone(ui.data.state.tags);guidedImport(ui);
+  assert.match(ui.byClass('gp-import-instruction').textContent,/startpunkt/);
+  pickImport(ui,.2,.5,ui.marker());
+  assert.equal(ui.sent.length,0);assert.equal(ui.byClass('gp-dialog').hidden,true);
+  assert.match(ui.byClass('gp-import-instruction').textContent,/positiv bᵧ/);
+  pickImport(ui,.2,.3);
+  assert.equal(ui.sent.length,0);assert.deepEqual(ui.data.state.tags,before);
+  assert.match(ui.byClass('gp-import-instruction').textContent,/etiketten/);
+  assert.ok(ui.byClass('gp-import-preview').children.some(el=>el.tag==='polygon'));
+  pickImport(ui,.7,.8);
+  const request=ui.sent.at(-1);assert.equal(request.action,'place_import');
+  assert.deepEqual(request.placement,{kind:'wall',start:{x:.2,y:.5},angle_deg:0});
+  near(request.x,.7);near(request.y,.8);
+  pickImport(ui,.75,.85);assert.equal(ui.sent.length,1,'Pending placement cannot be submitted twice');
+  ui.ack(request,{ok:false,error:'Prova igen'});
+  pickImport(ui,.65,.75);assert.equal(ui.sent.length,2);assert.deepEqual(ui.sent[1].placement,request.placement);
+});
+
+test('guided pad import uses centre and positive x, never the click distance as footing size',t=>{
+  const ui=setup(t);guidedImport(ui,{kind:'pelarsula'});
+  assert.match(ui.byClass('gp-import-instruction').textContent,/centrum/);
+  pickImport(ui,.2,.4);pickImport(ui,.5,.4);pickImport(ui,.6,.7);
+  assert.deepEqual(ui.sent.at(-1).placement,{kind:'pad',center:{x:.2,y:.4},angle_deg:0});
+  assert.equal(ui.sent.at(-1).values,undefined);
+});
+
+test('guided update defines only the missing contour and preserves the existing label',t=>{
+  const ui=setup(t),before=[ui.tag.x,ui.tag.y];guidedImport(ui,{existing:true});
+  pickImport(ui,.2,.5);pickImport(ui,.2,.3);
+  assert.equal(ui.sent.length,1);
+  const request=ui.sent[0];assert.equal(request.action,'place_import');
+  assert.deepEqual([request.x,request.y],before);assert.equal(request.placement.kind,'wall');
+});
+
+test('wall supports with pad calculation still pick a wall start and positive by direction',t=>{
+  const ui=setup(t);guidedImport(ui,{existing:true,model:0});
+  pickImport(ui,.2,.5);pickImport(ui,.2,.3);
+  const placement=ui.sent.at(-1).placement;
+  assert.equal(placement.kind,'pad');near(placement.angle_deg,0);
+  near(placement.center.x,.2);near(placement.center.y,.5-6.2*40/(2*600));
+});
+
+test('guided import can step backwards and pan without committing or changing staged geometry',t=>{
+  const ui=setup(t);guidedImport(ui);
+  pickImport(ui,.2,.5);pickImport(ui,.2,.3);
+  ui.byText('Föregående steg').click();assert.match(ui.byClass('gp-import-instruction').textContent,/positiv bᵧ/);
+  const sheet=ui.byClass('gp-sheet').getBoundingClientRect();
+  ui.start(ui.byClass('gp-picture'),400,300);ui.move(460,340);ui.finish(460,340);
+  assert.equal(ui.sent.length,0);assert.notEqual(ui.byClass('gp-sheet').getBoundingClientRect().left,sheet.left);
+  pickImport(ui,.4,.5);pickImport(ui,.7,.8);
+  near(ui.sent.at(-1).placement.angle_deg,-90);
+  assert.deepEqual(ui.sent.at(-1).placement.start,{x:.2,y:.5});
+});
+
+test('guided import requires calibration and resumes its first contour step after saving it',t=>{
+  const ui=setup(t);guidedImport(ui,{calibrated:false});
+  assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
+  pickImport(ui,.1,.1);pickImport(ui,.6,.1);
+  const reference=ui.find(el=>el.getAttribute('aria-label')==='Känt referensmått i meter');reference.value='10';reference.dispatch('input');
+  ui.byText('Spara kalibrering').click();const request=ui.sent.at(-1);
+  assert.equal(request.action,'calibration');assert.ok(!ui.sent.some(r=>r.action==='place_import'||r.action==='import_control'));
+  ui.data.state.calibration=request.calibration;ui.changed();ui.ack(request);
+  assert.equal(ui.byClass('gp-measurement-bar').hidden,true);
+  assert.match(ui.byClass('gp-import-instruction').textContent,/startpunkt/);
+  pickImport(ui,.2,.5);assert.match(ui.byClass('gp-import-instruction').textContent,/positiv bᵧ/);
+});
+
+test('Escape pauses calibration for guided import and resume returns to the required calibration',t=>{
+  const ui=setup(t),queue=guidedImport(ui,{calibrated:false});
+  ui.byClass('an-grundplan').dispatch('keydown',{key:'Escape'});
+  const pause=ui.sent.at(-1);assert.equal(pause.action,'import_control');assert.equal(pause.operation,'pause');
+  queue.paused=true;ui.changed();ui.ack(pause);
+  assert.equal(ui.byClass('gp-measurement-bar').hidden,true);
+  ui.byText('Fortsätt placera').click();const resume=ui.sent.at(-1);queue.paused=false;ui.changed();ui.ack(resume);
+  assert.equal(ui.byClass('gp-measurement-bar').hidden,false);
+  assert.ok(!ui.sent.some(r=>r.action==='place_import'));
+});

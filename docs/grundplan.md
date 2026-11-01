@@ -389,16 +389,41 @@ Matchningen använder lasttypen, inte beräkningsmodellen. Sulor som saknas i
 filen behålls. Om ett littera matchar flera objekt, eller lasttypen skiljer sig,
 avvisas hela importen innan någon ändring görs.
 
-Instruktionen visar exempelvis **Placera S.1 – väggsula (1 av 5)**, tillsammans
-med stödets laster och eventuell längd. Klicka på ritningen där etiketten ska
-placeras. Då skapas sulan och instruktionen visar nästa stöd, i filens ordning.
-Ingen indatadialog öppnas mellan placeringarna. Endast nya littera behöver
-placeras; befintliga sulor behåller sin position.
-Dra på ritningen med vänster eller höger musknapp för att panorera under
-placeringen; ett kort vänsterklick placerar nästa sula. Panorering förbrukar
-inga stöd i kön och fungerar även medan en placering väntar på svar från
-kerneln. **Shift + scroll** zoomar vid muspekaren utan att pausa placeringen. Shift + vänsterdrag
-markerar befintliga etiketter för flerredigering och pausar placeringskön.
+Importen i gränssnittet väver in konturplaceringen. Instruktionen visar
+aktuellt stöd, lastvärden och vilket klick som återstår:
+
+1. **Pelare:** välj centrum, sedan en punkt i positiv x-riktning.
+2. **Väggsula:** välj sulstart på centrumlinjen, sedan en punkt i positiv
+   bᵧ-riktning längs sulan. Även en väggsula med pelarsulemodell följer detta
+   placeringsflöde; dess centrum härleds internt från start och bᵧ.
+3. För en **ny sula**: välj etikettens placering separat. Därefter går kön
+   vidare till nästa stöd i filens ordning.
+
+Klickavståndet bestämmer bara riktningen. Sulmåtten hämtas från objektets
+indata; väggsulans längd är bᵧ. En tillfällig kontur visas före sista klicket.
+**Föregående steg** låter dig göra om ett pågående val. Ingen indatadialog
+öppnas mellan placeringarna. Sula, kontur och etikett skapas tillsammans i
+ett ångringssteg; inga halvfärdiga sulor läggs till vid de första två klicken.
+
+Befintliga konturplaceringar och etikettpositioner behålls vid återimport.
+Matchade aktiva, olåsta sulor på aktuell ritningssida som saknar konturplacering
+läggs i samma kö. För dem väljer du bara centrum/sulstart och riktning;
+etiketten behåller sitt läge. Inaktiva och indatalåsta stöd hoppas över som
+förut. Ett placeringslås hindrar också att stödet läggs i konturkön.
+
+En giltig måttkalibrering återanvänds. Om den saknas öppnas kalibreringen
+först: välj två punkter, ange deras kända avstånd och spara. Därefter
+fortsätter importplaceringen automatiskt. Konturvisningen aktiveras när en
+kontur sparas. Äldre projekt behöver inga nya fält och behåller redan
+sparade lägen. Python-API:ts befintliga `importera_lasteffekt()` och
+`placera_lasteffekt()` behåller sitt tidigare flöde med separat etikettplacering.
+
+Dra med vänster eller höger musknapp för att panorera; dragning förbrukar
+inte ett placeringssteg. **Shift + scroll** zoomar utan att pausa kön.
+Shift + vänsterdrag markerar befintliga etiketter för flerredigering och
+pausar kön. **Escape** pausar placeringen; pågående val kan återupptas.
+Endast färdiga placeringar sparas. Att avbryta kön tar inte bort slutförda
+placeringar eller redan uppdaterade lastvärden.
 
 | JSON-fält | Indata i Grundplan |
 | --- | --- |
