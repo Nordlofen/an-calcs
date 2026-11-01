@@ -72,7 +72,7 @@ class TestConstructionPart(unittest.TestCase):
         self.assertEqual(self.plan._tag(copied)['values']['B_x'], 300)
         loaded = Grundplan.oppna(self.plan.spara(self.root / 'project.json')); self.addCleanup(loaded.close)
         self.assertEqual(loaded.taggar, self.plan.taggar)
-        self.assertEqual(loaded._document()['version'], 34)
+        self.assertEqual(loaded._document()['version'], 35)
         old = self.plan._document(); old['version'] = 32
         for tag in old['tags']:
             tag['values'].pop('B_x'); tag['values'].pop('B_y')

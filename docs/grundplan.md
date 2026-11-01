@@ -1743,7 +1743,7 @@ ovanpå fyllningarna, så även överlappande sulor kan avläsas. Ingen särskil
 En tillfällig rak hjälplinje till stödets placeringspunkt visas för markerad
 eller öppnad suletikett. Den ersätter inte befintliga fritt formade
 hänvisningslinjer och följer inte med i PDF/utskrift. Konturer, fyllningsval
-och placeringsdata sparas i projektformat 34. Äldre projektformat 1–33 stöds
+och placeringsdata sparas i projektformat 35. Äldre projektformat 1–34 stöds
 fortsatt. Konturer följer med i HTML och som vektorer i PDF. Skalning eller byte
 av ritningsunderlaget kräver ny kalibrering innan konturer visas igen.
 
@@ -1820,3 +1820,48 @@ Inställningen sparas per projekt/fall och följer med till HTML och PDF.
 Etikettstorlekens reglage och sifferfält är synkroniserade inom **1–180 %**.
 Placeringslåsta etiketter behåller sin synliga storlek även vid 1 % global
 etikettstorlek och efter sparning/återöppning.
+
+
+## Flera hus och stabilitetsgrupper
+
+**Glidningskontroll** kan hantera flera hus på samma grundplan. Varje
+stabilitetsgrupp har ett namn, egna X/Y-riktningar, egna EQU-horisontallaster,
+en koordinatsymbol och en separat resultatwidget. Endast gruppens egna sulor
+räknas med. En sula tillhör en grupp och dess **Bidrar i X/Y** avser det husets
+riktningar. X och Y är fortsatt separata kontroller; lastvärdena anges i husets
+eget koordinatsystem och roteras inte automatiskt när symbolens riktning ändras.
+Sulornas lokala konturaxlar, geometri och bärighetsberäkningar påverkas inte.
+
+1. Aktivera **Glidningskontroll**. Skriv ett namn och välj **Ny grupp**;
+   utan namn föreslås nästa husnamn. Välj aktuell grupp i rullistan.
+2. Markera sulorna och välj **Tilldela markerade**. X/Y-bidragsvalen behålls.
+   Grupp och bidragsriktningar kan också ändras i popupens **Glidning**,
+   direkt i tabellen eller gemensamt via **Ändra markerade**. Indatalåsta
+   sulor hoppas över vid gemensam tilldelning.
+3. Ange vilka X/Y-kontroller som ska utföras och husets horisontallaster.
+4. Välj **Placera koordinatsystem** och klicka på origo och därefter en punkt
+   i positiv X-riktning. Avståndet mellan punkterna bestämmer inte symbolens
+   storlek. Ingen måttkalibrering krävs för enbart riktning/placering.
+5. Ändra riktningen numeriskt eller markera symbolen och dra dess
+   rotationshandtag. Esc avbryter en pågående placering eller dragning.
+
+Varje huswidget visar lasteffekt, motstånd, U, antal och littera för just
+husets bidragande sulor. Koordinatsymbolerna och widgetarna flyttas, skalas,
+lagerordnas och låses med samma funktioner som övriga ritningsobjekt.
+Placeringslås skyddar också symbolens rotation. Gruppnamn kan ändras utan
+att sulorna behöver tilldelas på nytt. En tom extragrupp kan tas bort;
+standardgruppen kan byta namn. Gruppinställningar, tilldelningar och
+placeringar följer Ångra/Gör om, projektsparning och HTML-/vektor-PDF-export.
+
+**Bakåtkompatibilitet:** projekt före version 35 öppnas med befintlig kontroll
+och alla sulor i standardgruppen Hus 1 (id 0). Tidigare laster, bidragsval,
+resultat, symbol-/widgetplaceringar och lås behålls. Tills de nya gruppverktygen
+används behålls den äldre redovisningen med X_g/Y_g. Nya objekt får grupp 0
+som standard och kan sedan tilldelas rätt hus.
+
+Python-API: `skapa_stabilitetsgrupp(namn)` returnerar ett stabilt numeriskt id.
+`andra_stabilitetsgrupp(id, changes)` ändrar gruppens inställningar;
+`uppdatera_flera(ids, indata={"stability_group": id, "glid_x": True})` tilldelar
+hus och riktning. `stabilitetsgrupper` och `stabilitetsresultat` visar samtliga
+gruppers inställningar respektive resultat. Det tidigare `glidning`-/
+`glidningsresultat`-API:t behåller standardgruppens betydelse.

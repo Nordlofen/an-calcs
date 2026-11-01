@@ -138,7 +138,7 @@ const resultSource = await readFile(new URL("../src/an_calcs/notebook/grundplan_
 const { createResultModel } = await import("data:text/javascript;base64," + Buffer.from(resultSource).toString("base64"));
 const names = ["lang", "b", "l", "t", "d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_l", "M_insp_b", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k", "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd"];
 names.push("isolering", "isolerprodukt", "f_d_brott", "f_d_bruk", "F_vy_bruk", "M_insp_l_bruk", "M_insp_b_bruk");
-names.push("glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
+names.push("stability_group", "glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L");
 names.push("B_x", "B_y");
 names.push("length_end", "L_vagg", "L_vagg_minst_1", "l_override", "endast_h_stabilitet", "inaktiv", "kommentar", "lasttyp");
 const elementText = element => element.textContent + element.children.map(elementText).join("");
@@ -158,6 +158,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
   Object.assign(tag.values, {isolering: false, isolerprodukt: "", kommentar: "", f_d_brott: null, f_d_bruk: null, F_vy_bruk: null});
   Object.assign(tag.values, {glid_x: false, glid_y: false, V_Ed_EQU: null, glid_mu: null, glid_L: null});
   tag.values.B_x = null; tag.values.B_y = 1000;
+  tag.values.stability_group = 0;
   tag.values.L_vagg = null;
   tag.values.L_vagg_minst_1 = true;
   tag.values.l_override = false;
@@ -169,7 +170,7 @@ function setup(t, { readOnly = false, standalone = false, page = 1, pdf, pdfMode
     background: { url: "data:test", width: 800, height: 600, page, page_count: page },
     schema: { load_groups: loadGroups, fields: names.map(name => ({ name, label: name, multiline: name === "kommentar",
       display_symbol: name === "L_vagg" ? {base: "L", subscript: "stöd"} : name === "glid_L" ? {base: "L", subscript: "su"} : undefined,
-      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp", "length_end"].includes(name) ? "choice" : "number",
+      type: ["isolerprodukt", "kommentar"].includes(name) ? "text" : ["isolering", "glid_x", "glid_y", "l_override", "L_vagg_minst_1", "endast_h_stabilitet", "inaktiv"].includes(name) ? "bool" : ["lang", "lasttyp", "length_end", "stability_group"].includes(name) ? "choice" : "number",
       unit: ["B_x","B_y"].includes(name) ? "mm" : loadGroups.flatMap(group => group.fields).find(field => field.name === name)?.unit ?? (name === "V_Ed_EQU" ? "kN" : "m"),
       options: name === "lasttyp" ? [{value: 0, label: "Punktlast [kN]"}, {value: 1, label: "Linjelast [kN/m]"}] : [{ value: 0 }, { value: 1 }] })) } };
   const sent = [], transfers = [], handlers = new Map();
@@ -6359,4 +6360,66 @@ test('numeric label size previews and persists 1–180 percent with slider synch
   for(const value of ['','0','181','NaN']) {
     const count=ui.sent.length;number.value=value;number.dispatch('change');assert.equal(ui.sent.length,count);
   }
+});
+
+
+function stabilityFixture(ui) {
+  Object.assign(ui.tag.values,{glid_x:true,glid_y:false,stability_group:0});
+  ui.data.state.sliding={enabled:true,check_x:true,check_y:false,H_x_Ed:20,H_y_Ed:null,name:'Hus 1',angle_deg:0,group_mode:true,next_group_id:2,placements:{},
+    groups:[{id:1,name:'Hus 2',angle_deg:30,check_x:false,check_y:true,H_x_Ed:null,H_y_Ed:80,placements:{}}]};
+  const r=(demand,resistance,labels)=>({H_Ed:demand,H_Rd:resistance,count:labels.length,contributors:labels.map(label=>({label})),missing:[],status:'ok',utilization:demand/resistance});
+  ui.data.state.sliding_result={x:r(20,40,['VS1']),y:r(0,1,[])};
+  ui.data.state.stability_results=[{id:0,name:'Hus 1',results:ui.data.state.sliding_result},{id:1,name:'Hus 2',results:{x:r(0,1,[]),y:r(80,100,['H-GR.2'])}}];
+  ui.changed();
+}
+
+for(const opts of [{},{readOnly:true},{readOnly:true,pdfMode:true}]) test(`two house widgets have separate axes, loads and contributor lists ${JSON.stringify(opts)}`,t=>{
+  const ui=setup(t,opts);stabilityFixture(ui);
+  const second=ui.find(e=>e.dataset.kind==='stability:1:legend');
+  assert.equal(second.hidden,false);
+  assert.match(elementText(second),/Hus 2.*80 kN.*100 kN.*80 %.*H-GR.2/);
+  assert.doesNotMatch(elementText(second),/VS1/);
+  assert.match(elementText(ui.byClass('gp-sliding-legend')),/Hus 1.*20 kN.*40 kN.*50 %.*VS1/);
+  const axes=ui.find(e=>e.dataset.kind==='stability:1:symbol');
+  assert.match(axes.children[0].getAttribute('aria-label'),/Hus 2.*30 grader/);
+});
+
+test('house demand and numeric angle inputs update the selected group only',t=>{
+  const ui=setup(t);stabilityFixture(ui);
+  const select=ui.find(e=>e.getAttribute('aria-label')==='Aktiv stabilitetsgrupp');select.value='1';select.dispatch('change');
+  const angle=ui.find(e=>e.getAttribute('aria-label')==='Husets positiva X-riktning i grader');angle.value='60';angle.dispatch('change');
+  const request=ui.sent.at(-1);assert.equal(request.action,'stability_update');assert.equal(request.id,1);assert.deepEqual(request.settings,{angle_deg:60});
+  ui.data.state.sliding.groups[0].angle_deg=60;ui.changed();ui.ack(request);
+  const demand=ui.find(e=>e.getAttribute('aria-label')==='Hus 2 – H_y,Ed i kN, EQU');demand.value='90';demand.dispatch('input');
+  assert.deepEqual(ui.sent.at(-1).settings,{H_y_Ed:90});assert.equal(ui.sent.at(-1).id,1);
+  assert.equal(ui.data.state.sliding.H_x_Ed,20);
+});
+
+test('membership is editable in table and bulk assignment preserves footing calculations',t=>{
+  const ui=setup(t);stabilityFixture(ui);
+  const membership=tableField(ui,'tag1','stability_group');
+  assert.ok(membership.children.some(e=>e.textContent==='Hus 2'));
+  membership.value='1';membership.dispatch('change');
+  assert.deepEqual(ui.sent.at(-1).values,{stability_group:1});
+  assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
+});
+
+test('house coordinate placement uses origin and positive X direction without scale calibration',t=>{
+  const ui=setup(t);stabilityFixture(ui);
+  const select=ui.find(e=>e.getAttribute('aria-label')==='Aktiv stabilitetsgrupp');select.value='1';select.dispatch('change');
+  ui.byText('Placera koordinatsystem').click();const rect=ui.byClass('gp-paper').getBoundingClientRect();ui.place(200,200);ui.place(400,200);
+  const request=ui.sent.at(-1);assert.equal(request.action,'stability_update');assert.equal(request.id,1);
+  near(request.settings.angle_deg,0);near(request.settings.placements[1].symbol.x,(200-rect.left)/rect.width-80/ui.data.background.width);near(request.settings.placements[1].symbol.y,(200-rect.top)/rect.height-80/ui.data.background.height);
+});
+
+test('new coordinate symbols rotate by handle, resize by keyboard and respect placement locks',t=>{
+  const ui=setup(t);stabilityFixture(ui);
+  const axes=ui.find(e=>e.dataset.kind==='stability:1:symbol');axes.children[0].click();
+  const rotate=ui.find(e=>e.className==='gp-axis-rotate' && e.dataset.stabilityId==='1');
+  assert.equal(rotate.hidden,false);ui.start(rotate,140,80);ui.move(80,20);ui.finish(80,20);
+  const request=ui.sent.at(-1);assert.equal(request.action,'stability_update');assert.equal(request.id,1);near(request.settings.angle_deg,90);
+  ui.data.state.sliding.groups[0].angle_deg=90;ui.changed();ui.ack(request);
+  const resize=axes.children.find(e=>e.className==='gp-axis-resize');resize.dispatch('keydown',{key:'+'});
+  const move=ui.sent.at(-1);assert.equal(move.action,'sliding_placement');assert.equal(move.kind,'stability:1:symbol');assert.equal(move.position.size,165);
+  ui.data.state.placement_locks=[{type:'overlay',page:1,kind:'stability:1:symbol'}];ui.changed();assert.equal(rotate.hidden,true);
 });

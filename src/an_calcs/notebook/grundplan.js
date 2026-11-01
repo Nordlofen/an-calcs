@@ -661,12 +661,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   let layoutDraft = null, panelDrag = null;
   const layout = () => ({...LAYOUT_DEFAULTS, ...(layoutDraft || state().layout)});
   const overlayPositions = new Map(), pendingOverlayPositions = new Map(), slidingDirty = new Set();
-  const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"]);
+  const slidingNames = new Set(["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L", "stability_group"]);
   const bearingOnlyNames = new Set(["d", "e_b_plac", "e_l_plac", "F_vy", "F_hb", "F_hl", "M_insp_b", "M_insp_l",
     "M_insp_b_bruk", "M_insp_l_bruk", "c_prime", "c_uk", "gamma", "gamma_prime", "phi_k",
     "delta_h", "beta", "alpha", "eta", "gamma_m", "gamma_m0", "gamma_Rd", "f_d_brott", "f_d_bruk"]);
   const insulationNames = new Set(["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"]);
   const sliding = () => slidingDraft || state().sliding || {enabled: false, check_x: false, check_y: false, placements: {}};
+  let stabilityActive = 0, stabilityBusy = false, stabilityPicking = null;
+  const stabilityDrafts = new Map(), stabilityAngles = new Map();
+  const stabilityGroups = () => [{...sliding(), id:0, name:sliding().name || "Hus 1", angle_deg:sliding().angle_deg || 0},
+    ...(sliding().groups || []).map(group => ({...group, enabled:sliding().enabled}))].map(group => ({...group,...stabilityDrafts.get(group.id)}));
+  const stabilityGroup = id => stabilityGroups().find(group => group.id === Number(id)) || stabilityGroups()[0];
+  const stabilityKind = (id, part) => id === 0 ? part : `stability:${id}:${part}`;
+  const stabilityIdentity = kind => kind === "symbol" || kind === "legend" ? {id:0,part:kind}
+    : /^stability:\d+:(symbol|legend)$/.test(kind) ? {id:Number(kind.split(":")[1]),part:kind.split(":")[2]} : null;
+  const stabilityNamed = () => !!sliding().group_mode || !!sliding().groups?.length || !!sliding().angle_deg || !!sliding().name && sliding().name!=="Hus 1";
+  const stabilitySymbol = id => String(Number(id) + 1);
+
   const colour = () => colourDraft || state().colour_grouping || COLOUR_DEFAULTS;
   const insulationWidget = () => insulationWidgetDraft || state().insulation_widget || INSULATION_WIDGET_DEFAULTS;
   const commentWidget = () => commentWidgetDraft || state().comment_widget || COMMENT_WIDGET_DEFAULTS;
@@ -836,6 +847,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     leaderEdit = leaderNode = null;
     contourPlacementDraft = contourSettingsDraft = null; contourBusy = false;
     headingDraft = sizeDraft = slidingDraft = colourDraft = colourEditType = layoutDraft = calibrationDraft = null;
+    stabilityDrafts.clear();stabilityAngles.clear();stabilityBusy=false;stabilityPicking=null;
     insulationWidgetDraft = commentWidgetDraft = referenceWidgetDraft = null;
     formId = null; bulkSignature = "";
     command(action, {}, [], reply => {
@@ -1325,6 +1337,51 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   slidingToggle.title = "Visa globala riktningskontroller, koordinatsymbol och glidningsresultat.";
   if (!readOnly) toolbar.append(slidingToggle);
   const slidingControls = node("div", "gp-sliding-controls");
+  const stabilitySelect = node("select"); stabilitySelect.setAttribute("aria-label","Aktiv stabilitetsgrupp");
+  const stabilityName = node("input"); stabilityName.type="text"; stabilityName.placeholder="Namn på hus";
+  stabilityName.setAttribute("aria-label","Namn på stabilitetsgrupp"); stabilityName.maxLength=80;
+  const stabilityNew = button("Ny grupp", () => {
+    if(stabilityBusy)return;
+    stabilityBusy=true;showSliding();
+    command("stability_create", {name:stabilityName.value.trim() || "Hus " + ((sliding().next_group_id ?? stabilityGroups().length) + 1) }, [], reply => {
+      stabilityBusy=false;if(reply.ok){stabilityActive=reply.id;stabilityName.value="";}else showMessage(reply.error,true);update();
+    });
+  });
+  const stabilityAssign = button("Tilldela markerade",()=>{
+    if(stabilityBusy)return;
+    const tags=selectionTags().filter(tag=>!inputLocked(tag));
+    if(!tags.length){showMessage("Markera sulorna som ska tillhöra huset. Låsta indata behöver låsas upp.",true);return;}
+    stabilityBusy=true;showSliding();
+    command("bulk_update",{ids:tags.map(tag=>tag.id),values:{stability_group:stabilityActive}},[],reply=>{
+      stabilityBusy=false;for(const tag of tags){drafts.delete(tag.id);slidingDirty.delete(tag.id);}
+      if(reply.ok)showMessage(tags.length+" sulor tilldelade "+stabilityGroup(stabilityActive).name+". X/Y-bidragsvalen behålls.");else showMessage(reply.error,true);update();
+    });
+  });
+  const stabilityRename = button("Byt gruppnamn", () => setStabilitySettings({name:stabilityName.value.trim()}));
+  const stabilityDelete = button("Ta bort grupp", () => {
+    if(stabilityBusy || !stabilityActive)return;
+    stabilityBusy=true;showSliding();command("stability_delete",{id:stabilityActive},[],reply=>{
+      stabilityBusy=false;if(reply.ok)stabilityActive=0;else showMessage(reply.error,true);update();
+    });
+  });
+  const stabilityAngle = node("input"); stabilityAngle.type="text"; stabilityAngle.inputMode="decimal";
+  stabilityAngle.setAttribute("aria-label","Husets positiva X-riktning i grader");
+  const stabilityAngleLabel=node("label","gp-stability-angle");stabilityAngleLabel.append(node("span","","Riktning X [°]"),stabilityAngle);
+  const stabilityPlace=button("Placera koordinatsystem",()=>{
+    cancelDrag();closeDialog();setMode("stability");stabilityPicking={id:stabilityActive,points:[]};
+    showMessage("Klicka på husets origo och därefter en punkt i positiv X-riktning. Esc avbryter.");
+    root.classList.add("gp-stability-picking");
+  });
+  const stabilityGroupTools=node("div","gp-stability-group-tools");
+  const stabilitySelectLabel=node("label");stabilitySelectLabel.append(node("span","","Stabilitetsgrupp "),stabilitySelect);
+  stabilityGroupTools.append(stabilitySelectLabel,stabilityName,stabilityNew,stabilityRename,stabilityDelete,stabilityAssign,stabilityAngleLabel,stabilityPlace);
+  slidingControls.append(stabilityGroupTools);
+  stabilitySelect.addEventListener("change",()=>{stabilityActive=Number(stabilitySelect.value);stabilityName.value="";showSliding();});
+  stabilityAngle.addEventListener("change",()=>{
+    const value=draftNumber(stabilityAngle.value);
+    if(!Number.isFinite(value)||Math.abs(value)>36000){stabilityAngle.setCustomValidity("Ange en ändlig riktning i grader.");stabilityAngle.reportValidity();return;}
+    stabilityAngle.setCustomValidity("");setStabilitySettings({angle_deg:value});
+  });
   const globalInputs = new Map();
   for (const axis of ["x", "y"]) {
     const choice = node("label", "gp-sliding-choice");
@@ -1343,13 +1400,13 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const group = node("div", "gp-sliding-control");
     group.append(choice, demand);
     slidingControls.append(group);
-    check.addEventListener("change", () => setSliding({["check_" + axis]: check.checked}));
+    check.addEventListener("change", () => setStabilitySettings({["check_" + axis]: check.checked}));
     input.addEventListener("input", () => {
       const value = input.value.trim().replace(",", ".");
       const numeric = value === "" ? NaN : Number(value);
-      setSliding({["H_" + axis + "_Ed"]: Number.isFinite(numeric) ? numeric : null});
+      setStabilitySettings({["H_" + axis + "_Ed"]: Number.isFinite(numeric) ? numeric : null});
     });
-    globalInputs.set(axis, {check, input, demand});
+    globalInputs.set(axis, {check, input, demand, caption});
   }
   if (!readOnly) toolbar.append(slidingControls);
   let soilBusy = false, soilEditor = null, projectSoilSignature = "", footingSoilEditor = null, footingSoilSignature = "";
@@ -2254,6 +2311,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   legendResize.title = "Dra hörnet för att förstora eller förminska hela rutan proportionellt";
   slidingLegend.addEventListener("click", event => selectOverlayBody("legend", event));
   slidingLegend.append(slidingHeader, node("p", "gp-sliding-note", "X och Y kontrolleras var för sig"), slidingBody, legendResize);
+  const stabilityWidgets = new Map([[0,{id:0, axes:axesOverlay, axesButton, svg:axesSvg, axesResize,
+    legend:slidingLegend, header:slidingHeader, body:slidingBody, resize:legendResize, note:slidingLegend.children[1], legacy:true, legacyNodes:[...axesSvg.children], legacyLabel:axesButton.getAttribute("aria-label")}]]);
   const colourLegend = node("section", "gp-sliding-overlay gp-colour-legend");
   colourLegend.dataset.kind = "colour";
   colourLegend.setAttribute("aria-label", "Legend för färggruppering");
@@ -2965,7 +3024,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           areaPhases.clear();
           headingDraft = null; cropDraft = canvasPending = null;
           drawingDraft = drawingPreview = null; scaleDrafts.clear();
-          slidingDraft = null; overlaySelected = null; selectedOverlays.clear(); lockDrafts.clear();
+          slidingDraft = null; stabilityDrafts.clear();stabilityAngles.clear();stabilityBusy=false;stabilityActive=0;
+          overlaySelected = null; selectedOverlays.clear(); lockDrafts.clear();
           colourDraft = null; colourEditType = null; colourError.textContent = "";
           tableViewDraft = null; tableSortScope = null; insulationWidgetDraft = null; commentWidgetDraft = null; referenceWidgetDraft = null;
           textDrafts.clear(); textDeleting.clear(); textAddBusy = false;
@@ -2988,6 +3048,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   projectInput.addEventListener("change", () => upload(projectInput, "open"));
   loadsInput.addEventListener("change", () => upload(loadsInput, "import_loads"));
   function setMode(value) {
+    if(value!=="stability"){stabilityPicking=null;root.classList.remove("gp-stability-picking");}
     if (!["contour", "calibrate"].includes(value) && !(value === "measure" && contourResume)) {
       contourEditing = contourResume = contourPlacing = false; contourPoints = [];
     }
@@ -3580,11 +3641,12 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (["insulation", "comments", "reference"].includes(kind)) {
       const {x, y, size} = overlayPositions.get(key) || (kind === "reference" ? referenceWidget() : kind === "comments" ? commentWidget() : insulationWidget()); return {x, y, size};
     }
-    const defaults = kind === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
-    return {...defaults, ...(overlayPositions.get(key) || sliding().placements?.[background().page]?.[kind])};
+    const identity=stabilityIdentity(kind), part=identity?.part || kind;
+    const defaults = part === "symbol" ? {x: .06, y: .55, size: 160} : {x: .50, y: .04, size: 410};
+    return {...defaults, ...(overlayPositions.get(key) || stabilityGroup(identity?.id || 0).placements?.[background().page]?.[part])};
   }
   function overlaySize(kind, value) {
-    const [low, high] = kind.startsWith("text:") ? [10, 144] : kind === "symbol" ? [50, 600] : ["colour", "insulation"].includes(kind) ? [150, 900] : [205, 1230];
+    const [low, high] = kind.startsWith("text:") ? [10, 144] : (stabilityIdentity(kind)?.part === "symbol") ? [50, 600] : ["colour", "insulation"].includes(kind) ? [150, 900] : [205, 1230];
     return Math.max(low, Math.min(high, value));
   }
   function saveOverlayPosition(kind, page, position) {
@@ -3623,6 +3685,83 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       [insulationHeader, "insulation", false], [insulationResize, "insulation", true],
       [commentHeader, "comments", false], [commentResize, "comments", true],
       [referenceHeader, "reference", false], [referenceResize, "reference", true]]) bindOverlayKeys(element, kind, resize);
+  function setStabilitySettings(settings, id=stabilityActive) {
+    if(readOnly || stabilityBusy)return;
+    // Keep the original command/API for legacy direction and demand fields.
+    if(id===0 && !stabilityNamed() && !Object.keys(settings).some(k=>["name","angle_deg","placements"].includes(k))){setSliding(settings);return;}
+    const draft={...stabilityGroup(id),...settings};stabilityDrafts.set(id,draft);stabilityBusy=true;showSliding();
+    command("stability_update",{id,settings},[],reply=>{
+      stabilityBusy=false;if(stabilityDrafts.get(id)===draft)stabilityDrafts.delete(id);
+      stabilityAngles.delete(id);if(!reply.ok)showMessage(reply.error,true);update();
+    });
+  }
+  function ensureStabilityWidgets() {
+    const groups=stabilityGroups(),ids=new Set(groups.map(g=>g.id));
+    for(const [id,entry] of stabilityWidgets)if(!ids.has(id)){
+      entry.axes.remove();entry.legend.remove();stabilityWidgets.delete(id);
+    }
+    for(const group of groups){
+      if(stabilityWidgets.has(group.id))continue;
+      const id=group.id,symbol=stabilityKind(id,"symbol"),legend=stabilityKind(id,"legend");
+      const axes=node("div","gp-sliding-overlay gp-global-axes gp-house-axes");axes.dataset.kind=symbol;
+      const axesButton=button("",e=>selectOverlayClick(symbol,e),"gp-axis-symbol gp-sliding-handle");
+      const svg=svgNode("svg",{viewBox:"0 0 200 200","aria-hidden":"true"});axesButton.append(svg);
+      const axesResize=button("",()=>{},"gp-axis-resize");axesResize.setAttribute("aria-label","Ändra koordinatsymbolens storlek");
+      axes.append(axesButton,axesResize);
+      const element=node("section","gp-sliding-overlay gp-sliding-legend gp-house-sliding");element.dataset.kind=legend;
+      const header=button("",e=>selectOverlayClick(legend,e),"gp-sliding-header gp-sliding-handle");
+      const note=node("p","gp-sliding-note"),body=node("div","gp-sliding-body");body.setAttribute("aria-live","polite");
+      const resize=button("",()=>{},"gp-overlay-resize gp-legend-resize");resize.setAttribute("aria-label","Ändra glidningsrutans storlek");
+      element.append(header,note,body,resize);element.addEventListener("click",e=>selectOverlayBody(legend,e));
+      overlays.append(axes,element);
+      const entry={id,axes,axesButton,svg,axesResize,legend:element,header,note,body,resize};stabilityWidgets.set(id,entry);
+      for(const [el,kind,resizing] of [[axesButton,symbol,false],[axesResize,symbol,true],[header,legend,false],[resize,legend,true]])bindOverlayKeys(el,kind,resizing);
+    }
+    for(const entry of stabilityWidgets.values())if(!entry.rotate){
+      entry.rotate=button("↻",()=>{},"gp-axis-rotate");entry.rotate.dataset.stabilityId=String(entry.id);
+      entry.rotate.setAttribute("aria-label","Rotera koordinatsystem för " + stabilityGroup(entry.id).name);
+      entry.rotate.title="Dra för att rotera husets koordinatsystem";
+      entry.rotate.style.left=entry.id===0?"79%":"80%";entry.rotate.style.top=entry.id===0?"78%":"50%";
+      entry.axes.append(entry.rotate);
+    }
+  }
+  function chooseStabilityPoint(event) {
+    const point=measurementPoint(event),picking=stabilityPicking;if(!point || !picking)return;
+    picking.points.push(point);
+    if(picking.points.length===1){showMessage("Klicka på en punkt i husets positiva X-riktning.");return;}
+    const [a,b]=picking.points,bg=background();
+    if(drawingDistance(a,b,bg)<1e-6){picking.points.pop();showMessage("Välj en annan punkt än origo.",true);return;}
+    const id=picking.id,kind=stabilityKind(id,"symbol"),group=stabilityGroup(id),p={...overlayPosition(kind)};
+    const origin=id===0?{x:.16,y:.78}:{x:.5,y:.5};
+    p.x=a.x-origin.x*p.size*objectScale(overlayObject(kind))/bg.width;
+    p.y=a.y-origin.y*p.size*objectScale(overlayObject(kind))/bg.height;
+    const angle_deg=Math.atan2(-(b.y-a.y)*bg.height,(b.x-a.x)*bg.width)*180/Math.PI;
+    const placements=JSON.parse(JSON.stringify(group.placements||{}));
+    placements[bg.page]={...(placements[bg.page]||{}),symbol:p};
+    stabilityPicking=null;setMode("pan");setStabilitySettings({angle_deg,placements},id);
+  }
+  function drawStabilityAxes(entry,group) {
+    const named=stabilityNamed(),angle=stabilityAngles.get(group.id)??group.angle_deg??0;
+    if(!named && !angle && !stabilityAngles.has(group.id)){
+      if(entry.id===0 && !entry.legacy){entry.svg.replaceChildren(...entry.legacyNodes);entry.axesButton.setAttribute("aria-label",entry.legacyLabel);entry.legacy=true;}
+      return;
+    }
+    entry.legacy=false;
+    const a=angle*Math.PI/180,origin=group.id===0?{x:32,y:156}:{x:100,y:100},L=group.id===0?120:60;
+    const p=(distance,axis)=>({x:origin.x+distance*(axis==="x"?Math.cos(a):-Math.sin(a)),y:origin.y+distance*(axis==="x"?-Math.sin(a):-Math.cos(a))});
+    entry.svg.replaceChildren();
+    for(const axis of ["x","y"]){
+      const tip=p(L,axis),ux=(tip.x-origin.x)/L,uy=(tip.y-origin.y)/L;
+      entry.svg.append(svgNode("line",{x1:origin.x,y1:origin.y,x2:tip.x,y2:tip.y,stroke:"currentColor","stroke-width":3}),
+        svgNode("path",{d:`M${tip.x} ${tip.y}L${tip.x-10*ux+5*uy} ${tip.y-10*uy-5*ux}L${tip.x-10*ux-5*uy} ${tip.y-10*uy+5*ux}Z`,fill:"currentColor"}));
+      const label=p(L+17,axis),text=svgNode("text",{x:label.x,y:label.y+6,fill:"currentColor","font-size":22,"font-style":"italic","text-anchor":"middle"},axis.toUpperCase());
+      text.append(svgNode("tspan",{"baseline-shift":"sub","font-size":13},stabilitySymbol(group.id)));entry.svg.append(text);
+    }
+    entry.svg.append(svgNode("circle",{cx:origin.x,cy:origin.y,r:4,stroke:"currentColor","stroke-width":2,fill:"white"}),
+      svgNode("text",{x:100,y:196,"font-size":17,"text-anchor":"middle",fill:"currentColor"},group.name));
+    const tip=p(L,"x");entry.rotate.style.left=tip.x/2+"%";entry.rotate.style.top=tip.y/2+"%";
+    entry.axesButton.setAttribute("aria-label",group.name+", X/Y-riktningar vridna "+compactNumber(angle,1)+" grader");
+  }
   function showTextObjects() {
     for (const add of textAddButtons) add.disabled = !background().url || textAddBusy || drawingBusy || !!drawingDraft || drawingPending || importBusy || deleteBusy;
     const objects = state().text_objects || [];
@@ -3707,7 +3846,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     renderSlidingGeometry();
   }
   function renderSlidingGeometry() {
-    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"], [commentLegend, "comments"], [referenceLegend, "reference"]]) {
+    for (const [element, kind] of [[axesOverlay, "symbol"], [slidingLegend, "legend"], [colourLegend, "colour"], [insulationLegend, "insulation"], [commentLegend, "comments"], [referenceLegend, "reference"],
+      ...[...stabilityWidgets.values()].filter(e=>e.id!==0).flatMap(e=>[[e.axes,stabilityKind(e.id,"symbol")],[e.legend,stabilityKind(e.id,"legend")]])]) {
       const p = overlayPosition(kind);
       element.hidden = (kind === "colour" ? !colour().enabled || !colour().show_legend
         : kind === "insulation" ? !insulationWidget().enabled : kind === "comments" ? !commentWidget().enabled : kind === "reference" ? !referenceWidget().enabled : !sliding().enabled) || !background().url;
@@ -3717,13 +3857,15 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       element.style.top = p.y * 100 + "%";
       element.classList.toggle("gp-overlay-selected", !readOnly && (selectedOverlays.has(kind) || overlaySelected === kind));
       element.classList.toggle("gp-placement-locked", !readOnly && placementLocked(overlayObject(kind)));
-      if (kind === "symbol") {
+      if (stabilityIdentity(kind)?.part === "symbol") {
+        const entry=stabilityWidgets.get(stabilityIdentity(kind).id);
         element.style.width = element.style.height = p.size * zoom * visualScale + "px";
-        axesResize.hidden = readOnly || placementLocked(overlayObject(kind)) || overlaySelected !== "symbol";
+        entry.axesResize.hidden = readOnly || placementLocked(overlayObject(kind)) || overlaySelected !== kind;
+        if(entry.rotate)entry.rotate.hidden=readOnly || placementLocked(overlayObject(kind)) || overlaySelected!==kind;
       } else {
         const scale = zoom * visualScale * p.size / (["colour", "insulation"].includes(kind) ? 300 : 410);
         element.style.transform = "scale(" + scale + ")";
-        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : kind === "reference" ? referenceResize : legendResize;
+        const resize = kind === "colour" ? colourResize : kind === "insulation" ? insulationResize : kind === "comments" ? commentResize : kind === "reference" ? referenceResize : stabilityWidgets.get(stabilityIdentity(kind)?.id)?.resize || legendResize;
         resize.hidden = readOnly || placementLocked(overlayObject(kind)) || overlaySelected !== kind;
         // Keep the corner target usable even when the whole legend is small.
         resize.style.transform = "scale(" + 1 / scale + ")";
@@ -3765,17 +3907,43 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     showObjectFrame();
   }
   function showSliding() {
-    const settings = sliding();
-    slidingToggle.classList.toggle("gp-selected", !!settings.enabled);
-    slidingToggle.setAttribute("aria-pressed", String(!!settings.enabled));
-    slidingToggle.disabled = !background().url;
-    slidingControls.hidden = !settings.enabled;
-    for (const [axis, {check, input, demand}] of globalInputs) {
-      check.checked = !!settings["check_" + axis];
-      demand.hidden = !check.checked;
-      if (document.activeElement !== input) input.value = settings["H_" + axis + "_Ed"] ?? "";
+    const settings=sliding();ensureStabilityWidgets();
+    if(!stabilityGroups().some(g=>g.id===stabilityActive))stabilityActive=0;
+    const current=stabilityGroup(stabilityActive);
+    slidingToggle.classList.toggle("gp-selected",!!settings.enabled);slidingToggle.setAttribute("aria-pressed",String(!!settings.enabled));
+    slidingToggle.disabled=!background().url;slidingControls.hidden=!settings.enabled;
+    const options=stabilityGroups().map(group=>[group.id,group.name]);
+    stabilitySelect.replaceChildren(...options.map(([id,name])=>{const o=node("option","",name);o.value=String(id);return o;}));stabilitySelect.value=String(stabilityActive);
+    for(const control of [stabilitySelect,stabilityName,stabilityNew,stabilityRename,stabilityDelete,stabilityAssign,stabilityAngle,stabilityPlace])control.disabled=stabilityBusy || !background().url;
+    stabilityDelete.disabled ||= stabilityActive===0;
+    const locked=placementLocked(overlayObject(stabilityKind(stabilityActive,"symbol")));
+    stabilityAngle.disabled ||= locked;stabilityPlace.disabled ||= locked;
+    if(document.activeElement!==stabilityAngle)stabilityAngle.value=String(stabilityAngles.get(stabilityActive)??current.angle_deg??0);
+    stabilityName.placeholder=current.name;
+    if(fieldSchema?.has("stability_group"))fieldSchema.get("stability_group").options=options.map(([value,label])=>({value,label}));
+    for(const axis of ["x","y"]){
+      const head=tableSortHeads.get("glid_"+axis);
+      if(head)head.button.replaceChildren(stabilityNamed()?node("span","","Bidrar i husets "+axis.toUpperCase()):symbolNode({prefix:"Bidrar ",base:axis.toUpperCase(),subscript:"g"}),head.arrow);
     }
-    slidingBody.replaceChildren();
+    for(const [axis,{check,input,demand,caption}] of globalInputs){
+      check.checked=!!current["check_"+axis];demand.hidden=!check.checked;check.disabled=input.disabled=stabilityBusy;
+      caption.replaceChildren(node("span","","Kontroll "),symbolNode({base:axis.toUpperCase(),subscript:stabilityNamed()?stabilitySymbol(stabilityActive):"g"}));
+      check.setAttribute("aria-label","Kontroll "+axis.toUpperCase()+"_"+(stabilityNamed()?stabilitySymbol(stabilityActive):"g"));
+      input.setAttribute("aria-label",stabilityNamed()?current.name+" – H_"+axis+",Ed i kN, EQU":"Global H_"+axis+",Ed i kN, EQU");
+      if(document.activeElement!==input)input.value=current["H_"+axis+"_Ed"]??"";
+    }
+    for(const group of stabilityGroups()){
+      const entry=stabilityWidgets.get(group.id);drawStabilityAxes(entry,group);
+      const title=stabilityNamed()?"Glidningskontroll · "+group.name:"Glidningskontroll";
+      entry.header.textContent=title;entry.legend.setAttribute("aria-label",title);
+      entry.note.textContent=stabilityNamed()?"X"+stabilitySymbol(group.id)+" och Y"+stabilitySymbol(group.id)+" kontrolleras var för sig":"X och Y kontrolleras var för sig";
+      renderStabilityResult(entry,group);
+    }
+    renderSlidingGeometry();
+  }
+  function renderStabilityResult(entry,group) {
+    const settings=group;
+    entry.body.replaceChildren();
     const table = node("table", "gp-sliding-table");
     const head = node("thead"), row = node("tr");
     for (const caption of ["Riktning", "Lasteffekt", "Motstånd", "U", "Sulor*"]) row.append(node("th", "", caption));
@@ -3783,17 +3951,17 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const body = node("tbody");
     for (const axis of ["x", "y"]) {
       if (!settings["check_" + axis]) continue;
-      const saved = state().sliding_result?.[axis];
+      const saved = (group.id===0 ? state().sliding_result : state().stability_results?.find(g=>g.id===group.id)?.results)?.[axis];
       const r = saved || {status: "incomplete"};
-      const waiting = slidingDraft || slidingDirty.size;
+      const waiting = (group.id===0 && slidingDraft) || stabilityDrafts.has(group.id) || state().tags.some(tag=>Number(tag.values.stability_group||0)===group.id && slidingDirty.has(tag.id));
       const status = waiting ? "incomplete" : r.status;
       const tr = node("tr", "gp-slide-" + status);
       const direction = node("th");
-      direction.append(symbolNode({base: axis.toUpperCase(), subscript: "g"}));
+      direction.append(symbolNode({base: axis.toUpperCase(), subscript: stabilityNamed()?stabilitySymbol(group.id):"g"}));
       tr.append(direction);
       for (const [value, suffix] of [[r.H_Ed, "Ed"], [r.H_Rd, "Rd"]]) {
         const cell = node("td");
-        cell.append(symbolNode({base: "H", subscript: axis + "," + suffix}),
+        cell.append(symbolNode({base: "H", subscript: axis + (stabilityNamed()?stabilitySymbol(group.id):"") + "," + suffix}),
           node("span", "gp-sliding-value", waiting || value == null ? "—" : compactNumber(value, suffix === "Rd" ? 1 : 2) + " kN"));
         tr.append(cell);
       }
@@ -3813,11 +3981,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       }
     }
     table.append(body);
-    if (settings.check_x || settings.check_y) slidingBody.append(table,
-      node("p", "gp-sliding-note", "* Sulor med positivt bidrag i respektive riktning."));
-    else slidingBody.append(mathText("p", "gp-sliding-note", "Välj Kontroll X_g eller Kontroll Y_g i verktygsraden."));
-    renderSlidingGeometry();
+    if (settings.check_x || settings.check_y) entry.body.append(table,
+      node("p", "gp-sliding-note", "* Sulor med positivt bidrag i respektive riktning" + (stabilityNamed()?" inom " + group.name:"") + "."));
+    else entry.body.append(mathText("p", "gp-sliding-note", "Välj Kontroll X_g eller Kontroll Y_g i verktygsraden."));
   }
+
   function setZoom(value, center) {
     const bg = background();
     if (!bg.width) return;
@@ -4245,7 +4413,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       if (showSlidingBlock) {
         const section = node("span", "gp-tag-sliding");
         if (adjusted && onlyH) section.append(node("span", "gp-load-adjusted", "Omräknad last"));
-        section.append(node("strong", "gp-tag-sliding-heading", "Glidmotstånd – globalt"));
+        section.append(node("strong", "gp-tag-sliding-heading", stabilityNamed()?"Glidmotstånd · "+stabilityGroup(Number(values.stability_group||0)).name:"Glidmotstånd – globalt"));
         const grid = node("span", "gp-tag-sliding-grid");
         const data = node("span", "gp-tag-sliding-inputs"), capacities = node("span", "gp-tag-sliding-capacities");
         const add = (parent, base, subscript, value, bold = false) => {
@@ -4262,7 +4430,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         if (lineLoads(values) && !values.physical_length) add(data, "L", "su", value("glid_L", "m"));
         for (const axis of ["x", "y"]) if (values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : tag.sliding?.[axis];
-          add(capacities, "H", axis + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
+          add(capacities, "H", axis + (stabilityNamed()?stabilitySymbol(values.stability_group||0):"") + ",Rd,i", capacity == null ? "—" : compactNumber(capacity, 1) + " kN", true);
         }
         grid.append(data, capacities); section.append(grid); marker.append(section);
       }
@@ -4287,8 +4455,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       "eta", "gamma_m", "gamma_m0", "gamma_Rd"]],
     ["Isolering", ["isolering", "isolerprodukt", "f_d_brott", "f_d_bruk"],
       "Ange färdiga dimensionerande bärförmågor f_d,brott och f_d,bruk. Trycket över effektiv area kontrolleras i respektive lastkombination. Isoleringen förutsätts täcka hela den effektiva arean."],
-    ["Glidning", ["glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],
-      "V_Ed,EQU ska redan inkludera sulans egentyngd. X_g och Y_g är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
+    ["Glidning", ["stability_group", "glid_x", "glid_y", "V_Ed_EQU", "glid_mu", "glid_L"],
+      "V_Ed,EQU ska redan inkludera sulans egentyngd. Husets X och Y är separata lastfall. Välj de riktningar där sulans glidmotstånd får utnyttjas. Isolerade sulor bidrar med 0 kN."],
     ["Kommentar", ["kommentar"]],
   ];
   const fieldSchema = new Map(model.get("schema").fields.map((field) => [field.name, field]));
@@ -4820,6 +4988,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           }
           continue;
         }
+        if(name==="stability_group"){
+          const signature=JSON.stringify(stabilityGroups().map(g=>[g.id,g.name]));
+          if(control.dataset.groups!==signature){control.replaceChildren(...stabilityGroups().map(g=>{const option=node("option","",g.name);option.value=String(g.id);return option;}));control.dataset.groups=signature;}
+          control.value=String(drafts.get(tag.id)?.values.stability_group??tag.values.stability_group??0);
+        }
         const values = {...tag.values, ...drafts.get(tag.id)?.values};
         const inactiveField = (values.inaktiv || selected.has(tag.id) && selectedInactive)
           && !["inaktiv", "kommentar"].includes(name);
@@ -4996,7 +5169,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   }
   function allObjectKeys() {
     return [...state().tags.filter(t => t.page === background().page).map(t => "tag:" + t.id),
-      ...["symbol", "legend", "colour", "insulation", "comments", "reference", ...state().text_objects?.map(t => "text:" + t.id) || []].map(kind => placementKey(overlayObject(kind)))];
+      ...["symbol", "legend", "colour", "insulation", "comments", "reference", ...state().text_objects?.map(t => "text:" + t.id) || [], ...stabilityGroups().filter(g=>g.id!==0).flatMap(g=>[stabilityKind(g.id,"symbol"),stabilityKind(g.id,"legend")])].map(kind => placementKey(overlayObject(kind)))];
   }
   function objectOrder() {
     const keys = allObjectKeys(), order = state().object_layout?.order || [];
@@ -5804,6 +5977,22 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         }
         continue;
       }
+      if(name==="stability_group"){
+        entry.row.hidden=false;
+        if(!readOnly){
+          const selected=entry.input.value;
+          const options=stabilityGroups().map(g=>({value:g.id,label:g.name}));
+          const signature=JSON.stringify(options);
+          if(entry.input.dataset.groups!==signature){entry.input.replaceChildren(...options.map(g=>{const option=node("option","",g.label);option.value=String(g.value);return option;}));entry.input.value=selected;entry.input.dataset.groups=signature;}
+          entry.input.required=true;entry.input.disabled=false;
+        }
+        continue;
+      }
+      if(stabilityNamed() && ["glid_x","glid_y"].includes(name)){
+        const id=readOnly?current()?.values.stability_group:Number(inputs.get("stability_group")?.input.value||0);
+        const caption=[...entry.row.children].find(e=>e.className?.includes("gp-field-caption"));
+        if(caption)caption.textContent="Bidrar i " + stabilityGroup(id).name + ":s " + (name==="glid_x"?"X":"Y") + "-riktning";
+      }
       if (slidingNames.has(name)) {
         const numeric = !["glid_x", "glid_y"].includes(name);
         const length = name === "glid_L";
@@ -6003,7 +6192,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const list = node("dl", "gp-result-list");
         for (const axis of ["x", "y"]) if (tag.values["glid_" + axis]) {
           const capacity = slidingDirty.has(tag.id) ? null : slidingResult?.[axis];
-          list.append(mathText("dt", "", "Glidningsbidrag H_" + axis + ",Rd,i"),
+          list.append(mathText("dt", "", "Glidningsbidrag H_" + axis + (stabilityNamed()?stabilitySymbol(tag.values.stability_group||0):"") + ",Rd,i"),
             node("dd", "", capacity == null ? "—" : compactNumber(capacity, 1) + " kN"));
         }
         results.append(list);
@@ -6248,6 +6437,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (previous && viewport.hasPointerCapture(previous.pointerId)) viewport.releasePointerCapture(previous.pointerId);
     if (previous?.id) renderMarkers();
     if (previous?.contour) {contourPlacementDraft = null; renderContours();}
+    if(previous?.stabilityRotate){stabilityAngles.delete(previous.stabilityId);showSliding();}
   }
   viewport.addEventListener("pointerdown", (event) => {
     if (![0, 2].includes(event.button) || drag || drawingBusy || drawingPending || objectsBusy || deleteBusy || autoBxBusy || inputLockBusy || !background().url) return;
@@ -6258,6 +6448,21 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         moved: false, pointerId: event.pointerId};
       viewport.setPointerCapture(event.pointerId);
       return;
+    }
+    const rotationHandle=event.target.closest(".gp-axis-rotate");
+    if(rotationHandle && !readOnly){
+      const id=Number(rotationHandle.dataset.stabilityId),entry=stabilityWidgets.get(id),kind=stabilityKind(id,"symbol");
+      if(stabilityBusy || placementLocked(overlayObject(kind)))return;
+      event.preventDefault();viewport.focus({preventScroll:true});
+      const rect=entry.axes.getBoundingClientRect(),origin=id===0?{x:.16,y:.78}:{x:.5,y:.5};
+      drag={stabilityRotate:true,stabilityId:id,cx:rect.left+rect.width*origin.x,cy:rect.top+rect.height*origin.y,
+        x:event.clientX,y:event.clientY,moved:false,pointerId:event.pointerId};
+      viewport.setPointerCapture(event.pointerId);return;
+    }
+    if(stabilityPicking && !readOnly){
+      event.preventDefault();viewport.focus({preventScroll:true});
+      drag={stabilityPick:true,x:event.clientX,y:event.clientY,left:panX,top:panY,moved:false,pointerId:event.pointerId};
+      viewport.setPointerCapture(event.pointerId);return;
     }
     if (contourEditing && mode === "contour" && !readOnly && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
       const hit = event.target.closest(".gp-contour-handle") || event.target.closest(".gp-contour-shape");
@@ -6349,7 +6554,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     const overlay = hitTarget.closest(".gp-sliding-overlay");
     if (importBusy && (overlay || hitTarget.closest(".gp-tag"))) return;
     if (overlay) {
-      const resize = !!hitTarget.closest(".gp-overlay-resize") || hitTarget === axesResize;
+      const resize = !!hitTarget.closest(".gp-overlay-resize") || !!hitTarget.closest(".gp-axis-resize");
       const select = !!(event.shiftKey || event.ctrlKey || event.metaKey), kind = overlay.dataset.kind;
       if (readOnly) return;
       event.preventDefault();
@@ -6392,6 +6597,11 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) > 5) drag.moved = true;
+    if(drag.stabilityRotate){
+      if(drag.moved){stabilityAngles.set(drag.stabilityId,((Math.atan2(-(event.clientY-drag.cy),event.clientX-drag.cx)*180/Math.PI)%360+360)%360);showSliding();}
+      return;
+    }
+    if(drag.stabilityPick){if(drag.moved){panX=drag.left+dx;panY=drag.top+dy;placeSheet();}return;}
     if (drag.contour) {
       if (!drag.moved) return;
       if (drag.contourPick || !drag.contourCanMove) {panX = drag.left + dx; panY = drag.top + dy; placeSheet(); return;}
@@ -6490,7 +6700,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       } else if (drag.overlay) {
         const p = {...drag.position};
         if (drag.resize) {
-          const delta = drag.overlay === "symbol" ? (dx + dy) / (2 * zoom)
+          const delta = stabilityIdentity(drag.overlay)?.part === "symbol" ? (dx + dy) / (2 * zoom)
             : p.size * (dx * drag.width + dy * drag.height) / (drag.width ** 2 + drag.height ** 2);
           p.size = overlaySize(drag.overlay, p.size + delta);
         }
@@ -6517,13 +6727,19 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     if (drag.box && drag.moved) previewSelection(event);
     const { moved, id, overlay, page, select, placementBlocked, pan, box, beforeSelection, measurement, leader,
       objectPositions, placementPan, resize, crop, drawing, objectScaling,
-      stroke, leaderClick, attachment, contour, contourPick, contourId, contourCanMove, contourChanges } = drag;
+      stroke, leaderClick, attachment, contour, contourPick, contourId, contourCanMove, contourChanges, stabilityRotate, stabilityPick, stabilityId } = drag;
     drag = null;
     selectionBox.hidden = true;
     viewport.classList.remove("gp-dragging-tag");
     viewport.classList.remove("gp-panning");
     viewport.classList.remove("gp-selecting");
     if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    if(stabilityRotate){
+      const angle=stabilityAngles.get(stabilityId);
+      if(moved && angle!=null)setStabilitySettings({angle_deg:angle},stabilityId);
+      else {stabilityAngles.delete(stabilityId);showSliding();}return;
+    }
+    if(stabilityPick){if(!moved)chooseStabilityPoint(event);return;}
     if (contour) {
       if (contourPick && !moved) chooseContourPoint(event);
       else if (moved && contourCanMove && contourPlacementDraft) {
@@ -6694,6 +6910,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     event.stopPropagation();
     hideHistoryTooltip();
     const key = String(event.key).toLowerCase();
+    if(event.key==="Escape" && stabilityPicking){event.preventDefault();cancelDrag();setMode("pan");showMessage("Placeringen av koordinatsystemet avbröts.");return;}
     if (event.key === "Escape" && contourEditing) {event.preventDefault(); finishContours(); return;}
     if (event.key === "Escape" && contourPanel) {event.preventDefault(); contourPanel = false; showContours(); return;}
     if (event.key === "Escape" && !selectAllMenu.hidden) {event.preventDefault(); closeSelectAllMenu(); selectAllMenuButton.focus(); return;}

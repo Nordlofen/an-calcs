@@ -10,7 +10,7 @@ from reportlab.pdfgen.canvas import Canvas
 
 from .grundplan_labels import LOAD_GROUPS
 from .grundplan_loads import load_resultants
-from .grundplan_sliding import contribution, project_results, DEFAULT_SETTINGS
+from .grundplan_sliding import contribution, project_results, grouped_results, DEFAULT_SETTINGS
 from .grundplan_canvas import DEFAULT_BOUNDS, validate_bounds
 from .grundplan_objects import drawing_layout as validate_drawing_layout
 
@@ -127,6 +127,7 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
                               "tags": [{**tag, "sliding": contribution(tag["values"]),
                                         "load_resultants": load_resultants(tag["values"])} for tag in tags],
                               "sliding": settings, "sliding_result": project_results(tags, settings),
+                              "stability_results": grouped_results(tags, settings),
                               "colour_grouping": colour_grouping, "insulation_widget": insulation_widget,
                               "comment_widget": comment_widget, "reference_widget": reference_widget,
                               "reference_data": reference_groups(tags), "text_objects": text_objects or [],

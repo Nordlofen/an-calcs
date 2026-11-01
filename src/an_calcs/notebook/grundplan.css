@@ -579,3 +579,13 @@
 .an-grundplan .gp-construction-outlines { pointer-events: none; }
 
 .an-grundplan .gp-size-label .gp-size-number { width: 54px; padding: 5px; border: 1px solid var(--gp-line); border-radius: 5px; }
+
+.an-grundplan .gp-stability-group-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; flex-basis:100%; }
+.an-grundplan .gp-stability-group-tools input,.an-grundplan .gp-stability-group-tools select { padding:7px; border:1px solid var(--gp-line); border-radius:5px; color:inherit; background:#fff; }
+.an-grundplan .gp-stability-group-tools input { width:145px; }
+.an-grundplan .gp-stability-group-tools .gp-stability-angle input { width:75px; }
+.an-grundplan .gp-stability-angle { display:flex; align-items:center; gap:6px; }
+.an-grundplan .gp-axis-symbol svg { overflow:visible; }
+.an-grundplan .gp-axis-rotate { position:absolute; transform:translate(-50%,-50%); border-radius:50%; padding:0; width:25px; height:25px; min-height:25px; touch-action:none; cursor:crosshair; }
+.an-grundplan .gp-axis-rotate[hidden] { display:none; }
+.an-grundplan.gp-stability-picking .gp-viewport { cursor:crosshair; }

@@ -35,16 +35,16 @@ def drawing_layout(value, background):
     return copy.deepcopy(result)
 
 
-def object_keys(tags, texts, page):
+def object_keys(tags, texts, page, stability_kinds=()):
     return [*("tag:" + tag["id"] for tag in tags if tag["page"] == page),
-            *(f"overlay:{page}:{kind}" for kind in ("symbol", "legend", "colour", "insulation", "comments", "reference")),
+            *(f"overlay:{page}:{kind}" for kind in ("symbol", "legend", "colour", "insulation", "comments", "reference", *stability_kinds)),
             *(f"overlay:{page}:text:{text['id']}" for text in texts)] if page else []
 
 
-def object_layout(value, tags, texts, page, *, prune=False):
+def object_layout(value, tags, texts, page, *, prune=False, stability_kinds=()):
     if not isinstance(value, dict) or set(value) - {"scales", "order"}:
         raise ValueError("Ogiltiga objektinställningar.")
-    keys = object_keys(tags, texts, page)
+    keys = object_keys(tags, texts, page, stability_kinds)
     scales, order = value.get("scales", {}), value.get("order", [])
     if not isinstance(scales, dict) or not isinstance(order, list) or any(not isinstance(key, str) for key in order):
         raise ValueError("Ogiltig skala eller lagerordning.")

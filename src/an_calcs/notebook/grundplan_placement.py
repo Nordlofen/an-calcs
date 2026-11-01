@@ -10,8 +10,8 @@ def object_key(item):
     return "tag:" + item["id"] if item["type"] == "tag" else f"overlay:{item['page']}:{item['kind']}"
 
 
-def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_empty=False, coordinate_bounds=DEFAULT_BOUNDS):
-    if not isinstance(objects, list) or not (0 if allow_empty else 1) <= len(objects) <= 1106:
+def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_empty=False, coordinate_bounds=DEFAULT_BOUNDS, stability_kinds=()):
+    if not isinstance(objects, list) or not (0 if allow_empty else 1) <= len(objects) <= 1304:
         raise ValueError("Ange etiketter eller widgets på ritningen.")
     tag_ids = {tag["id"] for tag in tags if tag["page"] == page}
     text_ids = {item["id"] for item in texts}
@@ -29,7 +29,7 @@ def validate_objects(objects, tags, texts, page, *, coordinates=False, allow_emp
             kind = item["kind"]
             if type(item["page"]) is not int or item["page"] != page:
                 raise ValueError("Widgetens sida finns inte i vyn.")
-            if not isinstance(kind, str) or (kind not in WIDGET_KINDS
+            if not isinstance(kind, str) or (kind not in WIDGET_KINDS and kind not in stability_kinds
                     and not (kind.startswith("text:") and kind[5:] in text_ids)):
                 raise ValueError("Widgeten finns inte.")
         else:

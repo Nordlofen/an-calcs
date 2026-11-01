@@ -34,7 +34,8 @@ from .grundplan_contours import settings as contour_settings, placement as conto
 from .grundplan_loads import (read_loads, line_loads, bearing_load_length, load_resultants,
                              MAX_BYTES as _MAX_LOAD_BYTES)
 from .grundplan_sliding import (FIELDS as SLIDING_FIELDS, NAMES as SLIDING_NAMES,
-                               DEFAULT_SETTINGS, DEFAULT_PLACEMENT, contribution, project_results, validate_settings)
+                               DEFAULT_SETTINGS, DEFAULT_PLACEMENT, contribution, project_results, validate_settings,
+                               groups as sliding_groups, grouped_results, validate_membership, overlay_identity, overlay_kinds)
 from .grundplan_colour import DEFAULT_SETTINGS as DEFAULT_COLOUR, validate_settings as validate_colour, remember_styles
 from .grundplan_history import History, history_command
 from .grundplan_width import propose as propose_widths
@@ -691,7 +692,7 @@ class Grundplan(anywidget.AnyWidget):
         return choices
 
     def _publish(self):
-        self._object_layout = object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True)
+        self._object_layout = object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True, stability_kinds=overlay_kinds(self._gliding))
         # Never accept client state as calculation evidence.
         if self._colour["enabled"]:
             self._colour = remember_styles(self.taggar, self._colour)
@@ -710,6 +711,7 @@ class Grundplan(anywidget.AnyWidget):
             "contours": copy.deepcopy(self._contours),
             "sliding": copy.deepcopy(self._gliding),
             "sliding_result": self.glidningsresultat,
+            "stability_results": grouped_results(self._tags, self._gliding),
             "colour_grouping": self.farggruppering,
             "table_view": self.tabellvy,
             "layout": self.visningsstorlekar,
@@ -803,6 +805,7 @@ class Grundplan(anywidget.AnyWidget):
             values["physical_length"] = True
         values = _updated_values(values, indata or {})
         validate_model(typ, values)
+        validate_membership(values, self._gliding)
         prefix = "VS" if typ == "vaggsula" else "PS"
         if littera is None:
             existing = {tag["label"] for tag in self._tags}
@@ -980,6 +983,7 @@ class Grundplan(anywidget.AnyWidget):
             lock_source(tag, indata)
             updated["values"] = _updated_values(tag["values"], indata)
             validate_model(footing_type(tag), updated["values"])
+            validate_membership(updated["values"], self._gliding)
             updated["settlement_display"] = tag_display(updated, self._settlement_display)
         if littera is not None:
             updated["label"] = _label(littera)
@@ -1053,11 +1057,11 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def objektlayout(self):
-        return object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True)
+        return object_layout(self._object_layout, self._tags, self._text_objects, self.background.get("page"), prune=True, stability_kinds=overlay_kinds(self._gliding))
 
     def lagerordning(self, objekt, operation):
         """Flytta markerade objekt ett steg eller längst fram/bak; RU ligger alltid under."""
-        objects = validate_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
+        objects = self._validated_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
         layout = self.objektlayout
         layout["order"] = reorder(layout["order"], [object_key(item) for item in objects], operation)
         self._object_layout = layout
@@ -1068,7 +1072,7 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(objekt, list) or any(not isinstance(item, dict) or "scale" not in item for item in objekt):
             raise ValueError("Ange objekt med x, y och scale.")
         scales = [scale_value(item["scale"]) for item in objekt]
-        objects = validate_objects([{k: v for k, v in item.items() if k != "scale"} for item in objekt],
+        objects = self._validated_objects([{k: v for k, v in item.items() if k != "scale"} for item in objekt],
                                    self._tags, self._text_objects, self.background.get("page"),
                                    coordinates=True, coordinate_bounds=COORDINATE_BOUNDS)
         for item in objects:
@@ -1108,7 +1112,7 @@ class Grundplan(anywidget.AnyWidget):
         """Lås eller lås upp markerade etiketter och widgets i en gemensam begäran."""
         if type(last) is not bool:
             raise ValueError("last måste vara True eller False.")
-        objects = validate_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
+        objects = self._validated_objects(objekt, self._tags, self._text_objects, self.background.get("page"))
         for item in objects:
             key = object_key(item)
             if last:
@@ -1125,6 +1129,9 @@ class Grundplan(anywidget.AnyWidget):
             self._assert_placement_unlocked({"type": "overlay", "kind": kind,
                                             "page": self.background.get("page") if page is None else page})
 
+    def _validated_objects(self, *args, **kwargs):
+        return validate_objects(*args, **kwargs, stability_kinds=overlay_kinds(self._gliding))
+
     def _placement_target(self, item, *, create=False):
         if item["type"] == "tag":
             return self._tag(item["id"])
@@ -1136,14 +1143,18 @@ class Grundplan(anywidget.AnyWidget):
         if kind in {"insulation", "comments", "reference"}:
             return {"insulation": self._insulation_widget, "comments": self._comment_widget,
                     "reference": self._reference_widget}[kind]
+        identity = overlay_identity(kind)
+        if identity is None: raise ValueError("Widgeten finns inte.")
+        ident, part = identity
+        group = self._stability_group(ident)
         if create:
-            placements = self._gliding["placements"].setdefault(str(item["page"]), {})
-            return placements.setdefault(kind, copy.deepcopy(DEFAULT_PLACEMENT[kind]))
-        return self._gliding["placements"].get(str(item["page"]), {}).get(kind, DEFAULT_PLACEMENT[kind])
+            placements = group["placements"].setdefault(str(item["page"]), {})
+            return placements.setdefault(part, copy.deepcopy(DEFAULT_PLACEMENT[part]))
+        return group["placements"].get(str(item["page"]), {}).get(part, DEFAULT_PLACEMENT[part])
 
     def flytta_objekt(self, placeringar):
         """Flytta etiketter och widgets atomärt utan att beräkna om någon sula."""
-        objects = validate_objects(placeringar, self._tags, self._text_objects,
+        objects = self._validated_objects(placeringar, self._tags, self._text_objects,
                                    self.background.get("page"), coordinates=True, coordinate_bounds=COORDINATE_BOUNDS)
         for item in objects:
             self._assert_placement_unlocked(item)
@@ -1278,6 +1289,7 @@ class Grundplan(anywidget.AnyWidget):
             raise ValueError("Egen remslängd gäller endast väggsulor.")
         for tag in tags: lock_source(tag, indata)
         prepared = [_updated_values(tag["values"], indata) for tag in tags]
+        for values in prepared: validate_membership(values, self._gliding)
         contours = [self._resized_contour(tag, values) for tag, values in zip(tags, prepared)]
         for tag, values in zip(tags, prepared):
             validate_model(footing_type(tag), values)
@@ -1297,7 +1309,7 @@ class Grundplan(anywidget.AnyWidget):
         inactive = sum(tag["values"]["inaktiv"] for tag in tags)
         if inactive:
             report["inactive"] = inactive
-        if berakna and not set(indata) <= _VISUAL_FIELDS:
+        if berakna and not set(indata) <= (_VISUAL_FIELDS | {"stability_group", "glid_x", "glid_y"}):
             for tag in tags:
                 if tag["values"]["inaktiv"]:
                     continue
@@ -1529,7 +1541,7 @@ class Grundplan(anywidget.AnyWidget):
 
     @property
     def glidning(self):
-        """Globala kontroller och placeringar. X och Y är separata lastfall."""
+        """Standardgruppens kontroller samt övriga husgrupper. X/Y är separata lastfall."""
         return copy.deepcopy(self._gliding)
 
     @glidning.setter
@@ -1537,19 +1549,71 @@ class Grundplan(anywidget.AnyWidget):
         if not isinstance(changes, dict):
             raise ValueError("Glidning anges som en dict med inställningar.")
         settings = validate_settings({**self._gliding, **changes}, self.background.get("page_count"), coordinate_bounds=COORDINATE_BOUNDS)
-        for page in settings["placements"]:
-            self._view_page(int(page))
-        for page in self._gliding["placements"].keys() | settings["placements"].keys():
-            for kind in ("symbol", "legend"):
-                before = self._gliding["placements"].get(page, {}).get(kind, DEFAULT_PLACEMENT[kind])
-                position = settings["placements"].get(page, {}).get(kind, DEFAULT_PLACEMENT[kind])
-                self._guard_overlay_position(kind, before, position, int(page))
+        for tag in self._tags: validate_membership(copy.deepcopy(tag["values"]), settings)
+        old_groups = {group["id"]:group for group in sliding_groups(self._gliding)}
+        for group in sliding_groups(settings):
+            before_group = old_groups.get(group["id"], {"placements":{}})
+            for page in group["placements"]: self._view_page(int(page))
+            for page in before_group["placements"].keys() | group["placements"].keys():
+                for part in ("symbol", "legend"):
+                    kind = part if group["id"] == 0 else f"stability:{group['id']}:{part}"
+                    before = before_group["placements"].get(page, {}).get(part, DEFAULT_PLACEMENT[part])
+                    position = group["placements"].get(page, {}).get(part, DEFAULT_PLACEMENT[part])
+                    self._guard_overlay_position(kind, before, position, int(page))
+            if before_group.get("angle_deg", 0) != group["angle_deg"]:
+                kind = "symbol" if group["id"] == 0 else f"stability:{group['id']}:symbol"
+                self._assert_placement_unlocked({"type":"overlay", "page":self.background["page"], "kind":kind})
         self._gliding = settings
         self._publish()
 
+    def _stability_group(self, ident):
+        if type(ident) is not int: raise ValueError("Ogiltig stabilitetsgrupp.")
+        if ident == 0: return self._gliding
+        group = next((group for group in self._gliding["groups"] if group["id"] == ident), None)
+        if group is None: raise ValueError("Stabilitetsgruppen finns inte.")
+        return group
+
+    def skapa_stabilitetsgrupp(self, namn):
+        ident = self._gliding["next_group_id"]
+        page=self.background.get("page")
+        positions = {str(page):{"symbol":{**DEFAULT_PLACEMENT["symbol"], "y":min(.85,.55+.15*ident)},
+                    "legend":{**DEFAULT_PLACEMENT["legend"], "y":min(.85,.04+.30*ident)}}} if page else {}
+        group = {"id":ident, "name":namn, "angle_deg":0, "check_x":False, "check_y":False,
+                 "H_x_Ed":None, "H_y_Ed":None, "placements":positions}
+        self.glidning = {"groups":[*self._gliding["groups"], group], "next_group_id":ident+1, "group_mode":True}
+        return ident
+
+    def andra_stabilitetsgrupp(self, ident, changes):
+        group = self._stability_group(ident)
+        if not isinstance(changes, dict) or set(changes) - {"name","angle_deg","check_x","check_y","H_x_Ed","H_y_Ed","placements"}:
+            raise ValueError("Ogiltiga gruppinställningar.")
+        if ident == 0: self.glidning = {**changes, "group_mode":True}
+        else:
+            self.glidning = {"groups":[{**item, **changes} if item["id"] == ident else item for item in self._gliding["groups"]], "group_mode":True}
+
+    def ta_bort_stabilitetsgrupp(self, ident):
+        self._stability_group(ident)
+        if ident == 0: raise ValueError("Standardgruppen kan inte tas bort; den kan byta namn.")
+        if any(tag["values"].get("stability_group", 0) == ident for tag in self._tags):
+            raise ValueError("Tilldela gruppens sulor ett annat hus innan gruppen tas bort.")
+        kinds = {f"stability:{ident}:{part}" for part in ("symbol","legend")}
+        self._gliding["groups"] = [group for group in self._gliding["groups"] if group["id"] != ident]
+        self._placement_locks = {key:value for key,value in self._placement_locks.items() if value.get("kind") not in kinds}
+        self._publish()
+
+    @property
+    def stabilitetsgrupper(self):
+        """Husgruppernas id, namn, riktningar, laster och placeringar."""
+        return copy.deepcopy(sliding_groups(self._gliding))
+
+    @property
+    def stabilitetsresultat(self):
+        """En separat X/Y-kontroll med bidragande sulor för varje husgrupp."""
+        return grouped_results(self._tags, self._gliding)
+
     @property
     def glidningsresultat(self):
-        """Summerade, aktuella glidmotstånd från vyns sulor."""
+        """Standardgruppens glidningsresultat, kompatibelt med tidigare API."""
         return project_results(self._tags, self._gliding)
 
     @property
@@ -1823,7 +1887,7 @@ class Grundplan(anywidget.AnyWidget):
     def _document(self):
         return {
             "format": _FORMAT,
-            "version": 34,
+            "version": 35,
             "soil_profile": self.jordprofil,
             "settlement_display": self.sattningsvisning,
             "common_foundations": copy.deepcopy(self._common_foundations),
@@ -1951,6 +2015,7 @@ class Grundplan(anywidget.AnyWidget):
                       "settlement_display": self.sattningsvisning,
                       "common_foundations": self.gemensamma_fundament,
                       "sliding": self.glidning, "sliding_result": self.glidningsresultat,
+                      "stability_results": grouped_results(self._tags, self._gliding),
                       "colour_grouping": self.farggruppering, "table_view": self.tabellvy,
                       "layout": self.visningsstorlekar,
                       "insulation_widget": self.isoleringswidget,
@@ -2005,8 +2070,8 @@ class Grundplan(anywidget.AnyWidget):
         if len(data) > _MAX_PROJECT_BYTES:
             raise ValueError("Projektfilen får vara högst 60 MB.")
         document = json.loads(data)
-        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 35):
-            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–34.")
+        if not isinstance(document, dict) or document.get("format") != _FORMAT or document.get("version") not in range(1, 36):
+            raise ValueError("Filen är inte ett Grundplan-projekt av version 1–35.")
         soil_profile = validate_profile(document.get("soil_profile"))
         settlement_display = validate_display(document.get("settlement_display", {}))
         canvas_bounds = validate_bounds(document.get("canvas_bounds", DEFAULT_BOUNDS))
@@ -2029,7 +2094,7 @@ class Grundplan(anywidget.AnyWidget):
         reference_widget = validate_reference(document.get("reference_widget", {}), coordinate_bounds=COORDINATE_BOUNDS)
         text_objects = validate_text_objects(document.get("text_objects", []), coordinate_bounds=COORDINATE_BOUNDS)
         gliding = validate_settings(document.get("sliding", {}), rendered.get("page_count", 0), coordinate_bounds=COORDINATE_BOUNDS)
-        if any(int(page) != rendered.get("page") for page in gliding["placements"]):
+        if any(int(page) != rendered.get("page") for group in sliding_groups(gliding) for page in group["placements"]):
             raise ValueError("Projektet har glidningssymboler på flera ritningssidor. Använd ett separat projekt per sida.")
         tags = document["tags"]
         if not isinstance(tags, list) or len(tags) > _MAX_TAGS:
@@ -2122,9 +2187,10 @@ class Grundplan(anywidget.AnyWidget):
                                         for ident, p in saved_contours.get("placements", {}).items()}
         contours = contour_settings(saved_contours, valid_tags)
         common_foundations = validate_foundations(document.get("common_foundations", []), valid_tags)
+        for tag in valid_tags: validate_membership(tag["values"], gliding)
         locks = validate_objects(document.get("placement_locks", []), valid_tags, text_objects,
-                                 drawing["page"], allow_empty=True)
-        objects_layout = object_layout(document.get("object_layout", {}) if document["version"] >= 23 else {}, valid_tags, text_objects, drawing["page"] if source else None)
+                                 drawing["page"], allow_empty=True, stability_kinds=overlay_kinds(gliding))
+        objects_layout = object_layout(document.get("object_layout", {}) if document["version"] >= 23 else {}, valid_tags, text_objects, drawing["page"] if source else None, stability_kinds=overlay_kinds(gliding))
         # Replace the current project only after the entire input is validated.
         self._drawing_preview = None
         self._source = source
@@ -2271,6 +2337,12 @@ class Grundplan(anywidget.AnyWidget):
                 self.kalibrering = content.get("calibration")
             elif action == "heading":
                 self._set_heading(content["title"], content["subtitle"])
+            elif action == "stability_create":
+                reply["id"] = self.skapa_stabilitetsgrupp(content["name"])
+            elif action == "stability_update":
+                self.andra_stabilitetsgrupp(content["id"], content["settings"])
+            elif action == "stability_delete":
+                self.ta_bort_stabilitetsgrupp(content["id"])
             elif action == "sliding":
                 self.glidning = content["settings"]
             elif action == "colour_grouping":
@@ -2316,11 +2388,14 @@ class Grundplan(anywidget.AnyWidget):
             elif action == "sliding_placement":
                 page = self._view_page(content["page"])
                 kind = content["kind"]
-                if kind not in ("symbol", "legend"):
-                    raise ValueError("Okänd glidningssymbol.")
-                placements = copy.deepcopy(self._gliding["placements"])
-                placements.setdefault(str(page), {})[kind] = content["position"]
-                self.glidning = {"placements": placements}
+                identity = overlay_identity(kind)
+                if identity is None: raise ValueError("Okänd glidningssymbol.")
+                ident, part = identity
+                group = self._stability_group(ident)
+                placements = copy.deepcopy(group["placements"])
+                placements.setdefault(str(page), {})[part] = content["position"]
+                if ident == 0: self.glidning = {"placements": placements}
+                else: self.andra_stabilitetsgrupp(ident, {"placements": placements})
             elif action == "drawing":
                 updated = bool(self._source)
                 if content.get("draft"):
