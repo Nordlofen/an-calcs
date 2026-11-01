@@ -1780,7 +1780,8 @@ När Bₓ och Bᵧ är definierade ritas en vägg-/pelarkontur ovanpå sulkontur
 med samma riktning och vid stödets fasta läge. Placeringsexcentriciteten
 förskjuter sulan, medan den ovanliggande delen ligger kvar vid stödet. Den
 övre konturen har mörk kantlinje och gles skraffering utan bakgrundsfyllning.
-Skrafferingen följer **Färgfyllning**; vid 0 % återstår endast kantlinjerna.
+Pelar-/väggkontur och skraffering visas med full opacitet oberoende av
+**Färgfyllning**, även när sulans fyllning är 0 %.
 Ritningsunderlaget syns genom skrafferingen. Konturen tar inte över klick
 eller drag från befintliga verktyg.
 

@@ -6208,19 +6208,23 @@ test('upper construction uses millimetres and stays on the fixed support when th
   tag.values.B_x=null;assert.equal(supportAnnotation(tag).B_y,null);
 });
 
-test('upper contours have transparent hatching controlled by fill opacity and an independent non-interactive outline',t=>{
+test('upper contours and transparent hatching stay visible independently of footing fill opacity',t=>{
   const ui=contourSetup(t);Object.assign(ui.tag.values,{B_x:300,B_y:400,e_b_plac:-.15,e_l_plac:.1});
   ui.data.state.contours.fill_opacity=.3;ui.changed();
   const hatch=ui.byClass('gp-construction-hatches'),outline=ui.byClass('gp-construction-outlines');
-  assert.equal(hatch.getAttribute('opacity'),'0.3');assert.equal(hatch.getAttribute('pointer-events'),'none');
+  assert.equal(hatch.getAttribute('opacity'),'1');assert.equal(hatch.getAttribute('pointer-events'),'none');
   assert.equal(outline.getAttribute('pointer-events'),'none');assert.equal(outline.children[0].getAttribute('fill'),'none');
   const svg=hatch.parent,pattern=svg.children[0].children.find(e=>e.getAttribute('id')?.startsWith('gp-construction-hatch-'));
   assert.ok(pattern);assert.equal(pattern.children.length,1);assert.equal(pattern.children[0].tagName,'PATH');
   assert.match(elementText(ui.byClass('gp-tag-support')),/B.*300.*400.*mm/);
   assert.ok(ui.elements().some(e=>e.className==='gp-tag-support' && /150.*100.*mm/.test(elementText(e))));
-  ui.data.state.contours.fill_opacity=0;ui.changed();
-  assert.equal(ui.byClass('gp-construction-hatches').getAttribute('opacity'),'0');
-  assert.equal(ui.byClass('gp-construction-outlines').children.length,1);
+  for (const opacity of [0,.3,1]) {
+    ui.data.state.contours.fill_opacity=opacity;ui.changed();
+    assert.equal(ui.byClass('gp-construction-hatches').getAttribute('opacity'),'1');
+    assert.equal(ui.byClass('gp-construction-hatches').children.length,1);
+    assert.equal(ui.byClass('gp-construction-outlines').children.length,1);
+    assert.equal(ui.byClass('gp-contour-fills').children[0].getAttribute('opacity'),String(opacity));
+  }
 });
 
 test('wall upper length is automatic while visual-only editing keeps utilization visible',t=>{
@@ -6263,7 +6267,9 @@ test('table upper dimensions use normal bulk selection, preserve U, support clea
 for(const pdfMode of [false,true]) test(`upper contours and annotations remain in readonly/export mode (pdfMode=${pdfMode})`,t=>{
   const ui=contourSetup(t,{readOnly:true,pdfMode});
   Object.assign(ui.tag.values,{B_x:300,B_y:400,e_b_plac:.15,e_l_plac:0});ui.changed();
+  ui.data.state.contours.fill_opacity=0;ui.changed();
   assert.equal(ui.byClass('gp-construction-outlines').children.length,1);
+  assert.equal(ui.byClass('gp-construction-hatches').getAttribute('opacity'),'1');
   assert.match(elementText(ui.byClass('gp-tag-support')),/300.*400.*mm/);
   assert.equal(ui.sent.length,0);
 });

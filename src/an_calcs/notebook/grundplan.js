@@ -1976,7 +1976,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     contourSvg.setAttribute("viewBox", `0 0 ${bg.width} ${bg.height}`);
     const assignments = colour().enabled ? colourGroups(groupingTags(), colour()).assignments : null;
     const defs = svgNode("defs", {}), fills = svgNode("g", {class: "gp-contour-fills"}), outlines = svgNode("g", {class: "gp-contour-outlines"}), guides = svgNode("g", {class: "gp-contour-guides"});
-    const upperHatches = svgNode("g", {class:"gp-construction-hatches", opacity:settings.fill_opacity ?? .18, "pointer-events":"none"}),
+    const upperHatches = svgNode("g", {class:"gp-construction-hatches", opacity:1, "pointer-events":"none"}),
       upperOutlines = svgNode("g", {class:"gp-construction-outlines", "pointer-events":"none"});
     contourSvg.append(defs, fills, outlines, upperHatches, upperOutlines, guides);
     const tags = pageTags().sort((a,b) => Number(a.id === contourTarget || selected.has(a.id)) - Number(b.id === contourTarget || selected.has(b.id)));
