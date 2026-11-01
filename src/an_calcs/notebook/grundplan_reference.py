@@ -74,8 +74,18 @@ def exclusion_reason(tag):
 
 def group_key(tag, *, width=None):
     values = tag["values"]
-    return json.dumps(_canonical([footing_category(tag), group_geometry(tag, width=width), line_loads(values),
-                      [0 if values.get("lang") == 1 and name == "e_l_plac" else values.get(name) for name in CONDITIONS]]), sort_keys=True, separators=(",", ":"))
+    category = footing_category(tag)
+    signature = [category, group_geometry(tag, width=width), line_loads(values),
+                 [0 if values.get("lang") == 1 and name == "e_l_plac" else values.get(name) for name in CONDITIONS]]
+    if category != "wall":
+        # A Foundation pad reference represents one specific column section.
+        # Keep legacy groups with no upper dimensions, but never mix them with
+        # known sections or combine distinct B_x/B_y pairs into a range.
+        section = {name: values.get(name) if _finite(values.get(name)) and values[name] > 0 else None
+                   for name in ("B_x", "B_y")}
+        if any(value is not None for value in section.values()):
+            signature.append(section)
+    return json.dumps(_canonical(signature), sort_keys=True, separators=(",", ":"))
 
 
 def group_keys(tags):

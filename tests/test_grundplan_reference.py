@@ -74,6 +74,42 @@ class TestReference(unittest.TestCase):
             self.add("VS." + str(i), **values)
         self.assertEqual(len(self.plan.referensgrupper["groups"]), 4)
 
+    def test_each_pad_reference_has_one_column_section_and_its_own_governing_member(self):
+        for typ, model in (("pelarsula",{}),("vaggsula",{"lang":0,"lasttyp":1,"L_vagg":.5})):
+            with self.subTest(typ=typ):
+                ids=[]
+                for suffix,bx,by,load in (("13",350,350,50),("28",350.,350.,100),
+                                          ("20",700,350,200),("33",700,350,80),("27",350,500,75)):
+                    ids.append(self.add(typ+suffix,typ=typ,l=1.7,B_x=bx,B_y=by,F_vy=load,**model))
+                groups=[g for g in self.plan.referensgrupper["groups"] if g["members"][0]["id"] in ids]
+                self.assertEqual(len(groups),3)
+                self.assertEqual(sorted(len(g["members"]) for g in groups),[1,2,2])
+                for group in groups:
+                    members=[self.plan._tag(m["id"]) for m in group["members"]]
+                    self.assertEqual(len({(t["values"]["B_x"],t["values"]["B_y"]) for t in members}),1)
+                    governing=max(members,key=lambda t:t["summary"]["utnyttjandegrad"])
+                    self.assertEqual(group["reference_id"],governing["id"])
+                before=copy.deepcopy(self.plan.resultat)
+                with patch.object(self.plan,"_refresh_tag",side_effect=AssertionError("Upper dimensions cannot recalculate")):
+                    self.plan.uppdatera(ids[0],indata={"B_x":450})
+                self.assertEqual(self.plan.resultat,before)
+                self.assertEqual(len([g for g in self.plan.referensgrupper["groups"] if g["members"][0]["id"] in ids]),4)
+
+    def test_legacy_missing_column_sections_remain_supported_and_separate_from_defined_sections(self):
+        old=[self.add("PS."+str(i),typ="pelarsula",l=1.7) for i in (1,2)]
+        self.add("PS.3",typ="pelarsula",l=1.7,B_x=350,B_y=350)
+        self.add("PS.4",typ="pelarsula",l=1.7,B_x=350)
+        document=self.plan._document()
+        for tag in document["tags"][:2]:
+            tag["values"].pop("B_x");tag["values"].pop("B_y")
+        self.plan._load_document(json.dumps(document).encode())
+        groups=self.plan.referensgrupper["groups"]
+        self.assertEqual(len(groups),3)
+        self.assertTrue(any({m["id"] for m in g["members"]}==set(old) for g in groups))
+        saved=self.plan._document();expected=copy.deepcopy(groups)
+        self.plan._load_document(json.dumps(saved).encode())
+        self.assertEqual(self.plan.referensgrupper["groups"],expected)
+
     def test_short_and_standard_walls_share_references_without_changing_local_results(self):
         from an_calcs.notebook.grundplan_loads import load_resultants
         pairs = []

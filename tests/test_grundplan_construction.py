@@ -30,18 +30,22 @@ class TestConstructionPart(unittest.TestCase):
         reply = send.call_args.args[0]
         self.assertTrue(reply['ok'], reply)
 
-    def test_visual_only_updates_bulk_and_history_preserve_engineering_and_groups(self):
+    def test_visual_updates_preserve_engineering_and_refresh_pad_reference_keys(self):
         self.plan.jordprofil = {'layers': [{'dz': 1, 'Ek': 45, 'gamma_m': 1.3}], 'step': .1}
-        before = copy.deepcopy((self.plan.resultat, self.plan._details, self.plan.state['reference_data'],
+        reference_before = {g['category']:g['key'] for g in self.plan.referensgrupper['groups']}
+        before = copy.deepcopy((self.plan.resultat, self.plan._details,
                                 [tag.get('settlement') for tag in self.plan.state['tags']]))
         with patch.object(self.plan, '_refresh_tag', side_effect=AssertionError('Visual data cannot recalculate')):
             self.message('update', id=self.pad, values={'B_x': 300, 'B_y': 400})
             self.message('undo'); self.message('redo')
             report = self.plan.uppdatera_flera([self.pad, self.wall], indata={'B_x': 250})
         self.assertEqual(report['calculated'], 0)
-        after = (self.plan.resultat, self.plan._details, self.plan.state['reference_data'],
+        after = (self.plan.resultat, self.plan._details,
                  [tag.get('settlement') for tag in self.plan.state['tags']])
         self.assertEqual(after, before)
+        reference_after = {g['category']:g['key'] for g in self.plan.referensgrupper['groups']}
+        self.assertNotEqual(reference_after['pad'],reference_before['pad'])
+        self.assertEqual(reference_after['wall'],reference_before['wall'])
         self.assertEqual(self.plan._tag(self.pad)['values']['B_y'], 400)
         self.assertEqual(self.plan._tag(self.wall)['values']['B_y'], 2600)
 

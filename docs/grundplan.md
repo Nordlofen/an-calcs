@@ -1561,6 +1561,11 @@ nya valet **Sultyp** i färggrupperingen skiljer mellan:
 Referens grupperar väggsulor efter **t och bₓ** (samt eget bᵧ när det används).
 Väggsulor med pelarsulemodell grupperas dessutom efter **bᵧ och L_stöd** när
 laster anges som linjelast. Rena pelarsulor grupperas efter **t, bₓ och bᵧ**.
+För båda pelarsulemodellerna måste dessutom pelarens **Bₓ och Bᵧ** vara samma
+inom gruppen, oberoende av färggrupperingsvalen. Olika pelarmått ger separata
+referenser och redovisas inte som ett intervall. Äldre objekt utan pelarmått
+kan fortfarande grupperas med andra objekt med samma saknade mått; de blandas
+inte med objekt där dessa mått är angivna.
 Lasttyp, jorddata, lastplacering och beräkningsfaktorer måste också överensstämma.
 För vanliga väggsulor får **L_stöd och bᵧ** skilja inom referensgruppen;
 varje sula behåller sin egen längd för beräkning av lastresultanter och U.
@@ -1641,7 +1646,8 @@ Gruppgränsen avser hela projektets referensgrupper, även andra ritningssidor.
 Omarkerade, låsta och överhoppade sulor behåller sina indata och deras
 befintliga grupper räknas med. Kandidater använder exakt samma gruppnyckel
 som Referens-widgeten: sultyp, relevanta gruppmått, lasttyp och jord-/
-beräkningsförutsättningar. Pelarsulor får bᵧ = bₓ; väggsulor behåller bᵧ.
+beräkningsförutsättningar samt Bₓ/Bᵧ för pelarsulemodellerna.
+Pelarsulor får bᵧ = bₓ; väggsulor behåller bᵧ.
 Oklara äldre sultyper och sulor
 utan aktuellt giltigt resultat måste bekräftas/beräknas före gemensam optimering.
 
@@ -1845,8 +1851,10 @@ sparas per projekt/fall och kan granskas även i exporterad HTML.
 
 Under **Geometri** i sulans popup och tabell finns **Bₓ/Bᵧ**, mått för
 konstruktionsdelen ovanför sulan. Dessa anges i **mm** och används enbart för
-visning. De påverkar inte bärighet, egentyngd, sättning, styvhet, Auto bₓ eller
-referensgruppindelning. Tomma värden innebär att måtten inte är definierade.
+visning och referensgruppindelning. De påverkar inte bärighet, egentyngd,
+sättning eller styvhet. Auto bₓ behåller pelarmåtten och räknar skilda Bₓ/Bᵧ
+som skilda referensgrupper för pelarsulemodellerna.
+Tomma värden innebär att måtten inte är definierade.
 För väggsulemodell följer Bᵧ alltid sulans bᵧ och kan inte ändras separat.
 För pelarsulemodell anges båda måtten självständigt.
 
@@ -1866,7 +1874,9 @@ pelarsulor och väggsulor med pelarsulemodell. Färglegenden visar
 Bₓ och Bᵧ endast när respektive mått är valt som färggrupperingsparameter;
 måtten redovisas då en gång i gruppbeskrivningen. Färglegender med måttgrupper
 visar även excentriciteter. Skiljer sig värdena inom en grupp visas intervall; saknas mått
-på någon av sulorna anges blandade värden. Grupperna delas bara upp av B-måtten när dessa uttryckligen väljs som färggrupperingsparametrar. Referensgrupperingen påverkas inte.
+på någon av sulorna anges blandade värden. Färggrupper delas bara upp av B-måtten
+när dessa uttryckligen väljs som färggrupperingsparametrar. Referensgrupper för
+pelarsulemodellerna kräver alltid samma kombination av Bₓ och Bᵧ.
 
 Måtten följer med vid kopiering, Ångra/Gör om, projektsparning samt HTML- och
 vektor-PDF-export. Indatalås skyddar även B-måtten. Äldre filer öppnas utan

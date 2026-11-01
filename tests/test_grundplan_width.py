@@ -113,6 +113,17 @@ class TestJointWidthSearch(unittest.TestCase):
         self.assertEqual(len(prepared), 3)
         self.assertEqual(tags, before)
 
+    def test_group_cap_cannot_merge_different_column_sections_for_pad_models(self):
+        tags=[self.tag("A",.95,lang=0,lasttyp=0,B_x=350,B_y=350),
+              self.tag("B",1.15,lang=0,lasttyp=0,B_x=700,B_y=350)]
+        report,prepared=self.propose(tags,1)
+        self.assertFalse(report["feasible"])
+        self.assertEqual(report["reference_groups"]["minimum"],2)
+        self.assertEqual(prepared,[])
+        report,_=self.propose(tags,2)
+        self.assertTrue(report["feasible"])
+        self.assertEqual(report["reference_groups"]["after"],2)
+
     def test_joint_objective_matches_exhaustive_enumeration_and_does_not_just_use_largest_width(self):
         tags = [self.tag("A", .95), self.tag("B", 1.15), self.tag("C", 1.35), self.tag("D", .6)]
         report, _ = self.propose(tags, 2, step_mm=200, b_max=1.6)
