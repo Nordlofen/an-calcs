@@ -6189,7 +6189,7 @@ test('wall upper length is automatic while visual-only editing keeps utilization
   ui.field('B_x').value='200';ui.field('B_x').dispatch('input');
   assert.equal(ui.sent.at(-1).values.B_x,200);
   assert.match(elementText(ui.byClass('gp-tag-result')),/U 75/);
-  assert.match(elementText(ui.byClass('gp-tag-support')),/200.*1.*000.*mm/);
+  assert.equal(elementText(ui.byClass('gp-tag-support')), 'Bx 200 mm');
 });
 
 for (const readOnly of [false,true]) test(`dimension widgets summarize differing upper dimensions without splitting groups (readOnly=${readOnly})`,t=>{

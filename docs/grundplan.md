@@ -1859,6 +1859,7 @@ sättning eller styvhet. Auto bₓ behåller pelarmåtten och räknar skilda B�
 som skilda referensgrupper för pelarsulemodellerna.
 Tomma värden innebär att måtten inte är definierade.
 För väggsulemodell följer Bᵧ alltid sulans bᵧ och kan inte ändras separat.
+På etiketten visas då endast Bₓ; Bᵧ visas för pelarsulemodellerna.
 För pelarsulemodell anges båda måtten självständigt.
 
 När Bₓ och Bᵧ är definierade ritas en vägg-/pelarkontur ovanpå sulkonturen,

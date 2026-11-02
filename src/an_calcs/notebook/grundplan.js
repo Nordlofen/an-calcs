@@ -4560,7 +4560,8 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       marker.title += accessibleGeometry + governing;
       if (group) marker.title += " · Färggrupp: " + colourGroupCaption(group) + (group.unit ? " [" + group.unit + "]" : "");
       marker.append(heading, mathText("span", "gp-tag-result", text));
-      for (const line of supportLines([{...tag, values}])) marker.append(mathText("span", "gp-tag-support", line));
+      for (const line of supportLines([{...tag, values}], Number(values.lang) === 1 ? ["B_y"] : []))
+        marker.append(mathText("span", "gp-tag-support", line));
       if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
       const adjusted = adjustedLineLoad({...tag, values});
