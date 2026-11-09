@@ -446,6 +446,42 @@ class TestGrundplanPdf(unittest.TestCase):
                 dot = (round(after.width * .3 + .5), round(after.height * .4 + 4.5))
                 self.assertEqual(after.getpixel(dot), (35, 129, 97))
 
+    def test_underlay_stream_limit_preserves_vector_drawing_on_transformed_export(self):
+        from pypdf.errors import PyPdfError
+        from pypdf.generic import ContentStream
+
+        source = self.root / "dense-underlay.pdf"
+        canvas = Canvas(str(source), pagesize=(500, 700))
+        canvas.setFillColorRGB(0, 1, 0)
+        canvas.rect(95, 195, 10, 10, fill=1, stroke=0)
+        canvas.drawString(70, 160, "DENSE UNDERLAY")
+        canvas.showPage(); canvas.save()
+        writer = PdfWriter()
+        original = writer.add_page(PdfReader(source).pages[0])
+        original.cropbox = RectangleObject((50, 100, 450, 650))
+        original.rotate(90)
+        writer.write(source)
+        plan = self.plan(source)
+        plan.ritningsram = {"left": -.2, "top": .1, "right": 1.1, "bottom": 1.2}
+        self.tag(plan, x=.7, y=.7, littera="VS.TEST")
+
+        parse = ContentStream._parse_content_stream
+
+        def reject_dense_content(content, stream):
+            if b"DENSE UNDERLAY" in stream.getvalue():
+                raise PyPdfError("Reached maximum number of tokens per stream.")
+            return parse(content, stream)
+
+        with patch.object(ContentStream, "_parse_content_stream", reject_dense_content):
+            exported = plan._pdf_bytes()
+        page = PdfReader(io.BytesIO(exported)).pages[0]
+        self.assertFalse(page.images)
+        self.assertIn("DENSE UNDERLAY", page.extract_text())
+        self.assertIn("VS.TEST", page.extract_text())
+        bitmap = self.render(exported, scale=1)
+        self.assertEqual(bitmap.getpixel((210, 10)), (0, 255, 0))
+        self.assertEqual(bitmap.getpixel((2, 2)), (255, 255, 255))
+
     def test_sparat_projekt_kan_exporteras_utan_originalfil(self):
         source = self.drawing()
         plan = self.plan(source)

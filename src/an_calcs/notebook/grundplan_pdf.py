@@ -5,6 +5,8 @@ import math
 
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter, Transformation
+from pypdf.errors import PyPdfError
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
@@ -42,6 +44,43 @@ def _page_geometry(page):
         width, height = height, width
     return width, height, Transformation(matrices[rotation])
 
+
+def _wrap_underlay_as_form(writer, page):
+    """Give the page a short placement stream and keep its drawing in a form."""
+    form = DecodedStreamObject()
+    form.set_data(page.get_contents().get_data())
+    form.update({
+        NameObject("/Type"): NameObject("/XObject"),
+        NameObject("/Subtype"): NameObject("/Form"),
+        NameObject("/BBox"): page.cropbox,
+        NameObject("/Resources"): page.get("/Resources", DictionaryObject()),
+    })
+    if "/Group" in page:
+        form[NameObject("/Group")] = page.raw_get("/Group")
+    name = NameObject("/GrundplanUnderlay")
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/XObject"): DictionaryObject({name: writer._add_object(form.flate_encode())}),
+    })
+    placement = DecodedStreamObject()
+    placement.set_data(b"q\n/GrundplanUnderlay Do\nQ\n")
+    page.replace_contents(placement.flate_encode())
+
+
+def _fit_underlay(source_writer, original, transform, width, height):
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=width, height=height)
+    try:
+        page.merge_transformed_page(original, transform, over=True, expand=False)
+    except PyPdfError as error:
+        if str(error) != "Reached maximum number of tokens per stream.":
+            raise
+        # The first merge may already have copied resources and annotations.
+        # Retry on a fresh page, with only a form placement for pypdf to parse.
+        _wrap_underlay_as_form(source_writer, original)
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=width, height=height)
+        page.merge_transformed_page(original, transform, over=True, expand=False)
+    return writer, page
 
 
 def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, colour_grouping=None, insulation_widget=None, comment_widget=None, reference_widget=None, text_objects=None, canvas_bounds=None, drawing_layout=None, object_layout=None, settlement_display=None, soil_profile=None, common_foundations=None, contours=None, calibration=None):
@@ -103,12 +142,11 @@ def render_pdf(source, tags, label_size, title, sliding=None, *, page_number=1, 
         source_transform = Transformation(inverse).scale(sx, sy).translate(
             (ru["x"] - bounds["left"]) * canvas_width,
             (bounds["bottom"] - ru["y"]) * canvas_height - height * sy)
-        original = page
-        crop_writer = PdfWriter()
-        page = crop_writer.add_blank_page(width=canvas_width * (bounds["right"] - bounds["left"]),
-                                          height=canvas_height * (bounds["bottom"] - bounds["top"]))
-        page.merge_transformed_page(original, source_transform, over=True, expand=False)
-        writer = crop_writer
+        writer, page = _fit_underlay(
+            writer, page, source_transform,
+            canvas_width * (bounds["right"] - bounds["left"]),
+            canvas_height * (bounds["bottom"] - bounds["top"]),
+        )
     if (tags or settings["enabled"] or colour_grouping and colour_grouping["enabled"]
             or insulation_widget and insulation_widget["enabled"]
             or comment_widget and comment_widget["enabled"]
