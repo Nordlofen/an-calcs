@@ -113,6 +113,49 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Formfaktorer för väggar
+
+`an_calcs.common.formfaktorer_vaggar` beräknar utvändiga formfaktorer
+**cₚₑ,₁₀ och cₚₑ,₁ för zon A–E** enligt avsnitt 1.9.1, figur 1.6 och
+tabell 1.13 i bildunderlaget. Detta motsvarar SS-EN 1991-1-4, 7.2.2,
+figur 7.5 och tabell 7.1 ([referenstext, s. 36–37](https://www.phd.eng.br/wp-content/uploads/2015/12/en.1991.1.4.2005.pdf#page=37)).
+
+```python
+from an_calcs.common import formfaktorer_vaggar
+from an_print import Panel
+
+panel = Panel(formfaktorer_vaggar, key="Hus1 – vind längs d")
+panel
+```
+
+Panelen har exakt tre indata, samtliga i meter:
+
+| Ordning | Mått | Betydelse |
+| --- | --- | --- |
+| 1 | d | Byggnadslängd i vindriktningen |
+| 2 | b | Byggnadsbredd vinkelrätt mot vinden |
+| 3 | h | Byggnadshöjd |
+
+Direktanrop: `details = formfaktorer_vaggar([20, 10, 10])`.
+Slutresultat innehåller exempelvis `c_pe_10_D` och `c_pe_1_D` för zon D.
+Exemplet ger D: 0,7333 / 1,0 och E: −0,3667 / −0,3667.
+Positivt värde betyder tryck och negativt värde sug.
+
+Delresultat visar `h/d`, `e = min(b, 2h)`, aktiva zoner och zonlängder
+på vardera sidoväggen. A–C räknas från lovartskanten; D är lovart och E lä.
+Alla fem zoners tabellvärden visas. Zoner med noll längd märks
+**utgår för vald geometri** och ska inte tillämpas på byggnaden.
+
+För `h/d ≤ 0,25` används nedersta tabellraden. Mellan 0,25, 1 och 5
+interpoleras linjärt. Funktionen avvisar `h/d > 5` eftersom det ligger
+utanför den implementerade tabellen; ingen extrapolation görs.
+Modellen gäller vertikala väggar på byggnader med rektangulär planform.
+Den redovisar båda areafallen utan interpolation för belastad area och
+utan reduktion för bristande korrelation. Vindtryck, invändigt tryck och
+total vindkraft ingår inte.
+
+Se även [exempelnotebooken](notebooks/Formfaktorer_vaggar.ipynb).
+
 ## Sättning
 
 `sattning()` använder samma måttbeteckningar och panelgruppering som
