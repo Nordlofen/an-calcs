@@ -98,6 +98,9 @@ def Pelarholk(px):
     Kontaktmodellen är ett projektspecifikt tillägg till EC2:s kraftmodell:
     a_c=0.3*l, triangulärt tryck, spridning t_ig/tan(26.6 grader), oförändrat D.
     Spänningar jämförs direkt med angivna dimensionerande tryckhållfastheter.
+    Slutresultat visar det högst utnyttjade tryckfallet; övriga ligger i
+    delresultat. Ekvationerna förutsätter konsekventa enheter och redovisas
+    utan enhetsomräkningsfaktorer, med tillämpningsvillkoren separat.
     Tillgänglig spridningsgeometri måste bedömas separat. F3 redovisas med
     medeltryck, utan kontroll av maximalt bottentryck eller genomstansning.
     Minimiarmering, förankring och övrig detaljutformning ingår inte.
@@ -155,33 +158,39 @@ def Pelarholk(px):
         _post("sigma_3_mean", r"\sigma_{3,medel}", 1000*F3/(D*h), "MPa", "Medeltryck under pelarfoten; maxtryck ej kontrollerat"),
     ]
     result = [_post(f"F{i}", f"F_{i}", force, force_unit, "Kontaktkraft") for i, force in enumerate((F1, F2, F3), 1)]
-    etas = []
+    pressure_modes = []
     for i, force in enumerate((F1, F2), 1):
         for material, height, strength, description in (
             ("ig", ac, v["f_cd_ig"], "igjutning"), ("c", ac_spr, v["f_cd_c"], "holkbetong")
         ):
             stress = 2000*force/(D*height)
             eta = 100*stress/strength
-            etas.append(eta)
-            result += [
+            pressure_modes.append((eta, [
                 _post(f"sigma_{material}_{i}_max", rf"\sigma_{{{material},{i},max}}", stress, "MPa", f"Maxtryck {description}, F{i}"),
                 _post(f"eta_{material}_{i}", rf"\eta_{{{material},{i}}}", eta, "procent", f"Tryckutnyttjande {description}, F{i}", 1),
-            ]
+            ]))
+    governing_mode = max(pressure_modes, key=lambda mode: mode[0])
+    eta_max = governing_mode[0]
+    for mode in pressure_modes:
+        (result if mode is governing_mode else middle).extend(mode[1])
+    middle.append(_post("eta_tryck_max", r"\eta_{tryck,max}", eta_max, "procent", "Största tryckutnyttjande i sidokontaktzonerna", 1))
     result += [
-        _post("eta_tryck_max", r"\eta_{tryck,max}", max(etas), "procent", "Största tryckutnyttjande i sidokontaktzonerna", 1),
-        _post("status_tryck", r"\mathrm{Tryck}", "Uppfyller" if max(etas) <= 100 else "Överskriden", label="Sidokontakttryck enligt vald modell"),
+        _post("status_tryck", r"\mathrm{Tryck}", "Uppfyller" if eta_max <= 100 else "Överskriden", label="Sidokontakttryck enligt vald modell"),
         _post("V_Ed", "V_{Ed}", max(F1, F2) if v["fristaende"] else F2, force_unit, "Oreducerad tvärkraft till Tvärkraft()"),
         _post("styrande_tvarkraft", r"\mathrm{Styrande}", ("F1" if F1 >= F2 else "F2") if v["fristaende"] else "F2", label="Styrande kontaktkraft för tvärkraft"),
     ]
     equations = [
-        {"latex": r"F_1-F_2-\mu F_3=F_h", "etikett": "Horisontell jämvikt"},
-        {"latex": r"\mu F_1-\mu F_2+F_3=F_v", "etikett": "Vertikal jämvikt"},
-        {"latex": r"(0{,}9l+\mu h/2)F_1+(\mu h/2-0{,}1l)F_2=1000M+F_hl", "etikett": "Momentjämvikt kring pelarfotens mitt; mm, kN och kNm (per meter för vägg)"},
-        {"latex": r"l\geq1{,}2h,\quad 0\leq\mu\leq0{,}3,\quad F_i\geq0", "etikett": "Modellens tillämpningsvillkor"},
-        {"latex": r"a_c=0{,}3l,\quad a_{c,spr}=a_c+t_{ig}/\tan(26{,}6^\circ)", "etikett": "Föreskriven projektmodell för triangulära kontaktzoner och tryckspridning"},
-        {"latex": r"\sigma_{ig,i,max}=\frac{2000F_i}{Da_c},\quad\sigma_{c,i,max}=\frac{2000F_i}{Da_{c,spr}},\quad i=1,2", "etikett": "MPa, mått i mm och kontaktkraft i kN för betraktad pelare/1 m strimla"},
-        {"latex": r"\eta_{ig,i}=100\sigma_{ig,i,max}/f_{cd,ig},\quad\eta_{c,i}=100\sigma_{c,i,max}/f_{cd,c}", "etikett": "Tryckutnyttjande i procent; krav <= 100"},
-        {"latex": r"\sigma_{3,medel}=1000F_3/(Dh)", "etikett": "Endast medeltryck; ingen kontroll av maximalt bottentryck"},
+        {"latex": r"\sum F_x=F_h-F_1+F_2+\mu F_3=0", "etikett": "Horisontell jämvikt"},
+        {"latex": r"\sum F_y=\mu F_1-\mu F_2+F_3-F_v=0", "etikett": "Vertikal jämvikt"},
+        {"latex": r"\sum M_{\mathrm{fot}}=M+F_hl-(0{,}9l+\mu h/2)F_1-(\mu h/2-0{,}1l)F_2=0", "etikett": "Moment kring pelarfotens mitt"},
+        {"latex": r"a_c=0{,}3l", "etikett": "Triangulär kontaktzon"},
+        {"latex": r"\Delta a=t_{ig}/\tan(26{,}6^\circ)", "etikett": "Tillkommande spridningshöjd"},
+        {"latex": r"a_{c,spr}=a_c+\Delta a", "etikett": "Spridd kontaktzon"},
+        {"latex": r"\sigma_{ig,i,max}=\frac{2F_i}{Da_c}", "etikett": "Maxtryck i igjutning, i = 1, 2"},
+        {"latex": r"\sigma_{c,i,max}=\frac{2F_i}{Da_{c,spr}}", "etikett": "Maxtryck i holkbetong, i = 1, 2"},
+        {"latex": r"\eta_{ig,i}=100\sigma_{ig,i,max}/f_{cd,ig}", "etikett": "Tryckutnyttjande i igjutning; procent"},
+        {"latex": r"\eta_{c,i}=100\sigma_{c,i,max}/f_{cd,c}", "etikett": "Tryckutnyttjande i holkbetong; procent"},
+        {"latex": r"\sigma_{3,medel}=F_3/(Dh)", "etikett": "Endast medeltryck; ingen kontroll av maximalt bottentryck"},
         {"latex": r"V_{Ed}=\max(F_1,F_2)" if v["fristaende"] else r"V_{Ed}=F_2", "etikett": "Last till separat tvärkraftskontroll"},
     ]
     if v["fristaende"]:
@@ -194,8 +203,12 @@ def Pelarholk(px):
         result += [_post("Fs", "F_s", Fs, force_unit, "Erforderlig dragkraft i högra holkväggens böjarmering"),
                    _post("As_req", "A_{s,req}", 1000*Fs/v["f_yd"], area_unit, "Erforderlig böjarmering, exklusive minimiarmering")]
         equations += [
-            {"latex": r"d=b_h-t_{ig}-c_{nom}-\phi/2,\quad z=0{,}9d", "etikett": "Högra holkväggens verksamma mått"},
-            {"latex": r"M_{holk}=F_1\,0{,}9l/1000,\quad F_s=1000M_{holk}/z,\quad A_{s,req}=1000F_s/f_{yd}", "etikett": "Gynnsamt lokalt friktionsbidrag försummas"},
+            {"latex": r"a_1=0{,}9l", "etikett": "F1:s hävarm för högra holkväggen"},
+            {"latex": r"d=b_h-t_{ig}-c_{nom}-\phi/2", "etikett": "Effektiv höjd i högra holkväggen"},
+            {"latex": r"z=0{,}9d", "etikett": "Inre hävarm"},
+            {"latex": r"M_{holk}=F_1a_1", "etikett": "Gynnsamt lokalt friktionsbidrag försummas"},
+            {"latex": r"F_s=M_{holk}/z", "etikett": "Erforderlig dragkraft i böjarmeringen"},
+            {"latex": r"A_{s,req}=F_s/f_{yd}", "etikett": "Erforderlig böjarmeringsarea"},
         ]
     result.append(_post("status_bojarmering", r"\text{Böjarmering}", "Erforderlig area beräknad" if v["fristaende"] else "Ej beräknad", label="Böjarmering i högra holkväggen"))
     method = [
@@ -212,7 +225,10 @@ def Pelarholk(px):
             "indata": {"title": "Indata", "items": inputs},
             "delresultat": {"title": "Delresultat", "items": middle},
             "slutresultat": {"title": "Slutresultat", "items": result},
-            "ekvationer": {"title": "Ekvationer", "items": equations}}
+            "ekvationer": {"title": "Ekvationer", "items": equations, "notes": [
+                {"rubrik": "Tillämpningsvillkor", "text": "l ≥ 1,2h; 0 ≤ μ ≤ 0,3; F₁, F₂ och F₃ ≥ 0. Tryckutnyttjandena ska vara ≤ 100 %."},
+                {"rubrik": "Enheter", "text": "Formlerna förutsätter konsekventa enheter. Enhetsomräkning sker i beräkningen. För vägg avses en meterstrimla."},
+            ]}}
 
 
 def _field(name, label, default, unit="", symbol="", **extra):
@@ -238,6 +254,12 @@ Pelarholk.panel_schema = {
             {"title": "Lasteffekter vid holkens överkant", "fields": ["M", "Fv", "Fh"], "columns": 3},
             {"title": "Material", "fields": ["f_cd_ig", "f_cd_c"], "columns": 2},
             {"title": "Böjarmering i högra holkväggen", "fields": ["c_nom", "phi", "f_yd"], "columns": 3},
+            {"title": "Friläggning för böjarmering", "collapsible": True, "collapsed": True,
+             "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-bojarmering.png", "full_width": True,
+                        "visible_if": _FREE,
+                        "caption": "Frilagd högra holkvägg · a1 = 0,9l och z = 0,9d. Principskiss, ej skalenlig.",
+                        "alt": "Frilagd högra holkvägg med F1, snittets tvärkraft, dragkraft Fs och betongtryckkraft Fc. Måttdetalj för bh, igjutning, täckskikt, d och z.",
+                        "source": "Projektets konsolmodell. Gynnsam lokal friktion utelämnas; F1 tas från global jämvikt med friktion."}},
             {"title": "Kontaktzoner och tryckspridning", "collapsible": True, "collapsed": True,
              "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-kontaktzoner.png", "full_width": True,
                         "caption": "Principskiss · ej skalenlig. B och H är skissmått; D är beräkningsdjupet.",

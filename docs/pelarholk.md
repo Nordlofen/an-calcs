@@ -40,6 +40,14 @@ Fel i rena skissmått ger ett meddelande vid skissen, inte ett beräkningsstopp.
 
 ## Beräkningsgång
 
+Ekvationsredovisningen använder korta vänsterled för jämvikten (summor av
+krafter och moment) och en storhet per rad. Formlerna visas utan
+enhetsomräkningsfaktorer och förutsätter konsekventa enheter; den numeriska
+beräkningen behåller omräkningarna enligt nedan. Tillämpningsvillkor och
+enhetsförklaringar ligger som separata noter under ekvationerna, även när
+etiketter eller metodbeskrivning är dolda. Detta kräver an-print med stöd
+för `ekvationer["notes"]`.
+
 1. Validera aktiva indata och modellgränser. Böjarmeringsindata behöver inte
    anges vid plattansluten holk och inaktiva värden valideras inte.
 2. Lös de tre jämviktsekvationerna (mm, kN, kNm; per meter för vägg):
@@ -70,6 +78,13 @@ Fel i rena skissmått ger ett meddelande vid skissen, inte ett beräkningsstopp.
    Tillgänglig betonggeometri för spridningen förutsätts verifierad separat.
    Under pelarfoten visas endast medeltrycket `1000 F3/(D h)`; det ger ingen
    kontroll av maximalt bottentryck.
+
+   Slutresultat visar bara spänning och utnyttjandegrad för det högst
+   utnyttjade sidokontaktfallet, med material och kontaktkraft angivna.
+   Övriga tre fall samt sammanfattningsvärdet `eta_tryck_max` ligger under
+   delresultat. Urvalet görs efter utnyttjandegrad, inte efter spänningens
+   storlek. Vid lika utnyttjande väljs det första fallet i ordningen
+   igjutning F1, holkbetong F1, igjutning F2, holkbetong F2.
 4. Vid fristående holk beräknas högra väggen som konsol:
 
    ```text
@@ -97,7 +112,10 @@ Modellen omfattar inte genomstansning, pålfördelning, minimiarmering, förankr
 lastöverföring förutsätts verifierad separat. B och H styr ingen bärförmåga.
 Statusen för tryck avser endast de två sidokontaktzonerna i den valda modellen.
 
-De två fasta PNG-figurerna ligger i `an_calcs.betong/figures`. Den interaktiva
+De tre fasta PNG-figurerna ligger i `an_calcs.betong/figures`. Friläggningen
+för böjarmering visar högra holkväggen med F1, snittets tvärkraft och det inre
+kraftparet Fs/Fc samt måtten a1, d och z. Den visas endast vid fristående holk.
+Den interaktiva
 måttskissen genereras av `_pelarholk_skiss.render`, via an-prints generella
 figurkoppling. Beräkningsfunktionen importerar inte renderaren och läser inga
 bildresurser. Figurerna uppdaterar inte beräkningsresultat automatiskt;

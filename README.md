@@ -128,6 +128,9 @@ i igjutning och holkbetong med projektets triangulära kontakt-/spridningsmodell
 Vid **Fristående holk** beräknas erforderlig böjarmering i högra väggen från
 `F1`, och `V_Ed=max(F1,F2)` redovisas till separat kontroll i `Tvärkraft()`.
 Vid plattansluten holk utgår böjarmeringsberäkningen och `V_Ed=F2`.
+Slutresultat visar det högst utnyttjade tryckfallet; övriga tryckfall finns
+under delresultat. Ekvationerna visas en storhet per rad, utan
+enhetsomräkningsfaktorer, med tillämpningsvillkoren separat.
 
 ```python
 from an_calcs.betong import Pelarholk
@@ -138,8 +141,11 @@ panel
 ```
 
 Panelen innehåller en måttskiss som uppdateras när geometrifälten ändras,
-en principiell kontaktzonsfigur och EC2:s originalfigur 10.7. Figurerna följer
-med paketet. **Uppdaterat `an-print` med stöd för dynamiska figurer behövs.**
+en principiell kontaktzonsfigur, en friläggning för högra holkväggens
+böjarmering och EC2:s originalfigur 10.7. Friläggningen visas endast vid
+fristående holk. Figurerna följer
+med paketet. **Uppdaterat `an-print` med stöd för dynamiska figurer och
+ekvationsnoter behövs.**
 Indata är öppet från början; referensfigurer och beräkningsinställningar kan
 fällas ut. `D` är kontaktdjupet ut ur snittet och låses till 1000 mm för vägg.
 `B=bv+h+bh`, `H` och anslutande plattas `t_p` används endast i skissen.

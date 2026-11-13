@@ -77,19 +77,29 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertFalse(self.w["D"].disabled)
         self.assertEqual(self.w["D"].value, 725)
 
-    def test_tre_figurer_med_paketerade_resurser(self):
-        self.assertEqual(len(self.p._figure_records), 3)
+    def test_fyra_figurer_med_paketerade_resurser(self):
+        self.assertEqual(len(self.p._figure_records), 4)
         for record in self.p._figure_records[1:]:
             spec, markup = record["spec"], record["widget"].value
             encoded = re.search(r'data:image/png;base64,([^\"]+)', markup).group(1)
             self.assertEqual(base64.b64decode(encoded), files(spec["package"]).joinpath(spec["resource"]).read_bytes())
             self.assertIn(spec["source"], markup)
             self.assertIn("anp-figure-full", record["layout"]._dom_classes)
-        for title in ("Kontaktzoner och tryckspridning", "EC2 · figur 10.7"):
+        for title in ("Friläggning för böjarmering", "Kontaktzoner och tryckspridning", "EC2 · figur 10.7"):
             self.assertIsNone(self.p._sections[title].layout.display)
             self.p._sections[title].selected_index = 0
         self.assertEqual(self.p._sections["Indata"].selected_index, 0)
         self.assertIsNone(self.p._sections["Beräkningsinställningar"].selected_index)
+
+    def test_bojfigur_visas_endast_for_fristaende_holk(self):
+        figure = next(r for r in self.p._figure_records if r["spec"].get("resource") == "figures/pelarholk-bojarmering.png")
+        accordion = self.p._sections["Friläggning för böjarmering"]
+        section = next(r["widget"] for r in self.p._section_records if accordion in r["widget"].children)
+        for free in (True, False, True):
+            self.w["fristaende"].value = free
+            expected = None if free else "none"
+            self.assertEqual(figure["widget"].layout.display, expected)
+            self.assertEqual(section.layout.display, expected)
 
     def test_matt_och_holktyp_uppdaterar_skissen(self):
         figure = self.p._figure_records[0]["widget"]

@@ -25,6 +25,12 @@ Figurer för Pelarholk
   uppdaterade beteckningar D, bv, bh, B och H. Kraftlägen enligt 10.7b;
   triangulärt tryck och spridningsvinkel enligt projektets handberäkningsmodell.
   F3 visar endast kraftläge; bottenkontaktens tryckmodell ingår inte.
+- pelarholk-bojarmering.png: egen principskiss av högra holkväggen, endast
+  för fristående holk. Visar F1 med a1=0,9l och snittets V=F1 samt kraftparet
+  Fs/Fc med z=0,9d. Måttdetaljen visar hur d bestäms från bh, t_ig, c_nom
+  och phi. Gynnsam lokal friktion utelämnas enligt projektets konsolmodell.
+  Redigerbart SVG-original: `docs/figures/pelarholk-bojarmering.svg` från
+  repots rot. PNG är renderad från SVG i dubbla upplösningen (2800 × 2160).
 
 Den dynamiska måttskissen ligger som Python-renderare i `_pelarholk_skiss.py`.
 Inga absoluta källsökvägar eller originaldokument behövs i installerad panel.

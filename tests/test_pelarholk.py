@@ -123,6 +123,32 @@ class TestPelarholk(unittest.TestCase):
         self.assertEqual(r["As_req"], 0)
         self.assertEqual(r["eta_tryck_max"], 0)
 
+    def test_endast_hogst_utnyttjade_tryckfall_i_slutresultat(self):
+        # Lägre betonghållfasthet ska styra urvalet även när dess spänning är lägre.
+        cases = [
+            ({}, "ig", 1),
+            ({"f_cd_c": 10}, "c", 1),
+            ({"M": 173.4, "Fh": -270, "Fv": 570}, "ig", 2),
+            ({"M": 173.4, "Fh": -270, "Fv": 570, "f_cd_c": 10}, "c", 2),
+            ({"M": 0, "Fh": 0, "Fv": 0}, "ig", 1),
+        ]
+        for changes, material, force in cases:
+            for free in (False, True):
+                with self.subTest(changes=changes, fristaende=free):
+                    details = Pelarholk(data(**changes, fristaende=free))
+                    final = {p["namn"]: p for p in details["slutresultat"]["items"]}
+                    middle = {p["namn"]: p for p in details["delresultat"]["items"]}
+                    expected = {f"sigma_{material}_{force}_max", f"eta_{material}_{force}"}
+                    self.assertEqual({k for k in final if k.startswith(("sigma_", "eta_"))}, expected)
+                    self.assertTrue(expected.isdisjoint(middle))
+                    for other_material in ("ig", "c"):
+                        for other_force in (1, 2):
+                            if (other_material, other_force) != (material, force):
+                                self.assertIn(f"sigma_{other_material}_{other_force}_max", middle)
+                                self.assertIn(f"eta_{other_material}_{other_force}", middle)
+                    self.assertEqual(final[f"eta_{material}_{force}"]["value"], middle["eta_tryck_max"]["value"])
+                    self.assertIn(f"F{force}", final[f"sigma_{material}_{force}_max"]["etikett"])
+
     def test_px_och_alias_och_unika_nycklar(self):
         self.assertIs(pelarholk, Pelarholk)
         v = data()
