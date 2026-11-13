@@ -24,6 +24,55 @@ def _v(details, name):
 
 
 class TestTvarkraft(unittest.TestCase):
+    def test_strimla_motsvarar_en_meters_bredd_med_enheter_per_meter(self):
+        for method in ("bada", "6.2.2", "6.2.3"):
+            for reduction in (False, True):
+                for bars in (False, True):
+                    with self.subTest(method=method, reduction=reduction, bars=bars):
+                        data = _indata(metod=method, V_Ed=100, N_Ed=60, A_c=250000,
+                                       z_auto=False, z_manuell=180,
+                                       reducera_tvarkraft=reduction, a_v=100, m_eff=2,
+                                       A_sl_inmatning="jarn" if bars else "area", n_l=5, phi_l=16)
+                        reference = Tvärkraft(data | {"b_w": 1000})
+                        strip = Tvärkraft(data | {"plattstrimla": True})
+                        for section in ("indata", "delresultat", "slutresultat"):
+                            expected = {i["namn"]: i for i in reference[section]["items"]}
+                            for item in strip[section]["items"]:
+                                if item["namn"] == "plattstrimla":
+                                    continue
+                                ref = expected[item["namn"]]
+                                self.assertEqual(item["value"], ref["value"], item["namn"])
+                                self.assertEqual(item["unit"], "kN/m-str" if ref["unit"] == "kN" else ref["unit"])
+                                if ref["unit"] == "kN":
+                                    self.assertEqual(item["sigfigs"], 3)
+                        self.assertEqual(_v(strip, "b_w"), 1000)
+                        self.assertEqual(_v(strip, "V_Ed"), 100)
+                        self.assertEqual(_v(strip, "V_Ed_red"), 25 if reduction else 100)
+                        if method != "6.2.2":
+                            self.assertAlmostEqual(_v(strip, "V_Rd_max"), 693.6192)
+
+    def test_strimla_kraver_inte_bredd_och_validerar_flaggan(self):
+        data = dict(metod="6.2.2", d=200, f_ck=27, A_sl=2000)
+        strip = Tvärkraft(data | {"plattstrimla": True})
+        self.assertEqual(_v(strip, "b_w"), 1000)
+        self.assertAlmostEqual(_v(strip, "V_Rd_c"), 144)
+        for ignored in (None, -1, float("nan")):
+            self.assertEqual(strip, Tvärkraft(data | dict(plattstrimla=True, b_w=ignored)))
+        with self.assertRaisesRegex(ValueError, "b_w"):
+            Tvärkraft(data)
+        for flag in (None, 1, "False"):
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "plattstrimla"):
+                Tvärkraft(_indata(plattstrimla=flag))
+
+    def test_strimla_fullformat_och_tidigare_26_format(self):
+        schema = Tvärkraft.panel_schema
+        values = {f["name"]: f["default"] for f in schema["fields"]}
+        full = [values[n] for n in schema["px"]]
+        self.assertEqual(len(full), 27)
+        self.assertEqual(Tvärkraft(full[:-1]), Tvärkraft(values))
+        full[-1] = True
+        self.assertEqual(Tvärkraft(full), Tvärkraft(values | {"plattstrimla": True}))
+
     def test_handraknat_grundfall_utan_och_med_byglar(self):
         d = Tvärkraft(_indata(V_Ed=50))
         self.assertAlmostEqual(_v(d, "V_Rd_c"), 43.2)

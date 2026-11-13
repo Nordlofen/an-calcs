@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT.parent / "an-print" / "src"))
 from an_calcs.betong import Tvärkraft
 from an_print import Panel
 from an_print.calcblock import CalcBlock
+from ipywidgets import Checkbox, ToggleButton
 
 
 def value(details, name):
@@ -43,6 +44,69 @@ class TestTvarkraftPanel(unittest.TestCase):
         # Kör Panel -> Tvärkraft -> CalcBlock utan notebookutskrift i testloggen.
         with contextlib.redirect_stdout(io.StringIO()):
             return self.panel.calculate()
+
+    def test_strimlans_knapp_laser_bredd_och_byter_enheter(self):
+        self.assertIsInstance(self.w["plattstrimla"], ToggleButton)
+        self.assertEqual(self.w["plattstrimla"].description, "<i>b</i><sub>w</sub>-1m strimla")
+        self.assertTrue(self.w["plattstrimla"].description_allow_html)
+        self.assertIsInstance(self.w["kontrollera_last"], Checkbox)
+        self.w["b_w"].value = 350
+        self.w["kontrollera_last"].value = True
+        self.w["V_Ed"].value = 123
+        self.w["A_sl"].value = 2345
+        self.w["plattstrimla"].value = True
+        self.assertEqual(self.w["b_w"].value, 1000)
+        self.assertTrue(self.w["b_w"].disabled)
+        for name in ("N_Ed", "V_Ed"):
+            self.assertIn("kN/m-str", self.panel._field_rows[name].children[1].value)
+        for name in ("A_sl", "n_l", "A_c", "n_skar"):
+            self.assertIn("1 m", self.panel._field_rows[name].children[0].value)
+        details = self.calculate()
+        self.assertEqual(value(details, "b_w"), 1000)
+        self.assertEqual(value(details, "V_Ed"), 123)
+        self.assertEqual(value(details, "A_sl"), 2345)
+        self.w["plattstrimla"].value = False
+        self.assertEqual(self.w["b_w"].value, 350)
+        self.assertFalse(self.w["b_w"].disabled)
+        for name in ("N_Ed", "V_Ed"):
+            self.assertNotIn("m-str", self.panel._field_rows[name].children[1].value)
+        self.assertEqual(self.w["V_Ed"].value, 123)
+        self.assertEqual(self.w["A_sl"].value, 2345)
+
+    def test_sparat_strimlelage_minns_tidigare_bredd(self):
+        self.w["b_w"].value = 350
+        self.w["plattstrimla"].value = True
+        self.panel._save_last_values()
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(Tvärkraft, state_file=self.state)
+        widgets = restored._field_widgets
+        self.assertTrue(widgets["plattstrimla"].value)
+        self.assertTrue(widgets["b_w"].disabled)
+        self.assertEqual(value(Tvärkraft(restored.to_px()), "b_w"), 1000)
+        widgets["plattstrimla"].value = False
+        self.assertEqual(widgets["b_w"].value, 350)
+
+    def test_strimlans_rapport_visar_kraftenheter_for_varje_metod(self):
+        self.w["plattstrimla"].value = True
+        self.w["kontrollera_last"].value = True
+        self.w["reducera_tvarkraft"].value = True
+        self.w["m_eff"].value = 2
+        for method in ("bada", "6.2.2", "6.2.3"):
+            with self.subTest(method=method):
+                self.w["metod"].value = method
+                cb = CalcBlock(Tvärkraft(self.panel.to_px()))
+                cb.MB(visa=False)
+                cb.EKV(visa=False, etikett=True)
+                self.assertIn("b_w-1m strimla", cb.html_mb)
+                for block in ("ID", "DR", "SR"):
+                    getattr(cb, block)(visa=False, etikett=True)
+                    for rendered in (getattr(cb, "latex_" + block.lower()), getattr(cb, "html_" + block.lower())):
+                        self.assertIn("kN/m-str", rendered)
+                        self.assertNotIn(r"\mathrm{kN}", rendered)
+                        self.assertNotIn("[kN]", rendered)
+                if method != "6.2.3":
+                    self.assertIn("kN/m-str", cb.html_ekv)
 
     def test_metodval_styr_synliga_falt_och_berakning(self):
         self.assertEqual(self.w["metod"].value, "bada")
@@ -125,7 +189,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(restored._field_widgets["n_l"].value, 6)
         old = json.loads(self.state.read_text())
         fields = old[self.panel._last_key]
-        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l"):
+        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla"):
             fields.pop(name)
         fields.update(cot_theta_min=1.5, cot_theta_max=2, cot_theta=2.5)
         self.state.write_text(json.dumps(old))
@@ -134,6 +198,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         legacy = Panel(Tvärkraft, state_file=self.state)
         self.assertEqual(legacy._field_widgets["metod"].value, "bada")
         self.assertEqual(legacy._field_widgets["A_sl_inmatning"].value, "area")
+        self.assertFalse(legacy._field_widgets["plattstrimla"].value)
         self.assertGreater(value(Tvärkraft(legacy.to_px()), "V_Rd_s"), 0)
 
     def test_calcblock_redovisar_korta_vansterled_och_vald_metod(self):

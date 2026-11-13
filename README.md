@@ -123,6 +123,15 @@ Välj **enbart 6.2.2**, **enbart 6.2.3** eller **båda** (förval) i panelen.
 Valet styr indata, validering, resultat och ekvationer. Längsarmeringen för
 6.2.2 anges som area direkt eller som antal järn och diameter.
 
+Knappen **<i>b</i><sub>w</sub>-1m strimla** låser `b_w` till **1 000 mm** och visar krafter och
+bärförmågor i **kN/m-str**. Ange laster, betongarea och längsarmering för denna
+meterstrimla. För tvärkraftsarmering anges `n_skar` som summan av verksamma skär
+per bygelrad över strimlans bredd, `s` som radavstånd längs strimlan och `m_eff`
+som antal verksamma rader i centrala 0,75 a_v. Talvärden för last och armering
+behålls när läget ändras; den tidigare bredden återställs när knappen stängs av.
+Knappvisningen kräver en uppdaterad `an-print` med stöd för `widget="toggle"`.
+I dictionaryformat aktiveras läget med `plattstrimla=True`, och `b_w` kan utelämnas.
+
 ```python
 from an_calcs.betong import Tvärkraft
 from an_print import Panel
@@ -186,8 +195,9 @@ längsarmeringens totala dragkraft ingår inte i bärförmågekontrollen.
 
 Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
 förval; `"jarn"` använder `n_l * pi * phi_l**2 / 4`. Inaktiva indata ignoreras.
-Panelens fullformat har 26 värden i ordningen `Tvärkraft.panel_schema["px"]`.
-Äldre 24-värdeslistor stöds fortfarande, men de tidigare cot-gränserna ignoreras.
+Panelens fullformat har 27 värden i ordningen `Tvärkraft.panel_schema["px"]`,
+med `plattstrimla` sist. Äldre 24- och 26-värdeslistor stöds utan strimleläget;
+24-formatets tidigare cot-gränser ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
 `Tvärkraft.panel_schema["px"]`.
 

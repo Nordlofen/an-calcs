@@ -14,6 +14,7 @@ _STANDARD = {
     "cot_theta": 2.5, "alpha": 90.0, "z_auto": True, "z_manuell": None,
     "gamma_c": 1.5, "gamma_s": 1.15, "alpha_cc": 1.0,
     "metod": "bada", "A_sl_inmatning": "area", "n_l": None, "phi_l": None,
+    "plattstrimla": False,
 }
 _PX_NAMN = _GRUNDINDATA + tuple(_STANDARD)
 # Tidigare fullformat läses fortfarande; dess två gränsvärden används inte.
@@ -31,8 +32,11 @@ _COT_HELP = (
 
 
 def _post(namn, latex, value, unit="", etikett="", decimals=3):
-    return {"namn": namn, "latex": latex, "value": value, "unit": unit,
+    item = {"namn": namn, "latex": latex, "value": value, "unit": unit,
             "etikett": etikett, "decimals": decimals}
+    if unit == "kN/m-str":
+        item["sigfigs"] = 3  # Samma precision som kraftposter i kN.
+    return item
 
 
 def _ekvation(latex, etikett):
@@ -70,18 +74,22 @@ def _tolka_px(px):
         if set(px) - set(_PX_NAMN):
             raise ValueError(f"Okända indata: {sorted(set(px) - set(_PX_NAMN), key=str)}.")
         given = dict(px)
-    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), len(_PX_NAMN)):
+    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), 26, len(_PX_NAMN)):
         names = _LEGACY_PX_NAMN if len(px) == len(_LEGACY_PX_NAMN) else _PX_NAMN
         given = {name: value for name, value in zip(names, px) if name in _PX_NAMN}
     else:
-        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24 eller 26 värden.")
+        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24, 26 eller 27 värden.")
     v = {**dict.fromkeys(_GRUNDINDATA), **_STANDARD, **given}
     if not isinstance(v["metod"], str) or v["metod"] not in _METODER:
         raise ValueError("metod måste vara 'bada', '6.2.2' eller '6.2.3'.")
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
     if c and v["A_sl_inmatning"] not in ("area", "jarn"):
         raise ValueError("A_sl_inmatning måste vara 'area' eller 'jarn'.")
-    required = ["b_w", "d", "f_ck"]
+    if not isinstance(v["plattstrimla"], bool):
+        raise ValueError("plattstrimla måste vara True eller False.")
+    if v["plattstrimla"]:
+        v["b_w"] = 1000.0
+    required = ["d", "f_ck"] + ([] if v["plattstrimla"] else ["b_w"])
     if c:
         required += ["A_sl"] if v["A_sl_inmatning"] == "area" else ["n_l", "phi_l"]
     if s:
@@ -167,8 +175,9 @@ def Tvärkraft(px):
 
         [b_w, d, f_ck, A_sl, phi_w, n_skar, s, f_ywk]
 
-    Panel använder 26 värden; ordningen ges av Tvärkraft.panel_schema["px"].
-    Äldre fullformat med 24 värden stöds; dess tidigare cot-gränser ignoreras.
+    Panel använder 27 värden; ordningen ges av Tvärkraft.panel_schema["px"].
+    Äldre fullformat med 24 och 26 värden stöds utan plattstrimla;
+    24-formatets tidigare cot-gränser ignoreras.
     Gränserna 1 <= cot_theta <= 2.5 är fasta och kan inte ändras via indata.
 
     Dictionary rekommenderas vid metodval. Gemensamt krävs b_w, d, f_ck.
@@ -179,6 +188,10 @@ def Tvärkraft(px):
     dictionaryformatet om kontrollera_last inte anges uttryckligen.
 
     Mått i mm, areor i mm², hållfastheter i MPa och krafter i kN.
+    plattstrimla=True låser b_w=1000 mm (b_w kan utelämnas). Krafter anges
+    och redovisas då i kN/m-str. Betongarea och armering avser samma strimla.
+    n_skar är då skär per bygelrad över strimlans bredd, s radavstånd längs
+    strimlan och m_eff antal verksamma rader. Befintliga tal skalas inte om.
     N_Ed är positiv vid tryck, V_Ed är ett belopp. n_skar=0 anger inga byglar.
     m_eff är verkligt antal lika byglar som korsar skjuvsprickan i centrala
     0,75a_v. Det används endast vid reduktion enligt 6.2.3(8).
@@ -202,6 +215,10 @@ def Tvärkraft(px):
 
 def _berakna(v):
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
+    strimla = v["plattstrimla"]
+    kraftenhet = "kN/m-str" if strimla else "kN"
+    byglar = "bygelrader" if strimla else "byglar"
+    bygel = "bygelrad i 1 m strimla" if strimla else "bygel"
     bw, d, fck = (v[n] for n in ("b_w", "d", "f_ck"))
     fcd = v["alpha_cc"] * fck / v["gamma_c"]
     nu = 0.6 * (1 - fck / 250)
@@ -247,14 +264,14 @@ def _berakna(v):
         "f_ck": (r"f_{ck}", "MPa", "karakteristisk cylindertryckhållfasthet"),
         "A_sl": (r"A_{sl}", "mm^2", "längsdragarmering som uppfyller figur 6.3"),
         "phi_w": (r"\phi_w", "mm", "bygeldiameter"),
-        "n_skar": (r"n", "", "antal verksamma skär per bygel"),
-        "s": ("s", "mm", "byglarnas centrumavstånd längs balken"),
+        "n_skar": (r"n", "", f"antal verksamma skär per {bygel}"),
+        "s": ("s", "mm", "bygelradernas avstånd längs strimlan" if strimla else "byglarnas centrumavstånd längs balken"),
         "f_ywk": (r"f_{ywk}", "MPa", "karakteristisk sträckgräns för byglar"),
-        "N_Ed": (r"N_{Ed}", "kN", "normalkraft, positiv vid tryck"),
+        "N_Ed": (r"N_{Ed}", kraftenhet, "normalkraft, positiv vid tryck"),
         "A_c": (r"A_c", "mm^2", "betongtvärsnittsarea"),
-        "V_Ed": (r"V_{Ed}", "kN", "dimensionerande tvärkraft utan reduktion"),
+        "V_Ed": (r"V_{Ed}", kraftenhet, "dimensionerande tvärkraft utan reduktion"),
         "a_v": (r"a_v", "mm", "lastavstånd enligt figur 6.4 och 6.6"),
-        "m_eff": (r"m_{eff}", "", "verksamma byglar i centrala 0,75 a_v"),
+        "m_eff": (r"m_{eff}", "", f"verksamma {byglar} i centrala 0,75 a_v"),
         "cot_theta": (r"\cot\theta", "", "vald trycksträvelutning"),
         "alpha": (r"\alpha", "°", "bygelvinkel mot längdaxeln"),
         "z_manuell": (r"z_{man}", "mm", "manuellt angiven inre hävarm"),
@@ -262,7 +279,13 @@ def _berakna(v):
         "gamma_s": (r"\gamma_s", "", "partialkoefficient för armering"),
         "alpha_cc": (r"\alpha_{cc}", "", "koefficient för betongtryckhållfasthet"),
     }
-    indata = [_post("metod", "", _METODER[v["metod"]], "", "vald beräkningsmetod")]
+    if strimla:
+        for name in ("A_sl", "A_c", "n_l"):
+            latex, unit, label = metadata[name]
+            metadata[name] = (latex, unit, label + " i 1 m strimla")
+        metadata["b_w"] = (r"b_w", "mm", "fast bredd för 1 m strimla")
+    indata = [_post("metod", "", _METODER[v["metod"]], "", "vald beräkningsmetod"),
+              _post("plattstrimla", "", "b_w-1m strimla" if strimla else "Angiven bredd", "", "beräkningsbredd")]
     for name in _PX_NAMN:
         if name == "A_sl" and v["A_sl_inmatning"] == "jarn":
             continue
@@ -281,7 +304,7 @@ def _berakna(v):
     resultat = []
     if c:
         if v["A_sl_inmatning"] == "jarn":
-            mellan.append(_post("A_sl", r"A_{sl}", v["A_sl"], "mm^2", "beräknad medräkningsbar längsdragarmering"))
+            mellan.append(_post("A_sl", r"A_{sl}", v["A_sl"], "mm^2", "beräknad medräkningsbar längsdragarmering" + (" i 1 m strimla" if strimla else "")))
         mellan.extend([
             _post("sigma_cp", r"\sigma_{cp}", sigma_cp, "MPa", "normalspänning, positiv vid tryck"),
             _post("sigma_cp_grans", r"0{,}2f_{cd}", 0.2 * fcd, "MPa", "strikt övre tillämpningsgräns för 6.2.2"),
@@ -291,40 +314,40 @@ def _berakna(v):
             _post("C_Rd_c", r"C_{Rd,c}", C_Rdc, "", "0,18 / gamma_c"),
             _post("k_1", r"k_1", k1, "", "koefficient för normalspänning"),
             _post("v_min", r"v_{min}", vmin, "MPa", "minsta skjuvhållfasthet före normalkraftsbidrag"),
-            _post("V_Rd_c_6_2a", r"V_{Rd,c,a}", VRdc_a, "kN", "uttryck (6.2a)"),
-            _post("V_Rd_c_6_2b", r"V_{Rd,c,b}", VRdc_b, "kN", "uttryck (6.2b)"),
+            _post("V_Rd_c_6_2a", r"V_{Rd,c,a}", VRdc_a, kraftenhet, "uttryck (6.2a)"),
+            _post("V_Rd_c_6_2b", r"V_{Rd,c,b}", VRdc_b, kraftenhet, "uttryck (6.2b)"),
         ])
-        resultat.append(_post("V_Rd_c", r"V_{Rd,c}", VRdc, "kN", "6.2.2, utan beräknad tvärkraftsarmering"))
+        resultat.append(_post("V_Rd_c", r"V_{Rd,c}", VRdc, kraftenhet, "6.2.2, utan beräknad tvärkraftsarmering"))
         if kort_skjuvspann:
-            resultat.append(_post("V_lim_6_5", r"V_{lim,6.5}", Vlim_6_5, "kN", "gräns för oreducerad last enligt (6.5)"))
+            resultat.append(_post("V_lim_6_5", r"V_{lim,6.5}", Vlim_6_5, kraftenhet, "gräns för oreducerad last enligt (6.5)"))
     if s:
         mellan.extend([
             _post("f_ywd", r"f_{ywd}", fywd, "MPa", "dimensionerande sträckgräns"),
-            _post("A_sw", r"A_{sw}", Asw, "mm^2", "verksam area per bygel"),
+            _post("A_sw", r"A_{sw}", Asw, "mm^2", f"verksam area per {bygel}"),
             _post("A_sw_per_m", r"A_{sw}/s", Asw / v["s"] * 1000, "mm^2/m", "tvärkraftsarmering per längdmeter"),
             _post("z", "z", z, "mm", "använd inre hävarm"),
             _post("theta", r"\theta", math.degrees(math.atan(1 / ct)), "°", "trycksträvans vinkel"),
             _post("alpha_cw", r"\alpha_{cw}", alpha_cw, "", "ingen förspänning"),
         ])
         resultat.extend([
-            _post("V_Rd_s", r"V_{Rd,s}", VRds, "kN", "6.2.3, ordinarie modell, armeringens begränsning"),
-            _post("V_Rd_max", r"V_{Rd,max}", VRdmax, "kN", "6.2.3, ordinarie modell, trycksträvans begränsning"),
-            _post("V_Rd", r"V_{Rd}", VRd, "kN", "6.2.3, minsta ordinarie bärförmåga före lastreduktion"),
+            _post("V_Rd_s", r"V_{Rd,s}", VRds, kraftenhet, "6.2.3, ordinarie modell, armeringens begränsning"),
+            _post("V_Rd_max", r"V_{Rd,max}", VRdmax, kraftenhet, "6.2.3, ordinarie modell, trycksträvans begränsning"),
+            _post("V_Rd", r"V_{Rd}", VRd, kraftenhet, "6.2.3, minsta ordinarie bärförmåga före lastreduktion"),
         ])
         if kort_skjuvspann:
             mellan.extend([
-                _post("l_eff", r"0{,}75a_v", 0.75 * v["a_v"], "mm", "centralt område för verksamma byglar"),
+                _post("l_eff", r"0{,}75a_v", 0.75 * v["a_v"], "mm", f"centralt område för verksamma {byglar}"),
                 _post("A_sw_eff", r"A_{sw,eff}", Asw_eff, "mm^2", "verksam bygelarea för (6.19)"),
             ])
             resultat.extend([
-                _post("V_Rd_6_19", r"V_{Rd,6.19}", VRd_6_19, "kN", "bärförmåga mot reducerad last enligt (6.19)"),
-                _post("V_Rd_max_6_9", r"V_{Rd,max,6.9}", VRdmax_6_9, "kN", "gräns för oreducerad last enligt hänvisningen i 6.2.3(8)"),
+                _post("V_Rd_6_19", r"V_{Rd,6.19}", VRd_6_19, kraftenhet, "bärförmåga mot reducerad last enligt (6.19)"),
+                _post("V_Rd_max_6_9", r"V_{Rd,max,6.9}", VRdmax_6_9, kraftenhet, "gräns för oreducerad last enligt hänvisningen i 6.2.3(8)"),
             ])
     if s or kort_skjuvspann:
         mellan.append(_post("nu_1" if s else "nu", r"\nu_1" if s else r"\nu", nu, "", "hållfasthetsreduktion enligt (6.6N)"))
     if v["kontrollera_last"]:
         VEd, Vred = v["V_Ed"], beta * v["V_Ed"]
-        resultat.append(_post("V_Ed_red", r"V_{Ed,red}", Vred, "kN", "tvärkraft efter vald reduktion"))
+        resultat.append(_post("V_Ed_red", r"V_{Ed,red}", Vred, kraftenhet, "tvärkraft efter vald reduktion"))
         if c:
             if kort_skjuvspann:
                 resultat.extend(_kontroll("c_reducerad", Vred, VRdc, "reducerad tvärkraft mot V_Rd,c"))
@@ -335,7 +358,7 @@ def _berakna(v):
                 resultat.extend(_kontroll("s_reducerad", Vred, VRd_6_19, "reducerad tvärkraft enligt (6.19)"))
                 resultat.extend(_kontroll("s_oreducerad", VEd, VRdmax_6_9, "oreducerad tvärkraft mot (6.9)"))
             resultat.extend(_kontroll("6_2_3", VEd, Vs_last, "bärförmågekontroll enligt 6.2.3"))
-            mellan.append(_post("Delta_F_td", r"\Delta F_{td}", 0.5 * VEd * (ct - cot_alpha), "kN",
+            mellan.append(_post("Delta_F_td", r"\Delta F_{td}", 0.5 * VEd * (ct - cot_alpha), kraftenhet,
                                 "dragkraftstillägg enligt (6.18), oreducerad last, utan momentbegränsningen"))
 
     ekvationer = [_ekvation(r"f_{cd}=\alpha_{cc}f_{ck}/\gamma_c", "dimensionerande betongtryckhållfasthet")]
@@ -346,12 +369,12 @@ def _berakna(v):
             _ekvation(r"k=\min(1+\sqrt{200/d},2)", "d i mm, 6.2.2(1)"),
             _ekvation(r"\rho_l=\min(A_{sl}/(b_wd),0{,}02)", "medräknad längsarmeringskvot"),
             _ekvation(r"\sigma_{cp}=1000N_{Ed}/A_c" if v["N_Ed"] else r"\sigma_{cp}=0",
-                      "Krav: sigma_cp < 0,2 f_cd. N_Ed i kN."),
+                      f"Krav: sigma_cp < 0,2 f_cd. N_Ed i {kraftenhet}."),
             _ekvation(r"C_{Rd,c}=0{,}18/\gamma_c", "rekommenderat värde i 6.2.2(1)"),
             _ekvation(r"k_1=0{,}15", "rekommenderat värde i 6.2.2(1)"),
             _ekvation(r"v_{min}=0{,}035k^{3/2}\sqrt{f_{ck}}", "(6.3N), f_ck i MPa"),
-            _ekvation(r"V_{Rd,c,a}=[C_{Rd,c}k(100\rho_l f_{ck})^{1/3}+k_1\sigma_{cp}]b_wd/1000", "(6.2a), resultat i kN"),
-            _ekvation(r"V_{Rd,c,b}=(v_{min}+k_1\sigma_{cp})b_wd/1000", "(6.2b), resultat i kN"),
+            _ekvation(r"V_{Rd,c,a}=[C_{Rd,c}k(100\rho_l f_{ck})^{1/3}+k_1\sigma_{cp}]b_wd/1000", f"(6.2a), resultat i {kraftenhet}"),
+            _ekvation(r"V_{Rd,c,b}=(v_{min}+k_1\sigma_{cp})b_wd/1000", f"(6.2b), resultat i {kraftenhet}"),
             _ekvation(r"V_{Rd,c}=\max(0,V_{Rd,c,a},V_{Rd,c,b})", "negativ beräknad bärförmåga ger noll tillgänglig kapacitet"),
         ])
     if s or kort_skjuvspann:
@@ -363,7 +386,7 @@ def _berakna(v):
         cot_value = format(ct, ".12g").replace(".", "{,}")
         ekvationer.extend([
             _ekvation(r"f_{ywd}=f_{ywk}/\gamma_s", "dimensionerande sträckgräns"),
-            _ekvation(r"A_{sw}=n\pi\phi_w^2/4", "summa verksamma skär i en bygel"),
+            _ekvation(r"A_{sw}=n\pi\phi_w^2/4", f"summa verksamma skär i en {bygel}"),
             _ekvation(r"z=0{,}9d" if v["z_auto"] else r"z=z_{man}", "vald inre hävarm"),
             _ekvation(r"\cot\theta=" + cot_value, "Tillåtet intervall: 1,0-2,5 enligt (6.7N)"),
             _ekvation(r"\alpha_{cw}=1", "ej förspänd betong"),
@@ -381,7 +404,7 @@ def _berakna(v):
             ekvationer.append(_ekvation(r"V_{lim,6.5}=0{,}5b_wd\nu f_{cd}/1000", "(6.5), gräns för oreducerad tvärkraft"))
         if s:
             ekvationer.extend([
-                _ekvation(r"A_{sw,eff}=m_{eff}A_{sw}", "endast verksamma byglar i centrala 0,75a_v"),
+                _ekvation(r"A_{sw,eff}=m_{eff}A_{sw}", f"endast verksamma {byglar} i centrala 0,75a_v"),
                 _ekvation(r"V_{Rd,6.19}=A_{sw,eff}f_{ywd}\sin\alpha/1000", "(6.19), gräns för reducerad tvärkraft"),
                 _ekvation(r"V_{Rd,max,6.9}=\frac{\alpha_{cw}b_wz\nu_1 f_{cd}}{\cot\theta+\tan\theta}/1000", "6.2.3(8), gräns för oreducerad last enligt (6.9)"),
             ])
@@ -423,15 +446,23 @@ def _berakna(v):
             "Materialfaktorer redovisas med sina använda värden. "
             + ("Gränserna för cot(theta) är fasta: 1,0-2,5. Automatiskt z=0,9d gäller endast utan normalkraft. " + _COT_HELP if s else "")
         )},
-        {"rubrik": "Enheter", "text": "Mått i mm, areor i mm², hållfastheter i MPa och krafter i kN. Hållfasthetsuttrycken omvandlas från N till kN genom division med 1000."},
+        {"rubrik": "Enheter", "text": f"Mått i mm, areor i mm², hållfastheter i MPa och krafter i {kraftenhet}. Hållfasthetsuttrycken omvandlas från N till kN genom division med 1000."},
     ]
+    if strimla:
+        metod.append({"rubrik": "b_w-1m strimla", "text": (
+            "b_w är låst till 1000 mm. Laster, betongarea och längsarmering avser denna strimla. "
+            "Krafter och bärförmågor för strimlan redovisas per meter bredd i kN/m-str. "
+            + ("n är summan av verksamma skär per bygelrad över strimlans bredd; s är radavståndet "
+               "längs strimlan. A_sw/s avser tvärkraftsarmering per längdmeter i denna strimla. " if s else "")
+            + "Indata tolkas för strimlan och skalas inte om från någon tidigare angiven bredd."
+        )})
     if v["reducera_tvarkraft"]:
         metod.append({"rubrik": "Tvärkraftsreduktion", "text": (
             "Hela V_Ed förutsätts komma från reducerbar last på översidan, med lastöverföring enligt "
             "figur 6.4/6.6 och fullt förankrad längsarmering vid upplaget. Andra lastbidrag ingår inte. "
             + ("För 6.2.2 kontrolleras reducerad last mot V_Rd,c och oreducerad last mot (6.5). " if c else "")
             + ("För 6.2.3 kontrolleras reducerad last mot (6.19) och oreducerad last mot (6.9). "
-               "m_eff är verkligt antal verksamma byglar inom centrala 0,75a_v; antalet härleds inte från s. " if s else "")
+               f"m_eff är verkligt antal verksamma {byglar} inom centrala 0,75a_v; antalet härleds inte från s. " if s else "")
             + "Största utnyttjandet av kontrollen med reducerad respektive oreducerad last styr "
             "slutkontrollen för varje metod. Vid a_v>2d används ordinarie modell med beta=1."
         )})
@@ -457,12 +488,13 @@ _C = {"field": "metod", "in": ["bada", "6.2.2"]}
 _S = {"field": "metod", "in": ["bada", "6.2.3"]}
 _REDUKTION = {"all": [_LAST, {"field": "reducera_tvarkraft", "equals": True}]}
 _JARN = {"all": [_C, {"field": "A_sl_inmatning", "equals": "jarn"}]}
+_STRIMLA = {"field": "plattstrimla", "equals": True}
 
 Tvärkraft.panel_schema = {
     "title": "Tvärkraft - EC2 6.2.2 och 6.2.3",
     "px": list(_PX_NAMN),
     "sections": [
-        {"fields": ["metod"], "columns": 1},
+        {"fields": ["metod", "plattstrimla"], "columns": 1},
         {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "phi_l"], "columns": 3},
         {"title": "Material", "fields": ["f_ck", "f_ywk"], "columns": 2},
         {"title": "Tvärkraftsarmering", "fields": ["phi_w", "n_skar", "s", "alpha", "m_eff"], "columns": 3},
@@ -473,30 +505,43 @@ Tvärkraft.panel_schema = {
         _falt("metod", "Beräkningsmetod", "bada", typ="choice", options=[
             {"label": label, "value": value} for value, label in _METODER.items()
         ]),
-        _falt("b_w", "Minsta bredd", 300.0, "mm", "<i>b</i><sub>w</sub>"),
+        _falt("plattstrimla", "b_w-1m strimla", False, typ="bool", widget="toggle",
+              label_html="<i>b</i><sub>w</sub>-1m strimla",
+              help="Aktivt läge använder 1 000 mm bredd. Laster och armering anges för denna strimla; befintliga värden behålls vid byte av läge."),
+        _falt("b_w", "Minsta bredd", 300.0, "mm", "<i>b</i><sub>w</sub>",
+              fixed_if={**_STRIMLA, "value": 1000.0},
+              presentation_if={**_STRIMLA, "label": "Strimlans bredd (fast)"}),
         _falt("d", "Effektiv höjd", 500.0, "mm", "<i>d</i>"),
         _falt("f_ck", "Betongens tryckhållfasthet", 30.0, "MPa", "<i>f</i><sub>ck</sub>"),
         _falt("A_sl_inmatning", "Ange längsarmering som", "area", typ="choice", visible_if=_C, options=[
             {"label": "Area direkt", "value": "area"}, {"label": "Antal och diameter", "value": "jarn"},
         ]),
         _falt("A_sl", "Medräkningsbar längsdragarmering", 2000.0, "mm²", "<i>A</i><sub>sl</sub>",
-              visible_if={"all": [_C, {"field": "A_sl_inmatning", "equals": "area"}]}),
-        _falt("n_l", "Antal längsarmeringsjärn", 4, "st", "<i>n</i><sub>l</sub>", typ="int", visible_if=_JARN),
+              visible_if={"all": [_C, {"field": "A_sl_inmatning", "equals": "area"}]},
+              presentation_if={**_STRIMLA, "label": "Medräkningsbar längsdragarmering i 1 m strimla"}),
+        _falt("n_l", "Antal längsarmeringsjärn", 4, "st", "<i>n</i><sub>l</sub>", typ="int", visible_if=_JARN,
+              presentation_if={**_STRIMLA, "label": "Antal längsarmeringsjärn i 1 m strimla"}),
         _falt("phi_l", "Längsarmeringens diameter", 25.0, "mm", "φ<sub>l</sub>", visible_if=_JARN),
         _falt("phi_w", "Bygeldiameter", 8.0, "mm", "φ<sub>w</sub>", visible_if=_S),
-        _falt("n_skar", "Verksamma skär per bygel (0 = inga)", 2, "", "<i>n</i>", typ="int", visible_if=_S),
-        _falt("s", "Bygelavstånd", 200.0, "mm", "<i>s</i>", visible_if=_S),
+        _falt("n_skar", "Verksamma skär per bygel (0 = inga)", 2, "", "<i>n</i>", typ="int", visible_if=_S,
+              presentation_if={**_STRIMLA, "label": "Skär per bygelrad över 1 m bredd (0 = inga)"}),
+        _falt("s", "Bygelavstånd", 200.0, "mm", "<i>s</i>", visible_if=_S,
+              presentation_if={**_STRIMLA, "label": "Radavstånd längs strimlan"}),
         _falt("f_ywk", "Byglarnas sträckgräns", 500.0, "MPa", "<i>f</i><sub>ywk</sub>", visible_if=_S),
-        _falt("N_Ed", "Normalkraft, tryck positivt", 0.0, "kN", "<i>N</i><sub>Ed</sub>"),
+        _falt("N_Ed", "Normalkraft, tryck positivt", 0.0, "kN", "<i>N</i><sub>Ed</sub>",
+              presentation_if={**_STRIMLA, "unit": "kN/m-str"}),
         _falt("A_c", "Betongtvärsnittsarea", 180000.0, "mm²", "<i>A</i><sub>c</sub>",
-              visible_if={"all": [_C, {"field": "N_Ed", "not_equals": 0}]}),
+              visible_if={"all": [_C, {"field": "N_Ed", "not_equals": 0}]},
+              presentation_if={**_STRIMLA, "label": "Betongarea i 1 m strimla"}),
         _falt("kontrollera_last", "Kontrollera angiven tvärkraft", False, typ="bool"),
-        _falt("V_Ed", "Tvärkraft före reduktion", 100.0, "kN", "<i>V</i><sub>Ed</sub>", visible_if=_LAST),
+        _falt("V_Ed", "Tvärkraft före reduktion", 100.0, "kN", "<i>V</i><sub>Ed</sub>", visible_if=_LAST,
+              presentation_if={**_STRIMLA, "unit": "kN/m-str"}),
         _falt("reducera_tvarkraft", "Reducera tvärkraft nära upplag", False, typ="bool", visible_if=_LAST,
               fixed_if={"field": "kontrollera_last", "equals": False, "value": False}),
         _falt("a_v", "Lastavstånd enligt figur 6.4 / 6.6", 300.0, "mm", "<i>a</i><sub>v</sub>", visible_if=_REDUKTION),
         _falt("m_eff", "Verksamma byglar i centrala 0,75 aᵥ", 0, "st", "<i>m</i><sub>eff</sub>", typ="int",
-              visible_if={"all": [_S, _REDUKTION]}),
+              visible_if={"all": [_S, _REDUKTION]},
+              presentation_if={**_STRIMLA, "label": "Verksamma bygelrader i centrala 0,75 aᵥ"}),
         _falt("cot_theta", "Vald cot(θ)", 2.5, "", "cot θ", visible_if=_S, span=3, help=_COT_HELP),
         _falt("alpha", "Bygelvinkel", 90.0, "°", "α", visible_if=_S),
         _falt("z_auto", "Beräkna z = 0,9 d", True, typ="bool", visible_if=_S,
