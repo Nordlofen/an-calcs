@@ -1,5 +1,8 @@
 """Integration för Tvärkraft och dess direkta presentationsberoenden."""
 import contextlib
+import base64
+import copy
+from importlib.resources import files
 import io
 import json
 import math
@@ -8,6 +11,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -44,6 +48,61 @@ class TestTvarkraftPanel(unittest.TestCase):
         # Kör Panel -> Tvärkraft -> CalcBlock utan notebookutskrift i testloggen.
         with contextlib.redirect_stdout(io.StringIO()):
             return self.panel.calculate()
+
+    def test_figurer_foljer_metod_och_reduktion_och_innehaller_bilddata(self):
+        records = self.panel._figure_records
+        self.assertEqual(len(records), 3)
+        self.assertIn("anp-panel-illustrated", self.panel._form._dom_classes)
+        for record in records:
+            spec = record["spec"]
+            markup = record["widget"].value
+            encoded = re.search(r'data:image/png;base64,([^\"]+)', markup).group(1)
+            data = base64.b64decode(encoded)
+            self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(data, files(spec["package"]).joinpath(spec["resource"]).read_bytes())
+            self.assertIn(spec["caption"], markup)
+            self.assertIn(spec["source"], markup)
+            self.assertIn('alt="', markup)
+            self.assertNotIn("Layoutskiss", markup)
+            self.assertNotIn("<button", markup)
+        for method in ("bada", "6.2.2", "6.2.3"):
+            for reduction in (False, True):
+                with self.subTest(method=method, reduction=reduction):
+                    self.w["metod"].value = method
+                    self.w["kontrollera_last"].value = True
+                    self.w["reducera_tvarkraft"].value = reduction
+                    expected = (method != "6.2.3", reduction, reduction and method != "6.2.2")
+                    self.assertEqual(tuple(r["widget"].layout.display != "none" for r in records), expected)
+                    self.assertEqual(tuple("anp-with-figure" in r["layout"]._dom_classes for r in records), expected)
+        self.w["kontrollera_last"].value = False
+        self.assertEqual(records[1]["widget"].layout.display, "none")
+        self.assertEqual(records[2]["widget"].layout.display, "none")
+
+    def test_figurmetadata_paverkar_inte_px_resultat_eller_sparade_fall(self):
+        def legacy(px):
+            return Tvärkraft(px)
+        legacy.panel_schema = copy.deepcopy(Tvärkraft.panel_schema)
+        for section in legacy.panel_schema["sections"]:
+            section.pop("figure", None)
+        with patch("an_print.panel.files", side_effect=AssertionError("Ingen bild ska läsas")):
+            old = Panel(legacy, state_file=pathlib.Path(self.tmp.name) / "old.json")
+        self.assertEqual(old._figure_records, [])
+        self.assertNotIn("anp-panel-illustrated", old._form._dom_classes)
+        self.assertEqual(old.to_px(), self.panel.to_px())
+        self.assertEqual(legacy(old.to_px()), Tvärkraft(self.panel.to_px()))
+        self.w["kontrollera_last"].value = True
+        self.w["reducera_tvarkraft"].value = True
+        self.w["m_eff"].value = 2
+        self.w["V_Ed"].value = 145
+        before = self.panel.to_px()
+        self.panel._save_last_values()
+        self.assertNotIn("base64", self.state.read_text())
+        self.assertNotIn(".png", self.state.read_text())
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(Tvärkraft, state_file=self.state)
+        self.assertEqual(restored.to_px(), before)
+        self.assertTrue(all(r["widget"].layout.display != "none" for r in restored._figure_records))
 
     def test_strimlans_knapp_laser_bredd_och_byter_enheter(self):
         self.assertIsInstance(self.w["plattstrimla"], Checkbox)

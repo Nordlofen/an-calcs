@@ -508,15 +508,30 @@ _CC = {"all": [_C, {"field": "A_sl_inmatning", "equals": "cc"}]}
 _DIAMETER = {"all": [_C, {"field": "A_sl_inmatning", "in": ["jarn", "cc"]}]}
 _STRIMLA = {"field": "plattstrimla", "equals": True}
 
+
+def _figur(nummer, caption, alt, sida, visible_if):
+    return {"package": "an_calcs.betong", "resource": f"figures/ec2-figure-{nummer}.png",
+            "caption": caption, "alt": alt,
+            "source": f"SS-EN 1992-1-1:2005 (Sv), s. {sida}", "visible_if": visible_if}
+
+
 Tvärkraft.panel_schema = {
     "title": "Tvärkraft - EC2 6.2.2 och 6.2.3",
     "px": list(_PX_NAMN),
     "sections": [
         {"fields": ["metod", "plattstrimla"], "columns": 1},
-        {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "cc_l", "phi_l"], "columns": 3},
+        {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "cc_l", "phi_l"], "columns": 2,
+         "figure": _figur("6-3", "Figur 6.3 · Definition av medräkningsbar längsdragarmering",
+                          "Förankring av längsdragarmeringen bortom betraktat snitt enligt figur 6.3.", 83, _C)},
         {"title": "Material", "fields": ["f_ck", "f_ywk"], "columns": 2},
-        {"title": "Tvärkraftsarmering", "fields": ["phi_w", "n_skar", "s", "alpha", "m_eff"], "columns": 3},
-        {"title": "Last och tvärkraftsreduktion", "fields": ["kontrollera_last", "V_Ed", "reducera_tvarkraft", "a_v"], "columns": 2},
+        {"title": "Tvärkraftsarmering", "fields": ["phi_w", "n_skar", "s", "alpha"], "columns": 3},
+        {"title": "Last och tvärkraftsreduktion", "fields": ["kontrollera_last", "V_Ed", "reducera_tvarkraft", "a_v"], "columns": 2,
+         "figure": _figur("6-4", "Figur 6.4 · Laster nära upplag",
+                          "Lastavstånd a_v och effektiv höjd d för fritt upplagd balk och konsol.", 84, _REDUKTION)},
+        {"title": "Verksam tvärkraftsarmering vid lastreduktion · 6.2.3", "fields": ["m_eff"], "columns": 1,
+         "figure": _figur("6-6", "Figur 6.6 · Tvärkraftsarmering vid korta skjuvspann",
+                          "Verksam tvärkraftsarmering inom centrala 0,75 a_v vid korta skjuvspann.",
+                          87, {"all": [_S, _REDUKTION]})},
         {"title": "Beräkningsinställningar", "fields": ["cot_theta", "z_auto", "z_manuell", "gamma_c", "gamma_s", "alpha_cc"], "columns": 3, "collapsible": True, "collapsed": True},
     ],
     "fields": [

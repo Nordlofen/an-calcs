@@ -126,6 +126,14 @@ Det sista valet beräknar `n_l = floor(b_w / cc_l + 1)` (avrundning nedåt till
 heltal) och därefter `A_sl = n_l * pi * phi_l**2 / 4`. Centrumavståndet anges
 i mm. Antalet järn och arean redovisas som delresultat.
 
+Panelen visar EC2:s statiska originalfigurer intill relevanta fält:
+figur 6.3 vid längsarmeringen, figur 6.4 vid lastreduktion och figur 6.6
+vid antalet verksamma byglar för 6.2.3. Figurerna visas till vänster om
+inmatningen på bred skärm och ovanför på smal skärm. Bortvalda metoder
+och avstängd lastreduktion döljer motsvarande figurer. Bilderna följer med
+paketet och kräver varken PDF-filen eller nätåtkomst i notebooken.
+Uppdatera även `an-print` för detta frivilliga figurstöd i `panel_schema`.
+
 Knappen **<i>b</i><sub>w</sub>-1m strimla** låser `b_w` till **1 000 mm** och visar krafter och
 bärförmågor i **kN/m**. Ange laster, betongarea och längsarmering för denna
 meterstrimla. För tvärkraftsarmering anges `n_skar` som summan av verksamma skär
