@@ -39,6 +39,10 @@ _COT_HELP = (
     "V_Rd,c enligt 6.2.2 påverkas inte. "
     "1,0 motsvarar 45° och 2,5 motsvarar 21,8°, mätt mot balkens längdaxel."
 )
+_BT_HELP = (
+    "Använder b_t = b_w. Avmarkera om medelbredden av den dragna delen avviker från "
+    "tvärkraftsbredden. För T-balk med tryckt fläns beaktas endast balklivets bredd enligt 9.2.1.1(1)."
+)
 
 
 def _post(namn, latex, value, unit="", etikett="", decimals=3):
@@ -696,7 +700,8 @@ Tvärkraft.panel_schema = {
         _falt("phi_l", "Längsarmeringens diameter", 25.0, "mm", "φ<sub>l</sub>", visible_if=_DIAMETER),
         _falt("kontrollera_min_langsarmering", "Kontrollera minsta längsarmering enligt 9.2.1.1(1)", False, typ="bool", visible_if=_C, span=2),
         _falt("b_t_auto", "Använd samma bredd för dragen zon och tvärkraft", True, typ="bool", visible_if=_MIN_LANGS, span=2,
-              help="Använder b_t = b_w. Avmarkera om medelbredden av den dragna delen avviker från tvärkraftsbredden. För T-balk med tryckt fläns beaktas endast balklivets bredd enligt 9.2.1.1(1)."),
+              help=_BT_HELP,
+              help_html=_BT_HELP.replace("b_t", "<i>b</i><sub>t</sub>").replace("b_w", "<i>b</i><sub>w</sub>")),
         _falt("b_t_manuell", "Medelbredd av dragen del", 300.0, "mm", "<i>b</i><sub>t</sub>", visible_if=_BT_MAN),
         _falt("f_yk", "Längsarmeringens karakteristiska sträckgräns", 500.0, "MPa", "<i>f</i><sub>yk</sub>", visible_if=_MIN_LANGS),
         _falt("f_ctm_auto", "Beräkna medeldraghållfasthet enligt tabell 3.1", True, typ="bool", visible_if=_MIN_LANGS, span=2),
