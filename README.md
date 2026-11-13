@@ -113,6 +113,56 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Tvärkraft i betong
+
+`an_calcs.betong.Tvärkraft` beräknar bärförmåga enligt **SS-EN 1992-1-1:2005,
+6.2.2 och 6.2.3** för normalbetong med konstant tvärsnitt, utan förspänning eller
+foderrör. ASCII-aliaset `tvarkraft` avser samma funktion.
+
+```python
+from an_calcs.betong import Tvärkraft
+from an_print import Panel
+
+panel = Panel(Tvärkraft, key="Balk1")
+panel
+
+# Kortformat för ren kapacitetsberäkning:
+# [b_w, d, f_ck, A_sl, phi_w, n_skar, s, f_ywk]
+details = Tvärkraft([300, 500, 30, 2000, 8, 2, 200, 500])
+
+# Namngivna indata med lastkontroll och reduktion nära upplag:
+details = Tvärkraft({
+    "b_w": 300, "d": 700, "f_ck": 30, "A_sl": 2000,
+    "phi_w": 8, "n_skar": 2, "s": 200, "f_ywk": 500,
+    "V_Ed": 1700, "reducera_tvarkraft": True, "a_v": 300,
+    "m_eff": 1,  # faktiskt antal verksamma byglar i centrala 0,75 a_v
+})
+```
+
+Mått anges i mm, areor i mm², hållfastheter i MPa och krafter i kN. Det sista
+exemplet ger `beta=0.25` och `V_Ed_red=425` kN; detta betyder inte att bärförmågan
+är tillräcklig. Reduktionsläget förutsätter att hela lasten är reducerbar enligt
+figur 6.4/6.6, påförs på ovansidan och att längsarmeringen är fullt förankrad.
+`d` återanvänds från tvärsnittet. `m_eff` anges i armeringsdelen och används för
+(6.19); det beräknas inte genom avrundning av bygelavståndet.
+
+Resultaten `V_Rd_c`, `V_Rd_s`, `V_Rd_max` och `V_Rd=min(V_Rd_s,V_Rd_max)`
+redovisar ordinarie bärförmågor. Vid reduktion kontrolleras reducerad last mot
+`V_Rd_c` respektive (6.19), medan oreducerad last kontrolleras separat mot (6.5)
+respektive (6.9). `V_Rd_c_last` och `V_Rd_s_last` är samlade gränser för den
+**oreducerade** inmatade lasten. För `a_v > 2d` används ordinarie modell.
+`eta_6_2_2` och `eta_6_2_3` redovisas i procent när lastkontroll är aktiverad.
+
+Beräkningsinställningarna innehåller vald `cot_theta`, dess undre/övre gräns
+inom 1,0–2,5, automatiskt/manuellt `z` samt `gamma_c`, `gamma_s` och `alpha_cc`.
+Förvalen är EC2:s rekommenderade värden för varaktig/tillfällig situation,
+utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` och
+manuellt `z`; `sigma_cp >= 0.2 f_cd` avvisas. `n_skar=0` anger inga byglar.
+Minimiarmering, avståndsregler, förankringsdimensionering och kontroll av
+längsarmeringens totala dragkraft ingår inte i bärförmågekontrollen.
+Det fullständiga positionsformatet finns i funktionens docstring och
+`Tvärkraft.panel_schema["px"]`.
+
 ## Formfaktorer för väggar
 
 `an_calcs.common.formfaktorer_vaggar` beräknar utvändiga formfaktorer
