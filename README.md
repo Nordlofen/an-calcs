@@ -123,14 +123,16 @@ Foreslagen projektstruktur:
 ## Pelarholk
 
 `an_calcs.betong.Pelarholk` (alias `pelarholk`) löser kraftspelet för **släta
-fogytor enligt EC2 10.9.6.3, figur 10.7b**. Funktionen kontrollerar sidokontakttryck
+fogytor enligt EC2 10.9.6.3, figur 10.7b**. Funktionen beräknar sidokontakttryck
 i igjutning och holkbetong med projektets triangulära kontakt-/spridningsmodell.
 Vid **Fristående holk** beräknas erforderlig böjarmering i högra väggen från
 `F1`, och `V_Ed=max(F1,F2)` redovisas till separat kontroll i `Tvärkraft()`.
 Vid plattansluten holk utgår böjarmeringsberäkningen och `V_Ed=F2`.
-Slutresultat visar det högst utnyttjade tryckfallet; övriga tryckfall finns
-under delresultat. Ekvationerna visas en storhet per rad, utan
-enhetsomräkningsfaktorer, med tillämpningsvillkoren separat.
+Slutresultat visar maxtryck för igjutning och holkbetong, utan
+utnyttjandegrader. Enskilda kontakttryck finns under delresultat.
+Ekvationerna visas en storhet per rad, utan
+enhetsomräkningsfaktorer. Insticksdjupet får en kompakt resultatkontroll;
+vid `l < 1,2h` blir hjälptexten röd och endast kontrollen redovisas.
 
 ```python
 from an_calcs.betong import Pelarholk
@@ -143,15 +145,15 @@ panel
 Panelen innehåller en måttskiss som uppdateras när geometrifälten ändras,
 en principiell kontaktzonsfigur, en friläggning för högra holkväggens
 böjarmering och EC2:s originalfigur 10.7. Friläggningen visas endast vid
-fristående holk. Figurerna följer
-med paketet. **Uppdaterat `an-print` med stöd för dynamiska figurer och
-ekvationsnoter behövs.**
+fristående holk. Figurerna är kompakta och följer med paketet.
+**Uppdaterat `an-print` med stöd för dynamiska figurer,
+formaterade bildtexter, fältkontroller och ekvationsnoter behövs.**
 Indata är öppet från början; referensfigurer och beräkningsinställningar kan
 fällas ut. `D` är kontaktdjupet ut ur snittet och låses till 1000 mm för vägg.
 `B=bv+h+bh`, `H` och anslutande plattas `t_p` används endast i skissen.
 Skissen har samma skala i höjd och bredd, med schematiskt förstärkt igjutning.
 
-Ren beräkning med dimensionerande materialvärden, mm, kN och kNm:
+Ren beräkning med mm, kN, kNm och dimensionerande sträckgräns i MPa:
 
 ```python
 details = Pelarholk({
@@ -159,7 +161,7 @@ details = Pelarholk({
     "M": 98.4, "Fv": 630, "Fh": 30,
     "h": 300, "l": 500, "D": 400, "t_ig": 20,
     "bh": 300, "c_nom": 35, "phi": 16,
-    "f_cd_ig": 25, "f_cd_c": 20, "f_yd": 400, "mu": 0.2,
+    "f_yd": 400, "mu": 0.2,
 })
 # F1=240, F2=90, F3=600 kN; V_Ed=240 kN;
 # Fs=506.329 kN; As_req=1265.823 mm².

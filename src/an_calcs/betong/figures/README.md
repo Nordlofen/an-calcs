@@ -34,3 +34,15 @@ Figurer för Pelarholk
 
 Den dynamiska måttskissen ligger som Python-renderare i `_pelarholk_skiss.py`.
 Inga absoluta källsökvägar eller originaldokument behövs i installerad panel.
+
+Kompakta panelversioner
+----------------------
+
+- `pelarholk-kontaktzoner-kompakt.svg`: kontaktzoner och tryckspridning med
+  samma modell och beteckningar som den större principskissen.
+- `pelarholk-bojarmering-kompakt.svg`: frilagd högra holkvägg med F1, V,
+  Fs/Fc, a1, d och z. Samma konsolmodell som den större figuren.
+
+SVG-versionerna är ritade för högst 560 px visningsbredd. Stora rubriker,
+formelrutor och upprepade textförklaringar utgår ur bilderna; bildtext och
+ekvationsredovisning ger denna information. De större PNG-originalen bevaras.

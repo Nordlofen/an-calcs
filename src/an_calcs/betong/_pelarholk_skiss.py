@@ -42,7 +42,7 @@ def render(values):
     mode = "Fristående holk" if free else "Holk med anslutande platta"
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 {yb+112:.3f}" role="img" aria-label="Måttsatt tvärsnitt: {mode}" '
              f'data-B="{B:g}" data-scale-x="{scale}" data-scale-y="{scale}" data-standalone="{str(free).lower()}" '
-             'style="display:block;width:100%;height:auto;font:17px sans-serif;color:var(--anp-fg,#202327)">',
+             'style="display:block;width:100%;height:auto;font:19px sans-serif;color:var(--anp-fg,#202327)">',
              f'<title>{mode} · mått i mm</title>',
              '<desc>Samma skala i höjd och bredd. Igjutningen visas schematiskt förstärkt. B och H används endast för skissen.</desc>']
     def line(x1,y1,x2,y2,extension=False):
@@ -54,7 +54,7 @@ def render(values):
         parts.append(f'<text x="{x:.3f}" y="{y:.3f}" fill="currentColor" text-anchor="middle" {extra}>{label}</text>')
     def symbol(name):
         main, _, sub = name.partition("_")
-        return f'<tspan font-style="italic">{main}</tspan>' + (f'<tspan baseline-shift="sub" font-size="12">{sub}</tspan>' if sub else '')
+        return f'<tspan font-style="italic">{main}</tspan>' + (f'<tspan baseline-shift="sub" font-size="14">{sub}</tspan>' if sub else '')
     outer = f'M {x0} {yt} H {xr} V {yb} H {x0} Z' if free else f'M {x0} {yt} H {xe} V {yp} H {xr} V {yb} H {x0} Z'
     parts += [f'<path data-part="fundament" d="{outer}" fill="var(--anp-soft,#f4f6f8)" stroke="currentColor" stroke-width="1.6"/>',
               f'<rect data-part="igjutning" x="{xc-grout}" y="{yt}" width="{xcr-xc+2*grout}" height="{yl-yt+grout}" fill="#f5c478" stroke="#c47b12"/>']
@@ -99,7 +99,10 @@ def render(values):
     tick(xl,yt)
     tick(xl,yl)
     tx,ty = xl+14,(yt+yl)/2
-    text(tx,ty,f'l = {fmt(l)}' if yl-yt>108 and xr-xcr>70 else 'l', f'transform="rotate(-90 {tx} {ty})"')
+    if yl-yt>108 and xr-xcr>70:
+        text(tx,ty,f'l = {fmt(l)}', f'transform="rotate(-90 {tx} {ty})"')
+    else:
+        text(tx,ty+5,symbol("l"))
     if not free:
         xp = xe+21
         for yy in (yt,yp):

@@ -4,8 +4,9 @@ import math
 from collections.abc import Mapping
 
 
-_PX = ("typ", "fristaende", "M", "Fv", "Fh", "h", "l", "D", "t_ig",
+_PX_LEGACY = ("typ", "fristaende", "M", "Fv", "Fh", "h", "l", "D", "t_ig",
        "bh", "f_cd_ig", "f_cd_c", "c_nom", "phi", "f_yd", "mu")
+_PX = tuple(name for name in _PX_LEGACY if name not in ("f_cd_ig", "f_cd_c"))
 _SKISSMATT = {"bv", "H", "t_p"}
 _DEFAULTS = {"typ": "pelare", "fristaende": True, "mu": 0.3}
 
@@ -30,12 +31,14 @@ def _tal(name, value, *, positive=False, minimum=None, maximum=None):
 
 def _indata(px):
     if isinstance(px, Mapping):
-        unknown = set(px) - set(_PX) - _SKISSMATT
+        unknown = set(px) - set(_PX_LEGACY) - _SKISSMATT
         if unknown:
             raise ValueError(f"Okända indata: {sorted(unknown, key=str)}.")
         given = dict(px)
     elif isinstance(px, (list, tuple)) and len(px) == len(_PX):
         given = dict(zip(_PX, px))
+    elif isinstance(px, (list, tuple)) and len(px) == len(_PX_LEGACY):
+        given = dict(zip(_PX_LEGACY, px))
     else:
         raise ValueError(f"px ska vara en dictionary eller lista/tuple med {len(_PX)} värden enligt panel_schema['px'].")
     v = {**_DEFAULTS, **given}
@@ -43,7 +46,7 @@ def _indata(px):
         raise ValueError("typ måste vara 'pelare' eller 'vagg'.")
     if not isinstance(v["fristaende"], bool):
         raise ValueError("fristaende måste vara True eller False.")
-    required = ["M", "Fv", "Fh", "h", "l", "t_ig", "f_cd_ig", "f_cd_c"]
+    required = ["M", "Fv", "Fh", "h", "l", "t_ig"]
     if v["typ"] == "pelare":
         required.append("D")
     if v["fristaende"]:
@@ -55,11 +58,9 @@ def _indata(px):
         v[name] = _tal(name, v[name])
     v["Fv"] = _tal("Fv", v["Fv"], minimum=0)
     v["mu"] = _tal("mu", v["mu"], minimum=0, maximum=0.3)
-    for name in ("h", "l", "t_ig", "f_cd_ig", "f_cd_c"):
+    for name in ("h", "l", "t_ig"):
         v[name] = _tal(name, v[name], positive=True)
     v["D"] = 1000.0 if v["typ"] == "vagg" else _tal("D", v["D"], positive=True)
-    if v["l"] < 1.2 * v["h"]:
-        raise ValueError("Modellen enligt 10.9.6.3 kräver l >= 1,2 h.")
     if v["fristaende"]:
         for name in ("bh", "phi", "f_yd"):
             v[name] = _tal(name, v[name], positive=True)
@@ -73,6 +74,15 @@ def _indata(px):
     return v
 
 
+def _insticksdjup_ok(values):
+    """Gemensam geometrikontroll för redovisning och direkt fältåterkoppling."""
+    try:
+        l, h = float(values["l"]), float(values["h"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return math.isfinite(l) and math.isfinite(h) and l > 0 and h > 0 and l >= 1.2*h
+
+
 def _post(name, latex, value, unit="", label="", decimals=3):
     return {"namn": name, "latex": latex, "value": value, "unit": unit,
             "etikett": label, "decimals": decimals}
@@ -82,7 +92,7 @@ def Pelarholk(px):
     r"""Beräkna F1/F2/F3, sidokontakttryck och fristående högerväggs böjarmering.
 
     Namngivet format rekommenderas. Listformat följer ``panel_schema['px']``.
-    Mått: mm; f_cd_ig, f_cd_c och f_yd: dimensionerande hållfastheter i MPa.
+    Mått: mm; f_yd: dimensionerande sträckgräns i MPa.
     Pelare: Fv/Fh i kN, M i kNm, D = verksamt kontaktdjup ut ur snittet.
     Vägg (typ='vagg'): kN/m och kNm/m; D låses till 1000 mm även vid direktanrop.
     Laster avser holkens överkant: Fv nedåt, Fh åt höger och M medurs positivt.
@@ -97,10 +107,11 @@ def Pelarholk(px):
 
     Kontaktmodellen är ett projektspecifikt tillägg till EC2:s kraftmodell:
     a_c=0.3*l, triangulärt tryck, spridning t_ig/tan(26.6 grader), oförändrat D.
-    Spänningar jämförs direkt med angivna dimensionerande tryckhållfastheter.
-    Slutresultat visar det högst utnyttjade tryckfallet; övriga ligger i
-    delresultat. Ekvationerna förutsätter konsekventa enheter och redovisas
-    utan enhetsomräkningsfaktorer, med tillämpningsvillkoren separat.
+    Slutresultat visar maxtryck för igjutning och holkbetong, utan utnyttjande-
+    grader eller hållfasthetsjämförelse. Enskilda kontakttryck ligger i delresultat.
+    Äldre f_cd_ig/f_cd_c och det äldre positionsformatet accepteras men ignoreras.
+    Insticksdjup l < 1,2h ger endast indata och kontrollen Ej uppfyllt, inga
+    kraft- eller armeringsresultat. Ekvationerna använder konsekventa enheter.
     Tillgänglig spridningsgeometri måste bedömas separat. F3 redovisas med
     medeltryck, utan kontroll av maximalt bottentryck eller genomstansning.
     Minimiarmering, förankring och övrig detaljutformning ingår inte.
@@ -109,6 +120,36 @@ def Pelarholk(px):
     """
     v = _indata(px)
     h, l, D, mu = (v[k] for k in ("h", "l", "D", "mu"))
+    force_unit = "kN/m" if v["typ"] == "vagg" else "kN"
+    moment_unit = "kNm/m" if v["typ"] == "vagg" else "kNm"
+    area_unit = "mm²/m" if v["typ"] == "vagg" else "mm²"
+    labels = {
+        "M": ("M", moment_unit, "Moment vid holkens överkant, medurs positivt"),
+        "Fv": (r"F_v", force_unit, "Vertikallast, nedåt positivt"),
+        "Fh": (r"F_h", force_unit, "Horisontallast, åt höger positivt"),
+        "h": ("h", "mm", "Pelarmått/väggtjocklek"), "l": ("l", "mm", "Insticksdjup"),
+        "D": ("D", "mm", "Beräkningsdjup ut ur snittplanet"),
+        "t_ig": (r"t_{ig}", "mm", "Igjutningstjocklek"),
+        "mu": (r"\mu", "", "Friktionskoefficient i global jämvikt"),
+        "bh": (r"b_h", "mm", "Höger sidomått, inklusive igjutning"),
+        "c_nom": (r"c_{nom}", "mm", "Täckskikt till dragstångens utsida"),
+        "phi": (r"\phi", "mm", "Dragstångens diameter"),
+        "f_yd": (r"f_{yd}", "MPa", "Dimensionerande sträckgräns"),
+    }
+    inputs = [_post("typ", r"\mathrm{Typ}", "Vägg, 1 m strimla" if v["typ"] == "vagg" else "Pelare", label="Beräkningstyp"),
+              _post("fristaende", r"\mathrm{Holktyp}", "Fristående" if v["fristaende"] else "Plattansluten", label="Holktyp")]
+    for name, (symbol, unit, label) in labels.items():
+        if v.get(name) is not None:
+            inputs.append(_post(name, symbol, v[name], unit, label))
+    depth_ok = _insticksdjup_ok(v)
+    depth_check = {**_post("status_insticksdjup", r"l\geq1{,}2h", "Uppfyllt" if depth_ok else "Ej uppfyllt", label="Insticksdjup"),
+                   "show_equals": False}
+    if not depth_ok:
+        return {"metodbeskrivning": {"title": "Metodbeskrivning", "items": []},
+                "indata": {"title": "Indata", "items": inputs},
+                "delresultat": {"title": "Delresultat", "items": []},
+                "ekvationer": {"title": "Ekvationer", "items": []},
+                "slutresultat": {"title": "Slutresultat", "items": [depth_check]}}
     # Eliminering av de tre jämviktsekvationerna; krafter kN och moment kNmm.
     delta = (v["Fh"] + mu * v["Fv"]) / (1 + mu**2)
     A, C = 0.9*l + mu*h/2, mu*h/2 - 0.1*l
@@ -125,32 +166,9 @@ def Pelarholk(px):
     ac = 0.3*l
     da = v["t_ig"] / math.tan(math.radians(26.6))
     ac_spr = ac + da
-    force_unit = "kN/m" if v["typ"] == "vagg" else "kN"
-    moment_unit = "kNm/m" if v["typ"] == "vagg" else "kNm"
-    area_unit = "mm²/m" if v["typ"] == "vagg" else "mm²"
-    labels = {
-        "M": ("M", moment_unit, "Moment vid holkens överkant, medurs positivt"),
-        "Fv": (r"F_v", force_unit, "Vertikallast, nedåt positivt"),
-        "Fh": (r"F_h", force_unit, "Horisontallast, åt höger positivt"),
-        "h": ("h", "mm", "Pelarmått/väggtjocklek"), "l": ("l", "mm", "Insticksdjup"),
-        "D": ("D", "mm", "Beräkningsdjup ut ur snittplanet"),
-        "t_ig": (r"t_{ig}", "mm", "Igjutningstjocklek"),
-        "mu": (r"\mu", "", "Friktionskoefficient i global jämvikt"),
-        "f_cd_ig": (r"f_{cd,ig}", "MPa", "Dimensionerande tryckhållfasthet, igjutning"),
-        "f_cd_c": (r"f_{cd,c}", "MPa", "Dimensionerande tryckhållfasthet, holkbetong"),
-        "bh": (r"b_h", "mm", "Höger sidomått, inklusive igjutning"),
-        "c_nom": (r"c_{nom}", "mm", "Täckskikt till dragstångens utsida"),
-        "phi": (r"\phi", "mm", "Dragstångens diameter"),
-        "f_yd": (r"f_{yd}", "MPa", "Dimensionerande sträckgräns"),
-    }
-    inputs = [_post("typ", r"\mathrm{Typ}", "Vägg, 1 m strimla" if v["typ"] == "vagg" else "Pelare", label="Beräkningstyp"),
-              _post("fristaende", r"\mathrm{Holktyp}", "Fristående" if v["fristaende"] else "Plattansluten", label="Holktyp")]
-    for name, (symbol, unit, label) in labels.items():
-        if v.get(name) is not None:
-            inputs.append(_post(name, symbol, v[name], unit, label))
     middle = [
-        _post("a1", "a_1", 0.9*l, "mm", "F1:s höjd över pelarfoten"),
-        _post("a2", "a_2", 0.1*l, "mm", "F2:s höjd över pelarfoten"),
+        _post("a1", "a_1", 0.9*l, "mm", "F₁:s höjd över pelarfoten"),
+        _post("a2", "a_2", 0.1*l, "mm", "F₂:s höjd över pelarfoten"),
         _post("a_c", "a_c", ac, "mm", "Kontaktzonens höjd"),
         _post("alpha", r"\alpha", 26.6, "°", "Tryckspridningens vinkel mot vertikalen"),
         _post("delta_a", r"\Delta a", da, "mm", "Tillkommande spridningshöjd"),
@@ -158,26 +176,17 @@ def Pelarholk(px):
         _post("sigma_3_mean", r"\sigma_{3,medel}", 1000*F3/(D*h), "MPa", "Medeltryck under pelarfoten; maxtryck ej kontrollerat"),
     ]
     result = [_post(f"F{i}", f"F_{i}", force, force_unit, "Kontaktkraft") for i, force in enumerate((F1, F2, F3), 1)]
-    pressure_modes = []
-    for i, force in enumerate((F1, F2), 1):
-        for material, height, strength, description in (
-            ("ig", ac, v["f_cd_ig"], "igjutning"), ("c", ac_spr, v["f_cd_c"], "holkbetong")
-        ):
-            stress = 2000*force/(D*height)
-            eta = 100*stress/strength
-            pressure_modes.append((eta, [
-                _post(f"sigma_{material}_{i}_max", rf"\sigma_{{{material},{i},max}}", stress, "MPa", f"Maxtryck {description}, F{i}"),
-                _post(f"eta_{material}_{i}", rf"\eta_{{{material},{i}}}", eta, "procent", f"Tryckutnyttjande {description}, F{i}", 1),
-            ]))
-    governing_mode = max(pressure_modes, key=lambda mode: mode[0])
-    eta_max = governing_mode[0]
-    for mode in pressure_modes:
-        (result if mode is governing_mode else middle).extend(mode[1])
-    middle.append(_post("eta_tryck_max", r"\eta_{tryck,max}", eta_max, "procent", "Största tryckutnyttjande i sidokontaktzonerna", 1))
+    controlling = 1 if F1 >= F2 else 2
+    for material, height, description in (("ig", ac, "igjutning"), ("c", ac_spr, "holkbetong")):
+        for i, force in enumerate((F1, F2), 1):
+            middle.append(_post(f"sigma_{material}_{i}_max", rf"\sigma_{{{material},{i},max}}",
+                                2000*force/(D*height), "MPa", f"Kontakttryck {description}, F{'₁' if i == 1 else '₂'}"))
+        result.append(_post(f"sigma_{material}_max", rf"\sigma_{{{material},max}}",
+                            2000*max(F1, F2)/(D*height), "MPa", f"Maxtryck {description}, F{'₁' if controlling == 1 else '₂'}"))
     result += [
-        _post("status_tryck", r"\mathrm{Tryck}", "Uppfyller" if eta_max <= 100 else "Överskriden", label="Sidokontakttryck enligt vald modell"),
+        depth_check,
         _post("V_Ed", "V_{Ed}", max(F1, F2) if v["fristaende"] else F2, force_unit, "Oreducerad tvärkraft till Tvärkraft()"),
-        _post("styrande_tvarkraft", r"\mathrm{Styrande}", ("F1" if F1 >= F2 else "F2") if v["fristaende"] else "F2", label="Styrande kontaktkraft för tvärkraft"),
+        _post("styrande_tvarkraft", r"\mathrm{Styrande}", ("F₁" if F1 >= F2 else "F₂") if v["fristaende"] else "F₂", label="Styrande kontaktkraft för tvärkraft"),
     ]
     equations = [
         {"latex": r"\sum F_x=F_h-F_1+F_2+\mu F_3=0", "etikett": "Horisontell jämvikt"},
@@ -188,8 +197,6 @@ def Pelarholk(px):
         {"latex": r"a_{c,spr}=a_c+\Delta a", "etikett": "Spridd kontaktzon"},
         {"latex": r"\sigma_{ig,i,max}=\frac{2F_i}{Da_c}", "etikett": "Maxtryck i igjutning, i = 1, 2"},
         {"latex": r"\sigma_{c,i,max}=\frac{2F_i}{Da_{c,spr}}", "etikett": "Maxtryck i holkbetong, i = 1, 2"},
-        {"latex": r"\eta_{ig,i}=100\sigma_{ig,i,max}/f_{cd,ig}", "etikett": "Tryckutnyttjande i igjutning; procent"},
-        {"latex": r"\eta_{c,i}=100\sigma_{c,i,max}/f_{cd,c}", "etikett": "Tryckutnyttjande i holkbetong; procent"},
         {"latex": r"\sigma_{3,medel}=F_3/(Dh)", "etikett": "Endast medeltryck; ingen kontroll av maximalt bottentryck"},
         {"latex": r"V_{Ed}=\max(F_1,F_2)" if v["fristaende"] else r"V_{Ed}=F_2", "etikett": "Last till separat tvärkraftskontroll"},
     ]
@@ -203,20 +210,19 @@ def Pelarholk(px):
         result += [_post("Fs", "F_s", Fs, force_unit, "Erforderlig dragkraft i högra holkväggens böjarmering"),
                    _post("As_req", "A_{s,req}", 1000*Fs/v["f_yd"], area_unit, "Erforderlig böjarmering, exklusive minimiarmering")]
         equations += [
-            {"latex": r"a_1=0{,}9l", "etikett": "F1:s hävarm för högra holkväggen"},
+            {"latex": r"a_1=0{,}9l", "etikett": "F₁:s hävarm för högra holkväggen"},
             {"latex": r"d=b_h-t_{ig}-c_{nom}-\phi/2", "etikett": "Effektiv höjd i högra holkväggen"},
             {"latex": r"z=0{,}9d", "etikett": "Inre hävarm"},
             {"latex": r"M_{holk}=F_1a_1", "etikett": "Gynnsamt lokalt friktionsbidrag försummas"},
             {"latex": r"F_s=M_{holk}/z", "etikett": "Erforderlig dragkraft i böjarmeringen"},
             {"latex": r"A_{s,req}=F_s/f_{yd}", "etikett": "Erforderlig böjarmeringsarea"},
         ]
-    result.append(_post("status_bojarmering", r"\text{Böjarmering}", "Erforderlig area beräknad" if v["fristaende"] else "Ej beräknad", label="Böjarmering i högra holkväggen"))
     method = [
-        {"rubrik": "Kraftmodell", "text": "SS-EN 1992-1-1:2005 (Sv), 10.9.6.3, figur 10.7b. Släta fogytor. F3 angriper centriskt under pelaren/väggen. Friktionskrafterna ingår i global jämvikt."},
-        {"rubrik": "Tryckmodell", "text": "Triangulära sidokontaktzoner a_c=0,3l och spridning genom igjutningen med 26,6° mot vertikalen enligt projektets handberäkningsmodell; detta är ett tillägg till EC2:s kraftmodell. Verksamt D hålls konstant. Tillgängligt utrymme för tryckspridningen verifieras separat."},
-        {"rubrik": "Holktyp", "text": "Fristående: högra väggen beräknas som konsol för F1, med a1=0,9l och z=0,9d. Gynnsamt lokalt friktionsbidrag utelämnas." if v["fristaende"] else "Plattansluten enligt vald modell: böjarmering beräknas inte. Lastöverföringen till plattan förutsätts verifierad separat."},
-        {"rubrik": "Enheter och material", "text": f"Krafter i {force_unit}, moment i {moment_unit}, mått i mm och hållfastheter i MPa. Dimensionerande materialhållfastheter anges direkt; inga ytterligare materialfaktorer tillämpas."},
-        {"rubrik": "Avgränsning", "text": "V_Ed är oreducerad last till Tvärkraft() med motsvarande beräkningsbredd och enheter. Tvärkraftskapacitet, maximalt bottentryck, genomstansning, minimiarmering, förankring, övrig detaljutformning och pålfördelning ingår inte. B och H används endast i skissen. Ingen fullständig dimensioneringskontroll av hela fundamentet görs."},
+        {"rubrik": "Kraftmodell", "text": "SS-EN 1992-1-1:2005 (Sv), 10.9.6.3, figur 10.7b. Släta fogytor. F₃ angriper centriskt under pelaren/väggen. Friktionskrafterna ingår i global jämvikt."},
+        {"rubrik": "Tryckmodell", "text": "Triangulära sidokontaktzoner med höjden 0,3l och spridning genom igjutningen med 26,6° mot vertikalen enligt projektets handberäkningsmodell; detta är ett tillägg till EC2:s kraftmodell. Verksamt D hålls konstant. Tillgängligt utrymme för tryckspridningen verifieras separat."},
+        {"rubrik": "Holktyp", "text": "Fristående: högra väggen beräknas som konsol för F₁, med hävarmen 0,9l och z=0,9d. Gynnsamt lokalt friktionsbidrag utelämnas." if v["fristaende"] else "Plattansluten enligt vald modell: böjarmering beräknas inte. Lastöverföringen till plattan förutsätts verifierad separat."},
+        {"rubrik": "Enheter och material", "text": f"Krafter i {force_unit}, moment i {moment_unit}, mått i mm och hållfastheter i MPa. Kontakttrycken redovisas utan hållfasthetsjämförelse."},
+        {"rubrik": "Avgränsning", "text": "Tvärkraften är oreducerad last till Tvärkraft() med motsvarande beräkningsbredd och enheter. Tvärkraftskapacitet, maximalt bottentryck, genomstansning, minimiarmering, förankring, övrig detaljutformning och pålfördelning ingår inte. B och H används endast i skissen. Ingen fullständig dimensioneringskontroll av hela fundamentet görs."},
     ]
     for item in inputs + middle + result:
         if isinstance(item["value"], (int, float)) and not math.isfinite(item["value"]):
@@ -226,7 +232,6 @@ def Pelarholk(px):
             "delresultat": {"title": "Delresultat", "items": middle},
             "slutresultat": {"title": "Slutresultat", "items": result},
             "ekvationer": {"title": "Ekvationer", "items": equations, "notes": [
-                {"rubrik": "Tillämpningsvillkor", "text": "l ≥ 1,2h; 0 ≤ μ ≤ 0,3; F₁, F₂ och F₃ ≥ 0. Tryckutnyttjandena ska vara ≤ 100 %."},
                 {"rubrik": "Enheter", "text": "Formlerna förutsätter konsekventa enheter. Enhetsomräkning sker i beräkningen. För vägg avses en meterstrimla."},
             ]}}
 
@@ -241,32 +246,33 @@ _FREE = {"field": "fristaende", "equals": True}
 Pelarholk.panel_schema = {
     "title": "Pelarholk – släta fogytor, EC2 10.9.6.3",
     "px": list(_PX),
+    "preserve_state_fields": ["f_cd_ig", "f_cd_c"],
     "blocks": {"ID": {"rader": 25}, "DR": {"rader": 20},
                "SR": {"rader": 30}, "EKV": {"rader": 20}},
     "sections": [
         {"title": "Indata", "collapsible": True, "collapsed": False, "columns": 1, "sections": [
             {"fields": ["typ", "fristaende"], "columns": 2},
             {"title": "Geometri", "fields": ["h", "l", "bv", "bh", "H", "t_ig", "D", "t_p"], "columns": 2,
-             "figure": {"renderer": "an_calcs.betong._pelarholk_skiss:render",
+             "figure": {"renderer": "an_calcs.betong._pelarholk_skiss:render", "max_width": 460,
                         "fields": ["typ", "fristaende", "h", "l", "bv", "bh", "H", "t_ig", "D", "t_p"],
                         "caption": "Måttsättning · samma skala i höjd och bredd, igjutning schematiskt förstärkt.",
                         "alt": "Dynamisk måttskiss av pelarholken."}},
             {"title": "Lasteffekter vid holkens överkant", "fields": ["M", "Fv", "Fh"], "columns": 3},
-            {"title": "Material", "fields": ["f_cd_ig", "f_cd_c"], "columns": 2},
             {"title": "Böjarmering i högra holkväggen", "fields": ["c_nom", "phi", "f_yd"], "columns": 3},
             {"title": "Friläggning för böjarmering", "collapsible": True, "collapsed": True,
-             "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-bojarmering.png", "full_width": True,
+             "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-bojarmering-kompakt.svg", "full_width": True, "max_width": 560,
                         "visible_if": _FREE,
                         "caption": "Frilagd högra holkvägg · a1 = 0,9l och z = 0,9d. Principskiss, ej skalenlig.",
-                        "alt": "Frilagd högra holkvägg med F1, snittets tvärkraft, dragkraft Fs och betongtryckkraft Fc. Måttdetalj för bh, igjutning, täckskikt, d och z.",
-                        "source": "Projektets konsolmodell. Gynnsam lokal friktion utelämnas; F1 tas från global jämvikt med friktion."}},
+                        "caption_html": "Frilagd högra holkvägg · <i>a</i><sub>1</sub> = 0,9<i>l</i> och <i>z</i> = 0,9<i>d</i>. Principskiss, ej skalenlig.",
+                        "alt": "Frilagd högra holkvägg med F₁, snittets tvärkraft, dragkraft Fₛ och betongtryckkraft i betongen. Måttdetalj för högra sidomåttet, igjutning, täckskikt, d och z.",
+                        "source": "Projektets konsolmodell. Gynnsam lokal friktion utelämnas; F₁ tas från global jämvikt med friktion."}},
             {"title": "Kontaktzoner och tryckspridning", "collapsible": True, "collapsed": True,
-             "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-kontaktzoner.png", "full_width": True,
+             "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-kontaktzoner-kompakt.svg", "full_width": True, "max_width": 560,
                         "caption": "Principskiss · ej skalenlig. B och H är skissmått; D är beräkningsdjupet.",
-                        "alt": "Triangulära kontaktzoner för F1 och F2, kraftlägen och tryckspridning genom igjutningen.",
+                        "alt": "Triangulära kontaktzoner för F₁ och F₂, kraftlägen och tryckspridning genom igjutningen.",
                         "source": "Projektets kontaktmodell, baserad på handberäkningen. Kraftlägen enligt EC2 figur 10.7b."}},
             {"title": "EC2 · figur 10.7", "collapsible": True, "collapsed": True,
-             "figure": {"package": "an_calcs.betong", "resource": "figures/ec2-figure-10-7.png", "full_width": True,
+             "figure": {"package": "an_calcs.betong", "resource": "figures/ec2-figure-10-7.png", "full_width": True, "max_width": 560,
                         "caption": "Figur 10.7 · Fundament med pelarholkar. Högra delfiguren gäller släta fogytor (10.7b i standardtexten).",
                         "alt": "EC2:s originalfigur med profilerad respektive slät fogyta och tillhörande kraftspel.",
                         "source": "SS-EN 1992-1-1:2005 (Sv), s. 181. Originalets dubbla märkning (a) är bevarad."}},
@@ -276,20 +282,22 @@ Pelarholk.panel_schema = {
     "fields": [
         _field("typ", "Beräkningstyp", "vagg", type="choice", options=[{"label": "Långsträckt vägg · per meter", "value": "vagg"}, {"label": "Pelare", "value": "pelare"}],
                help="Talvärden behålls vid byte. Anpassa lasterna till kN/kNm eller kN/m och kNm/m."),
-        _field("fristaende", "Fristående holk", True, type="bool", help="På: böjarmering för högra väggen och V_Ed=max(F1,F2). Av: plattansluten, ingen böjarmeringsberäkning och V_Ed=F2."),
+        _field("fristaende", "Fristående holk", True, type="bool", help="På: böjarmering för högra väggen och V_Ed=max(F1,F2). Av: plattansluten, ingen böjarmeringsberäkning och V_Ed=F2.",
+               help_html="På: böjarmering för högra väggen och <i>V</i><sub>Ed</sub> = max(<i>F</i><sub>1</sub>, <i>F</i><sub>2</sub>). Av: plattansluten, ingen böjarmeringsberäkning och <i>V</i><sub>Ed</sub> = <i>F</i><sub>2</sub>."),
         _field("M", "Moment, medurs positivt", 100.0, "kNm", "<i>M</i>", presentation_if={**_WALL, "unit": "kNm/m"}),
         _field("Fv", "Vertikallast, nedåt positivt", 500.0, "kN", "<i>F</i><sub>v</sub>", presentation_if={**_WALL, "unit": "kN/m"}),
         _field("Fh", "Horisontallast, åt höger positivt", 30.0, "kN", "<i>F</i><sub>h</sub>", presentation_if={**_WALL, "unit": "kN/m"}),
         _field("h", "Pelarmått / väggtjocklek", 200.0, "mm", "<i>h</i>"),
-        _field("l", "Insticksdjup", 350.0, "mm", "<i>l</i>", help="Från holköverkant till pelarfot. Modellen kräver l ≥ 1,2 h."),
+        _field("l", "Insticksdjup", 350.0, "mm", "<i>l</i>", help="Från holköverkant till pelarfot. Modellen kräver l ≥ 1,2 h.",
+               help_html="Från holköverkant till pelarfot. Modellen kräver <i>l</i> ≥ 1,2<i>h</i>.",
+               help_check={"validator": "an_calcs.betong.pelarholk:_insticksdjup_ok", "fields": ["l", "h"]}),
         _field("D", "Beräkningsdjup ut ur snittet", 600.0, "mm", "<i>D</i>", fixed_if={**_WALL, "value": 1000.0}, presentation_if={**_WALL, "label": "Beräkningsdjup · 1 m strimla"}),
         _field("bv", "Vänster sidomått (skiss)", 300.0, "mm", "<i>b</i><sub>v</sub>", help="Från elementytan till fundamentkanten, inklusive igjutning."),
-        _field("bh", "Höger sidomått", 500.0, "mm", "<i>b</i><sub>h</sub>", help="Inklusive igjutning. Används även för d vid fristående holk. B = bv + h + bh."),
+        _field("bh", "Höger sidomått", 500.0, "mm", "<i>b</i><sub>h</sub>", help="Inklusive igjutning. Används även för d vid fristående holk. B = bv + h + bh.",
+               help_html="Inklusive igjutning. Används även för <i>d</i> vid fristående holk. <i>B</i> = <i>b</i><sub>v</sub> + <i>h</i> + <i>b</i><sub>h</sub>."),
         _field("H", "Fundamenthöjd (skiss)", 650.0, "mm", "<i>H</i>"),
         _field("t_ig", "Igjutningstjocklek", 20.0, "mm", "<i>t</i><sub>ig</sub>"),
         _field("t_p", "Plattjocklek (skiss)", 150.0, "mm", "<i>t</i><sub>p</sub>", visible_if={"field": "fristaende", "equals": False}),
-        _field("f_cd_ig", "Igjutningens dimensionerande tryckhållfasthet", 25.0, "MPa", "<i>f</i><sub>cd,ig</sub>"),
-        _field("f_cd_c", "Holkbetongens dimensionerande tryckhållfasthet", 20.0, "MPa", "<i>f</i><sub>cd,c</sub>"),
         _field("c_nom", "Täckskikt till dragstångens utsida", 35.0, "mm", "<i>c</i><sub>nom</sub>", visible_if=_FREE),
         _field("phi", "Dragstångens diameter", 16.0, "mm", "φ", visible_if=_FREE),
         _field("f_yd", "Dimensionerande sträckgräns", 500/1.15, "MPa", "<i>f</i><sub>yd</sub>", visible_if=_FREE),

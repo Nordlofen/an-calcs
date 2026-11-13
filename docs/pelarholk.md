@@ -9,7 +9,7 @@ som (b) i texten. Originalbilden bevaras oförändrad.
 
 Dictionary rekommenderas. Listformat följer `Pelarholk.panel_schema["px"]`:
 
-`typ, fristaende, M, Fv, Fh, h, l, D, t_ig, bh, f_cd_ig, f_cd_c, c_nom, phi, f_yd, mu`.
+`typ, fristaende, M, Fv, Fh, h, l, D, t_ig, bh, c_nom, phi, f_yd, mu`.
 
 | Indata | Definition / enhet |
 |---|---|
@@ -20,12 +20,13 @@ Dictionary rekommenderas. Listformat följer `Pelarholk.panel_schema["px"]`:
 | `D` | Verksamt kontaktdjup ut ur snittet, mm. Vägg låser D=1000 även i direktanrop |
 | `t_ig` | Igjutningstjocklek, mm |
 | `bh` | Från elementets högra yta till fundamentets högra ytterkant, inklusive igjutning, mm |
-| `f_cd_ig`, `f_cd_c` | Dimensionerande tryckhållfasthet för igjutning och holkbetong, MPa |
 | `c_nom`, `phi` | Täckskikt till aktuell dragstångs utsida och dragstångens diameter, mm |
 | `f_yd` | Dimensionerande sträckgräns, MPa |
 | `mu` | Friktionskoefficient, förval 0.3 |
 
-Hållfastheter anges direkt; inga ytterligare partialkoefficienter tillämpas.
+Stålets dimensionerande sträckgräns anges direkt. Äldre dictionary-indata och
+det äldre 16-värdesformatet med `f_cd_ig`/`f_cd_c` accepteras; dessa två
+värden ignoreras och visas inte. Äldre sparade materialvärden bevaras vid sparande.
 Panelens startvärden är exempel, inte en verifierad dimensionering.
 Pelare använder kN, kNm och mm². Vägg använder kN/m, kNm/m och mm²/m, med
 en meterstrimla. Lägesbyte behåller lastvärdena, användaren anpassar dem.
@@ -43,9 +44,12 @@ Fel i rena skissmått ger ett meddelande vid skissen, inte ett beräkningsstopp.
 Ekvationsredovisningen använder korta vänsterled för jämvikten (summor av
 krafter och moment) och en storhet per rad. Formlerna visas utan
 enhetsomräkningsfaktorer och förutsätter konsekventa enheter; den numeriska
-beräkningen behåller omräkningarna enligt nedan. Tillämpningsvillkor och
-enhetsförklaringar ligger som separata noter under ekvationerna, även när
-etiketter eller metodbeskrivning är dolda. Detta kräver an-print med stöd
+beräkningen behåller omräkningarna enligt nedan. Endast
+enhetsförklaringen ligger som separat not under ekvationerna. Insticksdjup
+redovisas som en kompakt kontroll i resultatet. Hjälptexten under `l` blir
+röd direkt om `l < 1,2h`, även när `h` ändras eller ett sparat fall återläses.
+Vid otillräckligt insticksdjup visas endast indata och kontrollen **Ej uppfyllt**,
+utan kraft-, tryck- eller armeringsresultat. Detta kräver an-print med stöd
 för `ekvationer["notes"]`.
 
 1. Validera aktiva indata och modellgränser. Böjarmeringsindata behöver inte
@@ -68,23 +72,18 @@ för `ekvationer["notes"]`.
    ```text
    sigma_ig,i,max = 2000 Fi / (D a_c)
    sigma_c,i,max  = 2000 Fi / (D a_c_spr), i=1,2
-   eta_ig,i      = 100 sigma_ig,i,max / f_cd_ig
-   eta_c,i       = 100 sigma_c,i,max / f_cd_c
    ```
 
-   Spänningar redovisas i MPa, utnyttjanden i procent. Dessa antagna tryckzoner,
-   spridningsvinkeln och jämförelsen direkt med f_cd är projektets modell,
+   Spänningar redovisas i MPa, utan utnyttjandegrader eller hållfasthetsjämförelse.
+   De antagna tryckzonerna och spridningsvinkeln är projektets modell,
    baserad på handberäkningen, och inte tryckformler föreskrivna i 10.9.6.3.
    Tillgänglig betonggeometri för spridningen förutsätts verifierad separat.
    Under pelarfoten visas endast medeltrycket `1000 F3/(D h)`; det ger ingen
    kontroll av maximalt bottentryck.
 
-   Slutresultat visar bara spänning och utnyttjandegrad för det högst
-   utnyttjade sidokontaktfallet, med material och kontaktkraft angivna.
-   Övriga tre fall samt sammanfattningsvärdet `eta_tryck_max` ligger under
-   delresultat. Urvalet görs efter utnyttjandegrad, inte efter spänningens
-   storlek. Vid lika utnyttjande väljs det första fallet i ordningen
-   igjutning F1, holkbetong F1, igjutning F2, holkbetong F2.
+   Slutresultat visar `sigma_ig_max` och `sigma_c_max`: största trycket för
+   respektive material från F1/F2. Kontaktkraften anges i etiketten.
+   Alla fyra enskilda kontakttryck finns under delresultat.
 4. Vid fristående holk beräknas högra väggen som konsol:
 
    ```text
@@ -99,7 +98,8 @@ för `ekvationer["notes"]`.
    Friktionen ingår i global jämvikt, men det gynnsamma lokala bidraget från
    mu F1 tas inte med i konsolens böjberäkning. Ingen kontroll av en inlagd
    armeringsmängd görs; resultatet är erforderlig area utan minimiarmering.
-   Vid plattansluten holk visas **Ej beräknad**, utan nollvärde för Fs/As_req.
+   Vid plattansluten holk utgår böjarmeringsresultaten helt, utan statusrad
+   eller nollvärden för Fs/As_req.
 5. Redovisa oreducerad `V_Ed=max(F1,F2)` vid fristående holk, annars `V_Ed=F2`.
    F1, F2 och F3 redovisas alltid separat. `V_Ed` förs till `Tvärkraft()` med
    motsvarande beräkningsbredd och enheter. Ingen tvärkraftskapacitet beräknas
@@ -110,13 +110,17 @@ för `ekvationer["notes"]`.
 Modellen omfattar inte genomstansning, pålfördelning, minimiarmering, förankring,
 överlapp eller fullständig detaljutformning. Plattanslutningens alternativa
 lastöverföring förutsätts verifierad separat. B och H styr ingen bärförmåga.
-Statusen för tryck avser endast de två sidokontaktzonerna i den valda modellen.
+Kontakttrycken avser de två sidokontaktzonerna i den valda modellen;
+tryckhållfastheten kontrolleras separat.
 
-De tre fasta PNG-figurerna ligger i `an_calcs.betong/figures`. Friläggningen
-för böjarmering visar högra holkväggen med F1, snittets tvärkraft och det inre
-kraftparet Fs/Fc samt måtten a1, d och z. Den visas endast vid fristående holk.
-Den interaktiva
-måttskissen genereras av `_pelarholk_skiss.render`, via an-prints generella
-figurkoppling. Beräkningsfunktionen importerar inte renderaren och läser inga
-bildresurser. Figurerna uppdaterar inte beräkningsresultat automatiskt;
+Panelen använder två kompakta SVG-figurer och EC2:s originalfigur som PNG,
+lagrade i `an_calcs.betong/figures`. Referensfigurerna begränsas till 560 px,
+samma storleksnivå som Tvärkraft. De egna figurerna har förenklad disposition
+utan stora rubriker och formelrutor, med text anpassad till visningsstorleken.
+Friläggningen visar högra holkväggen med F1, snittets tvärkraft och det inre
+kraftparet Fs/Fc samt måtten a1, d och z, endast vid fristående holk.
+Måttskissen genereras av `_pelarholk_skiss.render`, begränsad till 460 px.
+Index i hjälptexter och bildtexter formateras som index, även på smal yta.
+Beräkningsfunktionen importerar inte renderaren och läser inga bildresurser.
+Figurerna uppdaterar inte beräkningsresultat automatiskt;
 använd **Beräkna / uppdatera** för en ny redovisning.

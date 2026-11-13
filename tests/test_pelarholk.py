@@ -35,8 +35,8 @@ class TestPelarholk(unittest.TestCase):
         self.assertAlmostEqual(r["Fs"], 506.3291139240506)
         self.assertAlmostEqual(r["As_req"], 1265.8227848101267)
         self.assertAlmostEqual(r["sigma_c_1_max"], 480000/(400*(150+20/math.tan(math.radians(26.6)))))
-        self.assertEqual(r["status_tryck"], "Uppfyller")
-        self.assertEqual(r["styrande_tvarkraft"], "F1")
+        self.assertEqual(r["status_insticksdjup"], "Uppfyllt")
+        self.assertEqual(r["styrande_tvarkraft"], "F₁")
         json.dumps(d, allow_nan=False)
 
     def test_jamvikt_utan_och_med_friktion(self):
@@ -58,14 +58,14 @@ class TestPelarholk(unittest.TestCase):
         self.assertAlmostEqual(r["F1"], 90)
         self.assertAlmostEqual(r["F2"], 240)
         self.assertAlmostEqual(r["V_Ed"], 240)
-        self.assertEqual(r["styrande_tvarkraft"], "F2")
+        self.assertEqual(r["styrande_tvarkraft"], "F₂")
         self.assertAlmostEqual(r["M_holk"], 40.5)
 
     def test_plattansluten_ignorerar_bojindata(self):
         v = data(fristaende=False, c_nom=float("nan"), phi=-1, f_yd=None, bh="inaktiv")
         r = values(Pelarholk(v))
         self.assertAlmostEqual(r["V_Ed"], 90)
-        self.assertEqual(r["status_bojarmering"], "Ej beräknad")
+        self.assertNotIn("status_bojarmering", r)
         for name in ("Fs", "As_req", "M_holk", "d", "z", "phi", "f_yd", "bh"):
             self.assertNotIn(name, r)
         for name in ("bh", "phi", "f_yd", "c_nom"):
@@ -103,51 +103,62 @@ class TestPelarholk(unittest.TestCase):
                 Pelarholk(data(**changes))
 
     def test_granser_och_icke_andliga_tal(self):
-        for changes in ({"mu": -.1}, {"mu": .30001}, {"l": 359.9}, {"h": 0}, {"t_ig": 0},
-                        {"D": -1}, {"f_cd_ig": 0}, {"f_cd_c": 0}, {"f_yd": 0},
+        for changes in ({"mu": -.1}, {"mu": .30001}, {"h": 0}, {"t_ig": 0},
+                        {"D": -1}, {"f_yd": 0},
                         {"bh": 40}, {"c_nom": -1}, {"phi": 0}, {"Fv": -1},
                         {"fristaende": "False"}, {"typ": "platta"}, {"M": True}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 Pelarholk(data(**changes))
         Pelarholk(data(l=360, mu=.3))
-        for name in ("M", "Fv", "Fh", "mu", "h", "l", "D", "t_ig", "bh", "c_nom", "phi", "f_yd", "f_cd_c", "f_cd_ig"):
+        for name in ("M", "Fv", "Fh", "mu", "h", "l", "D", "t_ig", "bh", "c_nom", "phi", "f_yd"):
             for invalid in (float("nan"), float("inf"), None):
                 with self.subTest(name=name, invalid=invalid), self.assertRaises(ValueError):
                     Pelarholk(data(**{name: invalid}))
 
-    def test_tryckoverskridande_och_nollast(self):
-        r = values(Pelarholk(data(f_cd_ig=4)))
-        self.assertEqual(r["eta_ig_1"], 200)
-        self.assertEqual(r["status_tryck"], "Överskriden")
-        r = values(Pelarholk(data(Fv=0, Fh=0, M=0)))
-        self.assertEqual(r["As_req"], 0)
-        self.assertEqual(r["eta_tryck_max"], 0)
-
-    def test_endast_hogst_utnyttjade_tryckfall_i_slutresultat(self):
-        # Lägre betonghållfasthet ska styra urvalet även när dess spänning är lägre.
-        cases = [
-            ({}, "ig", 1),
-            ({"f_cd_c": 10}, "c", 1),
-            ({"M": 173.4, "Fh": -270, "Fv": 570}, "ig", 2),
-            ({"M": 173.4, "Fh": -270, "Fv": 570, "f_cd_c": 10}, "c", 2),
-            ({"M": 0, "Fh": 0, "Fv": 0}, "ig", 1),
-        ]
-        for changes, material, force in cases:
+    def test_maxtryck_per_material_utan_utnyttjandegrader(self):
+        for changes, force in (({}, 1), ({"M": 173.4, "Fh": -270, "Fv": 570}, 2)):
             for free in (False, True):
                 with self.subTest(changes=changes, fristaende=free):
                     details = Pelarholk(data(**changes, fristaende=free))
                     final = {p["namn"]: p for p in details["slutresultat"]["items"]}
                     middle = {p["namn"]: p for p in details["delresultat"]["items"]}
-                    expected = {f"sigma_{material}_{force}_max", f"eta_{material}_{force}"}
-                    self.assertEqual({k for k in final if k.startswith(("sigma_", "eta_"))}, expected)
-                    self.assertTrue(expected.isdisjoint(middle))
-                    for other_material in ("ig", "c"):
-                        for other_force in (1, 2):
-                            if (other_material, other_force) != (material, force):
-                                self.assertIn(f"sigma_{other_material}_{other_force}_max", middle)
-                                self.assertIn(f"eta_{other_material}_{other_force}", middle)
-                    self.assertEqual(final[f"eta_{material}_{force}"]["value"], middle["eta_tryck_max"]["value"])
-                    self.assertIn(f"F{force}", final[f"sigma_{material}_{force}_max"]["etikett"])
+                    self.assertEqual({k for k in final if k.startswith("sigma_")}, {"sigma_ig_max", "sigma_c_max"})
+                    for material in ("ig", "c"):
+                        self.assertEqual(final[f"sigma_{material}_max"]["value"], middle[f"sigma_{material}_{force}_max"]["value"])
+                        for i in (1, 2):
+                            self.assertIn(f"sigma_{material}_{i}_max", middle)
+                    self.assertFalse(any(k.startswith("eta_") for k in values(details)))
+                    self.assertNotIn("status_tryck", values(details))
+                    self.assertNotIn("Tillämpningsvillkor", str(details["ekvationer"]))
+                    self.assertNotIn(r"\eta", str(details["ekvationer"]))
+        r = values(Pelarholk(data(Fv=0, Fh=0, M=0)))
+        self.assertEqual(r["sigma_ig_max"], 0)
+        self.assertEqual(r["sigma_c_max"], 0)
+        self.assertEqual(r["As_req"], 0)
+
+    def test_insticksdjup_vid_gransen_och_utanfor(self):
+        for typ in ("pelare", "vagg"):
+            for free in (False, True):
+                d = Pelarholk(data(typ=typ, fristaende=free, l=360))
+                self.assertEqual(values(d)["status_insticksdjup"], "Uppfyllt")
+                for l in (359.9, 100):
+                    d = Pelarholk(data(typ=typ, fristaende=free, l=l))
+                    self.assertEqual(d["slutresultat"]["items"][0]["value"], "Ej uppfyllt")
+                    self.assertEqual(len(d["slutresultat"]["items"]), 1)
+                    self.assertEqual(d["delresultat"]["items"], [])
+                    for name in ("F1", "F2", "F3", "Fs", "As_req", "V_Ed"):
+                        self.assertNotIn(name, values(d))
+                    json.dumps(d, allow_nan=False)
+
+    def test_aldre_tryckhallfastheter_och_positionsformat(self):
+        v = data()
+        old_order = ["typ", "fristaende", "M", "Fv", "Fh", "h", "l", "D", "t_ig", "bh", "f_cd_ig", "f_cd_c", "c_nom", "phi", "f_yd", "mu"]
+        expected = Pelarholk(v)
+        self.assertEqual(Pelarholk([v[k] for k in old_order]), expected)
+        for key in ("f_cd_ig", "f_cd_c"):
+            v.pop(key)
+        self.assertEqual(Pelarholk(v), expected)
+        self.assertEqual(Pelarholk({**v, "f_cd_c": float("nan"), "f_cd_ig": -1}), expected)
 
     def test_px_och_alias_och_unika_nycklar(self):
         self.assertIs(pelarholk, Pelarholk)

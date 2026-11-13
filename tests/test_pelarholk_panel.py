@@ -54,7 +54,7 @@ class TestPelarholkPanel(unittest.TestCase):
                 if wall == "vagg":
                     self.assertIn("kN/m", cb.html_sr)
                 if not free:
-                    self.assertIn("Ej beräknad", cb.html_sr)
+                    self.assertNotIn("Böjarmering", cb.html_sr)
                 json.dumps(d, allow_nan=False)
 
     def test_aktiva_falt_och_djup(self):
@@ -77,11 +77,46 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertFalse(self.w["D"].disabled)
         self.assertEqual(self.w["D"].value, 725)
 
+    def test_insticksdjup_hjalptext_och_ofullstandigt_resultat(self):
+        help_widget = self.p._help_checks[0]["widget"]
+        for h, l, error in ((200, 100, True), (200, 240, False), (201, 240, True), (200, 241, False)):
+            self.w["h"].value = h
+            self.w["l"].value = l
+            self.assertEqual("anp-help-error" in help_widget._dom_classes, error)
+            d = self.calculate()
+            self.assertEqual(values(d)["status_insticksdjup"], "Ej uppfyllt" if error else "Uppfyllt")
+            if error:
+                self.assertEqual(self.p.cb.latex_dr, "")
+                self.assertEqual(self.p.cb.latex_ekv, "")
+                self.assertNotIn("F1", values(d))
+        self.w["l"].value = 100
+        self.p._save_last_values()
+        Panel._LAST_VALUES.clear()
+        reopened = Panel(Pelarholk, state_file=self.state)
+        self.assertIn("anp-help-error", reopened._help_checks[0]["widget"]._dom_classes)
+
+    def test_index_och_aldre_sparade_material(self):
+        self.assertIn("<sub>Ed</sub>", self.p._field_rows["fristaende"].children[-1].value)
+        self.assertIn("<sub>h</sub>", self.p._field_rows["bh"].children[-1].value)
+        figure = self.p._figure_records[1]
+        self.assertIn("<sub>1</sub>", figure["widget"].value)
+        old_values = self.p._collect_values()
+        old_values.update(f_cd_ig=35, f_cd_c=22)
+        self.p._apply_values(old_values)
+        self.p._save_last_values()
+        Panel._LAST_VALUES.clear()
+        reopened = Panel(Pelarholk, state_file=self.state)
+        self.assertNotIn("f_cd_ig", reopened._field_widgets)
+        self.assertNotIn("f_cd_c", reopened._field_widgets)
+        self.assertEqual(reopened._collect_values()["f_cd_ig"], 35)
+        self.assertEqual(reopened._collect_values()["f_cd_c"], 22)
+        self.assertEqual(len(reopened.to_px()), 14)
+
     def test_fyra_figurer_med_paketerade_resurser(self):
         self.assertEqual(len(self.p._figure_records), 4)
         for record in self.p._figure_records[1:]:
             spec, markup = record["spec"], record["widget"].value
-            encoded = re.search(r'data:image/png;base64,([^\"]+)', markup).group(1)
+            encoded = re.search(r'data:image/(?:png|svg\+xml);base64,([^\"]+)', markup).group(1)
             self.assertEqual(base64.b64decode(encoded), files(spec["package"]).joinpath(spec["resource"]).read_bytes())
             self.assertIn(spec["source"], markup)
             self.assertIn("anp-figure-full", record["layout"]._dom_classes)
@@ -92,7 +127,7 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertIsNone(self.p._sections["Beräkningsinställningar"].selected_index)
 
     def test_bojfigur_visas_endast_for_fristaende_holk(self):
-        figure = next(r for r in self.p._figure_records if r["spec"].get("resource") == "figures/pelarholk-bojarmering.png")
+        figure = next(r for r in self.p._figure_records if r["spec"].get("resource") == "figures/pelarholk-bojarmering-kompakt.svg")
         accordion = self.p._sections["Friläggning för böjarmering"]
         section = next(r["widget"] for r in self.p._section_records if accordion in r["widget"].children)
         for free in (True, False, True):
