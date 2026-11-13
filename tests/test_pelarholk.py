@@ -14,7 +14,7 @@ from an_calcs.betong import Pelarholk, pelarholk
 def data(**changes):
     # Valda reaktioner 240, 90, 600 kN ger nedanstående yttre laster för mu=0.2.
     base = dict(typ="pelare", fristaende=True, M=98.4, Fv=630., Fh=30., h=300.,
-                l=500., D=400., t_ig=20., bh=300., c_nom=35., phi=16.,
+                l=500., D=400., t_ig=20., t_ig_b=20., bh=300., c_nom=35., phi=16.,
                 f_cd_ig=25., f_cd_c=20., f_yd=400., mu=.2)
     return {**base, **changes}
 
@@ -27,7 +27,7 @@ class TestPelarholk(unittest.TestCase):
     def test_handfall_krafter_tryck_och_bojarmering(self):
         d = Pelarholk(data())
         r = values(d)
-        for name, expected in {"F1": 240, "F2": 90, "F3": 600, "V_Ed": 240,
+        for name, expected in {"F1": 240, "F2": 90, "F3": 600, "V_Ed_1": 240, "V_Ed_2": 90, "a_v_2": 70,
                                "a_c": 150, "a1": 450, "a2": 50, "d": 237,
                                "z": 213.3, "M_holk": 108, "sigma_ig_1_max": 8,
                                "sigma_ig_2_max": 3, "sigma_3_mean": 5}.items():
@@ -36,7 +36,8 @@ class TestPelarholk(unittest.TestCase):
         self.assertAlmostEqual(r["As_req"], 1265.8227848101267)
         self.assertAlmostEqual(r["sigma_c_1_max"], 480000/(400*(150+20/math.tan(math.radians(26.6)))))
         self.assertEqual(r["status_insticksdjup"], "Uppfyllt")
-        self.assertEqual(r["styrande_tvarkraft"], "F₁")
+        self.assertNotIn("V_Ed", r)
+        self.assertNotIn("styrande_tvarkraft", r)
         json.dumps(d, allow_nan=False)
 
     def test_jamvikt_utan_och_med_friktion(self):
@@ -57,14 +58,16 @@ class TestPelarholk(unittest.TestCase):
         r = values(Pelarholk(data(M=173.4, Fh=-270, Fv=570)))
         self.assertAlmostEqual(r["F1"], 90)
         self.assertAlmostEqual(r["F2"], 240)
-        self.assertAlmostEqual(r["V_Ed"], 240)
-        self.assertEqual(r["styrande_tvarkraft"], "F₂")
+        self.assertAlmostEqual(r["V_Ed_1"], 90)
+        self.assertAlmostEqual(r["V_Ed_2"], 240)
+        self.assertAlmostEqual(r["a_v_2"], 70)
         self.assertAlmostEqual(r["M_holk"], 40.5)
 
     def test_plattansluten_ignorerar_bojindata(self):
         v = data(fristaende=False, c_nom=float("nan"), phi=-1, f_yd=None, bh="inaktiv")
         r = values(Pelarholk(v))
-        self.assertAlmostEqual(r["V_Ed"], 90)
+        self.assertAlmostEqual(r["V_Ed_2"], 90)
+        self.assertNotIn("V_Ed_1", r)
         self.assertNotIn("status_bojarmering", r)
         for name in ("Fs", "As_req", "M_holk", "d", "z", "phi", "f_yd", "bh"):
             self.assertNotIn(name, r)
@@ -81,7 +84,7 @@ class TestPelarholk(unittest.TestCase):
             self.assertEqual(col[name], r[name])
         for section in ("indata", "delresultat", "slutresultat"):
             for item in details[section]["items"]:
-                if item["namn"] in ("F1", "F2", "F3", "Fs", "V_Ed", "Fv", "Fh"):
+                if item["namn"] in ("F1", "F2", "F3", "Fs", "V_Ed_1", "V_Ed_2", "Fv", "Fh"):
                     self.assertEqual(item["unit"], "kN/m")
                 if item["namn"] == "As_req":
                     self.assertEqual(item["unit"], "mm²/m")
@@ -104,13 +107,13 @@ class TestPelarholk(unittest.TestCase):
 
     def test_granser_och_icke_andliga_tal(self):
         for changes in ({"mu": -.1}, {"mu": .30001}, {"h": 0}, {"t_ig": 0},
-                        {"D": -1}, {"f_yd": 0},
+                        {"D": -1}, {"f_yd": 0}, {"t_ig_b": 0}, {"t_ig_b": -1},
                         {"bh": 40}, {"c_nom": -1}, {"phi": 0}, {"Fv": -1},
                         {"fristaende": "False"}, {"typ": "platta"}, {"M": True}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 Pelarholk(data(**changes))
         Pelarholk(data(l=360, mu=.3))
-        for name in ("M", "Fv", "Fh", "mu", "h", "l", "D", "t_ig", "bh", "c_nom", "phi", "f_yd"):
+        for name in ("M", "Fv", "Fh", "mu", "h", "l", "D", "t_ig", "t_ig_b", "bh", "c_nom", "phi", "f_yd"):
             for invalid in (float("nan"), float("inf"), None):
                 with self.subTest(name=name, invalid=invalid), self.assertRaises(ValueError):
                     Pelarholk(data(**{name: invalid}))
@@ -146,7 +149,7 @@ class TestPelarholk(unittest.TestCase):
                     self.assertEqual(d["slutresultat"]["items"][0]["value"], "Ej uppfyllt")
                     self.assertEqual(len(d["slutresultat"]["items"]), 1)
                     self.assertEqual(d["delresultat"]["items"], [])
-                    for name in ("F1", "F2", "F3", "Fs", "As_req", "V_Ed"):
+                    for name in ("F1", "F2", "F3", "Fs", "As_req", "V_Ed_1", "V_Ed_2", "a_v_2"):
                         self.assertNotIn(name, values(d))
                     json.dumps(d, allow_nan=False)
 
@@ -155,10 +158,41 @@ class TestPelarholk(unittest.TestCase):
         old_order = ["typ", "fristaende", "M", "Fv", "Fh", "h", "l", "D", "t_ig", "bh", "f_cd_ig", "f_cd_c", "c_nom", "phi", "f_yd", "mu"]
         expected = Pelarholk(v)
         self.assertEqual(Pelarholk([v[k] for k in old_order]), expected)
+        previous_order = [k for k in old_order if k not in ("f_cd_ig", "f_cd_c")]
+        self.assertEqual(Pelarholk([v[k] for k in previous_order]), expected)
+        v.pop("t_ig_b")
         for key in ("f_cd_ig", "f_cd_c"):
             v.pop(key)
         self.assertEqual(Pelarholk(v), expected)
         self.assertEqual(Pelarholk({**v, "f_cd_c": float("nan"), "f_cd_ig": -1}), expected)
+
+    def test_bottenigjutning_ger_endast_nytt_lastavstand(self):
+        for typ in ("pelare", "vagg"):
+            for free in (True, False):
+                baseline = values(Pelarholk(data(typ=typ, fristaende=free)))
+                changed = values(Pelarholk(data(typ=typ, fristaende=free, t_ig_b=65)))
+                self.assertEqual(changed["a_v_2"], 115)
+                self.assertEqual(changed["a_v_2"] - baseline["a_v_2"], 45)
+                for key in baseline.keys() - {"a_v_2", "t_ig_b"}:
+                    self.assertEqual(changed[key], baseline[key], key)
+                side = values(Pelarholk(data(typ=typ, fristaende=free, t_ig=35)))
+                self.assertEqual(side["a_v_2"], 70)
+                equations = [item["latex"] for item in Pelarholk(data(fristaende=free))["ekvationer"]["items"]]
+                self.assertIn(r"a_{v,2}=0{,}1l+t_{ig,b}", equations)
+                self.assertEqual(r"V_{Ed,1}=F_1" in equations, free)
+                self.assertIn(r"V_{Ed,2}=F_2", equations)
+
+    def test_sidomatt_nya_namn_och_bakatterkompatibilitet(self):
+        old = data()
+        new = {"b1": old.pop("bh"), "b2": 280, **old}
+        self.assertEqual(Pelarholk(new), Pelarholk(data(bv=280)))
+        with self.assertRaisesRegex(ValueError, "samma sidomått"):
+            Pelarholk(data(b1=400))
+        self.assertEqual(Pelarholk(data(b1=300)), Pelarholk(data()))
+        inputs = {i["namn"]: i for i in Pelarholk(new)["indata"]["items"]}
+        self.assertEqual(inputs["bh"]["latex"], "b_1")
+        self.assertEqual(inputs["Fv"]["latex"], "F_v")
+        self.assertEqual(inputs["Fh"]["latex"], "F_h")
 
     def test_px_och_alias_och_unika_nycklar(self):
         self.assertIs(pelarholk, Pelarholk)

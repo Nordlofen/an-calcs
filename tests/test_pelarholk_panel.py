@@ -45,7 +45,11 @@ class TestPelarholkPanel(unittest.TestCase):
                 self.w["fristaende"].value = free
                 d = self.calculate()
                 r = values(d)
-                self.assertAlmostEqual(r["V_Ed"], max(r["F1"],r["F2"]) if free else r["F2"])
+                self.assertAlmostEqual(r["V_Ed_2"], r["F2"])
+                self.assertEqual("V_Ed_1" in r, free)
+                if free:
+                    self.assertAlmostEqual(r["V_Ed_1"], r["F1"])
+                self.assertAlmostEqual(r["a_v_2"], 55)
                 self.assertEqual("As_req" in r, free)
                 cb = CalcBlock(d)
                 for block in ("MB", "ID", "DR", "EKV", "SR"):
@@ -96,8 +100,8 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertIn("anp-help-error", reopened._help_checks[0]["widget"]._dom_classes)
 
     def test_index_och_aldre_sparade_material(self):
-        self.assertIn("<sub>Ed</sub>", self.p._field_rows["fristaende"].children[-1].value)
-        self.assertIn("<sub>h</sub>", self.p._field_rows["bh"].children[-1].value)
+        self.assertIn("<sub>Ed,1</sub>", self.p._field_rows["fristaende"].children[-1].value)
+        self.assertIn("<sub>1</sub>", self.p._field_rows["bh"].children[-1].value)
         figure = self.p._figure_records[1]
         self.assertIn("<sub>1</sub>", figure["widget"].value)
         old_values = self.p._collect_values()
@@ -110,7 +114,7 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertNotIn("f_cd_c", reopened._field_widgets)
         self.assertEqual(reopened._collect_values()["f_cd_ig"], 35)
         self.assertEqual(reopened._collect_values()["f_cd_c"], 22)
-        self.assertEqual(len(reopened.to_px()), 14)
+        self.assertEqual(len(reopened.to_px()), 15)
 
     def test_fyra_figurer_med_paketerade_resurser(self):
         self.assertEqual(len(self.p._figure_records), 4)
@@ -164,6 +168,7 @@ class TestPelarholkPanel(unittest.TestCase):
         self.w["fristaende"].value = False
         self.w["bv"].value = 420
         self.w["H"].value = 700
+        self.w["t_ig_b"].value = 55
         self.p._save_last_values()
         previous = self.p._figure_records[0]["widget"].value
         before = self.p.to_px()
@@ -181,9 +186,31 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertNotIn("base64", self.state.read_text())
         self.assertNotIn("<svg", self.state.read_text())
 
+    def test_bottenigjutning_i_skissen_och_aldre_fall(self):
+        figure = self.p._figure_records[0]["widget"]
+        self.w["t_ig_b"].value = 60
+        self.assertIn('data-value="95"', figure.value)
+        self.assertIn('data-dimension="t_ig_b"', figure.value)
+        self.assertAlmostEqual(values(self.calculate())["a_v_2"], 95)
+        # Samma sidofält används vid återläsning, med nya synliga index.
+        old = self.p._collect_values()
+        old.pop("t_ig_b")
+        old.update(bh=470, bv=230)
+        self.p._apply_values(old)
+        self.p._save_last_values()
+        Panel._LAST_VALUES.clear()
+        reopened = Panel(Pelarholk, state_file=self.state)
+        self.assertEqual(reopened._field_widgets["bh"].value, 470)
+        self.assertEqual(reopened._field_widgets["bv"].value, 230)
+        self.assertEqual(reopened._field_widgets["t_ig_b"].value, 20)
+        self.assertIn('data-B="900"', reopened._figure_records[0]["widget"].value)
+        contact = reopened._figure_records[2]
+        self.assertEqual(contact["spec"]["resource"], "figures/pelarholk-kontaktzoner.png")
+        self.assertEqual(contact["widget"].layout.max_width, "780px")
+
     def test_skissen_kan_rendereas_utan_panel(self):
         v = {f["name"]: f["default"] for f in Pelarholk.panel_schema["fields"]}
-        for key in ("h", "H", "t_ig"):
+        for key in ("h", "H", "t_ig", "t_ig_b"):
             self.assertIn("Skissen kan inte visas", render({**v, key:float("nan")}))
         self.assertIn("Skissen kan inte visas", render({**v,"H":350}))
         self.assertIn("Skissen kan inte visas", render({**v,"fristaende":False,"t_p":1000}))

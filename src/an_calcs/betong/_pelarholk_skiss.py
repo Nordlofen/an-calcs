@@ -6,16 +6,20 @@ import math
 
 def render(values):
     """Returnera SVG som uppdateras av Panel när angivna geometrifält ändras."""
+    values = {"t_ig_b": 20.0, **values}
+    for new, old in (("b1", "bh"), ("b2", "bv")):
+        if new in values:
+            values[old] = values[new]
     free = bool(values.get("fristaende", True))
     wall = values.get("typ") == "vagg"
-    names = ["h", "l", "bv", "bh", "H", "t_ig"]
+    names = ["h", "l", "bv", "bh", "H", "t_ig", "t_ig_b"]
     names += ([] if wall else ["D"]) + ([] if free else ["t_p"])
     try:
         v = {k: float(values[k]) for k in names}
         if any(not math.isfinite(x) or x <= 0 for x in v.values()):
             raise ValueError("Ange positiva, ändliga skissmått.")
-        if v["H"] <= v["l"] + v["t_ig"]:
-            raise ValueError("Skissen kräver H > l + t_ig för betong under igjutningen.")
+        if v["H"] <= v["l"] + v["t_ig_b"]:
+            raise ValueError("Skissen kräver H > l + t_ig,b för betong under igjutningen.")
         if v["t_ig"] >= min(v["bv"], v["bh"]):
             raise ValueError("Igjutningen måste rymmas inom båda sidomåtten.")
         if not free and v["t_p"] > v["H"]:
@@ -37,7 +41,10 @@ def render(values):
     yc, yt = 90, 90+stub*scale
     yb, yl = yt+H*scale, yt+l*scale
     yp = yt+v.get("t_p", 0)*scale
-    grout = min(max(5, tig*scale), 12, min(bv,bh,H-l)*scale*.4)
+    grout = min(max(5, tig*scale), 12, min(bv,bh)*scale*.4)
+    bottom_grout = min(max(8, v["t_ig_b"]*scale), (H-l)*scale*.8)
+    ybottom = yl + bottom_grout
+    yF2 = yt + .9*l*scale
     fmt = lambda x: f"{x:,.1f}".rstrip("0").rstrip(".").replace(",", " ").replace(".", ",")
     mode = "Fristående holk" if free else "Holk med anslutande platta"
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 {yb+112:.3f}" role="img" aria-label="Måttsatt tvärsnitt: {mode}" '
@@ -57,7 +64,7 @@ def render(values):
         return f'<tspan font-style="italic">{main}</tspan>' + (f'<tspan baseline-shift="sub" font-size="14">{sub}</tspan>' if sub else '')
     outer = f'M {x0} {yt} H {xr} V {yb} H {x0} Z' if free else f'M {x0} {yt} H {xe} V {yp} H {xr} V {yb} H {x0} Z'
     parts += [f'<path data-part="fundament" d="{outer}" fill="var(--anp-soft,#f4f6f8)" stroke="currentColor" stroke-width="1.6"/>',
-              f'<rect data-part="igjutning" x="{xc-grout}" y="{yt}" width="{xcr-xc+2*grout}" height="{yl-yt+grout}" fill="#f5c478" stroke="#c47b12"/>']
+              f'<rect data-part="igjutning" x="{xc-grout}" y="{yt}" width="{xcr-xc+2*grout}" height="{ybottom-yt}" fill="#f5c478" stroke="#c47b12"/>']
     center = (xc+xcr)/2
     brk = min(12, (xcr-xc)*.22)
     amplitude = min(5, brk*.5)
@@ -73,7 +80,7 @@ def render(values):
     line(x0,chain,xr,chain)
     # Fasta symboler undviker överlapp för smala mått; talvärden finns i fälten.
     previous = -math.inf
-    for start,end,name in ((x0,xc,"b_v"),(xc,xcr,"h"),(xcr,xr,"b_h")):
+    for start,end,name in ((x0,xc,"b_2"),(xc,xcr,"h"),(xcr,xr,"b_1")):
         mid = (start+end)/2
         yy = 15 if mid-previous < 36 else 34
         text(mid,yy,symbol(name))
@@ -103,6 +110,29 @@ def render(values):
         text(tx,ty,f'l = {fmt(l)}', f'transform="rotate(-90 {tx} {ty})"')
     else:
         text(tx,ty+5,symbol("l"))
+    # F₂ verkar utåt på vänstra väggen. a_v,2 slutar vid holkbotten,
+    # medan l och den oförändrade globala kraftmodellen utgår från pelarfoten.
+    xforce = xc-grout
+    arrow_end = xforce-min(40, (xforce-x0)*.35)
+    line(xforce,yF2,arrow_end,yF2)
+    parts.append(f'<path d="M {arrow_end} {yF2} l 7 -3 v 6 Z" fill="currentColor"/>')
+    text((arrow_end+xforce)/2,yF2-10,symbol("F_2"))
+    xav = x0+(xforce-x0)*.28
+    for yy in (yF2,ybottom):
+        line(xav-5,yy,xforce,yy,True)
+        tick(xav,yy)
+    line(xav,yF2,xav,ybottom)
+    text(xav-10,(yF2+ybottom)/2,symbol("a_v,2"),
+         f'data-dimension="a_v_2" data-value="{.1*l+v["t_ig_b"]:g}" transform="rotate(-90 {xav-10} {(yF2+ybottom)/2})"')
+    # Måttkedjans korta bottenmått får en utvändig etikett med ledare.
+    xt = xl+25
+    for yy in (yl,ybottom):
+        line(xcr+3,yy,xt+6,yy,True)
+        tick(xt,yy)
+    line(xt,yl,xt,ybottom)
+    label_y = ybottom+30
+    line(xt,(yl+ybottom)/2,xt+22,label_y-6)
+    text(xt+26,label_y,symbol("t_ig,b"), 'style="text-anchor:start" data-dimension="t_ig_b"')
     if not free:
         xp = xe+21
         for yy in (yt,yp):

@@ -9,7 +9,7 @@ som (b) i texten. Originalbilden bevaras oförändrad.
 
 Dictionary rekommenderas. Listformat följer `Pelarholk.panel_schema["px"]`:
 
-`typ, fristaende, M, Fv, Fh, h, l, D, t_ig, bh, c_nom, phi, f_yd, mu`.
+`typ, fristaende, M, Fv, Fh, h, l, D, t_ig, bh, c_nom, phi, f_yd, mu, t_ig_b`.
 
 | Indata | Definition / enhet |
 |---|---|
@@ -18,24 +18,33 @@ Dictionary rekommenderas. Listformat följer `Pelarholk.panel_schema["px"]`:
 | `M`, `Fv`, `Fh` | Dimensionerande laster vid holkens överkant; medurs, nedåt respektive åt höger positivt |
 | `h`, `l` | Pelarmått/väggtjocklek i snittet och insticksdjup, mm |
 | `D` | Verksamt kontaktdjup ut ur snittet, mm. Vägg låser D=1000 även i direktanrop |
-| `t_ig` | Igjutningstjocklek, mm |
-| `bh` | Från elementets högra yta till fundamentets högra ytterkant, inklusive igjutning, mm |
+| `t_ig` | Igjutningstjocklek vid sidorna, mm |
+| `t_ig_b` | Igjutningstjocklek under pelarfoten, mm, > 0. Förval 20 mm |
+| `b1` (även `bh`) | Från elementets högra yta till fundamentets högra ytterkant, inklusive igjutning, mm |
 | `c_nom`, `phi` | Täckskikt till aktuell dragstångs utsida och dragstångens diameter, mm |
 | `f_yd` | Dimensionerande sträckgräns, MPa |
 | `mu` | Friktionskoefficient, förval 0.3 |
 
 Stålets dimensionerande sträckgräns anges direkt. Äldre dictionary-indata och
-det äldre 16-värdesformatet med `f_cd_ig`/`f_cd_c` accepteras; dessa två
-värden ignoreras och visas inte. Äldre sparade materialvärden bevaras vid sparande.
+de äldre 14- och 16-värdesformaten accepteras. `f_cd_ig`/`f_cd_c` från
+16-värdesformatet ignoreras och visas inte. Äldre sparade materialvärden bevaras vid sparande.
+Sidindex 1 avser höger och 2 vänster. Dictionary-formatet accepterar både
+`b1`/`b2` och de äldre `bh`/`bv`; motstridiga värden för samma sida avvisas.
+Panelens lagrade fältnycklar och motsvarande positionsfält är fortsatt `bh`/`bv`
+så att befintliga fall återläses utan förlust. Synliga symboler är b₁ och b₂.
+Saknat `t_ig_b` i äldre anrop eller sparade fall får förvalet 20 mm; ange
+bottenigjutningens faktiska tjocklek för aktuellt fall.
 Panelens startvärden är exempel, inte en verifierad dimensionering.
 Pelare använder kN, kNm och mm². Vägg använder kN/m, kNm/m och mm²/m, med
 en meterstrimla. Lägesbyte behåller lastvärdena, användaren anpassar dem.
 
-`bv`, `H` och `t_p` är enbart panelens skissmått och ingår inte i listformatet.
-De får förekomma i dictionary men ignoreras av beräkningen. `B=bv+h+bh` visas
-som härlett totalmått. `bh` används i böjberäkningen endast vid fristående holk.
+`b2` (även `bv`), `H` och `t_p` är enbart panelens skissmått och ingår inte i listformatet.
+De får förekomma i dictionary men ignoreras av beräkningen. `B=b2+h+b1` visas
+som härlett totalmått. `b1` används i böjberäkningen endast vid fristående holk.
 Skissen reagerar direkt på fältändringar och återlästa fall. Samma skala används
-i x/y; enbart igjutningens synliga tjocklek förstärks. Plattans längd och
+i x/y; enbart igjutningens synliga tjocklek förstärks. Bottenigjutningen styrs
+separat av `t_ig_b`; F₂, `a_v_2` och bottenmåttet visas i skissen.
+Geometrin förutsätter `H > l + t_ig_b` för betong under igjutningen. Plattans längd och
 pelarens visade höjd ovan holken är avbrutna, schematiska fortsättningar.
 Fel i rena skissmått ger ett meddelande vid skissen, inte ett beräkningsstopp.
 
@@ -88,7 +97,7 @@ för `ekvationer["notes"]`.
 
    ```text
    a1 = 0.9 l
-   d = bh - t_ig - c_nom - phi/2
+   d = b1 - t_ig - c_nom - phi/2
    z = 0.9 d
    M_holk = F1 a1 / 1000
    Fs = 1000 M_holk / z
@@ -100,10 +109,18 @@ för `ekvationer["notes"]`.
    armeringsmängd görs; resultatet är erforderlig area utan minimiarmering.
    Vid plattansluten holk utgår böjarmeringsresultaten helt, utan statusrad
    eller nollvärden för Fs/As_req.
-5. Redovisa oreducerad `V_Ed=max(F1,F2)` vid fristående holk, annars `V_Ed=F2`.
-   F1, F2 och F3 redovisas alltid separat. `V_Ed` förs till `Tvärkraft()` med
-   motsvarande beräkningsbredd och enheter. Ingen tvärkraftskapacitet beräknas
-   inne i Pelarholk.
+5. Redovisa oreducerade `V_Ed_1=F1` (höger) och `V_Ed_2=F2` (vänster) vid
+   fristående holk. Vid plattansluten holk redovisas endast `V_Ed_2`.
+   Det tidigare gemensamma `V_Ed` och raden Styrande ersätts av dessa resultat.
+   F1, F2 och F3 redovisas alltid separat.
+6. Beräkna `a_v_2 = 0.1*l + t_ig_b` i mm, från F2:s angreppspunkt till
+   underkant bottenigjutning. Den första termen är höjden över pelarfoten.
+   `V_Ed_2` och `a_v_2` kan användas tillsammans som `V_Ed` och `a_v` i
+   `Tvärkraft()` med motsvarande beräkningsbredd och enheter. Lastavståndet
+   avser endast vänstra väggen och hör inte ihop med `V_Ed_1`.
+   Kraftreduktion, dess tillämpningsvillkor och tvärkraftskapacitet hanteras
+   i `Tvärkraft()`. Ingen reduktion görs i Pelarholk. Bottenmåttet ändrar
+   inte global jämvikt, kontakttryck eller den avtalade böjmodellen.
 
 ## Avgränsning och figurer
 
@@ -113,10 +130,10 @@ lastöverföring förutsätts verifierad separat. B och H styr ingen bärförmå
 Kontakttrycken avser de två sidokontaktzonerna i den valda modellen;
 tryckhållfastheten kontrolleras separat.
 
-Panelen använder två kompakta SVG-figurer och EC2:s originalfigur som PNG,
-lagrade i `an_calcs.betong/figures`. Referensfigurerna begränsas till 560 px,
-samma storleksnivå som Tvärkraft. De egna figurerna har förenklad disposition
-utan stora rubriker och formelrutor, med text anpassad till visningsstorleken.
+Panelen återanvänder den detaljerade kontaktzonsfiguren med oförändrad
+utformning och sidobeteckningarna b₁/b₂. Visningsbredden begränsas till 780 px.
+Friläggningen använder en kompakt SVG och EC2:s originalfigur en PNG, båda
+begränsade till 560 px. Alla bilder är lagrade i `an_calcs.betong/figures`.
 Friläggningen visar högra holkväggen med F1, snittets tvärkraft och det inre
 kraftparet Fs/Fc samt måtten a1, d och z, endast vid fristående holk.
 Måttskissen genereras av `_pelarholk_skiss.render`, begränsad till 460 px.

@@ -22,9 +22,12 @@ Figurer för Pelarholk
   Beskärning av originalsidan i PDF-punkter: [83, 437, 572, 692],
   renderad med fyra pixlar per PDF-punkt.
 - pelarholk-kontaktzoner.png: egen principskiss, inte skalenlig, med
-  uppdaterade beteckningar D, bv, bh, B och H. Kraftlägen enligt 10.7b;
+  uppdaterade beteckningar D, b₂, b₁, B och H. Kraftlägen enligt 10.7b;
   triangulärt tryck och spridningsvinkel enligt projektets handberäkningsmodell.
   F3 visar endast kraftläge; bottenkontaktens tryckmodell ingår inte.
+  Den tidigare detaljerade utformningen används åter i panelen, med högst
+  780 px visningsbredd. Redigerbar källa: `docs/figures/rita_pelarholk_kontaktzoner.py`.
+  Källan återskapar PDF och PNG (2400 × 1830) i angiven utdatakatalog.
 - pelarholk-bojarmering.png: egen principskiss av högra holkväggen, endast
   för fristående holk. Visar F1 med a1=0,9l och snittets V=F1 samt kraftparet
   Fs/Fc med z=0,9d. Måttdetaljen visar hur d bestäms från bh, t_ig, c_nom
@@ -38,11 +41,12 @@ Inga absoluta källsökvägar eller originaldokument behövs i installerad panel
 Kompakta panelversioner
 ----------------------
 
-- `pelarholk-kontaktzoner-kompakt.svg`: kontaktzoner och tryckspridning med
-  samma modell och beteckningar som den större principskissen.
+- `pelarholk-kontaktzoner-kompakt.svg`: äldre kompakt variant av kontaktzoner
+  och tryckspridning, bevarad som resurs men används inte i panelen.
 - `pelarholk-bojarmering-kompakt.svg`: frilagd högra holkvägg med F1, V,
-  Fs/Fc, a1, d och z. Samma konsolmodell som den större figuren.
+  Fs/Fc, a1, d och z. Sidomått b₁ och tvärkraft V_Ed,1.
+  Samma konsolmodell som den större figuren.
 
-SVG-versionerna är ritade för högst 560 px visningsbredd. Stora rubriker,
+Den kompakta böjfiguren är ritad för högst 560 px visningsbredd. Stora rubriker,
 formelrutor och upprepade textförklaringar utgår ur bilderna; bildtext och
 ekvationsredovisning ger denna information. De större PNG-originalen bevaras.

@@ -126,8 +126,11 @@ Foreslagen projektstruktur:
 fogytor enligt EC2 10.9.6.3, figur 10.7b**. Funktionen beräknar sidokontakttryck
 i igjutning och holkbetong med projektets triangulära kontakt-/spridningsmodell.
 Vid **Fristående holk** beräknas erforderlig böjarmering i högra väggen från
-`F1`, och `V_Ed=max(F1,F2)` redovisas till separat kontroll i `Tvärkraft()`.
-Vid plattansluten holk utgår böjarmeringsberäkningen och `V_Ed=F2`.
+`F1`. Tvärkrafterna `V_Ed_1=F1` (höger) och `V_Ed_2=F2` (vänster)
+redovisas separat till `Tvärkraft()`. Vid plattansluten holk utgår
+böjarmeringsberäkningen och endast `V_Ed_2` redovisas. Lastavståndet
+`a_v_2=0.1*l+t_ig_b` hör till vänstra väggen och inkluderar separat
+bottenigjutningstjocklek. Kraftreduktionen görs i `Tvärkraft()`.
 Slutresultat visar maxtryck för igjutning och holkbetong, utan
 utnyttjandegrader. Enskilda kontakttryck finns under delresultat.
 Ekvationerna visas en storhet per rad, utan
@@ -150,7 +153,7 @@ fristående holk. Figurerna är kompakta och följer med paketet.
 formaterade bildtexter, fältkontroller och ekvationsnoter behövs.**
 Indata är öppet från början; referensfigurer och beräkningsinställningar kan
 fällas ut. `D` är kontaktdjupet ut ur snittet och låses till 1000 mm för vägg.
-`B=bv+h+bh`, `H` och anslutande plattas `t_p` används endast i skissen.
+`B=b2+h+b1`, `H` och anslutande plattas `t_p` används endast i skissen.
 Skissen har samma skala i höjd och bredd, med schematiskt förstärkt igjutning.
 
 Ren beräkning med mm, kN, kNm och dimensionerande sträckgräns i MPa:
@@ -159,11 +162,11 @@ Ren beräkning med mm, kN, kNm och dimensionerande sträckgräns i MPa:
 details = Pelarholk({
     "typ": "pelare", "fristaende": True,
     "M": 98.4, "Fv": 630, "Fh": 30,
-    "h": 300, "l": 500, "D": 400, "t_ig": 20,
-    "bh": 300, "c_nom": 35, "phi": 16,
+    "h": 300, "l": 500, "D": 400, "t_ig": 20, "t_ig_b": 30,
+    "b1": 300, "c_nom": 35, "phi": 16,
     "f_yd": 400, "mu": 0.2,
 })
-# F1=240, F2=90, F3=600 kN; V_Ed=240 kN;
+# F1=240, F2=90, F3=600 kN; V_Ed_1=240, V_Ed_2=90 kN; a_v_2=80 mm;
 # Fs=506.329 kN; As_req=1265.823 mm².
 ```
 
