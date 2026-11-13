@@ -64,21 +64,40 @@ class TestTvarkraft(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "plattstrimla"):
                 Tvärkraft(_indata(plattstrimla=flag))
 
-    def test_strimla_fullformat_och_tidigare_26_27_och_28_format(self):
+    def test_strimla_fullformat_och_tidigare_26_27_28_och_29_format(self):
         schema = Tvärkraft.panel_schema
         values = {f["name"]: f["default"] for f in schema["fields"]}
         full = [values[n] for n in schema["px"]]
-        self.assertEqual(len(full), 29)
-        for size in (26, 27, 28):
+        self.assertEqual(len(full), 30)
+        for size in (26, 27, 28, 29):
             self.assertEqual(Tvärkraft(full[:size]), Tvärkraft(values))
         full[schema["px"].index("plattstrimla")] = True
         self.assertEqual(Tvärkraft(full), Tvärkraft(values | {"plattstrimla": True}))
         self.assertEqual(Tvärkraft(full[:27]), Tvärkraft(full))
 
+    def test_minimiarmering_ar_valbar_och_inaktiva_varden_ignoreras(self):
+        data = _indata(V_Ed=50, s_t=float("nan"))
+        disabled = Tvärkraft(data)
+        self.assertEqual(_v(disabled, "kontrollera_minimiarmering"), "Av")
+        for name in ("s_t", "rho_w", "rho_w_min", "A_sw_per_m_min", "s_l_max", "s_t_max", "status_9_2_2_5"):
+            with self.assertRaises(KeyError):
+                _v(disabled, name)
+        self.assertNotIn("(9.5N)", str(disabled["ekvationer"]))
+        enabled = Tvärkraft(data | {"kontrollera_minimiarmering": True, "s_t": 100})
+        self.assertEqual(_v(enabled, "kontrollera_minimiarmering"), "På")
+        self.assertEqual(_v(enabled, "status_9_2_2_8"), "Uppfyller")
+        for name in ("V_Rd_c", "V_Rd_s", "V_Rd_max", "V_Rd", "eta_6_2_2", "eta_6_2_3"):
+            self.assertEqual(_v(disabled, name), _v(enabled, name))
+        for flag in (None, 0, 1, "True"):
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "kontrollera_minimiarmering"):
+                Tvärkraft(_indata(kontrollera_minimiarmering=flag))
+            self.assertEqual(Tvärkraft(_indata(metod="6.2.2", kontrollera_minimiarmering=flag)),
+                             Tvärkraft(_indata(metod="6.2.2")))
+
     def test_9_2_2_handraknat_minimiinnehall_och_avstand(self):
         # C25, B500, 2 skär Ø10, s=200 och bw=300:
         # Asw=50*pi, rho_min=0,08*5/500=0,0008 och minarea=240 mm²/m.
-        details = Tvärkraft(_indata(f_ck=25, d=400, phi_w=10, s_t=300))
+        details = Tvärkraft(_indata(kontrollera_minimiarmering=True, f_ck=25, d=400, phi_w=10, s_t=300))
         self.assertAlmostEqual(_v(details, "rho_w"), math.pi / 1200)
         self.assertAlmostEqual(_v(details, "rho_w_min"), 0.0008)
         self.assertAlmostEqual(_v(details, "A_sw_per_m_min"), 240)
@@ -86,20 +105,20 @@ class TestTvarkraft(unittest.TestCase):
         self.assertEqual(_v(details, "s_t_max"), 300)
         for clause in (5, 6, 8):
             self.assertEqual(_v(details, f"status_9_2_2_{clause}"), "Uppfyller")
-        other = Tvärkraft(_indata(f_ck=25, d=400, phi_w=10, s_t=300, gamma_s=1.5, cot_theta=1))
+        other = Tvärkraft(_indata(kontrollera_minimiarmering=True, f_ck=25, d=400, phi_w=10, s_t=300, gamma_s=1.5, cot_theta=1))
         # Minimikrav använder karakteristisk hållfasthet, inte fywd eller cot(theta).
         self.assertEqual(_v(details, "A_sw_per_m_min"), _v(other, "A_sw_per_m_min"))
 
     def test_9_2_2_lutande_byglar_och_olika_avstandsgranser(self):
-        vertical = Tvärkraft(_indata(f_ck=25, d=400, phi_w=10, s=400, alpha=90))
-        inclined = Tvärkraft(_indata(f_ck=25, d=400, phi_w=10, s=400, alpha=45))
+        vertical = Tvärkraft(_indata(kontrollera_minimiarmering=True, f_ck=25, d=400, phi_w=10, s=400, alpha=90))
+        inclined = Tvärkraft(_indata(kontrollera_minimiarmering=True, f_ck=25, d=400, phi_w=10, s=400, alpha=45))
         self.assertAlmostEqual(_v(inclined, "A_sw_per_m_min"), 240 / math.sqrt(2))
         self.assertAlmostEqual(_v(inclined, "rho_w") / _v(vertical, "rho_w"), math.sqrt(2))
         self.assertEqual(_v(vertical, "s_l_max"), 300)
         self.assertEqual(_v(inclined, "s_l_max"), 600)
         self.assertEqual(_v(vertical, "status_9_2_2_6"), "Uppfyller inte")
         self.assertEqual(_v(inclined, "status_9_2_2_6"), "Uppfyller")
-        deep = Tvärkraft(_indata(d=1200, s=800, s_t=601))
+        deep = Tvärkraft(_indata(kontrollera_minimiarmering=True, d=1200, s=800, s_t=601))
         self.assertEqual(_v(deep, "s_l_max"), 900)
         self.assertEqual(_v(deep, "s_t_max"), 600)
         self.assertEqual(_v(deep, "status_9_2_2_6"), "Uppfyller")
@@ -108,30 +127,30 @@ class TestTvarkraft(unittest.TestCase):
     def test_9_2_2_gransfall_och_separata_kontroller(self):
         for spacing, status in ((300, "Uppfyller"), (300.001, "Uppfyller inte")):
             with self.subTest(spacing=spacing):
-                details = Tvärkraft(_indata(d=400, s=spacing, s_t=spacing))
+                details = Tvärkraft(_indata(kontrollera_minimiarmering=True, d=400, s=spacing, s_t=spacing))
                 self.assertEqual(_v(details, "status_9_2_2_6"), status)
                 self.assertEqual(_v(details, "status_9_2_2_8"), status)
         for bars in (0, 2):
-            details = Tvärkraft(_indata(f_ck=25, phi_w=4, n_skar=bars, V_Ed=0))
+            details = Tvärkraft(_indata(kontrollera_minimiarmering=True, f_ck=25, phi_w=4, n_skar=bars, V_Ed=0))
             self.assertEqual(_v(details, "status_9_2_2_5"), "Uppfyller inte")
             self.assertEqual(_v(details, "status_6_2_3"), "Uppfyller")
             json.dumps(details, allow_nan=False)
 
     def test_9_2_2_utan_tvaravstand_och_med_inaktiva_indata(self):
-        baseline = Tvärkraft(_indata())
+        baseline = Tvärkraft(_indata(kontrollera_minimiarmering=True))
         self.assertEqual(_v(baseline, "status_9_2_2_8"), "Ej kontrollerad")
         for missing in (None, 0):
-            self.assertEqual(Tvärkraft(_indata(s_t=missing)), baseline)
+            self.assertEqual(Tvärkraft(_indata(kontrollera_minimiarmering=True, s_t=missing)), baseline)
         for bad in (-1, True, float("inf"), float("nan"), "fel"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                Tvärkraft(_indata(s_t=bad))
-        concrete = Tvärkraft(_indata(metod="6.2.2", s_t=float("nan")))
+                Tvärkraft(_indata(kontrollera_minimiarmering=True, s_t=bad))
+        concrete = Tvärkraft(_indata(kontrollera_minimiarmering=True, metod="6.2.2", s_t=float("nan")))
         for name in ("s_t", "rho_w", "A_sw_per_m_min", "s_l_max", "s_t_max", "status_9_2_2_5"):
             with self.assertRaises(KeyError):
                 _v(concrete, name)
 
     def test_9_2_2_balkregler_aven_vid_meterbredd_och_bevarad_barformaga(self):
-        data = _indata(f_ck=25, d=400, phi_w=10, s_t=500, metod="6.2.3")
+        data = _indata(kontrollera_minimiarmering=True, f_ck=25, d=400, phi_w=10, s_t=500, metod="6.2.3")
         strip = Tvärkraft(data | {"plattstrimla": True})
         self.assertAlmostEqual(_v(strip, "A_sw_per_m_min"), 800)
         self.assertEqual(_v(strip, "s_t_max"), 300)

@@ -221,8 +221,11 @@ utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` för 6.2
 och manuellt `z` för 6.2.3; `sigma_cp >= 0.2 f_cd` avvisas när 6.2.2 ingår.
 `n_skar=0` anger inga byglar.
 
-När **6.2.3** ingår redovisas även följande separata kontroller enligt
-**balkreglerna i 9.2.2**, med EC2:s rekommenderade värden:
+När **6.2.3** ingår kan kryssrutan **Kontrollera minimiarmering och
+bygelavstånd (9.2.2)** aktiveras. Den är **avstängd från början**. I
+dictionaryformat används `kontrollera_minimiarmering=True`.
+Valet aktiverar följande separata kontroller enligt **balkreglerna i 9.2.2**,
+med EC2:s rekommenderade värden:
 
 - **(5), minimiarmering:** `rho_w = A_sw / (s * b_w * sin(alpha))` jämförs
   med `rho_w_min = 0.08 * sqrt(f_ck) / f_ywk`. Minsta armeringsmängd
@@ -234,9 +237,13 @@ När **6.2.3** ingår redovisas även följande separata kontroller enligt
   bygelben; det härleds inte från bredd eller antal skär. Utelämnat värde,
   `None` eller `0` ger **Ej kontrollerad**, inte ett godkänt resultat.
 
-Dessa kontroller utförs även utan angiven last och har egna statusrader;
-de ändrar inte bärförmågan eller dess utnyttjandegrad. Vid **enbart 6.2.2**
-redovisas inga armeringskontroller. Meterstrimleläget ändrar bara bredd och
+Dessa kontroller utförs när valet är aktiverat, även utan angiven last, och
+har egna statusrader; de ändrar inte bärförmågan eller dess utnyttjandegrad.
+Vid **enbart 6.2.2**
+redovisas inga armeringskontroller. När valet är avstängt döljs `s_t` och
+detaljkontrollerna utelämnas ur beräkning, ekvationer och resultat. Tidigare
+inmatat tväravstånd behålls i panelen och sparade fall.
+Meterstrimleläget ändrar bara bredd och
 kraftenheter: detaljkontrollerna avser fortfarande balkreglerna i 9.2.2.
 Plattors särskilda detaljregler enligt 9.3.2 ingår inte. Övrig detaljutformning,
 förankringsdimensionering och kontroll av längsarmeringens totala dragkraft
@@ -246,9 +253,11 @@ Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
 förval; `"jarn"` använder angivet `n_l`, medan `"cc"` beräknar antalet från
 `b_w` och `cc_l`. Båda använder `n_l * pi * phi_l**2 / 4`. I strimleläget
 används den låsta bredden 1 000 mm även för antalsberäkningen. Inaktiva indata
-ignoreras. Panelens fullformat har 29 värden i ordningen
-`Tvärkraft.panel_schema["px"]`, med `s_t` sist. Äldre 24-, 26-, 27- och
-28-värdeslistor stöds; 28-formatet har `cc_l`, 27-formatet har `plattstrimla`,
+ignoreras. Panelens fullformat har 30 värden i ordningen
+`Tvärkraft.panel_schema["px"]`, med `kontrollera_minimiarmering` sist.
+Äldre 24-, 26-, 27-, 28- och 29-värdeslistor stöds, med minimiarmeringsvalet
+avstängt.
+29-formatet har `s_t`, 28-formatet har `cc_l`, 27-formatet har `plattstrimla`,
 och 24-formatets tidigare cot-gränser ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
 `Tvärkraft.panel_schema["px"]`.
