@@ -139,7 +139,10 @@ Friläggningen visar högra holkväggen med F1, snittets tvärkraft och det inre
 kraftparet Fs/Fc samt måtten a1, d och z, endast vid fristående holk.
 En separat principfigur visar F₂ på vänstra holkväggen, `a_v_2`, höjden
 `0.1l` över pelarfoten och bottenigjutningen `t_ig_b`, högst 560 px bred.
-Den är tillgänglig för båda holktyperna.
+Den är tillgänglig för båda holktyperna. Friläggningen och lastavståndsfiguren
+ligger under samma ihopfällbara flik **Holkväggar – böjarmering och lastavstånd**,
+med underrubriker utan egna öppningsreglage. Vid plattansluten holk visas
+endast lastavståndsfiguren i fliken.
 Måttskissen genereras av `_pelarholk_skiss.render`, begränsad till 460 px.
 Index i hjälptexter och bildtexter formateras som index, även på smal yta.
 Beräkningsfunktionen importerar inte renderaren och läser inga bildresurser.

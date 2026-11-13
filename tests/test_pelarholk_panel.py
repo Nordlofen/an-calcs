@@ -124,7 +124,7 @@ class TestPelarholkPanel(unittest.TestCase):
             self.assertEqual(base64.b64decode(encoded), files(spec["package"]).joinpath(spec["resource"]).read_bytes())
             self.assertIn(spec["source"], markup)
             self.assertIn("anp-figure-full", record["layout"]._dom_classes)
-        for title in ("Friläggning för böjarmering", "Kontaktzoner och tryckspridning", "Lastavstånd för vänstra holkväggen", "EC2 · figur 10.7"):
+        for title in ("Holkväggar – böjarmering och lastavstånd", "Kontaktzoner och tryckspridning", "EC2 · figur 10.7"):
             self.assertIsNone(self.p._sections[title].layout.display)
             self.p._sections[title].selected_index = 0
         self.assertEqual(self.p._sections["Indata"].selected_index, 0)
@@ -132,13 +132,19 @@ class TestPelarholkPanel(unittest.TestCase):
 
     def test_bojfigur_visas_endast_for_fristaende_holk(self):
         figure = next(r for r in self.p._figure_records if r["spec"].get("resource") == "figures/pelarholk-bojarmering-kompakt.svg")
-        accordion = self.p._sections["Friläggning för böjarmering"]
-        section = next(r["widget"] for r in self.p._section_records if accordion in r["widget"].children)
+        self.assertNotIn("Friläggning för böjarmering", self.p._sections)
+        self.assertNotIn("Lastavstånd för vänstra holkväggen", self.p._sections)
+        accordion = self.p._sections["Holkväggar – böjarmering och lastavstånd"]
+        self.assertIsNone(accordion.selected_index)
+        group = next(r for r in self.p._section_records if accordion in r["widget"].children)
+        self.assertEqual(len(group["figures"]), 2)
+        section = next(r["widget"] for r in self.p._section_records if r["figures"] == [figure])
         for free in (True, False, True):
             self.w["fristaende"].value = free
             expected = None if free else "none"
             self.assertEqual(figure["widget"].layout.display, expected)
             self.assertEqual(section.layout.display, expected)
+            self.assertIsNone(group["widget"].layout.display)
 
     def test_matt_och_holktyp_uppdaterar_skissen(self):
         figure = self.p._figure_records[0]["widget"]
@@ -193,7 +199,7 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertNotEqual(figure.value, previous_geometry)
         self.assertNotIn('data-dimension="a_v_2"', figure.value)
         self.assertNotIn('data-dimension="t_ig_b"', figure.value)
-        distance = self.p._figure_records[3]
+        distance = next(r for r in self.p._figure_records if r["spec"].get("resource") == "figures/pelarholk-lastavstand.svg")
         self.assertEqual(distance["spec"]["resource"], "figures/pelarholk-lastavstand.svg")
         for free in (False, True):
             self.w["fristaende"].value = free
@@ -211,7 +217,7 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertEqual(reopened._field_widgets["bv"].value, 230)
         self.assertEqual(reopened._field_widgets["t_ig_b"].value, 20)
         self.assertIn('data-B="900"', reopened._figure_records[0]["widget"].value)
-        contact = reopened._figure_records[2]
+        contact = next(r for r in reopened._figure_records if r["spec"].get("resource") == "figures/pelarholk-kontaktzoner.png")
         self.assertEqual(contact["spec"]["resource"], "figures/pelarholk-kontaktzoner.png")
         self.assertEqual(contact["widget"].layout.max_width, "780px")
 
