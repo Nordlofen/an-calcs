@@ -90,7 +90,116 @@ class TestTvarkraft(unittest.TestCase):
         self.assertAlmostEqual(_v(b, "V_Rd_s") / _v(a, "V_Rd_s"), 2.5)
         self.assertLess(_v(b, "V_Rd_max"), _v(a, "V_Rd_max"))
         self.assertAlmostEqual(_v(a, "theta"), 45)
-        Tvärkraft(_indata(cot_theta_min=2, cot_theta_max=2))
+        self.assertAlmostEqual(_v(b, "theta"), 21.80140948635181)
+        self.assertEqual(_v(a, "V_Rd_c"), _v(b, "V_Rd_c"))
+
+    def test_metodval_kraver_bara_aktiva_indata_och_redovisar_vald_metod(self):
+        both = Tvärkraft(_indata(V_Ed=50))
+        cases = [
+            ("6.2.2", dict(A_sl=600),
+             ("V_Rd_c", "V_Rd_c_last", "eta_6_2_2", "status_6_2_2"),
+             ("V_Rd_s", "V_Rd_max", "V_Rd", "eta_6_2_3", "A_sw", "f_ywd", "cot_theta")),
+            ("6.2.3", dict(phi_w=8, n_skar=2, s=200, f_ywk=500, cot_theta=2),
+             ("V_Rd_s", "V_Rd_max", "V_Rd", "eta_6_2_3", "status_6_2_3"),
+             ("V_Rd_c", "eta_6_2_2", "A_sl", "rho_l", "sigma_cp", "k")),
+        ]
+        for method, extra, present, absent in cases:
+            with self.subTest(method=method):
+                d = Tvärkraft(dict(b_w=300, d=200, f_ck=27, V_Ed=50, metod=method) | extra)
+                for name in present:
+                    self.assertEqual(_v(d, name), _v(both, name))
+                for name in absent:
+                    with self.assertRaises(KeyError, msg=name):
+                        _v(d, name)
+                equations = " ".join(i["latex"] for i in d["ekvationer"]["items"])
+                self.assertEqual("V_{Rd,c}" in equations, method == "6.2.2")
+                self.assertEqual("V_{Rd,s}" in equations, method == "6.2.3")
+
+    def test_ogiltiga_indata_for_bortvald_metod_ignoreras(self):
+        c = _indata(metod="6.2.2")
+        self.assertEqual(Tvärkraft(c), Tvärkraft(c | dict(
+            phi_w=-1, n_skar=-1, s=0, f_ywk=None, cot_theta=100,
+            alpha=None, gamma_s=0, z_auto="fel", z_manuell=float("nan"))))
+        s = _indata(metod="6.2.3")
+        self.assertEqual(Tvärkraft(s), Tvärkraft(s | dict(
+            A_sl=-1, A_sl_inmatning="fel", n_l=-1, phi_l=0, A_c=0)))
+
+    def test_normalkraft_kraver_area_respektive_havarm_for_vald_metod(self):
+        c = Tvärkraft(_indata(metod="6.2.2", N_Ed=60, A_c=60000))
+        self.assertAlmostEqual(_v(c, "V_Rd_c"), 52.2)
+        s = Tvärkraft(_indata(metod="6.2.3", N_Ed=216, z_auto=False, z_manuell=160))
+        self.assertAlmostEqual(_v(s, "z"), 160)
+        # 6.2.2:s spänningsgräns ska inte begränsa en beräkning med enbart 6.2.3.
+        with self.assertRaisesRegex(ValueError, "sigma_cp"):
+            Tvärkraft(_indata(N_Ed=216, A_c=60000, z_auto=False, z_manuell=160))
+        for method in ("6.2.2", "6.2.3"):
+            with self.subTest(method=method), self.assertRaises(ValueError):
+                Tvärkraft(_indata(metod=method, N_Ed=60))
+
+    def test_langsarmering_fran_antal_och_diameter_motsvarar_direkt_area(self):
+        area = 4 * math.pi * 20**2 / 4
+        for method in ("bada", "6.2.2"):
+            with self.subTest(method=method):
+                bars = Tvärkraft(_indata(metod=method, A_sl_inmatning="jarn", n_l=4, phi_l=20, A_sl=-1))
+                direct = Tvärkraft(_indata(metod=method, A_sl=area, n_l=-1, phi_l=0))
+                self.assertEqual(_v(bars, "A_sl"), area)
+                self.assertEqual(_v(bars, "V_Rd_c"), _v(direct, "V_Rd_c"))
+                self.assertEqual(_v(bars, "rho_l"), _v(direct, "rho_l"))
+                self.assertIn("A_sl", {i["namn"] for i in bars["delresultat"]["items"]})
+                self.assertNotIn("A_sl", {i["namn"] for i in bars["indata"]["items"]})
+        minimal = Tvärkraft(dict(metod="6.2.2", b_w=300, d=200, f_ck=27,
+                                A_sl_inmatning="jarn", n_l=0, phi_l=20))
+        self.assertEqual(_v(minimal, "A_sl"), 0)
+        self.assertGreater(_v(minimal, "V_Rd_c"), 0)
+
+    def test_val_och_stangindata_valideras(self):
+        for value in ("fel", None, [], 6.2):
+            with self.subTest(method=value), self.assertRaises(ValueError):
+                Tvärkraft(_indata(metod=value))
+        with self.assertRaises(ValueError):
+            Tvärkraft(_indata(A_sl_inmatning="fel"))
+        for extra in ({"n_l": None}, {"n_l": -1}, {"n_l": 1.5}, {"n_l": True},
+                      {"phi_l": None}, {"phi_l": 0}, {"phi_l": -1},
+                      {"phi_l": float("nan")}, {"phi_l": 1e308}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                Tvärkraft(_indata(A_sl_inmatning="jarn", n_l=4, phi_l=20) | extra)
+
+    def test_reduktion_fungerar_for_varje_metod(self):
+        for av in (100, 401):
+            base = _indata(V_Ed=100, reducera_tvarkraft=True, a_v=av, m_eff=1)
+            both = Tvärkraft(base)
+            for method, suffix in (("6.2.2", "c"), ("6.2.3", "s")):
+                with self.subTest(method=method, av=av):
+                    d = Tvärkraft(base | {"metod": method})
+                    self.assertEqual(_v(d, "V_Ed_red"), _v(both, "V_Ed_red"))
+                    self.assertEqual(_v(d, f"V_Rd_{suffix}_last"), _v(both, f"V_Rd_{suffix}_last"))
+            c = Tvärkraft(base | dict(metod="6.2.2", m_eff="inaktivt"))
+            with self.assertRaises(KeyError):
+                _v(c, "m_eff")
+
+    def test_cot_granser_ar_fasta_aven_for_aldre_fullformat(self):
+        legacy = [300, 200, 27, 600, 8, 2, 200, 500,
+                  0, None, False, None, False, None, 0,
+                  2, 1.5, 2.1, 90, True, None, 1.5, 1.15, 1]
+        self.assertEqual(Tvärkraft(legacy), Tvärkraft(_indata()))
+        legacy[15:18] = [2.6, 1, 3]
+        with self.assertRaises(ValueError):
+            Tvärkraft(legacy)
+        self.assertNotIn("cot_theta_min", Tvärkraft.panel_schema["px"])
+        self.assertNotIn("cot_theta_max", Tvärkraft.panel_schema["px"])
+
+    def test_ekvationernas_vansterled_innehaller_inte_langa_olikheter(self):
+        d = Tvärkraft(_indata(cot_theta=2.5, V_Ed=100, reducera_tvarkraft=True, a_v=100, m_eff=1))
+        equations = d["ekvationer"]["items"]
+        for item in equations:
+            left, _, right = item["latex"].partition("=")
+            self.assertTrue(right)
+            self.assertNotIn(r"\leq", left)
+            self.assertNotIn("<", left)
+        cot = next(i for i in equations if i["latex"].startswith(r"\cot\theta="))
+        self.assertEqual(cot["latex"], r"\cot\theta=2{,}5")
+        self.assertIn("1,0", cot["etikett"])
+        self.assertIn("2,5", cot["etikett"])
 
     def test_reduktionsbildens_1700_300_700_ger_425(self):
         d = Tvärkraft(_indata(d=700, V_Ed=1700, reducera_tvarkraft=True, a_v=300, m_eff=1))

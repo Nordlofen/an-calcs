@@ -119,6 +119,10 @@ Foreslagen projektstruktur:
 6.2.2 och 6.2.3** för normalbetong med konstant tvärsnitt, utan förspänning eller
 foderrör. ASCII-aliaset `tvarkraft` avser samma funktion.
 
+Välj **enbart 6.2.2**, **enbart 6.2.3** eller **båda** (förval) i panelen.
+Valet styr indata, validering, resultat och ekvationer. Längsarmeringen för
+6.2.2 anges som area direkt eller som antal järn och diameter.
+
 ```python
 from an_calcs.betong import Tvärkraft
 from an_print import Panel
@@ -130,8 +134,22 @@ panel
 # [b_w, d, f_ck, A_sl, phi_w, n_skar, s, f_ywk]
 details = Tvärkraft([300, 500, 30, 2000, 8, 2, 200, 500])
 
+# Enbart 6.2.2, med A_sl beräknad från fyra Ø25:
+details = Tvärkraft({
+    "metod": "6.2.2", "b_w": 300, "d": 500, "f_ck": 30,
+    "A_sl_inmatning": "jarn", "n_l": 4, "phi_l": 25,
+})
+
+# Enbart 6.2.3 behöver ingen A_sl:
+details = Tvärkraft({
+    "metod": "6.2.3", "b_w": 300, "d": 500, "f_ck": 30,
+    "phi_w": 8, "n_skar": 2, "s": 200, "f_ywk": 500,
+    "cot_theta": 2.5,
+})
+
 # Namngivna indata med lastkontroll och reduktion nära upplag:
 details = Tvärkraft({
+    "metod": "bada",
     "b_w": 300, "d": 700, "f_ck": 30, "A_sl": 2000,
     "phi_w": 8, "n_skar": 2, "s": 200, "f_ywk": 500,
     "V_Ed": 1700, "reducera_tvarkraft": True, "a_v": 300,
@@ -147,19 +165,28 @@ figur 6.4/6.6, påförs på ovansidan och att längsarmeringen är fullt förank
 (6.19); det beräknas inte genom avrundning av bygelavståndet.
 
 Resultaten `V_Rd_c`, `V_Rd_s`, `V_Rd_max` och `V_Rd=min(V_Rd_s,V_Rd_max)`
-redovisar ordinarie bärförmågor. Vid reduktion kontrolleras reducerad last mot
+redovisar ordinarie bärförmågor för valda metoder. Vid reduktion kontrolleras reducerad last mot
 `V_Rd_c` respektive (6.19), medan oreducerad last kontrolleras separat mot (6.5)
 respektive (6.9). `V_Rd_c_last` och `V_Rd_s_last` är samlade gränser för den
 **oreducerade** inmatade lasten. För `a_v > 2d` används ordinarie modell.
 `eta_6_2_2` och `eta_6_2_3` redovisas i procent när lastkontroll är aktiverad.
 
-Beräkningsinställningarna innehåller vald `cot_theta`, dess undre/övre gräns
-inom 1,0–2,5, automatiskt/manuellt `z` samt `gamma_c`, `gamma_s` och `alpha_cc`.
+Beräkningsinställningarna innehåller vald `cot_theta`, automatiskt/manuellt `z`
+samt `gamma_c`, `gamma_s` och `alpha_cc`. Gränserna **1,0 ≤ cot(θ) ≤ 2,5** är
+fasta. Högre cot(θ) ökar `V_Rd_s` och minskar `V_Rd_max`; `V_Rd_c` påverkas inte.
+Ändpunkterna motsvarar 45° respektive 21,8° mot balkens längdaxel.
+Hjälptexten under fältet kräver en uppdaterad `an-print` med stöd för `help`.
 Förvalen är EC2:s rekommenderade värden för varaktig/tillfällig situation,
-utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` och
-manuellt `z`; `sigma_cp >= 0.2 f_cd` avvisas. `n_skar=0` anger inga byglar.
+utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` för 6.2.2
+och manuellt `z` för 6.2.3; `sigma_cp >= 0.2 f_cd` avvisas när 6.2.2 ingår.
+`n_skar=0` anger inga byglar.
 Minimiarmering, avståndsregler, förankringsdimensionering och kontroll av
 längsarmeringens totala dragkraft ingår inte i bärförmågekontrollen.
+
+Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
+förval; `"jarn"` använder `n_l * pi * phi_l**2 / 4`. Inaktiva indata ignoreras.
+Panelens fullformat har 26 värden i ordningen `Tvärkraft.panel_schema["px"]`.
+Äldre 24-värdeslistor stöds fortfarande, men de tidigare cot-gränserna ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
 `Tvärkraft.panel_schema["px"]`.
 
