@@ -1,0 +1,4 @@
+interface:
+  display_name: "Beräkningsfunktioner i an-calcs"
+  short_description: "Från standard och indata till panel, tester och push"
+  default_prompt: "Använd $an-calcs-function för att ta fram nästa beräkningsfunktion i an-calcs enligt det etablerade arbetsflödet."

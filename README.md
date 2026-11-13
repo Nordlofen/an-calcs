@@ -2,6 +2,13 @@
 
 Berakningsrepo for materialuppdelade ingenjorsfunktioner.
 
+## Utvecklingsskill
+
+[an-calcs-function](skills/an-calcs-function/SKILL.md) beskriver arbetsflödet
+för nya och befintliga beräkningsfunktioner, från standard och indata till
+panel, redovisning, riktade tester och leverans. Skillens referens och
+UI-metadata följer med i samma mapp.
+
 ## Kontrakt
 
 En berakningsfunktion i `an_calcs` ska vara oberoende av notebook- och
