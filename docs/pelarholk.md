@@ -41,7 +41,9 @@ en meterstrimla. Lägesbyte behåller lastvärdena, användaren anpassar dem.
 `b2` (även `bv`), `H` och `t_p` är enbart panelens skissmått och ingår inte i listformatet.
 De får förekomma i dictionary men ignoreras av beräkningen. `B=b2+h+b1` visas
 som härlett totalmått. `b1` används i böjberäkningen endast vid fristående holk.
-Skissen reagerar direkt på fältändringar och återlästa fall. Samma skala används
+Skissen visar talvärden för b₁, b₂ och h i måttkedjan och reagerar direkt på
+fältändringar och återlästa fall. Korta mått får förskjutna textrader för
+att undvika överlapp. Samma skala används
 i x/y; enbart igjutningens synliga tjocklek förstärks. Bottenigjutningen styrs
 separat av `t_ig_b`. Lastavståndet `a_v_2` och bottenmåttet måttsätts
 i en separat principfigur för vänstra holkväggen.

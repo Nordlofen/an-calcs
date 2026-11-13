@@ -38,13 +38,25 @@ def render(values):
     x0 = 65+(550-(B+extension)*scale)/2
     xr, xe, xc = x0+B*scale, x0+(B+extension)*scale, x0+bv*scale
     xcr = xc+h*scale
-    yc, yt = 90, 90+stub*scale
+    fmt = lambda x: f"{x:,.1f}".rstrip("0").rstrip(".").replace(",", " ").replace(".", ",")
+    # Förskjut hela etiketter till olika rader när korta mått ger ont om plats.
+    dimension_labels, row_ends = [], []
+    for start,end,name,value in ((x0,xc,"b_2",bv),(xc,xcr,"h",h),(xcr,xr,"b_1",bh)):
+        mid = (start+end)/2
+        half_width = 5.5*(len(fmt(value)) + (5 if name.startswith("b_") else 4))
+        row = next((i for i,right in enumerate(row_ends) if mid-half_width > right+8), len(row_ends))
+        if row == len(row_ends):
+            row_ends.append(mid+half_width)
+        else:
+            row_ends[row] = mid+half_width
+        dimension_labels.append((mid,name,value,row))
+    top_padding = max(0, 24*(len(row_ends)-1)-12)
+    yc, yt = 90+top_padding, 90+top_padding+stub*scale
     yb, yl = yt+H*scale, yt+l*scale
     yp = yt+v.get("t_p", 0)*scale
     grout = min(max(5, tig*scale), 12, min(bv,bh)*scale*.4)
     bottom_grout = min(max(8, v["t_ig_b"]*scale), (H-l)*scale*.8)
     ybottom = yl + bottom_grout
-    fmt = lambda x: f"{x:,.1f}".rstrip("0").rstrip(".").replace(",", " ").replace(".", ",")
     mode = "Fristående holk" if free else "Holk med anslutande platta"
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 {yb+112:.3f}" role="img" aria-label="Måttsatt tvärsnitt: {mode}" '
              f'data-B="{B:g}" data-scale-x="{scale}" data-scale-y="{scale}" data-standalone="{str(free).lower()}" '
@@ -72,20 +84,14 @@ def render(values):
         cut = xe-10
         for yy in (yt,yp):
             parts.append(f'<path d="M {cut-3} {yy-4} l 7 8 m -1 -8 l 7 8" fill="none" stroke="currentColor" stroke-width="1.6"/>')
-    chain = 49
+    chain = 49+top_padding
     for x,y in ((x0,yt),(xc,yc),(xcr,yc),(xr,yt)):
         line(x,chain-6,x,y-7,True)
         tick(x,chain)
     line(x0,chain,xr,chain)
-    # Fasta symboler undviker överlapp för smala mått; talvärden finns i fälten.
-    previous = -math.inf
-    for start,end,name in ((x0,xc,"b_2"),(xc,xcr,"h"),(xcr,xr,"b_1")):
-        mid = (start+end)/2
-        yy = 15 if mid-previous < 36 else 34
-        text(mid,yy,symbol(name))
-        if yy == 15:
-            line(mid,yy+8,mid,chain-6,True)
-        previous = mid
+    for mid,name,value,row in dimension_labels:
+        yy = 34+top_padding-24*row
+        text(mid,yy,f'{symbol(name)} = {fmt(value)}', f'data-dimension="{name.replace("_", "")}"')
     yB = yb+36
     for x in (x0,xr):
         line(x,yb+5,x,yB+6,True)
@@ -104,11 +110,11 @@ def render(values):
     line(xl,yt,xl,yl)
     tick(xl,yt)
     tick(xl,yl)
-    tx,ty = xl+14,(yt+yl)/2
+    tx,ty = xl+28,(yt+yl)/2
     if yl-yt>108 and xr-xcr>70:
-        text(tx,ty,f'l = {fmt(l)}', f'transform="rotate(-90 {tx} {ty})"')
+        text(tx,ty,f'l = {fmt(l)}', f'data-dimension="l" transform="rotate(-90 {tx} {ty})"')
     else:
-        text(tx,ty+5,symbol("l"))
+        text(tx,ty+5,symbol("l"), 'data-dimension="l"')
     if not free:
         xp = xe+21
         for yy in (yt,yp):
