@@ -121,7 +121,10 @@ foderrör. ASCII-aliaset `tvarkraft` avser samma funktion.
 
 Välj **enbart 6.2.2**, **enbart 6.2.3** eller **båda** (förval) i panelen.
 Valet styr indata, validering, resultat och ekvationer. Längsarmeringen för
-6.2.2 anges som area direkt eller som antal järn och diameter.
+6.2.2 anges som **Area direkt**, **Antal och diameter** eller **cc och diameter**.
+Det sista valet beräknar `n_l = floor(b_w / cc_l + 1)` (avrundning nedåt till
+heltal) och därefter `A_sl = n_l * pi * phi_l**2 / 4`. Centrumavståndet anges
+i mm. Antalet järn och arean redovisas som delresultat.
 
 Knappen **<i>b</i><sub>w</sub>-1m strimla** låser `b_w` till **1 000 mm** och visar krafter och
 bärförmågor i **kN/m-str**. Ange laster, betongarea och längsarmering för denna
@@ -147,6 +150,12 @@ details = Tvärkraft([300, 500, 30, 2000, 8, 2, 200, 500])
 details = Tvärkraft({
     "metod": "6.2.2", "b_w": 300, "d": 500, "f_ck": 30,
     "A_sl_inmatning": "jarn", "n_l": 4, "phi_l": 25,
+})
+
+# Längsarmering Ø16 cc200 i en meterstrimla ger n_l=6:
+details = Tvärkraft({
+    "metod": "6.2.2", "plattstrimla": True, "d": 200, "f_ck": 30,
+    "A_sl_inmatning": "cc", "cc_l": 200, "phi_l": 16,
 })
 
 # Enbart 6.2.3 behöver ingen A_sl:
@@ -194,10 +203,13 @@ Minimiarmering, avståndsregler, förankringsdimensionering och kontroll av
 längsarmeringens totala dragkraft ingår inte i bärförmågekontrollen.
 
 Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
-förval; `"jarn"` använder `n_l * pi * phi_l**2 / 4`. Inaktiva indata ignoreras.
-Panelens fullformat har 27 värden i ordningen `Tvärkraft.panel_schema["px"]`,
-med `plattstrimla` sist. Äldre 24- och 26-värdeslistor stöds utan strimleläget;
-24-formatets tidigare cot-gränser ignoreras.
+förval; `"jarn"` använder angivet `n_l`, medan `"cc"` beräknar antalet från
+`b_w` och `cc_l`. Båda använder `n_l * pi * phi_l**2 / 4`. I strimleläget
+används den låsta bredden 1 000 mm även för antalsberäkningen. Inaktiva indata
+ignoreras. Panelens fullformat har 28 värden i ordningen
+`Tvärkraft.panel_schema["px"]`, med `cc_l` sist. Äldre 24-, 26- och
+27-värdeslistor stöds; 27-formatet har `plattstrimla`, och 24-formatets
+tidigare cot-gränser ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
 `Tvärkraft.panel_schema["px"]`.
 

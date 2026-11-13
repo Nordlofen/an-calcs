@@ -160,6 +160,60 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertFalse(self.w["reducera_tvarkraft"].value)
         self.calculate()
 
+    def test_cc_val_byter_falt_och_raknar_om_med_bredden(self):
+        self.w["n_l"].value = 8
+        self.w["A_sl"].value = 1234
+        self.w["A_sl_inmatning"].value = "cc"
+        self.assertIn(("cc och diameter", "cc"), self.w["A_sl_inmatning"].options)
+        self.assertTrue({"cc_l", "phi_l"} <= self.visible())
+        self.assertFalse({"n_l", "A_sl"} & self.visible())
+        self.w["cc_l"].value = 150
+        self.w["phi_l"].value = 20
+        self.assertEqual(value(self.calculate(), "n_l"), 3)
+        self.w["b_w"].value = 450
+        self.assertEqual(value(self.calculate(), "n_l"), 4)
+        self.w["plattstrimla"].value = True
+        self.assertEqual(value(self.calculate(), "n_l"), 7)
+        self.w["plattstrimla"].value = False
+        self.assertEqual(value(self.calculate(), "n_l"), 4)
+        self.w["metod"].value = "6.2.3"
+        self.assertFalse({"A_sl_inmatning", "cc_l", "phi_l", "n_l", "A_sl"} & self.visible())
+        self.w["metod"].value = "6.2.2"
+        self.assertEqual(self.w["cc_l"].value, 150)
+        self.w["A_sl_inmatning"].value = "jarn"
+        self.assertNotIn("cc_l", self.visible())
+        self.assertEqual(value(self.calculate(), "n_l"), 8)
+        self.w["A_sl_inmatning"].value = "area"
+        self.assertEqual(value(self.calculate(), "A_sl"), 1234)
+
+    def test_sparat_cc_val_och_rapport_med_antal_och_area(self):
+        self.w["A_sl_inmatning"].value = "cc"
+        self.w["cc_l"].value = 175
+        self.w["phi_l"].value = 16
+        self.w["plattstrimla"].value = True
+        self.panel._save_last_values()
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(Tvärkraft, state_file=self.state)
+        self.assertEqual(restored._field_widgets["A_sl_inmatning"].value, "cc")
+        self.assertEqual(restored._field_widgets["cc_l"].value, 175)
+        self.assertEqual(restored._field_widgets["phi_l"].value, 16)
+        for method in ("bada", "6.2.2", "6.2.3"):
+            with self.subTest(method=method):
+                restored._field_widgets["metod"].value = method
+                details = Tvärkraft(restored.to_px())
+                if method != "6.2.3":
+                    self.assertEqual(value(details, "n_l"), 6)
+                    self.assertAlmostEqual(value(details, "A_sl"), 384 * math.pi)
+                cb = CalcBlock(details)
+                for block in ("ID", "DR", "EKV"):
+                    getattr(cb, block)(visa=False, etikett=True)
+                self.assertEqual("cc och diameter" in cb.html_id, method != "6.2.3")
+                self.assertEqual("floor" in cb.html_ekv, method != "6.2.3")
+                self.assertEqual("avrundning nedåt till heltal" in cb.html_ekv, method != "6.2.3")
+                self.assertEqual(r"n_l & = &" in cb.latex_dr, method != "6.2.3")
+                self.assertEqual(r"A_{sl} & = &" in cb.latex_dr, method != "6.2.3")
+
     def test_cot_hjalptext_och_fasta_granser(self):
         row = self.panel._field_rows["cot_theta"]
         self.assertIs(row.children[-2], self.w["cot_theta"])
@@ -189,7 +243,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(restored._field_widgets["n_l"].value, 6)
         old = json.loads(self.state.read_text())
         fields = old[self.panel._last_key]
-        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla"):
+        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla", "cc_l"):
             fields.pop(name)
         fields.update(cot_theta_min=1.5, cot_theta_max=2, cot_theta=2.5)
         self.state.write_text(json.dumps(old))
@@ -199,6 +253,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(legacy._field_widgets["metod"].value, "bada")
         self.assertEqual(legacy._field_widgets["A_sl_inmatning"].value, "area")
         self.assertFalse(legacy._field_widgets["plattstrimla"].value)
+        self.assertEqual(legacy._field_widgets["cc_l"].value, 200)
         self.assertGreater(value(Tvärkraft(legacy.to_px()), "V_Rd_s"), 0)
 
     def test_calcblock_redovisar_korta_vansterled_och_vald_metod(self):

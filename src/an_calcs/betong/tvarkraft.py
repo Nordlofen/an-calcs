@@ -7,6 +7,7 @@ from collections.abc import Mapping
 _GRUNDINDATA = ("b_w", "d", "f_ck", "A_sl", "phi_w", "n_skar", "s", "f_ywk")
 _COT_MIN, _COT_MAX = 1.0, 2.5
 _METODER = {"bada": "6.2.2 och 6.2.3", "6.2.2": "Endast 6.2.2", "6.2.3": "Endast 6.2.3"}
+_LANGSARMERING = {"area": "Area direkt", "jarn": "Antal och diameter", "cc": "cc och diameter"}
 _STANDARD = {
     "N_Ed": 0.0, "A_c": None,
     "kontrollera_last": False, "V_Ed": None,
@@ -15,6 +16,7 @@ _STANDARD = {
     "gamma_c": 1.5, "gamma_s": 1.15, "alpha_cc": 1.0,
     "metod": "bada", "A_sl_inmatning": "area", "n_l": None, "phi_l": None,
     "plattstrimla": False,
+    "cc_l": None,
 }
 _PX_NAMN = _GRUNDINDATA + tuple(_STANDARD)
 # Tidigare fullformat läses fortfarande; dess två gränsvärden används inte.
@@ -74,24 +76,24 @@ def _tolka_px(px):
         if set(px) - set(_PX_NAMN):
             raise ValueError(f"Okända indata: {sorted(set(px) - set(_PX_NAMN), key=str)}.")
         given = dict(px)
-    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), 26, len(_PX_NAMN)):
+    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), 26, 27, len(_PX_NAMN)):
         names = _LEGACY_PX_NAMN if len(px) == len(_LEGACY_PX_NAMN) else _PX_NAMN
         given = {name: value for name, value in zip(names, px) if name in _PX_NAMN}
     else:
-        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24, 26 eller 27 värden.")
+        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24, 26, 27 eller 28 värden.")
     v = {**dict.fromkeys(_GRUNDINDATA), **_STANDARD, **given}
     if not isinstance(v["metod"], str) or v["metod"] not in _METODER:
         raise ValueError("metod måste vara 'bada', '6.2.2' eller '6.2.3'.")
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
-    if c and v["A_sl_inmatning"] not in ("area", "jarn"):
-        raise ValueError("A_sl_inmatning måste vara 'area' eller 'jarn'.")
+    if c and (not isinstance(v["A_sl_inmatning"], str) or v["A_sl_inmatning"] not in _LANGSARMERING):
+        raise ValueError("A_sl_inmatning måste vara 'area', 'jarn' eller 'cc'.")
     if not isinstance(v["plattstrimla"], bool):
         raise ValueError("plattstrimla måste vara True eller False.")
     if v["plattstrimla"]:
         v["b_w"] = 1000.0
     required = ["d", "f_ck"] + ([] if v["plattstrimla"] else ["b_w"])
     if c:
-        required += ["A_sl"] if v["A_sl_inmatning"] == "area" else ["n_l", "phi_l"]
+        required += {"area": ["A_sl"], "jarn": ["n_l", "phi_l"], "cc": ["cc_l", "phi_l"]}[v["A_sl_inmatning"]]
     if s:
         required += ["phi_w", "n_skar", "s", "f_ywk"]
     missing = [name for name in required if name not in given or given[name] is None]
@@ -110,15 +112,20 @@ def _tolka_px(px):
     v["N_Ed"] = _tal("N_Ed", v["N_Ed"])
     v["A_c"] = _positivt("A_c", v["A_c"]) if c and v["N_Ed"] else None
     if c:
-        if v["A_sl_inmatning"] == "jarn":
-            v["n_l"] = _tal("n_l", v["n_l"], minimum=0, heltal=True)
+        if v["A_sl_inmatning"] != "area":
+            if v["A_sl_inmatning"] == "cc":
+                v["cc_l"] = _positivt("cc_l", v["cc_l"])
+                v["n_l"] = math.floor(v["b_w"] / v["cc_l"] + 1)
+            else:
+                v["cc_l"] = None
+                v["n_l"] = _tal("n_l", v["n_l"], minimum=0, heltal=True)
             v["phi_l"] = _positivt("phi_l", v["phi_l"])
             v["A_sl"] = v["n_l"] * math.pi * v["phi_l"]**2 / 4
         else:
-            v["n_l"], v["phi_l"] = None, None
+            v["n_l"], v["phi_l"], v["cc_l"] = None, None, None
         v["A_sl"] = _tal("A_sl", v["A_sl"], minimum=0)
     else:
-        for name in ("A_sl_inmatning", "A_sl", "n_l", "phi_l"):
+        for name in ("A_sl_inmatning", "A_sl", "n_l", "phi_l", "cc_l"):
             v[name] = None
     if s:
         for name in ("s", "f_ywk"):
@@ -175,14 +182,16 @@ def Tvärkraft(px):
 
         [b_w, d, f_ck, A_sl, phi_w, n_skar, s, f_ywk]
 
-    Panel använder 27 värden; ordningen ges av Tvärkraft.panel_schema["px"].
+    Panel använder 28 värden; ordningen ges av Tvärkraft.panel_schema["px"].
     Äldre fullformat med 24 och 26 värden stöds utan plattstrimla;
-    24-formatets tidigare cot-gränser ignoreras.
+    27-formatet har plattstrimla men inget cc_l. 24-formatets cot-gränser ignoreras.
     Gränserna 1 <= cot_theta <= 2.5 är fasta och kan inte ändras via indata.
 
     Dictionary rekommenderas vid metodval. Gemensamt krävs b_w, d, f_ck.
     6.2.2 kräver A_sl eller A_sl_inmatning='jarn', n_l och phi_l, varvid
-    A_sl=n_l*pi*phi_l**2/4. 6.2.3 kräver phi_w, n_skar, s och f_ywk.
+    A_sl=n_l*pi*phi_l**2/4. Alternativt ger A_sl_inmatning='cc', cc_l och
+    phi_l antalet n_l=floor(b_w/cc_l+1) och samma areauttryck. cc_l anges i mm.
+    6.2.3 kräver phi_w, n_skar, s och f_ywk.
     Inaktiva fält ignoreras. N_Ed != 0 kräver A_c för 6.2.2 och manuellt z
     (z_auto=False, z_manuell) för 6.2.3. V_Ed aktiverar lastkontroll i
     dictionaryformatet om kontrollera_last inte anges uttryckligen.
@@ -258,6 +267,7 @@ def _berakna(v):
     # Endast aktiva indata redovisas; d förekommer en gång även vid reduktion.
     metadata = {
         "n_l": (r"n_l", "st", "antal medräkningsbara längsarmeringsjärn"),
+        "cc_l": (r"\mathrm{cc}", "mm", "längsarmeringens centrumavstånd"),
         "phi_l": (r"\phi_l", "mm", "längsarmeringens stångdiameter"),
         "b_w": (r"b_w", "mm", "minsta bredd enligt vald metod"),
         "d": ("d", "mm", "effektiv höjd"),
@@ -287,13 +297,15 @@ def _berakna(v):
     indata = [_post("metod", "", _METODER[v["metod"]], "", "vald beräkningsmetod"),
               _post("plattstrimla", "", "b_w-1m strimla" if strimla else "Angiven bredd", "", "beräkningsbredd")]
     for name in _PX_NAMN:
-        if name == "A_sl" and v["A_sl_inmatning"] == "jarn":
+        if name == "A_sl" and v["A_sl_inmatning"] in ("jarn", "cc"):
+            continue
+        if name == "n_l" and v["A_sl_inmatning"] == "cc":
             continue
         if name in metadata and v[name] is not None:
             latex, unit, label = metadata[name]
             indata.append(_post(name, latex, v[name], unit, label))
     if c:
-        indata.append(_post("A_sl_inmatning", "", "Antal och diameter" if v["A_sl_inmatning"] == "jarn" else "Ange area direkt", "", "inmatning av längsarmering"))
+        indata.append(_post("A_sl_inmatning", "", _LANGSARMERING[v["A_sl_inmatning"]], "", "inmatning av längsarmering"))
     if s:
         indata.append(_post("z_auto", "", "0,9 d" if v["z_auto"] else "Manuell", "", "val av inre hävarm"))
     indata.append(_post("reducera_tvarkraft", "", "På" if v["reducera_tvarkraft"] else "Av", "", "tvärkraftsreduktion"))
@@ -303,7 +315,9 @@ def _berakna(v):
     ]
     resultat = []
     if c:
-        if v["A_sl_inmatning"] == "jarn":
+        if v["A_sl_inmatning"] == "cc":
+            mellan.append(_post("n_l", r"n_l", v["n_l"], "st", "beräknat antal längsarmeringsjärn, avrundat nedåt", decimals=0))
+        if v["A_sl_inmatning"] in ("jarn", "cc"):
             mellan.append(_post("A_sl", r"A_{sl}", v["A_sl"], "mm^2", "beräknad medräkningsbar längsdragarmering" + (" i 1 m strimla" if strimla else "")))
         mellan.extend([
             _post("sigma_cp", r"\sigma_{cp}", sigma_cp, "MPa", "normalspänning, positiv vid tryck"),
@@ -363,7 +377,9 @@ def _berakna(v):
 
     ekvationer = [_ekvation(r"f_{cd}=\alpha_{cc}f_{ck}/\gamma_c", "dimensionerande betongtryckhållfasthet")]
     if c:
-        if v["A_sl_inmatning"] == "jarn":
+        if v["A_sl_inmatning"] == "cc":
+            ekvationer.append(_ekvation(r"n_l=\mathrm{floor}(b_w/\mathrm{cc}+1)", "avrundning nedåt till heltal"))
+        if v["A_sl_inmatning"] in ("jarn", "cc"):
             ekvationer.append(_ekvation(r"A_{sl}=n_l\pi\phi_l^2/4", "area från antal och stångdiameter"))
         ekvationer.extend([
             _ekvation(r"k=\min(1+\sqrt{200/d},2)", "d i mm, 6.2.2(1)"),
@@ -488,6 +504,8 @@ _C = {"field": "metod", "in": ["bada", "6.2.2"]}
 _S = {"field": "metod", "in": ["bada", "6.2.3"]}
 _REDUKTION = {"all": [_LAST, {"field": "reducera_tvarkraft", "equals": True}]}
 _JARN = {"all": [_C, {"field": "A_sl_inmatning", "equals": "jarn"}]}
+_CC = {"all": [_C, {"field": "A_sl_inmatning", "equals": "cc"}]}
+_DIAMETER = {"all": [_C, {"field": "A_sl_inmatning", "in": ["jarn", "cc"]}]}
 _STRIMLA = {"field": "plattstrimla", "equals": True}
 
 Tvärkraft.panel_schema = {
@@ -495,7 +513,7 @@ Tvärkraft.panel_schema = {
     "px": list(_PX_NAMN),
     "sections": [
         {"fields": ["metod", "plattstrimla"], "columns": 1},
-        {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "phi_l"], "columns": 3},
+        {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "cc_l", "phi_l"], "columns": 3},
         {"title": "Material", "fields": ["f_ck", "f_ywk"], "columns": 2},
         {"title": "Tvärkraftsarmering", "fields": ["phi_w", "n_skar", "s", "alpha", "m_eff"], "columns": 3},
         {"title": "Last och tvärkraftsreduktion", "fields": ["kontrollera_last", "V_Ed", "reducera_tvarkraft", "a_v"], "columns": 2},
@@ -514,14 +532,15 @@ Tvärkraft.panel_schema = {
         _falt("d", "Effektiv höjd", 500.0, "mm", "<i>d</i>"),
         _falt("f_ck", "Betongens tryckhållfasthet", 30.0, "MPa", "<i>f</i><sub>ck</sub>"),
         _falt("A_sl_inmatning", "Ange längsarmering som", "area", typ="choice", visible_if=_C, options=[
-            {"label": "Area direkt", "value": "area"}, {"label": "Antal och diameter", "value": "jarn"},
+            {"label": label, "value": value} for value, label in _LANGSARMERING.items()
         ]),
         _falt("A_sl", "Medräkningsbar längsdragarmering", 2000.0, "mm²", "<i>A</i><sub>sl</sub>",
               visible_if={"all": [_C, {"field": "A_sl_inmatning", "equals": "area"}]},
               presentation_if={**_STRIMLA, "label": "Medräkningsbar längsdragarmering i 1 m strimla"}),
         _falt("n_l", "Antal längsarmeringsjärn", 4, "st", "<i>n</i><sub>l</sub>", typ="int", visible_if=_JARN,
               presentation_if={**_STRIMLA, "label": "Antal längsarmeringsjärn i 1 m strimla"}),
-        _falt("phi_l", "Längsarmeringens diameter", 25.0, "mm", "φ<sub>l</sub>", visible_if=_JARN),
+        _falt("cc_l", "Längsarmeringens centrumavstånd", 200.0, "mm", "cc", visible_if=_CC),
+        _falt("phi_l", "Längsarmeringens diameter", 25.0, "mm", "φ<sub>l</sub>", visible_if=_DIAMETER),
         _falt("phi_w", "Bygeldiameter", 8.0, "mm", "φ<sub>w</sub>", visible_if=_S),
         _falt("n_skar", "Verksamma skär per bygel (0 = inga)", 2, "", "<i>n</i>", typ="int", visible_if=_S,
               presentation_if={**_STRIMLA, "label": "Skär per bygelrad över 1 m bredd (0 = inga)"}),

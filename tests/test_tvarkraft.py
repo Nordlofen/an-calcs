@@ -64,14 +64,16 @@ class TestTvarkraft(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "plattstrimla"):
                 Tvärkraft(_indata(plattstrimla=flag))
 
-    def test_strimla_fullformat_och_tidigare_26_format(self):
+    def test_strimla_fullformat_och_tidigare_26_och_27_format(self):
         schema = Tvärkraft.panel_schema
         values = {f["name"]: f["default"] for f in schema["fields"]}
         full = [values[n] for n in schema["px"]]
-        self.assertEqual(len(full), 27)
-        self.assertEqual(Tvärkraft(full[:-1]), Tvärkraft(values))
-        full[-1] = True
+        self.assertEqual(len(full), 28)
+        for size in (26, 27):
+            self.assertEqual(Tvärkraft(full[:size]), Tvärkraft(values))
+        full[schema["px"].index("plattstrimla")] = True
         self.assertEqual(Tvärkraft(full), Tvärkraft(values | {"plattstrimla": True}))
+        self.assertEqual(Tvärkraft(full[:27]), Tvärkraft(full))
 
     def test_handraknat_grundfall_utan_och_med_byglar(self):
         d = Tvärkraft(_indata(V_Ed=50))
@@ -212,6 +214,51 @@ class TestTvarkraft(unittest.TestCase):
                       {"phi_l": float("nan")}, {"phi_l": 1e308}):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 Tvärkraft(_indata(A_sl_inmatning="jarn", n_l=4, phi_l=20) | extra)
+
+    def test_cc_och_diameter_avrundar_antalet_nedat_och_ger_ratt_kapacitet(self):
+        cases = ((300, 100, 4), (300, 100.001, 3), (300, 99.999, 4),
+                 (300, 175, 2), (300, 500, 1), (1000, 200, 6),
+                 (1000, 150, 7), (1000, 250, 5))
+        for method in ("bada", "6.2.2"):
+            for bw, cc, count in cases:
+                with self.subTest(method=method, bw=bw, cc=cc):
+                    area = count * math.pi * 20**2 / 4
+                    data = _indata(metod=method, b_w=bw, V_Ed=100,
+                                   reducera_tvarkraft=True, a_v=100, m_eff=2)
+                    spaced = Tvärkraft(data | dict(A_sl_inmatning="cc", cc_l=cc,
+                                                  phi_l=20, n_l=-1, A_sl=-1))
+                    direct = Tvärkraft(data | dict(A_sl=area))
+                    self.assertEqual(_v(spaced, "n_l"), count)
+                    self.assertEqual(_v(spaced, "cc_l"), cc)
+                    self.assertAlmostEqual(_v(spaced, "A_sl"), area)
+                    for name in ("rho_l", "V_Rd_c", "eta_6_2_2"):
+                        self.assertEqual(_v(spaced, name), _v(direct, name))
+                    self.assertFalse({"A_sl", "n_l"} & {i["namn"] for i in spaced["indata"]["items"]})
+                    self.assertTrue({"A_sl", "n_l"} <= {i["namn"] for i in spaced["delresultat"]["items"]})
+
+    def test_cc_anvander_strimlans_bredd_och_fullformat(self):
+        spaced = Tvärkraft(dict(metod="6.2.2", plattstrimla=True, d=200, f_ck=27,
+                                A_sl_inmatning="cc", cc_l=200, phi_l=20))
+        self.assertEqual(_v(spaced, "n_l"), 6)
+        self.assertAlmostEqual(_v(spaced, "A_sl"), 600 * math.pi)
+        schema = Tvärkraft.panel_schema
+        values = {f["name"]: f["default"] for f in schema["fields"]}
+        values.update(A_sl_inmatning="cc", plattstrimla=True, cc_l=150, phi_l=16)
+        self.assertEqual(Tvärkraft([values[n] for n in schema["px"]]), Tvärkraft(values))
+
+    def test_cc_valideras_endast_nar_det_anvands(self):
+        for cc in (None, 0, -1, True, "fel", float("nan"), float("inf"), 1e-308):
+            with self.subTest(cc=cc), self.assertRaises(ValueError):
+                Tvärkraft(_indata(A_sl_inmatning="cc", cc_l=cc, phi_l=20))
+        for diameter in (None, 0, -1, True, float("nan")):
+            with self.subTest(diameter=diameter), self.assertRaises(ValueError):
+                Tvärkraft(_indata(A_sl_inmatning="cc", cc_l=200, phi_l=diameter))
+        for extra in ({}, dict(A_sl_inmatning="jarn", n_l=4, phi_l=20),
+                      dict(metod="6.2.3", A_sl_inmatning="cc")):
+            data = _indata() | extra
+            self.assertEqual(Tvärkraft(data), Tvärkraft(data | {"cc_l": -1}))
+        with self.assertRaisesRegex(ValueError, "cc_l"):
+            Tvärkraft(dict(metod="6.2.2", b_w=300, d=200, f_ck=27, A_sl_inmatning="cc", phi_l=20))
 
     def test_reduktion_fungerar_for_varje_metod(self):
         for av in (100, 401):
