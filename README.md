@@ -120,6 +120,50 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Pelarholk
+
+`an_calcs.betong.Pelarholk` (alias `pelarholk`) löser kraftspelet för **släta
+fogytor enligt EC2 10.9.6.3, figur 10.7b**. Funktionen kontrollerar sidokontakttryck
+i igjutning och holkbetong med projektets triangulära kontakt-/spridningsmodell.
+Vid **Fristående holk** beräknas erforderlig böjarmering i högra väggen från
+`F1`, och `V_Ed=max(F1,F2)` redovisas till separat kontroll i `Tvärkraft()`.
+Vid plattansluten holk utgår böjarmeringsberäkningen och `V_Ed=F2`.
+
+```python
+from an_calcs.betong import Pelarholk
+from an_print import Panel
+
+panel = Panel(Pelarholk, key="Holk1")
+panel
+```
+
+Panelen innehåller en måttskiss som uppdateras när geometrifälten ändras,
+en principiell kontaktzonsfigur och EC2:s originalfigur 10.7. Figurerna följer
+med paketet. **Uppdaterat `an-print` med stöd för dynamiska figurer behövs.**
+Indata är öppet från början; referensfigurer och beräkningsinställningar kan
+fällas ut. `D` är kontaktdjupet ut ur snittet och låses till 1000 mm för vägg.
+`B=bv+h+bh`, `H` och anslutande plattas `t_p` används endast i skissen.
+Skissen har samma skala i höjd och bredd, med schematiskt förstärkt igjutning.
+
+Ren beräkning med dimensionerande materialvärden, mm, kN och kNm:
+
+```python
+details = Pelarholk({
+    "typ": "pelare", "fristaende": True,
+    "M": 98.4, "Fv": 630, "Fh": 30,
+    "h": 300, "l": 500, "D": 400, "t_ig": 20,
+    "bh": 300, "c_nom": 35, "phi": 16,
+    "f_cd_ig": 25, "f_cd_c": 20, "f_yd": 400, "mu": 0.2,
+})
+# F1=240, F2=90, F3=600 kN; V_Ed=240 kN;
+# Fs=506.329 kN; As_req=1265.823 mm².
+```
+
+För `typ="vagg"` anges laster i kN/m och kNm/m; armeringsarea redovisas i
+mm²/m. Talvärden skalas inte när läget byts. Se
+[modell, indata och avgränsningar](docs/pelarholk.md). Beräkningsfunktionen
+är oberoende av panelen och kan redovisas direkt med `CalcBlock(details)`.
+
 ## Tvärkraft i betong
 
 `an_calcs.betong.Tvärkraft` beräknar bärförmåga enligt **SS-EN 1992-1-1:2005,
