@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 370" role="img" aria-labelledby="title desc">
+  <title id="title">Lastavstånd för vänstra holkväggen</title>
+  <desc id="desc">Detalj vid pelarfoten. F2 verkar åt vänster på holkväggen. Avståndet a_v,2 mäts från kraftens angreppspunkt till underkant bottenigjutning och består av 0,1l plus t_ig,b. Principskiss, ej skalenlig.</desc>
+  <defs>
+    <marker id="force-arrow" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="10" markerHeight="8" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L10 4L0 8Z" fill="#27677d"/>
+    </marker>
+  </defs>
+  <rect width="560" height="370" fill="white"/>
+  <g font-family="Arial,Helvetica,sans-serif" font-size="15" fill="#333b41">
+    <!-- Detail of the socket: side walls continue above the breaks. -->
+    <path d="M145 100H167l5 -5 7 10 5 -5H210V280H335V100H365l5 -5 7 10 5 -5H410V340H145Z"
+          fill="#eef1f3" stroke="#333b41" stroke-width="1.5"/>
+    <path d="M210 100H228V250H317V100H335V280H210Z"
+          fill="#fbefd6" stroke="#c47b12" stroke-width="1.3"/>
+    <path d="M228 100V45H260l5 -5 7 10 5 -5H317V250H228Z"
+          fill="white" stroke="#333b41" stroke-width="1.5"/>
+    <text x="272.5" y="238" font-size="13" text-anchor="middle">Pelarfot</text>
+    <text x="42" y="65" font-size="14">Vänster holkvägg</text>
+    <path d="M160 72L176 133" fill="none" stroke="#65727d" stroke-width="1"/>
+
+    <!-- Applied force on the left wall; no reduction in this figure. -->
+    <line x1="290" y1="200" x2="180" y2="200" stroke="#27677d" stroke-width="2.3" marker-end="url(#force-arrow)"/>
+    <text x="266" y="184" fill="#27677d" text-anchor="middle"><tspan font-style="italic">F</tspan><tspan baseline-shift="sub" font-size="11">2</tspan></text>
+
+    <!-- Overall load distance and its two components. -->
+    <g stroke="#65727d" stroke-width=".9" stroke-dasharray="3 4">
+      <path d="M82 200H175M82 280H210M317 200H465M317 250H465M335 280H465" fill="none"/>
+    </g>
+    <g stroke="#65727d" stroke-width="1.1" fill="none">
+      <path d="M90 200V280M86 204l8 -8M86 284l8 -8"/>
+      <path d="M455 200V280M451 204l8 -8M451 254l8 -8M451 284l8 -8"/>
+    </g>
+    <text x="76" y="240" text-anchor="middle" transform="rotate(-90 76 240)"><tspan font-style="italic">a</tspan><tspan baseline-shift="sub" font-size="11">v,2</tspan></text>
+    <text x="472" y="230">0,1<tspan font-style="italic">l</tspan></text>
+    <text x="472" y="270"><tspan font-style="italic">t</tspan><tspan baseline-shift="sub" font-size="11">ig,b</tspan></text>
+    <path d="M276 282V308" fill="none" stroke="#65727d" stroke-width="1"/>
+    <text x="276" y="326" font-size="13" text-anchor="middle">Holkbotten</text>
+  </g>
+</svg>

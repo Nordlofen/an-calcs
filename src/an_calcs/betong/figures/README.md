@@ -28,6 +28,10 @@ Figurer för Pelarholk
   Den tidigare detaljerade utformningen används åter i panelen, med högst
   780 px visningsbredd. Redigerbar källa: `docs/figures/rita_pelarholk_kontaktzoner.py`.
   Källan återskapar PDF och PNG (2400 × 1830) i angiven utdatakatalog.
+- pelarholk-lastavstand.svg: separat detalj av vänstra holkväggen, med F₂
+  som kraft på väggen och måttkedjan a_v,2 = 0,1l + t_ig,b. Pelarfot och
+  holkbotten (underkant bottenigjutning) markeras. Egen principskiss enligt
+  avtalad modell, ej skalenlig, högst 560 px bred i båda holktyperna.
 - pelarholk-bojarmering.png: egen principskiss av högra holkväggen, endast
   för fristående holk. Visar F1 med a1=0,9l och snittets V=F1 samt kraftparet
   Fs/Fc med z=0,9d. Måttdetaljen visar hur d bestäms från bh, t_ig, c_nom

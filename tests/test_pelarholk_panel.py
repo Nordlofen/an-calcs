@@ -116,15 +116,15 @@ class TestPelarholkPanel(unittest.TestCase):
         self.assertEqual(reopened._collect_values()["f_cd_c"], 22)
         self.assertEqual(len(reopened.to_px()), 15)
 
-    def test_fyra_figurer_med_paketerade_resurser(self):
-        self.assertEqual(len(self.p._figure_records), 4)
+    def test_fem_figurer_med_paketerade_resurser(self):
+        self.assertEqual(len(self.p._figure_records), 5)
         for record in self.p._figure_records[1:]:
             spec, markup = record["spec"], record["widget"].value
             encoded = re.search(r'data:image/(?:png|svg\+xml);base64,([^\"]+)', markup).group(1)
             self.assertEqual(base64.b64decode(encoded), files(spec["package"]).joinpath(spec["resource"]).read_bytes())
             self.assertIn(spec["source"], markup)
             self.assertIn("anp-figure-full", record["layout"]._dom_classes)
-        for title in ("Friläggning för böjarmering", "Kontaktzoner och tryckspridning", "EC2 · figur 10.7"):
+        for title in ("Friläggning för böjarmering", "Kontaktzoner och tryckspridning", "Lastavstånd för vänstra holkväggen", "EC2 · figur 10.7"):
             self.assertIsNone(self.p._sections[title].layout.display)
             self.p._sections[title].selected_index = 0
         self.assertEqual(self.p._sections["Indata"].selected_index, 0)
@@ -188,9 +188,16 @@ class TestPelarholkPanel(unittest.TestCase):
 
     def test_bottenigjutning_i_skissen_och_aldre_fall(self):
         figure = self.p._figure_records[0]["widget"]
+        previous_geometry = figure.value
         self.w["t_ig_b"].value = 60
-        self.assertIn('data-value="95"', figure.value)
-        self.assertIn('data-dimension="t_ig_b"', figure.value)
+        self.assertNotEqual(figure.value, previous_geometry)
+        self.assertNotIn('data-dimension="a_v_2"', figure.value)
+        self.assertNotIn('data-dimension="t_ig_b"', figure.value)
+        distance = self.p._figure_records[3]
+        self.assertEqual(distance["spec"]["resource"], "figures/pelarholk-lastavstand.svg")
+        for free in (False, True):
+            self.w["fristaende"].value = free
+            self.assertIsNone(distance["widget"].layout.display)
         self.assertAlmostEqual(values(self.calculate())["a_v_2"], 95)
         # Samma sidofält används vid återläsning, med nya synliga index.
         old = self.p._collect_values()

@@ -43,7 +43,8 @@ De får förekomma i dictionary men ignoreras av beräkningen. `B=b2+h+b1` visas
 som härlett totalmått. `b1` används i böjberäkningen endast vid fristående holk.
 Skissen reagerar direkt på fältändringar och återlästa fall. Samma skala används
 i x/y; enbart igjutningens synliga tjocklek förstärks. Bottenigjutningen styrs
-separat av `t_ig_b`; F₂, `a_v_2` och bottenmåttet visas i skissen.
+separat av `t_ig_b`. Lastavståndet `a_v_2` och bottenmåttet måttsätts
+i en separat principfigur för vänstra holkväggen.
 Geometrin förutsätter `H > l + t_ig_b` för betong under igjutningen. Plattans längd och
 pelarens visade höjd ovan holken är avbrutna, schematiska fortsättningar.
 Fel i rena skissmått ger ett meddelande vid skissen, inte ett beräkningsstopp.
@@ -136,6 +137,9 @@ Friläggningen använder en kompakt SVG och EC2:s originalfigur en PNG, båda
 begränsade till 560 px. Alla bilder är lagrade i `an_calcs.betong/figures`.
 Friläggningen visar högra holkväggen med F1, snittets tvärkraft och det inre
 kraftparet Fs/Fc samt måtten a1, d och z, endast vid fristående holk.
+En separat principfigur visar F₂ på vänstra holkväggen, `a_v_2`, höjden
+`0.1l` över pelarfoten och bottenigjutningen `t_ig_b`, högst 560 px bred.
+Den är tillgänglig för båda holktyperna.
 Måttskissen genereras av `_pelarholk_skiss.render`, begränsad till 460 px.
 Index i hjälptexter och bildtexter formateras som index, även på smal yta.
 Beräkningsfunktionen importerar inte renderaren och läser inga bildresurser.

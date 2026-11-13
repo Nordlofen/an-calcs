@@ -147,7 +147,8 @@ panel
 
 Panelen innehåller en måttskiss som uppdateras när geometrifälten ändras,
 en principiell kontaktzonsfigur, en friläggning för högra holkväggens
-böjarmering och EC2:s originalfigur 10.7. Friläggningen visas endast vid
+böjarmering, en separat figur för vänstra väggens lastavstånd och EC2:s
+originalfigur 10.7. Friläggningen visas endast vid
 fristående holk. Figurerna är kompakta och följer med paketet.
 **Uppdaterat `an-print` med stöd för dynamiska figurer,
 formaterade bildtexter, fältkontroller och ekvationsnoter behövs.**

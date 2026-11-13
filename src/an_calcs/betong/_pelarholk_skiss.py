@@ -44,7 +44,6 @@ def render(values):
     grout = min(max(5, tig*scale), 12, min(bv,bh)*scale*.4)
     bottom_grout = min(max(8, v["t_ig_b"]*scale), (H-l)*scale*.8)
     ybottom = yl + bottom_grout
-    yF2 = yt + .9*l*scale
     fmt = lambda x: f"{x:,.1f}".rstrip("0").rstrip(".").replace(",", " ").replace(".", ",")
     mode = "Fristående holk" if free else "Holk med anslutande platta"
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 {yb+112:.3f}" role="img" aria-label="Måttsatt tvärsnitt: {mode}" '
@@ -110,29 +109,6 @@ def render(values):
         text(tx,ty,f'l = {fmt(l)}', f'transform="rotate(-90 {tx} {ty})"')
     else:
         text(tx,ty+5,symbol("l"))
-    # F₂ verkar utåt på vänstra väggen. a_v,2 slutar vid holkbotten,
-    # medan l och den oförändrade globala kraftmodellen utgår från pelarfoten.
-    xforce = xc-grout
-    arrow_end = xforce-min(40, (xforce-x0)*.35)
-    line(xforce,yF2,arrow_end,yF2)
-    parts.append(f'<path d="M {arrow_end} {yF2} l 7 -3 v 6 Z" fill="currentColor"/>')
-    text((arrow_end+xforce)/2,yF2-10,symbol("F_2"))
-    xav = x0+(xforce-x0)*.28
-    for yy in (yF2,ybottom):
-        line(xav-5,yy,xforce,yy,True)
-        tick(xav,yy)
-    line(xav,yF2,xav,ybottom)
-    text(xav-10,(yF2+ybottom)/2,symbol("a_v,2"),
-         f'data-dimension="a_v_2" data-value="{.1*l+v["t_ig_b"]:g}" transform="rotate(-90 {xav-10} {(yF2+ybottom)/2})"')
-    # Måttkedjans korta bottenmått får en utvändig etikett med ledare.
-    xt = xl+25
-    for yy in (yl,ybottom):
-        line(xcr+3,yy,xt+6,yy,True)
-        tick(xt,yy)
-    line(xt,yl,xt,ybottom)
-    label_y = ybottom+30
-    line(xt,(yl+ybottom)/2,xt+22,label_y-6)
-    text(xt+26,label_y,symbol("t_ig,b"), 'style="text-anchor:start" data-dimension="t_ig_b"')
     if not free:
         xp = xe+21
         for yy in (yt,yp):
