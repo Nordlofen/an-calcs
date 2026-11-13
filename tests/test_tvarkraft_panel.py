@@ -324,6 +324,31 @@ class TestTvarkraftPanel(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.calculate()
 
+    def test_minimiarmering_tvaravstand_metodval_och_sparning(self):
+        self.assertIn("s_t", self.visible())
+        self.assertEqual(value(self.calculate(), "status_9_2_2_8"), "Ej kontrollerad")
+        self.w["s_t"].value = 375
+        details = self.calculate()
+        self.assertEqual(value(details, "s_t_max"), 375)
+        self.assertEqual(value(details, "status_9_2_2_8"), "Uppfyller")
+        cb = CalcBlock(details)
+        cb.EKV(visa=False, etikett=True)
+        cb.SR(visa=False, etikett=True)
+        for reference in ("(9.5N)", "(9.6N)", "(9.8N)"):
+            self.assertIn(reference, cb.html_ekv)
+        self.assertIn("minimiarmering", cb.html_sr)
+        self.w["metod"].value = "6.2.2"
+        self.assertNotIn("s_t", self.visible())
+        self.assertEqual(self.w["s_t"].value, 375)
+        self.calculate()
+        self.w["metod"].value = "6.2.3"
+        self.panel._save_last_values()
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(Tvärkraft, state_file=self.state)
+        self.assertEqual(restored._field_widgets["s_t"].value, 375)
+        self.assertEqual(value(Tvärkraft(restored.to_px()), "status_9_2_2_8"), "Uppfyller")
+
     def test_sparade_fall_bevarar_nya_val_och_laser_aldre_fall(self):
         self.w["metod"].value = "6.2.2"
         self.w["A_sl_inmatning"].value = "jarn"
@@ -337,7 +362,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(restored._field_widgets["n_l"].value, 6)
         old = json.loads(self.state.read_text())
         fields = old[self.panel._last_key]
-        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla", "cc_l"):
+        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla", "cc_l", "s_t"):
             fields.pop(name)
         fields.update(cot_theta_min=1.5, cot_theta_max=2, cot_theta=2.5)
         self.state.write_text(json.dumps(old))
@@ -348,6 +373,8 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(legacy._field_widgets["A_sl_inmatning"].value, "area")
         self.assertFalse(legacy._field_widgets["plattstrimla"].value)
         self.assertEqual(legacy._field_widgets["cc_l"].value, 200)
+        self.assertEqual(legacy._field_widgets["s_t"].value, 0)
+        self.assertEqual(value(Tvärkraft(legacy.to_px()), "status_9_2_2_8"), "Ej kontrollerad")
         self.assertGreater(value(Tvärkraft(legacy.to_px()), "V_Rd_s"), 0)
 
     def test_calcblock_redovisar_korta_vansterled_och_vald_metod(self):

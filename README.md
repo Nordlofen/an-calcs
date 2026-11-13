@@ -220,17 +220,36 @@ Förvalen är EC2:s rekommenderade värden för varaktig/tillfällig situation,
 utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` för 6.2.2
 och manuellt `z` för 6.2.3; `sigma_cp >= 0.2 f_cd` avvisas när 6.2.2 ingår.
 `n_skar=0` anger inga byglar.
-Minimiarmering, avståndsregler, förankringsdimensionering och kontroll av
-längsarmeringens totala dragkraft ingår inte i bärförmågekontrollen.
+
+När **6.2.3** ingår redovisas även följande separata kontroller enligt
+**balkreglerna i 9.2.2**, med EC2:s rekommenderade värden:
+
+- **(5), minimiarmering:** `rho_w = A_sw / (s * b_w * sin(alpha))` jämförs
+  med `rho_w_min = 0.08 * sqrt(f_ck) / f_ywk`. Minsta armeringsmängd
+  `(A_sw/s)_min` redovisas i mm²/m. Här används karakteristisk sträckgräns.
+- **(6), avstånd i längdled:** angivet `s` jämförs med
+  `s_l_max = 0.75 * d * (1 + cot(alpha))`.
+- **(8), avstånd i tvärled:** `s_t` jämförs med
+  `s_t_max = min(0.75 * d, 600)` mm. Ange största verkliga cc-avstånd mellan
+  bygelben; det härleds inte från bredd eller antal skär. Utelämnat värde,
+  `None` eller `0` ger **Ej kontrollerad**, inte ett godkänt resultat.
+
+Dessa kontroller utförs även utan angiven last och har egna statusrader;
+de ändrar inte bärförmågan eller dess utnyttjandegrad. Vid **enbart 6.2.2**
+redovisas inga armeringskontroller. Meterstrimleläget ändrar bara bredd och
+kraftenheter: detaljkontrollerna avser fortfarande balkreglerna i 9.2.2.
+Plattors särskilda detaljregler enligt 9.3.2 ingår inte. Övrig detaljutformning,
+förankringsdimensionering och kontroll av längsarmeringens totala dragkraft
+ingår inte.
 
 Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
 förval; `"jarn"` använder angivet `n_l`, medan `"cc"` beräknar antalet från
 `b_w` och `cc_l`. Båda använder `n_l * pi * phi_l**2 / 4`. I strimleläget
 används den låsta bredden 1 000 mm även för antalsberäkningen. Inaktiva indata
-ignoreras. Panelens fullformat har 28 värden i ordningen
-`Tvärkraft.panel_schema["px"]`, med `cc_l` sist. Äldre 24-, 26- och
-27-värdeslistor stöds; 27-formatet har `plattstrimla`, och 24-formatets
-tidigare cot-gränser ignoreras.
+ignoreras. Panelens fullformat har 29 värden i ordningen
+`Tvärkraft.panel_schema["px"]`, med `s_t` sist. Äldre 24-, 26-, 27- och
+28-värdeslistor stöds; 28-formatet har `cc_l`, 27-formatet har `plattstrimla`,
+och 24-formatets tidigare cot-gränser ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
 `Tvärkraft.panel_schema["px"]`.
 
