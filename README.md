@@ -127,12 +127,13 @@ heltal) och därefter `A_sl = n_l * pi * phi_l**2 / 4`. Centrumavståndet anges
 i mm. Antalet järn och arean redovisas som delresultat.
 
 Knappen **<i>b</i><sub>w</sub>-1m strimla** låser `b_w` till **1 000 mm** och visar krafter och
-bärförmågor i **kN/m-str**. Ange laster, betongarea och längsarmering för denna
+bärförmågor i **kN/m**. Ange laster, betongarea och längsarmering för denna
 meterstrimla. För tvärkraftsarmering anges `n_skar` som summan av verksamma skär
 per bygelrad över strimlans bredd, `s` som radavstånd längs strimlan och `m_eff`
 som antal verksamma rader i centrala 0,75 a_v. Talvärden för last och armering
 behålls när läget ändras; den tidigare bredden återställs när knappen stängs av.
-Knappvisningen kräver en uppdaterad `an-print` med stöd för `widget="toggle"`.
+Indexet i kryssrutans etikett visas med HTML i en uppdaterad `an-print`;
+äldre paneler använder notebookens matematikrendering.
 I dictionaryformat aktiveras läget med `plattstrimla=True`, och `b_w` kan utelämnas.
 
 ```python

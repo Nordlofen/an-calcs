@@ -36,7 +36,7 @@ _COT_HELP = (
 def _post(namn, latex, value, unit="", etikett="", decimals=3):
     item = {"namn": namn, "latex": latex, "value": value, "unit": unit,
             "etikett": etikett, "decimals": decimals}
-    if unit == "kN/m-str":
+    if unit == "kN/m":
         item["sigfigs"] = 3  # Samma precision som kraftposter i kN.
     return item
 
@@ -198,7 +198,7 @@ def Tvärkraft(px):
 
     Mått i mm, areor i mm², hållfastheter i MPa och krafter i kN.
     plattstrimla=True låser b_w=1000 mm (b_w kan utelämnas). Krafter anges
-    och redovisas då i kN/m-str. Betongarea och armering avser samma strimla.
+    och redovisas då i kN/m. Betongarea och armering avser samma strimla.
     n_skar är då skär per bygelrad över strimlans bredd, s radavstånd längs
     strimlan och m_eff antal verksamma rader. Befintliga tal skalas inte om.
     N_Ed är positiv vid tryck, V_Ed är ett belopp. n_skar=0 anger inga byglar.
@@ -225,7 +225,7 @@ def Tvärkraft(px):
 def _berakna(v):
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
     strimla = v["plattstrimla"]
-    kraftenhet = "kN/m-str" if strimla else "kN"
+    kraftenhet = "kN/m" if strimla else "kN"
     byglar = "bygelrader" if strimla else "byglar"
     bygel = "bygelrad i 1 m strimla" if strimla else "bygel"
     bw, d, fck = (v[n] for n in ("b_w", "d", "f_ck"))
@@ -467,7 +467,7 @@ def _berakna(v):
     if strimla:
         metod.append({"rubrik": "b_w-1m strimla", "text": (
             "b_w är låst till 1000 mm. Laster, betongarea och längsarmering avser denna strimla. "
-            "Krafter och bärförmågor för strimlan redovisas per meter bredd i kN/m-str. "
+            "Krafter och bärförmågor för strimlan redovisas per meter bredd i kN/m. "
             + ("n är summan av verksamma skär per bygelrad över strimlans bredd; s är radavståndet "
                "längs strimlan. A_sw/s avser tvärkraftsarmering per längdmeter i denna strimla. " if s else "")
             + "Indata tolkas för strimlan och skalas inte om från någon tidigare angiven bredd."
@@ -523,8 +523,9 @@ Tvärkraft.panel_schema = {
         _falt("metod", "Beräkningsmetod", "bada", typ="choice", options=[
             {"label": label, "value": value} for value, label in _METODER.items()
         ]),
-        _falt("plattstrimla", "b_w-1m strimla", False, typ="bool", widget="toggle",
-              label_html="<i>b</i><sub>w</sub>-1m strimla",
+        _falt("plattstrimla", r"\(b_w\)-1m strimla", False, typ="bool",
+              # Widgetens HTML-filter tillåter span, men tar bort sub-taggar.
+              label_html="<i>b</i><span style='vertical-align:sub;font-size:smaller'>w</span>-1m strimla",
               help="Aktivt läge använder 1 000 mm bredd. Laster och armering anges för denna strimla; befintliga värden behålls vid byte av läge."),
         _falt("b_w", "Minsta bredd", 300.0, "mm", "<i>b</i><sub>w</sub>",
               fixed_if={**_STRIMLA, "value": 1000.0},
@@ -548,13 +549,13 @@ Tvärkraft.panel_schema = {
               presentation_if={**_STRIMLA, "label": "Radavstånd längs strimlan"}),
         _falt("f_ywk", "Byglarnas sträckgräns", 500.0, "MPa", "<i>f</i><sub>ywk</sub>", visible_if=_S),
         _falt("N_Ed", "Normalkraft, tryck positivt", 0.0, "kN", "<i>N</i><sub>Ed</sub>",
-              presentation_if={**_STRIMLA, "unit": "kN/m-str"}),
+              presentation_if={**_STRIMLA, "unit": "kN/m"}),
         _falt("A_c", "Betongtvärsnittsarea", 180000.0, "mm²", "<i>A</i><sub>c</sub>",
               visible_if={"all": [_C, {"field": "N_Ed", "not_equals": 0}]},
               presentation_if={**_STRIMLA, "label": "Betongarea i 1 m strimla"}),
         _falt("kontrollera_last", "Kontrollera angiven tvärkraft", False, typ="bool"),
         _falt("V_Ed", "Tvärkraft före reduktion", 100.0, "kN", "<i>V</i><sub>Ed</sub>", visible_if=_LAST,
-              presentation_if={**_STRIMLA, "unit": "kN/m-str"}),
+              presentation_if={**_STRIMLA, "unit": "kN/m"}),
         _falt("reducera_tvarkraft", "Reducera tvärkraft nära upplag", False, typ="bool", visible_if=_LAST,
               fixed_if={"field": "kontrollera_last", "equals": False, "value": False}),
         _falt("a_v", "Lastavstånd enligt figur 6.4 / 6.6", 300.0, "mm", "<i>a</i><sub>v</sub>", visible_if=_REDUKTION),

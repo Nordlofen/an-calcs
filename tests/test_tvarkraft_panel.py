@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT.parent / "an-print" / "src"))
 from an_calcs.betong import Tvärkraft
 from an_print import Panel
 from an_print.calcblock import CalcBlock
-from ipywidgets import Checkbox, ToggleButton
+from ipywidgets import Checkbox
 
 
 def value(details, name):
@@ -46,8 +46,8 @@ class TestTvarkraftPanel(unittest.TestCase):
             return self.panel.calculate()
 
     def test_strimlans_knapp_laser_bredd_och_byter_enheter(self):
-        self.assertIsInstance(self.w["plattstrimla"], ToggleButton)
-        self.assertEqual(self.w["plattstrimla"].description, "<i>b</i><sub>w</sub>-1m strimla")
+        self.assertIsInstance(self.w["plattstrimla"], Checkbox)
+        self.assertEqual(self.w["plattstrimla"].description, "<i>b</i><span style='vertical-align:sub;font-size:smaller'>w</span>-1m strimla")
         self.assertTrue(self.w["plattstrimla"].description_allow_html)
         self.assertIsInstance(self.w["kontrollera_last"], Checkbox)
         self.w["b_w"].value = 350
@@ -58,7 +58,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(self.w["b_w"].value, 1000)
         self.assertTrue(self.w["b_w"].disabled)
         for name in ("N_Ed", "V_Ed"):
-            self.assertIn("kN/m-str", self.panel._field_rows[name].children[1].value)
+            self.assertIn("[kN/m]", self.panel._field_rows[name].children[1].value)
         for name in ("A_sl", "n_l", "A_c", "n_skar"):
             self.assertIn("1 m", self.panel._field_rows[name].children[0].value)
         details = self.calculate()
@@ -69,7 +69,7 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(self.w["b_w"].value, 350)
         self.assertFalse(self.w["b_w"].disabled)
         for name in ("N_Ed", "V_Ed"):
-            self.assertNotIn("m-str", self.panel._field_rows[name].children[1].value)
+            self.assertNotIn("kN/m", self.panel._field_rows[name].children[1].value)
         self.assertEqual(self.w["V_Ed"].value, 123)
         self.assertEqual(self.w["A_sl"].value, 2345)
 
@@ -102,11 +102,12 @@ class TestTvarkraftPanel(unittest.TestCase):
                 for block in ("ID", "DR", "SR"):
                     getattr(cb, block)(visa=False, etikett=True)
                     for rendered in (getattr(cb, "latex_" + block.lower()), getattr(cb, "html_" + block.lower())):
-                        self.assertIn("kN/m-str", rendered)
+                        self.assertIn("kN/m", rendered)
+                        self.assertNotIn("m-str", rendered)
                         self.assertNotIn(r"\mathrm{kN}", rendered)
                         self.assertNotIn("[kN]", rendered)
                 if method != "6.2.3":
-                    self.assertIn("kN/m-str", cb.html_ekv)
+                    self.assertIn("kN/m", cb.html_ekv)
 
     def test_metodval_styr_synliga_falt_och_berakning(self):
         self.assertEqual(self.w["metod"].value, "bada")

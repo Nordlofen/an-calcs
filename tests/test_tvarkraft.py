@@ -42,7 +42,7 @@ class TestTvarkraft(unittest.TestCase):
                                     continue
                                 ref = expected[item["namn"]]
                                 self.assertEqual(item["value"], ref["value"], item["namn"])
-                                self.assertEqual(item["unit"], "kN/m-str" if ref["unit"] == "kN" else ref["unit"])
+                                self.assertEqual(item["unit"], "kN/m" if ref["unit"] == "kN" else ref["unit"])
                                 if ref["unit"] == "kN":
                                     self.assertEqual(item["sigfigs"], 3)
                         self.assertEqual(_v(strip, "b_w"), 1000)
