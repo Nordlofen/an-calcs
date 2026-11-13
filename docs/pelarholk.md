@@ -141,7 +141,8 @@ En separat principfigur visar F₂ på vänstra holkväggen, `a_v_2`, höjden
 `0.1l` över pelarfoten och bottenigjutningen `t_ig_b`, högst 560 px bred.
 Den är tillgänglig för båda holktyperna. Friläggningen och lastavståndsfiguren
 ligger under samma ihopfällbara flik **Holkväggar – böjarmering och lastavstånd**,
-med underrubriker utan egna öppningsreglage. Vid plattansluten holk visas
+med underrubriker utan egna öppningsreglage. Figurerna visas sida vid sida
+på bred yta och i en kolumn på smal yta. Vid plattansluten holk visas
 endast lastavståndsfiguren i fliken.
 Måttskissen genereras av `_pelarholk_skiss.render`, begränsad till 460 px.
 Index i hjälptexter och bildtexter formateras som index, även på smal yta.

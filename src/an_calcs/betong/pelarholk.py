@@ -281,7 +281,7 @@ Pelarholk.panel_schema = {
                         "alt": "Dynamisk måttskiss av pelarholken."}},
             {"title": "Lasteffekter vid holkens överkant", "fields": ["M", "Fv", "Fh"], "columns": 3},
             {"title": "Böjarmering i högra holkväggen", "fields": ["c_nom", "phi", "f_yd"], "columns": 3},
-            {"title": "Holkväggar – böjarmering och lastavstånd", "collapsible": True, "collapsed": True, "columns": 1, "sections": [
+            {"title": "Holkväggar – böjarmering och lastavstånd", "collapsible": True, "collapsed": True, "columns": 2, "sections": [
                 {"title": "Friläggning för böjarmering",
                  "figure": {"package": "an_calcs.betong", "resource": "figures/pelarholk-bojarmering-kompakt.svg", "full_width": True, "max_width": 560,
                             "visible_if": _FREE,
