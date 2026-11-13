@@ -19,6 +19,12 @@ _STANDARD = {
     "cc_l": None,
     "s_t": None,
     "kontrollera_minimiarmering": False,
+    "kontrollera_min_langsarmering": False,
+    "b_t_auto": True,
+    "b_t_manuell": None,
+    "f_yk": 500.0,
+    "f_ctm_auto": True,
+    "f_ctm_manuell": None,
 }
 _PX_NAMN = _GRUNDINDATA + tuple(_STANDARD)
 # Tidigare fullformat läses fortfarande; dess två gränsvärden används inte.
@@ -78,15 +84,18 @@ def _tolka_px(px):
         if set(px) - set(_PX_NAMN):
             raise ValueError(f"Okända indata: {sorted(set(px) - set(_PX_NAMN), key=str)}.")
         given = dict(px)
-    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), 26, 27, 28, 29, len(_PX_NAMN)):
+    elif isinstance(px, (list, tuple)) and len(px) in (8, len(_LEGACY_PX_NAMN), 26, 27, 28, 29, 30, len(_PX_NAMN)):
         names = _LEGACY_PX_NAMN if len(px) == len(_LEGACY_PX_NAMN) else _PX_NAMN
         given = {name: value for name, value in zip(names, px) if name in _PX_NAMN}
     else:
-        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24, 26, 27, 28, 29 eller 30 värden.")
+        raise ValueError("px för Tvärkraft måste vara en dictionary eller lista/tuple med 8, 24, 26, 27, 28, 29, 30 eller 36 värden.")
     v = {**dict.fromkeys(_GRUNDINDATA), **_STANDARD, **given}
     if not isinstance(v["metod"], str) or v["metod"] not in _METODER:
         raise ValueError("metod måste vara 'bada', '6.2.2' eller '6.2.3'.")
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
+    if c and not isinstance(v["kontrollera_min_langsarmering"], bool):
+        raise ValueError("kontrollera_min_langsarmering måste vara True eller False.")
+    v["kontrollera_min_langsarmering"] = c and v["kontrollera_min_langsarmering"]
     if s and not isinstance(v["kontrollera_minimiarmering"], bool):
         raise ValueError("kontrollera_minimiarmering måste vara True eller False.")
     v["kontrollera_minimiarmering"] = s and v["kontrollera_minimiarmering"]
@@ -131,6 +140,17 @@ def _tolka_px(px):
         v["A_sl"] = _tal("A_sl", v["A_sl"], minimum=0)
     else:
         for name in ("A_sl_inmatning", "A_sl", "n_l", "phi_l", "cc_l"):
+            v[name] = None
+    if v["kontrollera_min_langsarmering"]:
+        v["f_yk"] = _positivt("f_yk", v["f_yk"])
+        if not isinstance(v["b_t_auto"], bool):
+            raise ValueError("b_t_auto måste vara True eller False.")
+        v["b_t_manuell"] = None if v["b_t_auto"] else _positivt("b_t_manuell", v["b_t_manuell"])
+        if not isinstance(v["f_ctm_auto"], bool):
+            raise ValueError("f_ctm_auto måste vara True eller False.")
+        v["f_ctm_manuell"] = None if v["f_ctm_auto"] else _positivt("f_ctm_manuell", v["f_ctm_manuell"])
+    else:
+        for name in ("f_yk", "b_t_auto", "b_t_manuell", "f_ctm_auto", "f_ctm_manuell"):
             v[name] = None
     if s:
         for name in ("s", "f_ywk"):
@@ -191,17 +211,27 @@ def Tvärkraft(px):
 
         [b_w, d, f_ck, A_sl, phi_w, n_skar, s, f_ywk]
 
-    Panel använder 30 värden; ordningen ges av Tvärkraft.panel_schema["px"].
+    Panel använder 36 värden; ordningen ges av Tvärkraft.panel_schema["px"].
     Äldre fullformat med 24 och 26 värden stöds utan plattstrimla;
     27-formatet har plattstrimla men inget cc_l. 24-formatets cot-gränser ignoreras.
     28-formatet har cc_l men inget s_t.
     29-formatet har s_t men inget val för minimiarmering; förvalet är Av.
+    30-formatet har valet för minsta tvärkraftsarmering men inget val för
+    minsta längsarmering. Den nya längsarmeringskontrollen är av som förval.
     Gränserna 1 <= cot_theta <= 2.5 är fasta och kan inte ändras via indata.
 
     Dictionary rekommenderas vid metodval. Gemensamt krävs b_w, d, f_ck.
     6.2.2 kräver A_sl eller A_sl_inmatning='jarn', n_l och phi_l, varvid
     A_sl=n_l*pi*phi_l**2/4. Alternativt ger A_sl_inmatning='cc', cc_l och
     phi_l antalet n_l=floor(b_w/cc_l+1) och samma areauttryck. cc_l anges i mm.
+    kontrollera_min_langsarmering=True jämför A_sl med A_s_min enligt
+    9.2.1.1(1), uttryck (9.1N), när 6.2.2 ingår. f_ctm_auto=True använder
+    analytiska samband i tabell 3.1; False kräver f_ctm_manuell i MPa.
+    Längsarmeringens f_yk anges separat
+    (förval 500 MPa); b_t_auto=True använder b_t=b_w. Vid b_t_auto=False
+    krävs b_t_manuell, medelbredden av den dragna delen i mm.
+    Detta är en separat minimikontroll, inte sprickkontroll enligt 7.3.2
+    eller en fullständig böjkontroll. Förvalet för kontrollen är False.
     6.2.3 kräver phi_w, n_skar, s och f_ywk.
     kontrollera_minimiarmering=True aktiverar balkreglerna i 9.2.2(5), (6)
     och (8) när 6.2.3 ingår. Förvalet är False; inaktiva kontroller och s_t
@@ -231,8 +261,8 @@ def Tvärkraft(px):
     Vid reduktion förutsätts hela V_Ed komma från reducerbar last på översidan
     och längsarmeringen vara fullt förankrad. 6.2.3(8) använder (6.19) samt
     oreducerad last mot (6.9), även vid lutande byglar enligt hänvisningen där.
-    a_v>2d ger ordinarie modell. Kontrollerna enligt 9.2.2 redovisas separat
-    från bärförmågan. Övrig detaljutformning, förankringsdimensionering,
+    a_v>2d ger ordinarie modell. Minimikontrollerna enligt 9.2.1.1(1) och
+    9.2.2 redovisas separat från bärförmågan. Övrig detaljutformning, förankringsdimensionering,
     böjning och total dragkraft i längsarmeringen ingår inte.
     """
     try:
@@ -244,6 +274,7 @@ def Tvärkraft(px):
 def _berakna(v):
     c, s = v["metod"] != "6.2.3", v["metod"] != "6.2.2"
     detaljer = v["kontrollera_minimiarmering"]
+    min_langs = v["kontrollera_min_langsarmering"]
     strimla = v["plattstrimla"]
     kraftenhet = "kN/m" if strimla else "kN"
     byglar = "bygelrader" if strimla else "byglar"
@@ -268,6 +299,11 @@ def _berakna(v):
         Vlim_6_5 = 0.5 * bw * d * nu * fcd / 1000
         # Intern ekvivalent lastgräns för slutkontrollen; redovisas inte som kapacitet.
         Vc_last = min(VRdc / beta, Vlim_6_5) if kort_skjuvspann else VRdc
+    if min_langs:
+        bt = bw if v["b_t_auto"] else v["b_t_manuell"]
+        fctm = ((0.3 * fck**(2 / 3) if fck <= 50 else 2.12 * math.log(1 + (fck + 8) / 10))
+                if v["f_ctm_auto"] else v["f_ctm_manuell"])
+        As_min = max(0.26 * fctm / v["f_yk"] * bt * d, 0.0013 * bt * d)
     if s:
         fywd = v["f_ywk"] / v["gamma_s"]
         z = 0.9 * d if v["z_auto"] else v["z_manuell"]
@@ -297,7 +333,10 @@ def _berakna(v):
         "phi_l": (r"\phi_l", "mm", "längsarmeringens stångdiameter"),
         "b_w": (r"b_w", "mm", "minsta bredd enligt vald metod"),
         "d": ("d", "mm", "effektiv höjd"),
+        "b_t_manuell": (r"b_{t,man}", "mm", "manuellt angiven medelbredd av den dragna delen"),
         "f_ck": (r"f_{ck}", "MPa", "karakteristisk cylindertryckhållfasthet"),
+        "f_yk": (r"f_{yk}", "MPa", "karakteristisk sträckgräns för längsarmeringen"),
+        "f_ctm_manuell": (r"f_{ctm,man}", "MPa", "manuellt angiven medeldraghållfasthet"),
         "A_sl": (r"A_{sl}", "mm^2", "längsdragarmering som uppfyller figur 6.3"),
         "phi_w": (r"\phi_w", "mm", "bygeldiameter"),
         "n_skar": (r"n", "", f"antal verksamma skär per {bygel}"),
@@ -333,6 +372,10 @@ def _berakna(v):
             indata.append(_post(name, latex, v[name], unit, label))
     if c:
         indata.append(_post("A_sl_inmatning", "", _LANGSARMERING[v["A_sl_inmatning"]], "", "inmatning av längsarmering"))
+        indata.append(_post("kontrollera_min_langsarmering", "", "På" if min_langs else "Av", "", "minsta längsarmering enligt 9.2.1.1(1)"))
+    if min_langs:
+        indata.append(_post("b_t_auto", "", "b_t = b_w" if v["b_t_auto"] else "Manuell", "", "val av dragen medelbredd"))
+        indata.append(_post("f_ctm_auto", "", "Tabell 3.1" if v["f_ctm_auto"] else "Manuell", "", "val av medeldraghållfasthet"))
     if s:
         indata.append(_post("z_auto", "", "0,9 d" if v["z_auto"] else "Manuell", "", "val av inre hävarm"))
         indata.append(_post("kontrollera_minimiarmering", "", "På" if detaljer else "Av", "", "minimiarmering och bygelavstånd enligt 9.2.2"))
@@ -362,6 +405,15 @@ def _berakna(v):
         resultat.append(_post("V_Rd_c", r"V_{Rd,c}", VRdc, kraftenhet, "6.2.2, utan beräknad tvärkraftsarmering"))
         if kort_skjuvspann:
             resultat.append(_post("V_lim_6_5", r"V_{lim,6.5}", Vlim_6_5, kraftenhet, "gräns för oreducerad last enligt (6.5)"))
+    if min_langs:
+        mellan.extend([
+            _post("b_t", r"b_t", bt, "mm", "använd medelbredd av den dragna delen enligt 9.2.1.1(1)"),
+            _post("f_ctm", r"f_{ctm}", fctm, "MPa", "medeldraghållfasthet, analytiskt samband enligt tabell 3.1" if v["f_ctm_auto"] else "använd manuellt angiven medeldraghållfasthet"),
+        ])
+        resultat.extend([
+            _post("A_s_min", r"A_{s,min}", As_min, "mm^2", "minsta längsdragarmering enligt (9.1N)" + (" i 1 m strimla" if strimla else "")),
+            _post("status_9_2_1_1", "", "Uppfyller" if v["A_sl"] >= As_min else "Uppfyller inte", "", "angiven eller beräknad A_sl mot minsta längsarmering enligt 9.2.1.1(1)"),
+        ])
     if s:
         mellan.extend([
             _post("f_ywd", r"f_{ywd}", fywd, "MPa", "dimensionerande sträckgräns"),
@@ -434,6 +486,15 @@ def _berakna(v):
             _ekvation(r"V_{Rd,c,a}=[C_{Rd,c}k(100\rho_l f_{ck})^{1/3}+k_1\sigma_{cp}]b_wd/1000", f"(6.2a), resultat i {kraftenhet}"),
             _ekvation(r"V_{Rd,c,b}=(v_{min}+k_1\sigma_{cp})b_wd/1000", f"(6.2b), resultat i {kraftenhet}"),
             _ekvation(r"V_{Rd,c}=\max(0,V_{Rd,c,a},V_{Rd,c,b})", "negativ beräknad bärförmåga ger noll tillgänglig kapacitet"),
+        ])
+    if min_langs:
+        ekvationer.extend([
+            _ekvation(r"b_t=b_w" if v["b_t_auto"] else r"b_t=b_{t,man}", "vald medelbredd av den dragna delen"),
+            _ekvation((r"f_{ctm}=0{,}30f_{ck}^{2/3}" if fck <= 50 else r"f_{ctm}=2{,}12\mathrm{ln}(1+(f_{ck}+8)/10)")
+                      if v["f_ctm_auto"] else r"f_{ctm}=f_{ctm,man}",
+                      "tabell 3.1, analytiskt samband, hållfastheter i MPa" if v["f_ctm_auto"] else "manuellt angiven medeldraghållfasthet i MPa"),
+            _ekvation(r"A_{s,min}=\mathrm{max}(0{,}26\frac{f_{ctm}}{f_{yk}}b_t d,0{,}0013b_t d)",
+                      "(9.1N), rekommenderat minimivärde; krav: A_sl >= A_s,min"),
         ])
     if s or kort_skjuvspann:
         ekvationer.append(_ekvation(
@@ -508,7 +569,7 @@ def _berakna(v):
                "För (8) krävs ett angivet s_t; 0 eller utelämnat värde ger Ej kontrollerad. "
                "Dessa balkregler gäller även vid vald meterbredd; plattregler enligt 9.3.2 ingår inte. " if detaljer else
                "Kontrollen av minimiarmering och bygelavstånd enligt 9.2.2 är avstängd. " if s else
-               "Minimiarmering och bygelavstånd kan kontrolleras när 6.2.3 ingår i metodvalet. ")
+               "Minsta tvärkraftsarmering och bygelavstånd enligt 9.2.2 kan kontrolleras när 6.2.3 ingår i metodvalet. ")
             + "Övrig detaljutformning, förankringsdimensionering, böjning och total dragkraft i längsarmeringen ingår inte. "
             "Uppfyller avser enbart respektive redovisad kontroll."
         )},
@@ -519,6 +580,19 @@ def _berakna(v):
         )},
         {"rubrik": "Enheter", "text": f"Mått i mm, areor i mm², hållfastheter i MPa och krafter i {kraftenhet}. Hållfasthetsuttrycken omvandlas från N till kN genom division med 1000."},
     ]
+    if c:
+        metod.append({"rubrik": "Minsta längsarmering", "text": (
+            "A_sl jämförs med A_s,min enligt 9.2.1.1(1), uttryck (9.1N), med EC2:s rekommenderade minimiregel. "
+            + ("f_ctm beräknas utan mellanavrundning med de analytiska sambanden i tabell 3.1. " if v["f_ctm_auto"] else
+               "f_ctm är manuellt angiven medeldraghållfasthet. ")
+            + "f_yk avser längsarmeringen och är oberoende av byglarnas f_ywk. "
+            + ("b_t sätts till b_w enligt valt automatiskt läge. " if v["b_t_auto"] else
+               "b_t är den manuellt angivna medelbredden av den dragna delen. ")
+            + "Kontrollen gäller angiven eller beräknad A_sl före begränsningen av rho_l i 6.2.2. "
+            "Den redovisas separat från tvärkraftsbärförmågan. Sprickarmering enligt 7.3.2 och "
+            "alternativet 1,2 gånger erforderlig brottgränsarmering ingår inte."
+            if min_langs else "Kontrollen av minsta längsarmering enligt 9.2.1.1(1) är avstängd."
+        )})
     if strimla:
         metod.append({"rubrik": "b_w-1m strimla", "text": (
             "b_w är låst till 1000 mm. Laster, betongarea och längsarmering avser denna strimla. "
@@ -558,6 +632,9 @@ _LAST = {"field": "kontrollera_last", "equals": True}
 _C = {"field": "metod", "in": ["bada", "6.2.2"]}
 _S = {"field": "metod", "in": ["bada", "6.2.3"]}
 _MINIMI = {"all": [_S, {"field": "kontrollera_minimiarmering", "equals": True}]}
+_MIN_LANGS = {"all": [_C, {"field": "kontrollera_min_langsarmering", "equals": True}]}
+_BT_MAN = {"all": [_MIN_LANGS, {"field": "b_t_auto", "equals": False}]}
+_FCTM_MAN = {"all": [_MIN_LANGS, {"field": "f_ctm_auto", "equals": False}]}
 _REDUKTION = {"all": [_LAST, {"field": "reducera_tvarkraft", "equals": True}]}
 _JARN = {"all": [_C, {"field": "A_sl_inmatning", "equals": "jarn"}]}
 _CC = {"all": [_C, {"field": "A_sl_inmatning", "equals": "cc"}]}
@@ -577,7 +654,7 @@ Tvärkraft.panel_schema = {
     "sections": [
         {"title": "Indata", "collapsible": True, "collapsed": False, "columns": 1, "sections": [
             {"fields": ["metod", "plattstrimla"], "columns": 1},
-            {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "cc_l", "phi_l"], "columns": 2,
+            {"title": "Tvärsnitt och längsarmering", "fields": ["b_w", "d", "N_Ed", "A_c", "A_sl_inmatning", "A_sl", "n_l", "cc_l", "phi_l", "kontrollera_min_langsarmering", "b_t_auto", "b_t_manuell", "f_yk", "f_ctm_auto", "f_ctm_manuell"], "columns": 2,
              "figure": _figur("6-3", "Figur 6.3 · Definition av medräkningsbar längsdragarmering",
                               "Förankring av längsdragarmeringen bortom betraktat snitt enligt figur 6.3.", 83, _C)},
             {"title": "Material", "fields": ["f_ck", "f_ywk"], "columns": 2},
@@ -617,6 +694,13 @@ Tvärkraft.panel_schema = {
               presentation_if={**_STRIMLA, "label": "Antal längsarmeringsjärn i 1 m strimla"}),
         _falt("cc_l", "Längsarmeringens centrumavstånd", 200.0, "mm", "cc", visible_if=_CC),
         _falt("phi_l", "Längsarmeringens diameter", 25.0, "mm", "φ<sub>l</sub>", visible_if=_DIAMETER),
+        _falt("kontrollera_min_langsarmering", "Kontrollera minsta längsarmering enligt 9.2.1.1(1)", False, typ="bool", visible_if=_C, span=2),
+        _falt("b_t_auto", "Använd samma bredd för dragen zon och tvärkraft", True, typ="bool", visible_if=_MIN_LANGS, span=2,
+              help="Använder b_t = b_w. Avmarkera om medelbredden av den dragna delen avviker från tvärkraftsbredden. För T-balk med tryckt fläns beaktas endast balklivets bredd enligt 9.2.1.1(1)."),
+        _falt("b_t_manuell", "Medelbredd av dragen del", 300.0, "mm", "<i>b</i><sub>t</sub>", visible_if=_BT_MAN),
+        _falt("f_yk", "Längsarmeringens karakteristiska sträckgräns", 500.0, "MPa", "<i>f</i><sub>yk</sub>", visible_if=_MIN_LANGS),
+        _falt("f_ctm_auto", "Beräkna medeldraghållfasthet enligt tabell 3.1", True, typ="bool", visible_if=_MIN_LANGS, span=2),
+        _falt("f_ctm_manuell", "Medeldraghållfasthet", 2.9, "MPa", "<i>f</i><sub>ctm</sub>", visible_if=_FCTM_MAN),
         _falt("phi_w", "Bygeldiameter", 8.0, "mm", "φ<sub>w</sub>", visible_if=_S),
         _falt("n_skar", "Verksamma skär per bygel (0 = inga)", 2, "", "<i>n</i>", typ="int", visible_if=_S,
               presentation_if={**_STRIMLA, "label": "Skär per bygelrad över 1 m bredd (0 = inga)"}),

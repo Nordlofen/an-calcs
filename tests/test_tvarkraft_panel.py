@@ -324,6 +324,62 @@ class TestTvarkraftPanel(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.calculate()
 
+    def test_min_langsarmering_valbar_manuella_falt_och_sparade_fall(self):
+        self.assertFalse(self.w["kontrollera_min_langsarmering"].value)
+        self.assertIn("kontrollera_min_langsarmering", self.visible())
+        self.assertFalse({"f_yk", "b_t_auto", "b_t_manuell", "f_ctm_auto", "f_ctm_manuell"} & self.visible())
+        self.w["kontrollera_min_langsarmering"].value = True
+        self.assertTrue({"b_t_auto", "f_yk", "f_ctm_auto"} <= self.visible())
+        self.assertFalse({"b_t_manuell", "f_ctm_manuell"} & self.visible())
+        self.w["b_t_auto"].value = False
+        self.w["b_t_manuell"].value = 450
+        self.w["f_ctm_auto"].value = False
+        self.w["f_ctm_manuell"].value = 3.2
+        self.assertTrue({"b_t_manuell", "f_ctm_manuell"} <= self.visible())
+        self.assertAlmostEqual(value(self.calculate(), "A_s_min"), 374.4)
+        self.w["metod"].value = "6.2.3"
+        self.assertFalse({"kontrollera_min_langsarmering", "f_yk", "b_t_auto", "b_t_manuell", "f_ctm_auto", "f_ctm_manuell"} & self.visible())
+        self.calculate()
+        self.w["metod"].value = "6.2.2"
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                self.w["kontrollera_min_langsarmering"].value = enabled
+                self.assertEqual("f_ctm_manuell" in self.visible(), enabled)
+                self.panel._save_last_values()
+                Panel._LAST_VALUES.clear()
+                Panel._LAST_BY_FUNCTION.clear()
+                restored = Panel(Tvärkraft, state_file=self.state)
+                self.assertEqual(restored._field_widgets["kontrollera_min_langsarmering"].value, enabled)
+                self.assertFalse(restored._field_widgets["f_ctm_auto"].value)
+                self.assertFalse(restored._field_widgets["b_t_auto"].value)
+                self.assertEqual(restored._field_widgets["b_t_manuell"].value, 450)
+                self.assertEqual(restored._field_widgets["f_ctm_manuell"].value, 3.2)
+                details = Tvärkraft(restored.to_px())
+                if enabled:
+                    self.assertAlmostEqual(value(details, "A_s_min"), 374.4)
+                else:
+                    names = {item["namn"] for section in ("indata", "delresultat", "slutresultat") for item in details[section]["items"]}
+                    self.assertFalse({"b_t", "f_ctm", "f_yk", "A_s_min", "status_9_2_1_1"} & names)
+
+    def test_min_langsarmering_redovisas_bara_for_aktiverad_metod(self):
+        self.w["kontrollera_min_langsarmering"].value = True
+        self.w["A_sl_inmatning"].value = "jarn"
+        self.w["f_ck"].value = 60
+        for method in ("bada", "6.2.2", "6.2.3"):
+            with self.subTest(method=method):
+                self.w["metod"].value = method
+                cb = CalcBlock(self.calculate())
+                for block in ("ID", "DR", "EKV", "SR"):
+                    getattr(cb, block)(visa=False, etikett=True)
+                self.assertEqual("(9.1N)" in cb.html_ekv, method != "6.2.3")
+                self.assertEqual("minsta längsarmering enligt 9.2.1.1(1)" in cb.html_sr, method != "6.2.3")
+                self.assertEqual(r"f_{ctm}" in cb.latex_dr, method != "6.2.3")
+                self.assertEqual(r"f_{yk}" in cb.latex_id, method != "6.2.3")
+                self.assertEqual("ln(1+" in cb.html_ekv, method != "6.2.3")
+                for left in re.findall(r'<div class="anp-eq-block__lhs">(.*?)</div>', cb.html_ekv):
+                    self.assertNotIn(r"\leq", left)
+                    self.assertNotIn(r"\geq", left)
+
     def test_minimiarmering_tvaravstand_metodval_och_sparning(self):
         self.w["kontrollera_minimiarmering"].value = True
         self.assertIn("s_t", self.visible())
@@ -395,7 +451,8 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(restored._field_widgets["n_l"].value, 6)
         old = json.loads(self.state.read_text())
         fields = old[self.panel._last_key]
-        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla", "cc_l", "s_t", "kontrollera_minimiarmering"):
+        for name in ("metod", "A_sl_inmatning", "n_l", "phi_l", "plattstrimla", "cc_l", "s_t", "kontrollera_minimiarmering",
+                     "kontrollera_min_langsarmering", "b_t_auto", "b_t_manuell", "f_yk", "f_ctm_auto", "f_ctm_manuell"):
             fields.pop(name)
         fields.update(cot_theta_min=1.5, cot_theta_max=2, cot_theta=2.5)
         self.state.write_text(json.dumps(old))
@@ -408,6 +465,9 @@ class TestTvarkraftPanel(unittest.TestCase):
         self.assertEqual(legacy._field_widgets["cc_l"].value, 200)
         self.assertEqual(legacy._field_widgets["s_t"].value, 0)
         self.assertFalse(legacy._field_widgets["kontrollera_minimiarmering"].value)
+        self.assertFalse(legacy._field_widgets["kontrollera_min_langsarmering"].value)
+        self.assertTrue(legacy._field_widgets["f_ctm_auto"].value)
+        self.assertTrue(legacy._field_widgets["b_t_auto"].value)
         self.assertEqual(value(Tvärkraft(legacy.to_px()), "kontrollera_minimiarmering"), "Av")
         self.assertGreater(value(Tvärkraft(legacy.to_px()), "V_Rd_s"), 0)
 

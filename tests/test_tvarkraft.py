@@ -64,16 +64,120 @@ class TestTvarkraft(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "plattstrimla"):
                 Tvärkraft(_indata(plattstrimla=flag))
 
-    def test_strimla_fullformat_och_tidigare_26_27_28_och_29_format(self):
+    def test_strimla_fullformat_och_aldre_format(self):
         schema = Tvärkraft.panel_schema
         values = {f["name"]: f["default"] for f in schema["fields"]}
         full = [values[n] for n in schema["px"]]
-        self.assertEqual(len(full), 30)
-        for size in (26, 27, 28, 29):
+        self.assertEqual(len(full), 36)
+        for size in (26, 27, 28, 29, 30):
             self.assertEqual(Tvärkraft(full[:size]), Tvärkraft(values))
         full[schema["px"].index("plattstrimla")] = True
         self.assertEqual(Tvärkraft(full), Tvärkraft(values | {"plattstrimla": True}))
         self.assertEqual(Tvärkraft(full[:27]), Tvärkraft(full))
+        full[schema["px"].index("kontrollera_minimiarmering")] = True
+        legacy = Tvärkraft(full[:30])
+        self.assertEqual(_v(legacy, "kontrollera_minimiarmering"), "På")
+        self.assertEqual(_v(legacy, "kontrollera_min_langsarmering"), "Av")
+        self.assertGreater(_v(legacy, "rho_w_min"), 0)
+
+    def test_min_langsarmering_handraknat_och_lagsta_golv(self):
+        data = _indata(metod="6.2.2", kontrollera_min_langsarmering=True)
+        details = Tvärkraft(data)
+        # C27 ger fctm=2,7 MPa. 0,26*2,7/500*300*200=84,24 > 78 mm².
+        self.assertAlmostEqual(_v(details, "f_ctm"), 2.7)
+        self.assertEqual(_v(details, "b_t"), 300)
+        self.assertAlmostEqual(_v(details, "A_s_min"), 84.24)
+        self.assertEqual(_v(details, "status_9_2_1_1"), "Uppfyller")
+        floor = Tvärkraft(data | {"f_ck": 12})
+        self.assertAlmostEqual(_v(floor, "A_s_min"), 78)
+        for area, status in ((78, "Uppfyller"), (77.999, "Uppfyller inte")):
+            with self.subTest(area=area):
+                at_limit = Tvärkraft(data | {"f_ctm_auto": False, "f_ctm_manuell": 2.5, "A_sl": area, "V_Ed": 0})
+                self.assertEqual(_v(at_limit, "status_9_2_1_1"), status)
+                self.assertEqual(_v(at_limit, "status_6_2_2"), "Uppfyller")
+
+    def test_min_langsarmering_fctm_foljer_tabell_3_1_for_hela_intervallet(self):
+        # Oberoende, avrundade tabellvärden för samtliga hållfasthetsklasser.
+        for strength, tension in ((12, 1.6), (16, 1.9), (20, 2.2), (25, 2.6), (30, 2.9),
+                                  (35, 3.2), (40, 3.5), (45, 3.8), (50, 4.1), (55, 4.2),
+                                  (60, 4.4), (70, 4.6), (80, 4.8), (90, 5.0)):
+            with self.subTest(strength=strength):
+                details = Tvärkraft(_indata(f_ck=strength, kontrollera_min_langsarmering=True))
+                self.assertEqual(round(_v(details, "f_ctm"), 1), tension)
+                formulas = " ".join(item["latex"] for item in details["ekvationer"]["items"])
+                self.assertEqual(r"\mathrm{ln}" in formulas, strength > 50)
+        exact = Tvärkraft(_indata(f_ck=30, kontrollera_min_langsarmering=True))
+        self.assertAlmostEqual(_v(exact, "f_ctm"), 2.896468153816889)
+        self.assertAlmostEqual(_v(exact, "A_s_min"), 90.36980639908694)
+
+    def test_min_langsarmering_manuella_material_och_breddval(self):
+        data = _indata(kontrollera_min_langsarmering=True, b_t_auto=False, b_t_manuell=400,
+                       f_ctm_auto=False, f_ctm_manuell=3.0)
+        details = Tvärkraft(data)
+        self.assertEqual(_v(details, "b_t"), 400)
+        self.assertEqual(_v(details, "f_ctm"), 3.0)
+        self.assertAlmostEqual(_v(details, "A_s_min"), 124.8)
+        other_bars = Tvärkraft(data | {"f_ywk": 400, "gamma_s": 1.5})
+        self.assertEqual(_v(other_bars, "A_s_min"), _v(details, "A_s_min"))
+        higher_grade = Tvärkraft(data | {"f_yk": 600})
+        self.assertAlmostEqual(_v(higher_grade, "A_s_min"), 104)
+        formulas = " ".join(item["latex"] for item in details["ekvationer"]["items"])
+        self.assertIn(r"f_{ctm}=f_{ctm,man}", formulas)
+        self.assertNotIn(r"f_{ctm}=0{,}30", formulas)
+
+    def test_min_langsarmering_anvander_verklig_area_for_alla_inmatningssatt(self):
+        data = _indata(kontrollera_min_langsarmering=True)
+        for extra, area in (({}, 600), ({"A_sl_inmatning": "jarn", "n_l": 4, "phi_l": 10}, 100 * math.pi),
+                            ({"A_sl_inmatning": "cc", "cc_l": 200, "phi_l": 10}, 50 * math.pi)):
+            with self.subTest(extra=extra):
+                details = Tvärkraft(data | extra)
+                self.assertAlmostEqual(_v(details, "A_sl"), area)
+                self.assertAlmostEqual(_v(details, "A_s_min"), 84.24)
+                self.assertEqual(_v(details, "status_9_2_1_1"), "Uppfyller")
+        statuses = []
+        for area in (1500, 1800):
+            details = Tvärkraft(data | {"A_sl": area, "b_t_auto": False, "b_t_manuell": 6000})
+            self.assertEqual(_v(details, "rho_l"), 0.02)
+            statuses.append(_v(details, "status_9_2_1_1"))
+        self.assertEqual(statuses, ["Uppfyller inte", "Uppfyller"])
+
+    def test_min_langsarmering_validerar_bara_aktiva_falt(self):
+        invalid = {"f_yk": 0, "b_t_auto": "fel", "b_t_manuell": float("nan"),
+                   "f_ctm_auto": "fel", "f_ctm_manuell": float("inf")}
+        disabled = Tvärkraft(_indata() | invalid)
+        for name in ("f_yk", "b_t", "f_ctm", "A_s_min", "status_9_2_1_1"):
+            with self.assertRaises(KeyError):
+                _v(disabled, name)
+        for extra in ({"f_yk": 0}, {"f_yk": True}, {"b_t_auto": "fel"},
+                      {"b_t_auto": False}, {"b_t_auto": False, "b_t_manuell": 0},
+                      {"f_ctm_auto": "fel"}, {"f_ctm_auto": False},
+                      {"f_ctm_auto": False, "f_ctm_manuell": -1},
+                      {"f_ctm_auto": False, "f_ctm_manuell": float("nan")}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                Tvärkraft(_indata(kontrollera_min_langsarmering=True) | extra)
+        auto = Tvärkraft(_indata(kontrollera_min_langsarmering=True, b_t_manuell=-1, f_ctm_manuell=float("nan")))
+        self.assertEqual(_v(auto, "b_t"), 300)
+        for flag in (None, 0, 1, "True"):
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "kontrollera_min_langsarmering"):
+                Tvärkraft(_indata(kontrollera_min_langsarmering=flag))
+            self.assertEqual(Tvärkraft(_indata(metod="6.2.3", kontrollera_min_langsarmering=flag) | invalid),
+                             Tvärkraft(_indata(metod="6.2.3")))
+
+    def test_min_langsarmering_oberoende_val_meterbredd_och_bevarad_barformaga(self):
+        baseline = Tvärkraft(_indata(V_Ed=50))
+        for longitudinal in (False, True):
+            for shear in (False, True):
+                with self.subTest(longitudinal=longitudinal, shear=shear):
+                    details = Tvärkraft(_indata(V_Ed=50, kontrollera_min_langsarmering=longitudinal,
+                                               kontrollera_minimiarmering=shear))
+                    names = {item["namn"] for section in ("delresultat", "slutresultat") for item in details[section]["items"]}
+                    self.assertEqual("A_s_min" in names, longitudinal)
+                    self.assertEqual("rho_w_min" in names, shear)
+                    for name in ("V_Rd_c", "V_Rd_s", "V_Rd_max", "eta_6_2_2", "eta_6_2_3"):
+                        self.assertEqual(_v(details, name), _v(baseline, name))
+        strip = Tvärkraft(_indata(kontrollera_min_langsarmering=True, plattstrimla=True))
+        self.assertEqual(_v(strip, "b_t"), 1000)
+        self.assertAlmostEqual(_v(strip, "A_s_min"), 280.8)
 
     def test_minimiarmering_ar_valbar_och_inaktiva_varden_ignoreras(self):
         data = _indata(V_Ed=50, s_t=float("nan"))

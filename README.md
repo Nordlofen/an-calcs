@@ -221,6 +221,29 @@ utan implicit val av svensk nationell bilaga. `N_Ed != 0` kräver `A_c` för 6.2
 och manuellt `z` för 6.2.3; `sigma_cp >= 0.2 f_cd` avvisas när 6.2.2 ingår.
 `n_skar=0` anger inga byglar.
 
+När **6.2.2** ingår kan **Kontrollera minsta längsarmering enligt
+9.2.1.1(1)** aktiveras. Valet är **avstängt från början**. I dictionaryformat
+används `kontrollera_min_langsarmering=True`.
+Den angivna eller beräknade `A_sl` jämförs med EC2:s rekommenderade minimivärde:
+
+`A_s_min = max(0.26 * f_ctm / f_yk * b_t * d, 0.0013 * b_t * d)` enligt (9.1N).
+
+- Längsarmeringens **`f_yk`** anges separat, med förval **500 MPa**.
+- **`b_t_auto=True`** använder `b_t=b_w`. Avmarkera för att ange
+  **`b_t_manuell`**, medelbredden av den dragna delen i mm. I automatiskt
+  läge används även meterstrimlans låsta bredd på 1 000 mm.
+- **`f_ctm_auto=True`** beräknar medeldraghållfastheten utan mellanavrundning
+  från tabell 3.1: `0.30 * f_ck**(2/3)` till och med C50/60, därefter
+  `2.12 * ln(1 + (f_ck + 8)/10)`, i MPa. Avmarkera för att i stället ange
+  **`f_ctm_manuell`** i MPa.
+
+Kontrollen har egen status och använder hela angivna/beräknade `A_sl`,
+före begränsningen av `rho_l` i 6.2.2. Den ändrar inte tvärkraftsbärförmågan.
+När den är avstängd ignoreras och döljs dess kompletterande indata; tidigare
+värden behålls i panelen och sparade fall. Sprickarmering enligt 7.3.2,
+fullständig böjkontroll och alternativet 1,2 gånger erforderlig armering
+ingår inte i denna minimikontroll.
+
 När **6.2.3** ingår kan kryssrutan **Kontrollera minimiarmering och
 bygelavstånd (9.2.2)** aktiveras. Den är **avstängd från början**. I
 dictionaryformat används `kontrollera_minimiarmering=True`.
@@ -239,8 +262,8 @@ med EC2:s rekommenderade värden:
 
 Dessa kontroller utförs när valet är aktiverat, även utan angiven last, och
 har egna statusrader; de ändrar inte bärförmågan eller dess utnyttjandegrad.
-Vid **enbart 6.2.2**
-redovisas inga armeringskontroller. När valet är avstängt döljs `s_t` och
+Vid **enbart 6.2.2** redovisas ingen kontroll enligt 9.2.2.
+När valet är avstängt döljs `s_t` och
 detaljkontrollerna utelämnas ur beräkning, ekvationer och resultat. Tidigare
 inmatat tväravstånd behålls i panelen och sparade fall.
 Meterstrimleläget ändrar bara bredd och
@@ -253,10 +276,11 @@ Dictionaryformatet rekommenderas för metodval. `A_sl_inmatning="area"` är
 förval; `"jarn"` använder angivet `n_l`, medan `"cc"` beräknar antalet från
 `b_w` och `cc_l`. Båda använder `n_l * pi * phi_l**2 / 4`. I strimleläget
 används den låsta bredden 1 000 mm även för antalsberäkningen. Inaktiva indata
-ignoreras. Panelens fullformat har 30 värden i ordningen
-`Tvärkraft.panel_schema["px"]`, med `kontrollera_minimiarmering` sist.
-Äldre 24-, 26-, 27-, 28- och 29-värdeslistor stöds, med minimiarmeringsvalet
-avstängt.
+ignoreras. Panelens fullformat har 36 värden i ordningen
+`Tvärkraft.panel_schema["px"]`, med längsarmeringens sex nya fält efter
+det tidigare 30-formatet. Äldre 24-, 26-, 27-, 28-, 29- och 30-värdeslistor
+stöds med längsarmeringskontrollen avstängd. 30-formatets val för minsta
+tvärkraftsarmering bevaras; äldre format utan detta val använder Av.
 29-formatet har `s_t`, 28-formatet har `cc_l`, 27-formatet har `plattstrimla`,
 och 24-formatets tidigare cot-gränser ignoreras.
 Det fullständiga positionsformatet finns i funktionens docstring och
