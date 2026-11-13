@@ -185,8 +185,9 @@ def Tvärkraft(px):
 
     Rekommenderade EC2-värden för varaktig/tillfällig situation är förvalda;
     ingen svensk nationell bilaga väljs implicit. V_Rd=min(V_Rd_s,V_Rd_max)
-    avser ordinarie modell. V_Rd_c_last och V_Rd_s_last avser gränser för den
-    OREDUCERADE inmatade lasten med vald reduktionsmetod. Utnyttjanden ges i %.
+    avser ordinarie modell. Vid reduktion redovisas reducerad och oreducerad
+    last mot respektive bärförmåga. Största delutnyttjandet styr slutkontrollen.
+    Utnyttjanden ges i %.
     Vid reduktion förutsätts hela V_Ed komma från reducerbar last på översidan
     och längsarmeringen vara fullt förankrad. 6.2.3(8) använder (6.19) samt
     oreducerad last mot (6.9), även vid lutande byglar enligt hänvisningen där.
@@ -219,6 +220,7 @@ def _berakna(v):
         VRdc_b = (vmin + k1 * sigma_cp) * bw * d / 1000
         VRdc = max(0.0, VRdc_a, VRdc_b)
         Vlim_6_5 = 0.5 * bw * d * nu * fcd / 1000
+        # Intern ekvivalent lastgräns för slutkontrollen; redovisas inte som kapacitet.
         Vc_last = min(VRdc / beta, Vlim_6_5) if kort_skjuvspann else VRdc
     if s:
         fywd = v["f_ywk"] / v["gamma_s"]
@@ -295,7 +297,6 @@ def _berakna(v):
         resultat.append(_post("V_Rd_c", r"V_{Rd,c}", VRdc, "kN", "6.2.2, utan beräknad tvärkraftsarmering"))
         if kort_skjuvspann:
             resultat.append(_post("V_lim_6_5", r"V_{lim,6.5}", Vlim_6_5, "kN", "gräns för oreducerad last enligt (6.5)"))
-        resultat.append(_post("V_Rd_c_last", r"V_{Rd,c,last}", Vc_last, "kN", "6.2.2, gräns för oreducerad inmatad last med vald metod"))
     if s:
         mellan.extend([
             _post("f_ywd", r"f_{ywd}", fywd, "MPa", "dimensionerande sträckgräns"),
@@ -319,7 +320,6 @@ def _berakna(v):
                 _post("V_Rd_6_19", r"V_{Rd,6.19}", VRd_6_19, "kN", "bärförmåga mot reducerad last enligt (6.19)"),
                 _post("V_Rd_max_6_9", r"V_{Rd,max,6.9}", VRdmax_6_9, "kN", "gräns för oreducerad last enligt hänvisningen i 6.2.3(8)"),
             ])
-        resultat.append(_post("V_Rd_s_last", r"V_{Rd,s,last}", Vs_last, "kN", "6.2.3, gräns för oreducerad inmatad last med vald metod"))
     if s or kort_skjuvspann:
         mellan.append(_post("nu_1" if s else "nu", r"\nu_1" if s else r"\nu", nu, "", "hållfasthetsreduktion enligt (6.6N)"))
     if v["kontrollera_last"]:
@@ -378,25 +378,33 @@ def _berakna(v):
         ])
     if kort_skjuvspann:
         if c:
-            ekvationer.extend([
-                _ekvation(r"V_{lim,6.5}=0{,}5b_wd\nu f_{cd}/1000", "(6.5), gräns för oreducerad tvärkraft"),
-                _ekvation(r"V_{Rd,c,last}=\min(V_{Rd,c}/\beta,V_{lim,6.5})", "samlad gräns för oreducerad last, 6.2.2"),
-            ])
+            ekvationer.append(_ekvation(r"V_{lim,6.5}=0{,}5b_wd\nu f_{cd}/1000", "(6.5), gräns för oreducerad tvärkraft"))
         if s:
             ekvationer.extend([
                 _ekvation(r"A_{sw,eff}=m_{eff}A_{sw}", "endast verksamma byglar i centrala 0,75a_v"),
                 _ekvation(r"V_{Rd,6.19}=A_{sw,eff}f_{ywd}\sin\alpha/1000", "(6.19), gräns för reducerad tvärkraft"),
                 _ekvation(r"V_{Rd,max,6.9}=\frac{\alpha_{cw}b_wz\nu_1 f_{cd}}{\cot\theta+\tan\theta}/1000", "6.2.3(8), gräns för oreducerad last enligt (6.9)"),
-                _ekvation(r"V_{Rd,s,last}=\min(V_{Rd,6.19}/\beta,V_{Rd,max,6.9})", "samlad gräns för oreducerad last, 6.2.3(8)"),
             ])
     if v["kontrollera_last"]:
         if c:
-            ekvationer.append(_ekvation(r"\eta_{6.2.2}=100V_{Ed}/V_{Rd,c,last}", "utnyttjandegrad i procent, 6.2.2"))
+            if kort_skjuvspann:
+                ekvationer.extend([
+                    _ekvation(r"\eta_{\mathrm{c.reducerad}}=100V_{Ed,red}/V_{Rd,c}\leq100", "procent, reducerad tvärkraft mot V_Rd,c"),
+                    _ekvation(r"\eta_{\mathrm{c.oreducerad}}=100V_{Ed}/V_{lim,6.5}\leq100", "procent, oreducerad tvärkraft enligt (6.5)"),
+                    _ekvation(r"\eta_{6.2.2}=\max(\eta_{\mathrm{c.reducerad}},\eta_{\mathrm{c.oreducerad}})", "största delutnyttjandet styr, procent"),
+                ])
+            else:
+                ekvationer.append(_ekvation(r"\eta_{6.2.2}=100V_{Ed}/V_{Rd,c}\leq100", "utnyttjandegrad i procent, 6.2.2"))
         if s:
-            ekvationer.extend([
-                _ekvation(r"\eta_{6.2.3}=100V_{Ed}/V_{Rd,s,last}", "utnyttjandegrad i procent, 6.2.3"),
-                _ekvation(r"\Delta F_{td}=0{,}5V_{Ed}(\cot\theta-\cot\alpha)", "(6.18), ingen kontroll av total längsdragkraft eller begränsning med M_Ed,max/z"),
-            ])
+            if kort_skjuvspann:
+                ekvationer.extend([
+                    _ekvation(r"\eta_{\mathrm{s.reducerad}}=100V_{Ed,red}/V_{Rd,6.19}\leq100", "procent, reducerad tvärkraft enligt (6.19)"),
+                    _ekvation(r"\eta_{\mathrm{s.oreducerad}}=100V_{Ed}/V_{Rd,max,6.9}\leq100", "procent, oreducerad tvärkraft mot (6.9)"),
+                    _ekvation(r"\eta_{6.2.3}=\max(\eta_{\mathrm{s.reducerad}},\eta_{\mathrm{s.oreducerad}})", "största delutnyttjandet styr, procent"),
+                ])
+            else:
+                ekvationer.append(_ekvation(r"\eta_{6.2.3}=100V_{Ed}/V_{Rd}\leq100", "utnyttjandegrad i procent, 6.2.3"))
+            ekvationer.append(_ekvation(r"\Delta F_{td}=0{,}5V_{Ed}(\cot\theta-\cot\alpha)", "(6.18), ingen kontroll av total längsdragkraft eller begränsning med M_Ed,max/z"))
     metod = [
         {"rubrik": "Vald metod", "text": _METODER[v["metod"]] + " enligt SS-EN 1992-1-1:2005. Endast vald metod beräknas och redovisas."},
         {"rubrik": "Omfattning", "text": (
@@ -424,8 +432,8 @@ def _berakna(v):
             + ("För 6.2.2 kontrolleras reducerad last mot V_Rd,c och oreducerad last mot (6.5). " if c else "")
             + ("För 6.2.3 kontrolleras reducerad last mot (6.19) och oreducerad last mot (6.9). "
                "m_eff är verkligt antal verksamma byglar inom centrala 0,75a_v; antalet härleds inte från s. " if s else "")
-            + "Vid a_v>2d används ordinarie modell med beta=1. Bärförmåga med suffixet 'last' "
-            "avser gränsen för den oreducerade inmatade lasten."
+            + "Största utnyttjandet av kontrollen med reducerad respektive oreducerad last styr "
+            "slutkontrollen för varje metod. Vid a_v>2d används ordinarie modell med beta=1."
         )})
     for item in indata + mellan + resultat:
         if isinstance(item["value"], (int, float)) and not math.isfinite(item["value"]):

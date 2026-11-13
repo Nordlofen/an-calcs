@@ -150,6 +150,9 @@ class TestTvarkraftPanel(unittest.TestCase):
                 for suffix in ("mb", "id", "dr", "sr", "ekv"):
                     self.assertTrue(getattr(cb, "latex_" + suffix))
                     self.assertTrue(getattr(cb, "html_" + suffix))
+                    for rendered in (getattr(cb, "latex_" + suffix), getattr(cb, "html_" + suffix)):
+                        for obsolete in ("V_Rd_c_last", "V_Rd_s_last", "Rd,c,last", "Rd,s,last", "suffixet 'last'"):
+                            self.assertNotIn(obsolete, rendered)
                 left = re.findall(r'<div class="anp-eq-block__lhs">(.*?)</div>', cb.html_ekv)
                 self.assertTrue(left)
                 for text in left:
@@ -160,6 +163,11 @@ class TestTvarkraftPanel(unittest.TestCase):
                     self.assertIn(r"\cot\theta & = & 2{,}5", cb.latex_ekv)
                 self.assertEqual("V_{Rd,c}" in cb.latex_sr, method != "6.2.3")
                 self.assertEqual("V_{Rd,s}" in cb.latex_sr, method != "6.2.2")
+                for branch, active in (("c", method != "6.2.3"), ("s", method != "6.2.2")):
+                    for part in ("reducerad", "oreducerad"):
+                        symbol = r"\eta_{\mathrm{" + branch + "." + part + "}}"
+                        self.assertEqual(symbol in cb.latex_ekv, active)
+                        self.assertEqual(symbol in cb.latex_sr, active)
 
 
 if __name__ == "__main__":

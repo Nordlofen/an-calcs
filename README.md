@@ -167,8 +167,9 @@ figur 6.4/6.6, påförs på ovansidan och att längsarmeringen är fullt förank
 Resultaten `V_Rd_c`, `V_Rd_s`, `V_Rd_max` och `V_Rd=min(V_Rd_s,V_Rd_max)`
 redovisar ordinarie bärförmågor för valda metoder. Vid reduktion kontrolleras reducerad last mot
 `V_Rd_c` respektive (6.19), medan oreducerad last kontrolleras separat mot (6.5)
-respektive (6.9). `V_Rd_c_last` och `V_Rd_s_last` är samlade gränser för den
-**oreducerade** inmatade lasten. För `a_v > 2d` används ordinarie modell.
+respektive (6.9). Det största delutnyttjandet styr slutkontrollen för respektive
+metod. Redovisningen visar lasterna mot respektive bärförmåga, utan omräknade
+kapaciteter med suffixet `_last`. För `a_v > 2d` används ordinarie modell.
 `eta_6_2_2` och `eta_6_2_3` redovisas i procent när lastkontroll är aktiverad.
 
 Beräkningsinställningarna innehåller vald `cot_theta`, automatiskt/manuellt `z`

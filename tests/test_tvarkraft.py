@@ -97,7 +97,7 @@ class TestTvarkraft(unittest.TestCase):
         both = Tvärkraft(_indata(V_Ed=50))
         cases = [
             ("6.2.2", dict(A_sl=600),
-             ("V_Rd_c", "V_Rd_c_last", "eta_6_2_2", "status_6_2_2"),
+             ("V_Rd_c", "eta_6_2_2", "status_6_2_2"),
              ("V_Rd_s", "V_Rd_max", "V_Rd", "eta_6_2_3", "A_sw", "f_ywd", "cot_theta")),
             ("6.2.3", dict(phi_w=8, n_skar=2, s=200, f_ywk=500, cot_theta=2),
              ("V_Rd_s", "V_Rd_max", "V_Rd", "eta_6_2_3", "status_6_2_3"),
@@ -168,11 +168,12 @@ class TestTvarkraft(unittest.TestCase):
         for av in (100, 401):
             base = _indata(V_Ed=100, reducera_tvarkraft=True, a_v=av, m_eff=1)
             both = Tvärkraft(base)
-            for method, suffix in (("6.2.2", "c"), ("6.2.3", "s")):
+            for method in ("6.2.2", "6.2.3"):
                 with self.subTest(method=method, av=av):
                     d = Tvärkraft(base | {"metod": method})
                     self.assertEqual(_v(d, "V_Ed_red"), _v(both, "V_Ed_red"))
-                    self.assertEqual(_v(d, f"V_Rd_{suffix}_last"), _v(both, f"V_Rd_{suffix}_last"))
+                    name = "eta_" + method.replace(".", "_")
+                    self.assertEqual(_v(d, name), _v(both, name))
             c = Tvärkraft(base | dict(metod="6.2.2", m_eff="inaktivt"))
             with self.assertRaises(KeyError):
                 _v(c, "m_eff")
@@ -219,11 +220,11 @@ class TestTvarkraft(unittest.TestCase):
         d = Tvärkraft(_indata(V_Ed=100, reducera_tvarkraft=True, a_v=100, m_eff=1))
         self.assertAlmostEqual(_v(d, "A_sw_eff"), 32 * math.pi)
         self.assertAlmostEqual(_v(d, "V_Rd_6_19"), 43.70911518037973)
-        self.assertAlmostEqual(_v(d, "V_Rd_s_last"), 174.83646072151893)
+        self.assertAlmostEqual(_v(d, "eta_6_2_3"), 100 * 25 / 43.70911518037973)
         self.assertEqual(_v(d, "status_6_2_3"), "Uppfyller")
         # m_eff, inte ett avrundat 0,75a_v/s, styr (6.19).
         other = Tvärkraft(_indata(V_Ed=100, reducera_tvarkraft=True, a_v=100, m_eff=1, s=1000))
-        self.assertEqual(_v(other, "V_Rd_s_last"), _v(d, "V_Rd_s_last"))
+        self.assertEqual(_v(other, "eta_6_2_3"), _v(d, "eta_6_2_3"))
         self.assertNotEqual(_v(other, "V_Rd_s"), _v(d, "V_Rd_s"))
 
     def test_reduktion_fritar_inte_betongen_fran_oreducerad_last(self):
@@ -241,20 +242,72 @@ class TestTvarkraft(unittest.TestCase):
                 self.assertEqual(_v(d, "status_s_reducerad"), "Uppfyller")
                 self.assertEqual(_v(d, "status_s_oreducerad"), "Överskriden")
                 self.assertEqual(_v(d, "status_6_2_3"), "Överskriden")
-                self.assertAlmostEqual(_v(d, "V_Rd_s_last"), 208.08576)
+                self.assertAlmostEqual(_v(d, "V_Rd_max_6_9"), 208.08576)
+                self.assertAlmostEqual(_v(d, "eta_6_2_3"), 100 * 250 / 208.08576)
 
     def test_inga_verksamma_byglar_ger_inte_godkant(self):
         d = Tvärkraft(_indata(V_Ed=1, reducera_tvarkraft=True, a_v=100))
-        self.assertEqual(_v(d, "V_Rd_s_last"), 0)
+        self.assertEqual(_v(d, "V_Rd_6_19"), 0)
+        self.assertEqual(_v(d, "eta_6_2_3"), "Ingen bärförmåga")
         self.assertEqual(_v(d, "status_6_2_3"), "Överskriden")
         self.assertEqual(_v(d, "status_6_2_2"), "Uppfyller")
 
     def test_av_over_2d_atergar_till_ordinarie_modell(self):
         d = Tvärkraft(_indata(V_Ed=100, reducera_tvarkraft=True, a_v=401, m_eff=None))
-        self.assertEqual(_v(d, "V_Rd_s_last"), _v(d, "V_Rd"))
-        self.assertEqual(_v(d, "V_Rd_c_last"), _v(d, "V_Rd_c"))
+        self.assertAlmostEqual(_v(d, "eta_6_2_3"), 100 * 100 / _v(d, "V_Rd"))
+        self.assertAlmostEqual(_v(d, "eta_6_2_2"), 100 * 100 / _v(d, "V_Rd_c"))
         with self.assertRaises(KeyError):
             _v(d, "V_Rd_6_19")
+
+    def test_slutkontrollen_styrs_av_storsta_delutnyttjandet(self):
+        # Prova både bygel-/betongkapacitet och oreducerad last som styrande,
+        # samt nollast och nollkapacitet. Beta ska bara räknas en gång.
+        for load in (0, 50, 250):
+            for av in (100, 200, 400):
+                for m_eff in (0, 1, 10):
+                    with self.subTest(load=load, av=av, m_eff=m_eff):
+                        d = Tvärkraft(_indata(V_Ed=load, reducera_tvarkraft=True, a_v=av, m_eff=m_eff))
+                        for method, branch in (("6_2_2", "c"), ("6_2_3", "s")):
+                            partials = [_v(d, f"eta_{branch}_{part}") for part in ("reducerad", "oreducerad")]
+                            expected = "Ingen bärförmåga" if "Ingen bärförmåga" in partials else max(partials)
+                            actual = _v(d, "eta_" + method)
+                            if isinstance(expected, str):
+                                self.assertEqual(actual, expected)
+                            else:
+                                self.assertAlmostEqual(actual, expected)
+                            passed = all(_v(d, f"status_{branch}_{part}") == "Uppfyller"
+                                         for part in ("reducerad", "oreducerad"))
+                            self.assertEqual(_v(d, "status_" + method), "Uppfyller" if passed else "Överskriden")
+
+    def test_redovisningen_saknar_omraknade_kapaciteter_i_alla_lagen(self):
+        for method in ("bada", "6.2.2", "6.2.3"):
+            for extra in ({}, {"V_Ed": 100},
+                          {"V_Ed": 100, "reducera_tvarkraft": True, "a_v": 100, "m_eff": 1},
+                          {"V_Ed": 100, "reducera_tvarkraft": True, "a_v": 401}):
+                with self.subTest(method=method, extra=extra):
+                    d = Tvärkraft(_indata(metod=method) | extra)
+                    text = json.dumps(d, ensure_ascii=False)
+                    for obsolete in ("V_Rd_c_last", "V_Rd_s_last", "Rd,c,last", "Rd,s,last", "/\\\\beta", "suffixet 'last'"):
+                        self.assertNotIn(obsolete, text)
+                    equations = {i["latex"].split("=", 1)[0]: i["latex"] for i in d["ekvationer"]["items"]}
+                    short = extra.get("a_v", 401) <= 400
+                    if extra and method != "6.2.3":
+                        self.assertEqual(equations[r"\eta_{6.2.2}"],
+                                         r"\eta_{6.2.2}=\max(\eta_{\mathrm{c.reducerad}},\eta_{\mathrm{c.oreducerad}})" if short
+                                         else r"\eta_{6.2.2}=100V_{Ed}/V_{Rd,c}\leq100")
+                    if extra and method != "6.2.2":
+                        self.assertEqual(equations[r"\eta_{6.2.3}"],
+                                         r"\eta_{6.2.3}=\max(\eta_{\mathrm{s.reducerad}},\eta_{\mathrm{s.oreducerad}})" if short
+                                         else r"\eta_{6.2.3}=100V_{Ed}/V_{Rd}\leq100")
+                    for branch, method_active, reduced_cap, unreduced_cap in (
+                        ("c", method != "6.2.3", "V_{Rd,c}", "V_{lim,6.5}"),
+                        ("s", method != "6.2.2", "V_{Rd,6.19}", "V_{Rd,max,6.9}"),
+                    ):
+                        if short and method_active:
+                            lhs = r"\eta_{\mathrm{" + branch + ".reducerad}}"
+                            self.assertEqual(equations[lhs], lhs + "=100V_{Ed,red}/" + reduced_cap + r"\leq100")
+                            lhs = r"\eta_{\mathrm{" + branch + ".oreducerad}}"
+                            self.assertEqual(equations[lhs], lhs + "=100V_{Ed}/" + unreduced_cap + r"\leq100")
 
     def test_nollast_vid_nollkapacitet(self):
         d = Tvärkraft(_indata(n_skar=0, V_Ed=0))
