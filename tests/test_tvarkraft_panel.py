@@ -51,7 +51,7 @@ class TestTvarkraftPanel(unittest.TestCase):
 
     def test_figurer_foljer_metod_och_reduktion_och_innehaller_bilddata(self):
         records = self.panel._figure_records
-        self.assertEqual(len(records), 3)
+        self.assertEqual(len(records), 4)
         self.assertIn("anp-panel-illustrated", self.panel._form._dom_classes)
         for record in records:
             spec = record["spec"]
@@ -66,24 +66,58 @@ class TestTvarkraftPanel(unittest.TestCase):
             self.assertNotIn("Layoutskiss", markup)
             self.assertNotIn("<button", markup)
         for method in ("bada", "6.2.2", "6.2.3"):
-            for reduction in (False, True):
-                with self.subTest(method=method, reduction=reduction):
-                    self.w["metod"].value = method
-                    self.w["kontrollera_last"].value = True
-                    self.w["reducera_tvarkraft"].value = reduction
-                    expected = (method != "6.2.3", reduction, reduction and method != "6.2.2")
-                    self.assertEqual(tuple(r["widget"].layout.display != "none" for r in records), expected)
-                    self.assertEqual(tuple("anp-with-figure" in r["layout"]._dom_classes for r in records), expected)
-        self.w["kontrollera_last"].value = False
-        self.assertEqual(records[1]["widget"].layout.display, "none")
-        self.assertEqual(records[2]["widget"].layout.display, "none")
+            for check_load in (False, True):
+                for reduction in (False, True):
+                    with self.subTest(method=method, check_load=check_load, reduction=reduction):
+                        self.w["metod"].value = method
+                        self.w["kontrollera_last"].value = check_load
+                        self.w["reducera_tvarkraft"].value = reduction
+                        expected = {
+                            "figures/ec2-figure-6-3.png": method != "6.2.3",
+                            "figures/ec2-figure-6-4.png": method != "6.2.3" and check_load and reduction,
+                            "figures/ec2-figure-6-5.png": method != "6.2.2",
+                            "figures/ec2-figure-6-6.png": method != "6.2.2" and check_load and reduction,
+                        }
+                        self.assertEqual({r["spec"]["resource"]: r["widget"].layout.display != "none" for r in records}, expected)
+                        self.assertEqual({r["spec"]["resource"]: "anp-with-figure" in r["layout"]._dom_classes for r in records}, expected)
+
+    def test_indata_kan_fallas_ihop_utan_att_tappa_varden_eller_berakning(self):
+        def contains(root, target):
+            return root is target or any(contains(child, target) for child in getattr(root, "children", ()))
+
+        inputs = self.panel._sections["Indata"]
+        self.assertEqual(inputs.selected_index, 0)
+        self.assertIsNone(self.panel._sections["Beräkningsinställningar"].selected_index)
+        self.assertIsNone(self.panel._sections["Redovisning"].selected_index)
+        for name in self.visible() - {"cot_theta", "z_auto", "z_manuell", "gamma_c", "gamma_s", "alpha_cc"}:
+            self.assertTrue(contains(inputs, self.w[name]), name)
+        for record in self.panel._figure_records:
+            self.assertTrue(contains(inputs, record["widget"]))
+        self.assertFalse(contains(inputs, self.panel._sections["Beräkningsinställningar"]))
+        self.assertFalse(contains(inputs, self.panel._sections["Redovisning"]))
+        self.assertFalse(contains(inputs, self.panel._button))
+        widgets_before = dict(self.w)
+        self.w["b_w"].value = 350
+        self.w["A_sl"].value = 2500
+        before = self.panel.to_px()
+        expected = self.calculate()
+        inputs.selected_index = None
+        self.assertEqual(self.panel.to_px(), before)
+        self.assertEqual(self.calculate(), expected)
+        inputs.selected_index = 0
+        self.assertEqual(self.panel.to_px(), before)
+        for name, widget in widgets_before.items():
+            self.assertIs(self.w[name], widget)
 
     def test_figurmetadata_paverkar_inte_px_resultat_eller_sparade_fall(self):
         def legacy(px):
             return Tvärkraft(px)
         legacy.panel_schema = copy.deepcopy(Tvärkraft.panel_schema)
-        for section in legacy.panel_schema["sections"]:
-            section.pop("figure", None)
+        def remove_figures(sections):
+            for section in sections:
+                section.pop("figure", None)
+                remove_figures(section.get("sections", []))
+        remove_figures(legacy.panel_schema["sections"])
         with patch("an_print.panel.files", side_effect=AssertionError("Ingen bild ska läsas")):
             old = Panel(legacy, state_file=pathlib.Path(self.tmp.name) / "old.json")
         self.assertEqual(old._figure_records, [])

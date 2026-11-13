@@ -459,7 +459,11 @@ class TestTvarkraft(unittest.TestCase):
         self.assertEqual(direct, panel)
         self.assertEqual(len(schema["px"]), len(set(schema["px"])))
         self.assertEqual(set(schema["px"]), set(values))
-        fields_in_sections = [f for section in schema["sections"] for f in section["fields"]]
+        def section_fields(sections):
+            for section in sections:
+                yield from section.get("fields", [])
+                yield from section_fields(section.get("sections", []))
+        fields_in_sections = list(section_fields(schema["sections"]))
         self.assertCountEqual(fields_in_sections, schema["px"])
         self.assertEqual(fields_in_sections.count("d"), 1)
 

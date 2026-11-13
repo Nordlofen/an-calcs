@@ -126,11 +126,16 @@ Det sista valet beräknar `n_l = floor(b_w / cc_l + 1)` (avrundning nedåt till
 heltal) och därefter `A_sl = n_l * pi * phi_l**2 / 4`. Centrumavståndet anges
 i mm. Antalet järn och arean redovisas som delresultat.
 
+Panelens inmatningsfält och figurer samlas under **Indata**, som är utfällt
+från början och kan fällas ihop via rubriken. Beräkningsinställningar och
+Redovisning har egna rubriker och beräkningsknappen är alltid tillgänglig.
 Panelen visar EC2:s statiska originalfigurer intill relevanta fält:
-figur 6.3 vid längsarmeringen, figur 6.4 vid lastreduktion och figur 6.6
-vid antalet verksamma byglar för 6.2.3. Figurerna visas till vänster om
-inmatningen på bred skärm och ovanför på smal skärm. Bortvalda metoder
-och avstängd lastreduktion döljer motsvarande figurer. Bilderna följer med
+för 6.2.2 visas figur 6.3 vid längsarmeringen och figur 6.4 vid lastreduktion;
+för 6.2.3 visas figur 6.5 vid tvärkraftsarmeringen och figur 6.6 vid antalet
+verksamma byglar vid lastreduktion. När båda metoderna är valda visas båda
+metodernas figurer. Figur 6.4 och 6.6 visas endast vid aktiverad lastreduktion.
+Figurerna visas till vänster om inmatningen på bred skärm och ovanför på
+smal skärm. Bilderna följer med
 paketet och kräver varken PDF-filen eller nätåtkomst i notebooken.
 Uppdatera även `an-print` för detta frivilliga figurstöd i `panel_schema`.
 
