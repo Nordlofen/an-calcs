@@ -301,6 +301,13 @@ värden behålls i panelen och sparade fall. Sprickarmering enligt 7.3.2,
 fullständig böjkontroll och alternativet 1,2 gånger erforderlig armering
 ingår inte i denna minimikontroll.
 
+I beräkningsredovisningens **Indata** visas använt **`f_ctm` i MPa** en gång,
+oavsett om värdet beräknas enligt tabell 3.1 eller anges manuellt.
+Raderna för beräkningsbredd, längsarmeringens inmatningssätt, aktivering av
+längsarmeringskontrollen samt val av `b_t` och `f_ctm` utelämnas där.
+Vald beräkningsmetod, aktuella numeriska indata och På/Av för tvärkraftsreduktion
+redovisas fortsatt. Inmatningspanelens val och sparade fall påverkas inte.
+
 När **6.2.3** ingår kan kryssrutan **Kontrollera minimiarmering och
 bygelavstånd (9.2.2)** aktiveras. Den är **avstängd från början**. I
 dictionaryformat används `kontrollera_minimiarmering=True`.

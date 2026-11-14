@@ -340,7 +340,6 @@ def _berakna(v):
         "b_t_manuell": (r"b_{t,man}", "mm", "manuellt angiven medelbredd av den dragna delen"),
         "f_ck": (r"f_{ck}", "MPa", "karakteristisk cylindertryckhållfasthet"),
         "f_yk": (r"f_{yk}", "MPa", "karakteristisk sträckgräns för längsarmeringen"),
-        "f_ctm_manuell": (r"f_{ctm,man}", "MPa", "manuellt angiven medeldraghållfasthet"),
         "A_sl": (r"A_{sl}", "mm^2", "längsdragarmering som uppfyller figur 6.3"),
         "phi_w": (r"\phi_w", "mm", "bygeldiameter"),
         "n_skar": (r"n", "", f"antal verksamma skär per {bygel}"),
@@ -364,8 +363,7 @@ def _berakna(v):
             latex, unit, label = metadata[name]
             metadata[name] = (latex, unit, label + " i 1 m strimla")
         metadata["b_w"] = (r"b_w", "mm", "fast bredd för 1 m strimla")
-    indata = [_post("metod", "", _METODER[v["metod"]], "", "vald beräkningsmetod"),
-              _post("plattstrimla", "", "b_w-1m strimla" if strimla else "Angiven bredd", "", "beräkningsbredd")]
+    indata = [_post("metod", "", _METODER[v["metod"]], "", "vald beräkningsmetod")]
     for name in _PX_NAMN:
         if name == "A_sl" and v["A_sl_inmatning"] in ("jarn", "cc"):
             continue
@@ -374,12 +372,8 @@ def _berakna(v):
         if name in metadata and v[name] is not None:
             latex, unit, label = metadata[name]
             indata.append(_post(name, latex, v[name], unit, label))
-    if c:
-        indata.append(_post("A_sl_inmatning", "", _LANGSARMERING[v["A_sl_inmatning"]], "", "inmatning av längsarmering"))
-        indata.append(_post("kontrollera_min_langsarmering", "", "På" if min_langs else "Av", "", "minsta längsarmering enligt 9.2.1.1(1)"))
     if min_langs:
-        indata.append(_post("b_t_auto", "", "b_t = b_w" if v["b_t_auto"] else "Manuell", "", "val av dragen medelbredd"))
-        indata.append(_post("f_ctm_auto", "", "Tabell 3.1" if v["f_ctm_auto"] else "Manuell", "", "val av medeldraghållfasthet"))
+        indata.append(_post("f_ctm", r"f_{ctm}", fctm, "MPa", "betongens medeldraghållfasthet"))
     if s:
         indata.append(_post("z_auto", "", "0,9 d" if v["z_auto"] else "Manuell", "", "val av inre hävarm"))
         indata.append(_post("kontrollera_minimiarmering", "", "På" if detaljer else "Av", "", "minimiarmering och bygelavstånd enligt 9.2.2"))
@@ -410,10 +404,7 @@ def _berakna(v):
         if kort_skjuvspann:
             resultat.append(_post("V_lim_6_5", r"V_{lim,6.5}", Vlim_6_5, kraftenhet, "gräns för oreducerad last enligt (6.5)"))
     if min_langs:
-        mellan.extend([
-            _post("b_t", r"b_t", bt, "mm", "använd medelbredd av den dragna delen enligt 9.2.1.1(1)"),
-            _post("f_ctm", r"f_{ctm}", fctm, "MPa", "medeldraghållfasthet, analytiskt samband enligt tabell 3.1" if v["f_ctm_auto"] else "använd manuellt angiven medeldraghållfasthet"),
-        ])
+        mellan.append(_post("b_t", r"b_t", bt, "mm", "använd medelbredd av den dragna delen enligt 9.2.1.1(1)"))
         resultat.extend([
             _post("A_s_min", r"A_{s,min}", As_min, "mm^2", "minsta längsdragarmering enligt (9.1N)" + (" i 1 m strimla" if strimla else "")),
             _post("status_9_2_1_1", "", "Uppfyller" if v["A_sl"] >= As_min else "Uppfyller inte", "", "angiven eller beräknad A_sl mot minsta längsarmering enligt 9.2.1.1(1)"),

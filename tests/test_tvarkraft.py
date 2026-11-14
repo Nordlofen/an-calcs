@@ -77,8 +77,33 @@ class TestTvarkraft(unittest.TestCase):
         full[schema["px"].index("kontrollera_minimiarmering")] = True
         legacy = Tvärkraft(full[:30])
         self.assertEqual(_v(legacy, "kontrollera_minimiarmering"), "På")
-        self.assertEqual(_v(legacy, "kontrollera_min_langsarmering"), "Av")
+        with self.assertRaises(KeyError):
+            _v(legacy, "A_s_min")
         self.assertGreater(_v(legacy, "rho_w_min"), 0)
+
+    def test_indata_visar_anvant_fctm_en_gang_utan_valrader(self):
+        omitted = {"plattstrimla", "A_sl_inmatning", "kontrollera_min_langsarmering",
+                   "b_t_auto", "f_ctm_auto", "f_ctm_manuell"}
+        for method in ("bada", "6.2.2", "6.2.3"):
+            for bars in ("area", "jarn", "cc"):
+                for check in (False, True):
+                    for automatic in (False, True):
+                        with self.subTest(method=method, bars=bars, check=check, automatic=automatic):
+                            details = Tvärkraft(_indata(metod=method, plattstrimla=True, A_sl_inmatning=bars,
+                                n_l=4, phi_l=16, cc_l=200, V_Ed=100, reducera_tvarkraft=True, a_v=100, m_eff=1,
+                                kontrollera_min_langsarmering=check, f_ctm_auto=automatic, f_ctm_manuell=3.2))
+                            inputs = {item["namn"]: item for item in details["indata"]["items"]}
+                            self.assertFalse(omitted & inputs.keys())
+                            self.assertEqual(inputs["reducera_tvarkraft"]["value"], "På")
+                            self.assertTrue({"metod", "b_w", "d", "f_ck", "N_Ed", "V_Ed", "a_v", "gamma_c", "alpha_cc"} <= inputs.keys())
+                            all_items = [item for section in ("indata", "delresultat", "slutresultat") for item in details[section]["items"]]
+                            active = check and method != "6.2.3"
+                            self.assertEqual(sum(item["namn"] == "f_ctm" for item in all_items), int(active))
+                            self.assertFalse(any(item["namn"] == "f_ctm_manuell" for item in all_items))
+                            if active:
+                                self.assertAlmostEqual(inputs["f_ctm"]["value"], 2.7 if automatic else 3.2)
+                                self.assertEqual(inputs["f_ctm"]["unit"], "MPa")
+                                self.assertEqual(inputs["f_ctm"]["latex"], r"f_{ctm}")
 
     def test_min_langsarmering_handraknat_och_lagsta_golv(self):
         data = _indata(metod="6.2.2", kontrollera_min_langsarmering=True)

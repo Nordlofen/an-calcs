@@ -302,7 +302,7 @@ class TestTvarkraftPanel(unittest.TestCase):
                 cb = CalcBlock(details)
                 for block in ("ID", "DR", "EKV"):
                     getattr(cb, block)(visa=False, etikett=True)
-                self.assertEqual("cc och diameter" in cb.html_id, method != "6.2.3")
+                self.assertNotIn("cc och diameter", cb.html_id)
                 self.assertEqual("floor" in cb.html_ekv, method != "6.2.3")
                 self.assertEqual("avrundning nedåt till heltal" in cb.html_ekv, method != "6.2.3")
                 self.assertEqual(r"n_l & = &" in cb.latex_dr, method != "6.2.3")
@@ -373,7 +373,8 @@ class TestTvarkraftPanel(unittest.TestCase):
                     getattr(cb, block)(visa=False, etikett=True)
                 self.assertEqual("(9.1N)" in cb.html_ekv, method != "6.2.3")
                 self.assertEqual("minsta längsarmering enligt 9.2.1.1(1)" in cb.html_sr, method != "6.2.3")
-                self.assertEqual(r"f_{ctm}" in cb.latex_dr, method != "6.2.3")
+                self.assertEqual(r"f_{ctm}" in cb.latex_id, method != "6.2.3")
+                self.assertNotIn(r"f_{ctm}", cb.latex_dr)
                 self.assertEqual(r"f_{yk}" in cb.latex_id, method != "6.2.3")
                 self.assertEqual("ln(1+" in cb.html_ekv, method != "6.2.3")
                 for left in re.findall(r'<div class="anp-eq-block__lhs">(.*?)</div>', cb.html_ekv):
