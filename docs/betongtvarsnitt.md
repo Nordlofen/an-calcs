@@ -12,11 +12,17 @@ Måttskissen uppdateras när geometri eller armering ändras. Panel använder
 `an-print` med stöd för dynamiska figurer och indatagrupper. Spara indata och
 redovisningsval under **Beräkningsfall**.
 
+En separat spänningsfigur under last- och materialfälten visar samma snitt
+tillsammans med töjning, betongspänning, betongens tryckkraft, armeringens
+dragkraft och hävarmen när den finns. Diagrammen delar höjdskala. Deras
+bredd är schematisk. Stadium II visar profilen vid angiven last och
+stadium III den ultimata profilen vid angiven normalkraft.
+
 | Geometri | Mått och armering |
 |---|---|
 | Påle | Kvadratiskt snitt, fyra identiska hörnjärn, täckskikt till bygelns utsida, bygel- och stångdiameter |
 | Balk | Bredd, höjd, obligatorisk bygeldiameter och täckskikt till bygelns utsida i ÖK och UK. Antal och stångdiameter per sida |
-| Plattremsa | Beräkningsbredd, plattjocklek och täckskikt till längsarmeringens utsida i ÖK och UK. Antal och stångdiameter per sida |
+| Plattremsa | Fast beräkningsbredd 1 000 mm i Panel. Plattjocklek och täckskikt till längsarmeringens utsida i ÖK och UK. Antal och stångdiameter per sida |
 
 Stångcentrum beräknas geometriskt från täckskiktet, en halv stångdiameter
 och för balk även bygeldiametern. I underkant mäts motsvarande avstånd från
@@ -34,17 +40,20 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   dragfri betong. Vid helt tryckt snitt används hela betonghöjden. \(EI_{II}\)
   beräknas från det transformerade tröghetsmomentet och angiven \(E_{cd}\).
   Stålraderna behandlas som koncentrerade areor och deras egna
-  tröghetsmoment försummas. Slutresultatet visar \(EI_{II}\), krökning och
-  varningar. Tryckzonsdjup, spänningar, töjningar och resultanter finns i
-  delresultatet. Elastiska stålspänningar redovisas även över flytgränsen.
+  tröghetsmoment försummas. Slutresultatet visar valt stadium, tryckzonens
+  höjd, maximal betongtryckspänning, stålspänning per rad, betongens tryckkraft,
+  armeringens dragkraft, hävarm där den finns och \(EI_{II}\). Töjningarna
+  finns i delresultatet. Elastiska stålspänningar redovisas även över flytgränsen.
 - **Stadium III** löser tryck- och momentkapacitet vid given normalkraft och
-  redovisar momentintervallet samt om inmatat moment ryms inom det. Profil,
-  töjningar och spänningar gäller den ultimata profilen. Välj rektangulärt
-  block med \(\lambda=0,8\) och \(\eta=1\), eller parabel–rektangel enligt
-  materialmodellen för \(f_{ck}\leq50\) MPa. Stålet har horisontell
-  flytplatå vid \(f_{yd}=f_{yk}/\gamma_s\). Vid helt tryckt snitt används
-  vald modells pivotvillkor. Modellgränserna vid jämn tryckning är 1,75 ‰
-  för rektangel och 2,0 ‰ för parabel–rektangel. Resultaten avser
+  visar valt stadium, tryckzonens höjd, stålspänningar, betongens tryckkraft,
+  armeringens dragkraft och hävarm där den finns. \(M_{Ed}\) och \(M_{Rd}\)
+  i lastens riktning visas efter varandra. Töjningarna finns i delresultatet.
+  Snittresultaten avser den ultimata profilen. Panel använder rektangulärt
+  tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.
+  Stålet har horisontell flytplatå vid \(f_{yd}=f_{yk}/\gamma_s\). Vid helt
+  tryckt snitt används blockmodellens pivotvillkor med 1,75 ‰ som gräns
+  vid jämn tryckning. Även tidigare sparade Panel-fall räknas om med
+  rektangulärt tryckblock. Resultaten avser
   tvärsnittskapacitet och omfattar ingen sekant- eller tangentstyvhet.
 
 Modellgränsen för elastisk betongtrycktöjning är som standard
@@ -67,6 +76,7 @@ Dictionary-formatet kan använda samma två lager som Panel. För balk är
 `phi_b` bygeldiametern i mm. `c_nom_ok`, `c_nom_uk`, `phi_ok` och `phi_uk`
 anges i mm och `n_ok`, `n_uk` i antal stänger. Påle använder `b`, `c_nom`,
 `phi_b` och `phi_h` för den kvadratiska geometrin.
+Python-anrop med dictionary kan ange en annan beräkningsbredd för plattremsa.
 
 ```python
 from an_calcs.betong import berakna_betongtvarsnitt, betongtvarsnitt
@@ -83,8 +93,8 @@ EI_II = raw["stadium_II"]["EI_II"]  # kNm²
 För balk och plattremsa kan Python-anrop även ange en lista med
 `armeringsrader` med valfritt antal poster. Varje post har `y` från ÖK till
 stångcentrum, `phi`, valfritt `namn` och exakt ett av `antal`, `s` (c/c i mm)
-eller `A_s` (mm² för hela bredden). Välj `tryckblock="parabel"` för
-parabel–rektangel eller `"rektangel"` för det rektangulära blocket.
+eller `A_s` (mm² för hela bredden). Tidigare Python-anrop med
+`tryckblock="parabel"` stöds fortfarande.
 
 Den tidigare `bojstyvhet_betongpalar()` och dess Panel är kvar för modifierad
 nominell pålstyvhet och tidigare sparade fall. `betongtvarsnitt(px)` känner

@@ -13,6 +13,7 @@ from .bojstyvhet_betongpalar import bojstyvhet_betongpalar, _andligt_tal, _ekvat
 __all__ = ["betongtvarsnitt", "berakna_betongtvarsnitt"]
 
 BETONGTVARSNITT_VERSION = "1.1.0"
+_PLATTREMSA_BREDD = 1000.0
 _BT_DEFAULTS = {
     "geometri": "balk", "stadium": "II", "b": 300.0, "h": 600.0,
     "N_d": 0.0, "M": 100.0, "f_ck": 30.0, "f_cd": 20.0,
@@ -44,7 +45,7 @@ def _bt_geometri(p, indata):
     """Normalisera geometri och armering för både beräkning och måttskiss."""
     geometry = p["geometri"]
     if "b" not in indata and geometry == "plattremsa":
-        p["b"] = 1000.0
+        p["b"] = _PLATTREMSA_BREDD
     if "h" not in indata and geometry == "plattremsa":
         p["h"] = 260.0
     p["b"] = _bt_tal("b", p["b"], positive=True)
@@ -102,10 +103,8 @@ def _bt_fasta_rader(p):
 
 def _bt_skissdata(values):
     """Använd samma geometri för skissen som för Panel-beräkningen."""
-    inputs = dict(values)
+    inputs = _bt_panel_geometri(dict(values))
     inputs["geometri"] = {1: "pale", 2: "balk", 3: "plattremsa"}[inputs["geometri"]]
-    if inputs["geometri"] == "pale":
-        inputs.pop("h", None)
     return _bt_geometri({**_BT_DEFAULTS, **inputs}, inputs)
 
 
@@ -223,10 +222,11 @@ def _bt_bisect(fun, lo, hi, iterations=90):
 def _bt_resultanthavarm(fc, yfc, steel):
     compression = fc + sum(max(0, r["F"]) for r in steel)
     tension = -sum(min(0, r["F"]) for r in steel)
-    yc = ((fc * yfc + sum(max(0, r["F"]) * r["y"] for r in steel)) / compression
+    yc = ((fc * (yfc or 0.0) + sum(max(0, r["F"]) * r["y"] for r in steel)) / compression
           if compression > 1e-10 else None)
     yt = (-sum(min(0, r["F"]) * r["y"] for r in steel) / tension if tension > 1e-10 else None)
     return {"z": abs(yc - yt) if yc is not None and yt is not None else None,
+            "y_Fc": yfc,
             "y_tryckresultant": yc, "y_dragresultant": yt,
             "F_tryck_total": compression}
 
@@ -340,7 +340,7 @@ def _bt_elastisk(p):
         "F_s_tryck": sum(max(0, r["F"]) for r in steel),
         "N_calc": n_calc, "M_calc": m_calc, "iterationer": iterations,
     }
-    result.update(_bt_resultanthavarm(fc, qc / fc if fc > 1e-10 else 0, steel))
+    result.update(_bt_resultanthavarm(fc, qc / fc if fc > 1e-10 else None, steel))
     return result
 
 
@@ -437,8 +437,8 @@ def _bt_brottprofil(p, u, flip):
             "F_s_tryck": sum(max(0, r["F"]) for r in steel),
             "N_calc": n, "M_Rd": -oriented_m if flip else oriented_m,
             "tryckkant": "UK" if flip else "ÖK", "rader": steel}
-    yfc = qc / fc if fc > 1e-10 else 0
-    result.update(_bt_resultanthavarm(fc, h - yfc if flip else yfc, steel))
+    yfc = result["y_Fc_fran_tryckkant"]
+    result.update(_bt_resultanthavarm(fc, h - yfc if flip and yfc is not None else yfc, steel))
     return result
 
 
@@ -539,7 +539,7 @@ def berakna_betongtvarsnitt(indata):
                 "Ingen admissibel ultimat N-M-profil hittades för normalkraften. Ingen kapacitet är verifierad.", critical=True))
         elif not iii["inom_kapacitetsintervall"]:
             warnings.append(_bt_varning("III_MOMENTKAPACITET_OVERSKRIDS",
-                "Inmatat moment ligger utanför beräknat kapacitetsintervall vid N_d.",
+                "Inmatat moment ryms inte inom snittets beräknade kapacitet vid N_d.",
                 p["M"], (iii["M_Rd_min"] if p["M"] * 1e6 < iii["M_Rd_min"] else iii["M_Rd_max"]) / 1e6,
                 "kNm", critical=True))
         if iii["jamvikt"]:
@@ -617,79 +617,78 @@ def _bt_panel_resultat(raw):
     partial = [_post("A_c", r"A_c", p["b"] * p["h"], "mm^2", "hela betongtvärsnittets bruttoarea"),
                _post("A_s", r"A_s", p["A_s"], "mm^2", "total längsgående armeringsarea i den studerade böjriktningen"),
                _post("f_yd", r"f_{yd}", p["f_yd"], "MPa", "vald flytgräns i beräkningen: f_yk/gamma_s")]
-    final = []
+    final = [_post("stadium", "Stadium", p["stadium"], "",
+                   "elastisk tvärsnittsanalys" if ii is not None else "brottkapacitet vid angiven normalkraft")]
     equations = [
         _ekvation(r"f_{yd}=f_{yk}/\gamma_s", "dimensionerande flytgräns i vald analys"),
-        _ekvation(r"\varepsilon(y)=\varepsilon_0+\kappa(h/2-y)", "plana snitt; tryck positivt, y från ÖK"),
+        _ekvation(r"\varepsilon(y)=\varepsilon_{ÖK}+\frac{y}{h}(\varepsilon_{UK}-\varepsilon_{ÖK})",
+                   "linjär töjningsfördelning mellan överkant och underkant; tryck positivt, y från ÖK"),
     ]
     if ii is not None:
         if not p["epsilon_c_lim_kalla"].startswith("manuellt"):
             equations.append(_ekvation(r"\varepsilon_{c,lim}=\sigma_{c,lim}/E_{cd}", "automatisk varningsgräns för den elastiska modellen"))
         for key, latex, unit, label, factor in [
-            ("x", "x", "mm", "verksam tryckt betonghöjd; x=h vid helt tryckt snitt, inte neutralaxelns avstånd utanför snittet", 1),
             ("x_tp", r"x_{tp}", "mm", "transformerad tyngdpunkt från den mest tryckta kanten", 1),
             ("A_II", r"A_{II}", "mm^2", "transformerad area med dragfri betong och armeringsavdrag i tryckzonen", 1),
             ("I_II", r"I_{II}", "mm^4", "transformerat tröghetsmoment med koncentrerade armeringsareor", 1),
-            ("sigma_c_max", r"\sigma_{c,max}", "MPa", "maximal elastiskt beräknad tryckspänning i betongen; inte påtvingad f_cd", 1),
             ("epsilon_c_max", r"ε_{c,max}", "‰", "maximal elastiskt beräknad trycktöjning i betongen", 1000),
             ("epsilon_top", r"ε_{ÖK}", "‰", "elastisk töjning i betongens överkant, positiv i tryck", 1000),
             ("epsilon_bottom", r"ε_{UK}", "‰", "elastisk töjning i betongens underkant, positiv i tryck", 1000),
             ("epsilon_cu_tillaten", r"ε_{cu,till}", "‰", "tillämplig gräns för aktuell töjningsprofil, med hänsyn till helt tryckt snitt", 1000),
-            ("F_c", r"F_c", "kN", "betongens tryckresultant, med avdrag för undanträngd betong vid armeringsraderna", .001),
-            ("F_s_drag", r"F_{s,drag}", "kN", "sammanlagd dragkraft i armeringen, angiven som positivt belopp", .001),
             ("F_s_tryck", r"F_{s,tryck}", "kN", "sammanlagd tryckkraft i armeringen", .001),
         ]:
             partial.append(_post(key, latex, ii[key] * factor, unit, label, 4))
-        if ii["z"] is not None:
-            partial.append(_post("z_II", r"z_{II}", ii["z"], "mm", "avstånd mellan samlad tryckresultant och dragresultant, inklusive tryckarmering; M=F_s*z gäller endast vid N=0"))
-        for i, row in enumerate(ii["rader"], 1):
-            partial.extend([
-                _post(f"sigma_s_{i}", rf"\sigma_{{s,{i}}}", row["sigma"], "MPa", row["namn"] + ": elastisk stålspänning; positiv=tryck, negativ=drag"),
-                _post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰", row["namn"] + ": elastisk ståltöjning, kan överskrida flytgränsen och då ge varning"),
-            ])
         final.extend([
-            _post("EI_II", r"EI_{II}", ii["EI_II"], "kN*m^2", "elastisk böjstyvhet för den verksamma betongtryckzonen och armeringen"),
-            _post("kappa_II", r"κ_{II}", ii["kappa"] * 1000, "1/m", "elastisk krökning vid inmatade N_d och M; otillförlitlig om modellvarning ges"),
+            _post("x", "x", ii["x"], "mm", "tryckzonens höjd; hela betonghöjden vid helt tryckt snitt"),
+            _post("sigma_c_max", r"\sigma_{c,max}", ii["sigma_c_max"], "MPa", "största elastiska tryckspänning i betongen"),
         ])
+        for i, row in enumerate(ii["rader"], 1):
+            final.append(_post(f"sigma_s_{i}", rf"\sigma_{{s,{i}}}", row["sigma"], "MPa",
+                               row["namn"] + ": elastisk stålspänning; positiv i tryck, negativ i drag"))
+            partial.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
+                                 row["namn"] + ": elastisk ståltöjning"))
+        final.extend([
+            _post("F_c", r"F_c", ii["F_c"] / 1000, "kN", "betongens tryckkraft efter armeringsavdrag"),
+            _post("F_s_drag", r"F_{s,drag}", ii["F_s_drag"] / 1000, "kN", "armeringens sammanlagda dragkraft, positivt belopp"),
+        ])
+        if ii["z"] is not None:
+            final.append(_post("z_II", r"z_{II}", ii["z"], "mm", "hävarm mellan snittets samlade tryckkraft och armeringens dragkraft"))
+        final.append(_post("EI_II", r"EI_{II}", ii["EI_II"], "kN*m^2", "elastisk böjstyvhet för betongens tryckzon och armeringen"))
         equations.extend([
             _ekvation(r"\sigma_c=E_{cd}\max(\varepsilon_c,0),\quad\sigma_s=E_s\varepsilon_s", "stadium II; armeringens spänning klipps inte vid flytning utan ger varning"),
             _ekvation(r"EI_{II}=E_{cd}I_{II}/10^9", "MPa och mm^4 omvandlas till kNm^2; punktareor utan järnens egen tröghet"),
         ])
     if iii is not None:
-        final.append(_post("kapacitetsjamvikt", r"J_{NM}", int(iii["jamvikt"]), "", "1=ultimata profiler med N-jämvikt hittades; 0=ingen verifierad kapacitet", 0))
         if iii["jamvikt"]:
             state = iii["vald"]
             partial.extend([
-                _post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "verksam betonghöjd i vald ultimat profil, inte tryckzonen vid brukslast"),
                 _post("a_block_Rd", r"a_{Rd}", state["a_block"], "mm", "rektangelblockets höjd=min(0.8x,h), eller hela tryckzonens höjd för parabelmodellen"),
                 _post("epsilon_c_Rd", r"ε_{c,Rd}", state["epsilon_c_max"] * 1000, "‰", "maximal betongtrycktöjning i den ultimata profilen"),
                 _post("epsilon_top_Rd", r"ε_{ÖK,Rd}", state["epsilon_top"] * 1000, "‰", "töjning i överkant för vald ultimat profil"),
                 _post("epsilon_bottom_Rd", r"ε_{UK,Rd}", state["epsilon_bottom"] * 1000, "‰", "töjning i underkant för vald ultimat profil"),
-                _post("F_c_Rd", r"F_{c,Rd}", state["F_c"] / 1000, "kN", "betongens tryckresultant i vald ultimat profil, med armeringsavdrag"),
-                _post("F_s_drag_Rd", r"F_{s,drag,Rd}", state["F_s_drag"] / 1000, "kN", "armeringens dragresultant i vald ultimat profil"),
             ])
+            final.append(_post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "tryckzonens höjd i vald ultimat profil"))
             if state["x"] is not None:
                 partial.append(_post("x_Rd", r"x_{Rd}", state["x"], "mm", "neutralaxeldjup från mest tryckt kant i brottgränstillstånd; kan överstiga h"))
-            if state["z"] is not None:
-                partial.append(_post("z_Rd", r"z_{Rd}", state["z"], "mm", "avstånd mellan samlad tryckresultant och dragresultant i ultimat profil, inklusive tryckarmering"))
             for i, row in enumerate(state["rader"], 1):
-                partial.extend([
-                    _post(f"sigma_s_Rd_{i}", rf"\sigma_{{s,Rd,{i}}}", row["sigma"], "MPa", row["namn"] + ": stålspänning i ultimat profil; begränsad till plus/minus f_yd"),
-                    _post(f"epsilon_s_Rd_{i}", rf"ε_{{s,Rd,{i}}}", row["epsilon"] * 1000, "‰", row["namn"] + ": ståltöjning i ultimat profil; horisontell flytplatå utan hårdnande"),
-                ])
+                final.append(_post(f"sigma_s_Rd_{i}", rf"\sigma_{{s,Rd,{i}}}", row["sigma"], "MPa",
+                                   row["namn"] + ": stålspänning i ultimat profil; positiv i tryck, negativ i drag"))
+                partial.append(_post(f"epsilon_s_Rd_{i}", rf"ε_{{s,Rd,{i}}}", row["epsilon"] * 1000, "‰",
+                                     row["namn"] + ": ståltöjning i ultimat profil"))
             final.extend([
-                _post("M_Rd_min", r"M_{Rd,min}", iii["M_Rd_min"] / 1e6, "kNm", "nedre momentgräns vid angiven normalkraft, med global teckenkonvention"),
-                _post("M_Rd_max", r"M_{Rd,max}", iii["M_Rd_max"] / 1e6, "kNm", "övre momentgräns vid angiven normalkraft, med global teckenkonvention"),
-                _post("inom_kapacitetsintervall", r"K_{NM}", int(iii["inom_kapacitetsintervall"]), "", "1=inmatat M ligger inom beräknat N-M-kapacitetsintervall; detta är ingen fullständig konstruktionskontroll", 0),
+                _post("F_c_Rd", r"F_{c,Rd}", state["F_c"] / 1000, "kN", "betongens tryckkraft i ultimat profil efter armeringsavdrag"),
+                _post("F_s_drag_Rd", r"F_{s,drag,Rd}", state["F_s_drag"] / 1000, "kN", "armeringens sammanlagda dragkraft i ultimat profil, positivt belopp"),
             ])
-            if iii["utnyttjande"] is not None:
-                final.append(_post("utnyttjande_M", r"η_M", iii["utnyttjande"], "", "momentkvot mot kapaciteten i lastens riktning vid samma N_d; endast tvärsnittskontroll"))
+            if state["z"] is not None:
+                final.append(_post("z_Rd", r"z_{Rd}", state["z"], "mm", "hävarm mellan snittets samlade tryckkraft och armeringens dragkraft i ultimat profil"))
+        final.append(_post("M_Ed", r"M_{Ed}", p["M"], "kNm", "inmatat dimensionerande böjmoment"))
+        if iii["jamvikt"]:
+            final.append(_post("M_Rd", r"M_{Rd}", state["M_Rd"] / 1e6, "kNm", "momentkapacitet i lastens riktning vid angiven normalkraft"))
         if p["tryckblock"] == "rektangel":
             equations.append(_ekvation(r"a=\min(0.8x,h),\quad F_c=f_{cd}(ba-A_{s,i\ block})", "EC2 3.1.7; f_ck<=50 MPa, eta=1. Armeringsavdraget integreras med cirkelsegment."))
         else:
             equations.append(_ekvation(r"\sigma_c=f_{cd}[1-(1-\varepsilon_c/0.002)^2]", "parabel upp till 2 promille, därefter konstant f_cd till tillämplig brottöjning; dragbetong försummas"))
         equations.append(_ekvation(r"\sigma_s=\max(-f_{yd},\min(f_{yd},E_s\varepsilon_s))", "stadium III; elastiskt-idealplastiskt stål utan hårdnande, ingen sekant-/tangent-EI beräknas"))
-    final.append(_post("antal_varningar", r"n_{varning}", len(warnings), "", "antal modell- och kapacitetsvarningar; noll är ingen fullständig EC2-verifiering", 0))
     for i, warning in enumerate(warnings, 1):
         value_text = ("" if warning["varde"] is None else
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}; gräns {warning['grans']:.6g} {warning['enhet']}.")
@@ -700,16 +699,27 @@ def _bt_panel_resultat(raw):
         "indata": {"title": "Indata", "items": data},
         "delresultat": {"title": "Delresultat", "items": partial},
         "ekvationer": {"title": "Ekvationer", "items": equations},
-        "slutresultat": {"title": "Slutresultat och varningar", "items": final},
+        "slutresultat": {"title": "Slutresultat", "items": final},
     }
 
 
-def _bt_fran_panel(px):
-    if len(px) != len(_BT_PANEL_PX):
-        raise ValueError(f"Panel-formatet kräver {len(_BT_PANEL_PX)} värden. Äldre pålformat har 12 eller 16 värden.")
-    data = dict(zip(_BT_PANEL_PX, px))
+def _bt_panel_geometri(data):
     if data["geometri"] == 1:
-        data.pop("h")
+        data.pop("h", None)
+    elif data["geometri"] == 3:
+        data["b"] = _PLATTREMSA_BREDD
+    return data
+
+
+def _bt_fran_panel(px):
+    fields = _BT_PANEL_PX
+    if len(px) == len(fields) + 1:
+        # Tidigare positionsanrop hade ett uttryckligt modellval före gamma_s.
+        i = fields.index("gamma_s")
+        fields = (*fields[:i], "tryckblock", *fields[i:])
+    if len(px) != len(fields):
+        raise ValueError(f"Panel-formatet kräver {len(_BT_PANEL_PX)} värden. Äldre pålformat har 12 eller 16 värden.")
+    data = _bt_panel_geometri(dict(zip(fields, px)))
     manual_strain = data.pop("epsilon_c_lim_manuell")
     strain_per_mille = data.pop("epsilon_c_lim_pm")
     auto_stress = data.pop("sigma_c_lim_auto")
@@ -733,6 +743,8 @@ def betongtvarsnitt(px):
     För balk/plattremsa anges antal, diameter och täckskikt per sida. Balk
     har bygel. En avancerad dictionary kan i stället ange armeringsrader
     med centrumläge y, diameter och exakt ett av antal, s eller A_s.
+    Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
+    materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
     """
     if isinstance(px, (list, tuple)):
         if len(px) in (12, 16):
@@ -766,7 +778,9 @@ _BT_SKISS_FALT = (
 _BT_FIELDS = [
     _bt_choice("geometri", "Geometri", 2, [("Påle", 1), ("Balk", 2), ("Plattremsa", 3)]),
     _bt_choice("stadium", "Analysmodell", 2, [("Stadium II", 2), ("Stadium III", 3)]),
-    _bt_field("b", "Bredd", "<i>b</i>", "mm", presentation_if={**_PALE, "label": "Pålsida"}),
+    _bt_field("b", "Bredd", "<i>b</i>", "mm", presentation_if={**_PALE, "label": "Pålsida"},
+              visible_if={"field": "geometri", "not_equals": 3},
+              fixed_if={**_PLATTA, "value": _PLATTREMSA_BREDD}),
     _bt_field("h", "Höjd", "<i>h</i>", "mm", visible_if=_BALK_PLATTA,
               presentation_if={**_PLATTA, "label": "Plattjocklek"}),
     _bt_field("c_nom", "Täckskikt", "<i>c</i><sub>nom</sub>", "mm", visible_if=_PALE),
@@ -790,9 +804,6 @@ _BT_FIELDS = [
               help="Används som angiven i stadium II."),
     _bt_field("E_s", "Armeringens elasticitetsmodul", "<i>E</i><sub>s</sub>", "MPa"),
     _bt_field("f_yk", "Armeringens karakteristiska flytgräns", "<i>f</i><sub>yk</sub>", "MPa"),
-    _bt_choice("tryckblock", "Betongmodell", "rektangel", [
-        ("Rektangulärt block", "rektangel"), ("Parabel–rektangel", "parabel"),
-    ], help="Styr kapacitetsmodellen i stadium III och trycktöjningskontrollen i stadium II."),
     _bt_field("gamma_s", "Partialkoefficient för stål", "γ<sub>s</sub>", help="Flytgränsen i beräkningen är fyk / γs."),
     _bt_field("epsilon_c_lim_manuell", "Ange trycktöjningsgränsen manuellt", type="bool", default=False,
               widget="checkbox", visible_if=_ELASTISK),
@@ -826,11 +837,15 @@ betongtvarsnitt.panel_schema = {
                             "fields": list(_BT_SKISS_FALT), "max_width": 480,
                             "caption": "Järnens placering i breddled visas schematiskt."}},
             ]},
-            {"title": "Laster", "fields": ["N_d", "M"], "columns": 2},
-            {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
+            {"columns": 2, "sections": [
+                {"title": "Laster", "fields": ["N_d", "M"], "columns": 2},
+                {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
+            ]},
+            {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_profil:render",
+                        "fields": list(_BT_PANEL_PX), "full_width": True}},
         ]},
         {"title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 1, "sections": [
-            {"title": "Materialmodell och stål", "fields": ["tryckblock", "gamma_s"], "columns": 2},
+            {"title": "Stål", "fields": ["gamma_s"], "columns": 2},
             {"title": "Varningsgräns för stadium II", "columns": 2,
              "fields": ["epsilon_c_lim_manuell", "epsilon_c_lim_pm", "sigma_c_lim_auto", "sigma_c_lim"]},
         ]},

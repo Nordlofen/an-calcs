@@ -225,7 +225,10 @@ class PanelAndInputTests(unittest.TestCase):
             self.assertIn(warning['text'], method_texts)
         for key in ['indata', 'delresultat', 'slutresultat']:
             for item in report[key]['items']:
-                self.assertIsInstance(item['value'], (float, int))
+                if key == 'slutresultat' and item['namn'] == 'stadium':
+                    self.assertEqual(item['value'], 'II')
+                else:
+                    self.assertIsInstance(item['value'], (float, int))
                 self.assertTrue(item['etikett'])
         json.dumps(report, ensure_ascii=False, allow_nan=False)
 
@@ -237,6 +240,15 @@ class PanelAndInputTests(unittest.TestCase):
                 data = dict(defaults, geometri=geometry, stadium=stage)
                 result = bt.betongtvarsnitt([data[key] for key in schema['px']])
                 self.assertIn('slutresultat', result)
+
+    def test_aldre_positionsanrop_med_explicit_betongmodell(self):
+        schema = bt.betongtvarsnitt.panel_schema
+        defaults = {field['name']: field['default'] for field in schema['fields']}
+        defaults['stadium'] = 3
+        px = [defaults[key] for key in schema['px']]
+        px.insert(schema['px'].index('gamma_s'), 'parabel')
+        method = bt.betongtvarsnitt(px)['metodbeskrivning']['items']
+        self.assertTrue(any('parabel–rektangel' in item['text'] for item in method))
 
     def test_panel_manual_strain_and_auto_strength_limit(self):
         schema = bt.betongtvarsnitt.panel_schema
@@ -273,7 +285,8 @@ class PanelAndInputTests(unittest.TestCase):
                 if stage == 'II':
                     self.assertAlmostEqual(values['EI_II'], 37000 * raw['I_II'] / 1e9)
                 else:
-                    self.assertTrue(values['M_Rd_min'] < values['M_Rd_max'])
+                    self.assertGreater(values['M_Rd'], 0)
+                    self.assertEqual(values['M_Ed'], data['M'])
                     self.assertNotIn('EI_II', values)
 
     def test_lagerdjup_beraknas_fran_tackskikt_och_bygel(self):
