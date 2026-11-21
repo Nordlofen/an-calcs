@@ -75,6 +75,7 @@ class PanelTests(unittest.TestCase):
                     self.assertIn(f'class="anp-data-block__rhs">{values["stadium"]}</div>', self.panel.cb.html_sr)
                     self.assertEqual("EI_II" in values, stage == 2)
                     self.assertEqual("sigma_c_Rd" in values, stage == 3)
+                    self.assertEqual("momentkontroll" in values, stage == 3)
                     if stage == 2:
                         self.assertTrue({"x", "sigma_c_max", "F_c", "F_s_drag", "F_s_tryck"} <= values.keys())
                         self.assertTrue({"epsilon_c_max", "epsilon_sy"} <= partial)
@@ -331,6 +332,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(report["M_Ed"], self.fields["M"].value)
         self.assertNotIn("M_Rd", report)
         self.assertNotIn("sigma_c_Rd", report)
+        self.assertEqual(report["momentkontroll"], "Ej godkänd")
         self.assertIn("Kritisk varning. Ingen jämvikt hittades", self.panel.cb.html_sr)
 
     def test_report_uses_tension_and_compression_groups_in_both_stages(self):
@@ -363,6 +365,7 @@ class PanelTests(unittest.TestCase):
         self.assertAlmostEqual(values["M_Rd"], -342.089560, places=5)
         self.assertFalse(any(name.startswith("varning_") for name in values))
         self.assertEqual(values["balanskontroll"], "Överarmerat · Ej godkänd")
+        self.assertEqual(values["momentkontroll"], "Godkänd")
         self.assertEqual(rows["stadium"]["etikett"], "")
         for name, symbol in {"F_c_Rd": "F_c", "F_s_drag_Rd": "F_s", "F_s_tryck_Rd": "F'_s", "z_Rd": "z"}.items():
             self.assertEqual(rows[name]["latex"], symbol)
@@ -423,4 +426,14 @@ class PanelTests(unittest.TestCase):
         self.fields["s_uk"].value = str(spacing_bal)
         self.assertEqual(result(self.calculate())["balanskontroll"], "Balanserat · Gränsfall")
         self.fields["s_uk"].value = str(spacing_bal * 1.1)
-        self.assertEqual(result(self.calculate())["balanskontroll"], "Underarmerat · Godkänd")
+        capacity = result(self.calculate())["M_Rd"]
+        for moment, expected in ((capacity, "Godkänd"), (capacity + 1, "Ej godkänd")):
+            with self.subTest(moment=moment):
+                self.fields["M"].value = moment
+                final = result(self.calculate())
+                self.assertEqual(final["balanskontroll"], "Underarmerat · Godkänd")
+                self.assertEqual(final["momentkontroll"], expected)
+                rows = list(final)
+                self.assertEqual(rows[rows.index("balanskontroll") + 1], "momentkontroll")
+                html = self.panel.cb.html_sr
+                self.assertRegex(html, rf"(?s)Balanskontroll.*Momentkontroll.*>{expected}</div>")

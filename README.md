@@ -732,7 +732,8 @@ Välj stadium II för elastisk böjstyvhet med tryckzon eller stadium III för
 momentkapacitet vid given normalkraft. Panelen visar en dynamisk måttskiss
 med täckskikt och armering. Balk har alltid bygel. Balk och plattremsa kan ha
 flera lager i över- och underkant. Lagren placeras från täckskikt, stångdiameter
-och fritt höjdavstånd. Stadium III visar också balanskontrollen för dragarmeringen.
+och fritt höjdavstånd. Stadium III visar balanskontrollen för dragarmeringen och
+om lastmomentet ryms inom momentkapaciteten vid angiven normalkraft.
 
 ```python
 from an_calcs.betong import betongtvarsnitt

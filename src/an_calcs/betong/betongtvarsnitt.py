@@ -820,6 +820,9 @@ def _bt_panel_resultat(raw):
         if iii["jamvikt"]:
             final.append(_post("M_Rd", r"M_{Rd}", state["M_Rd"] / 1e6, "kNm", "momentkapacitet i lastens riktning"))
         final.append(_bt_balanspost(tension_strain, p["f_yd"] / p["E_s"], iii["jamvikt"]))
+        moment_status = "Godkänd" if iii["inom_kapacitetsintervall"] else "Ej godkänd"
+        moment_label = "" if iii["jamvikt"] else "normalkraftsjämvikt saknas"
+        final.append(_post("momentkontroll", "Momentkontroll", moment_status, etikett=moment_label))
         if p["tryckblock"] == "rektangel":
             equations.append(_ekvation(r"a=\min(0.8x,h),\quad F_c=f_{cd}(ba-A_{s,\mathrm{block}})",
                                        "tryckblock (EC2 3.1.7(3)). Dra av stålets area inom blocket."))
@@ -925,6 +928,7 @@ def betongtvarsnitt(px):
     diameter och exakt ett av antal, s eller A_s.
     Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
     materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
+    Slutresultatet i stadium III visar balanskontroll och momentkontroll.
     """
     if isinstance(px, (list, tuple)):
         if len(px) in (12, 16):
