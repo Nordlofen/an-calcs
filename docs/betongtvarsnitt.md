@@ -52,8 +52,9 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   höjd från normalkraft och moment. Elastiska stålspänningar redovisas även
   över flytgränsen.
 - **Stadium III** löser tryck- och momentkapacitet vid given normalkraft och
-  visar valt stadium, tryckzonens höjd, stålspänningar, betongens tryckkraft,
-  armeringens dragkraft och hävarm där den finns. \(M_{Ed}\) och \(M_{Rd}\)
+  visar valt stadium, tryckzonens höjd, betongens tryckspänning \(\sigma_c=f_{cd}\),
+  stålspänningar, betongens tryckkraft, armeringens dragkraft och hävarm där
+  den finns. \(M_{Ed}\) och \(M_{Rd}\)
   i lastens riktning visas efter varandra. Töjningarna finns i delresultatet.
   Spänningar och töjningar avser snittet vid momentkapacitet. Panel använder
   rektangulärt tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.

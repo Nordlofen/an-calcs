@@ -55,6 +55,7 @@ class PanelTests(unittest.TestCase):
 
     def test_three_geometries_and_both_stages(self):
         self.assertNotIn("tryckblock", self.fields)
+        self.fields["f_cd"].value = 17.5
         for geometry, width, height, force, moment in (
             (1, 235, 600, 700, 30), (2, 300, 600, 200, 100), (3, 1000, 260, 0, -50),
         ):
@@ -66,17 +67,21 @@ class PanelTests(unittest.TestCase):
                     report = self.calculate()
                     self.assertIsInstance(self.panel.cb, CalcBlock)
                     values = result(report)
+                    input_names = {item["namn"] for item in report["indata"]["items"]}
+                    self.assertFalse({"geometri", "stadium"} & input_names)
                     partial = {item["namn"] for item in report["delresultat"]["items"]}
                     self.assertEqual(next(iter(values)), "stadium")
                     self.assertEqual(values["stadium"], "II" if stage == 2 else "III")
                     self.assertIn(f'class="anp-data-block__rhs">{values["stadium"]}</div>', self.panel.cb.html_sr)
                     self.assertEqual("EI_II" in values, stage == 2)
+                    self.assertEqual("sigma_c_Rd" in values, stage == 3)
                     if stage == 2:
                         self.assertTrue({"x", "sigma_c_max", "sigma_s_1", "F_c", "F_s_drag"} <= values.keys())
                         self.assertTrue({"epsilon_c_max", "epsilon_s_1"} <= partial)
                         self.assertEqual("z_II" in values, values["F_s_drag"] > 0)
                     else:
                         self.assertTrue({"x_Rd_verksam", "sigma_s_Rd_1", "F_c_Rd", "F_s_drag_Rd"} <= values.keys())
+                        self.assertEqual(values["sigma_c_Rd"], self.fields["f_cd"].value)
                         self.assertTrue({"epsilon_c_Rd", "epsilon_s_Rd_1"} <= partial)
                         self.assertEqual("z_Rd" in values, values["F_s_drag_Rd"] > 0)
                         self.assertEqual(values["M_Ed"], moment)
@@ -85,6 +90,7 @@ class PanelTests(unittest.TestCase):
                     self.assertFalse(any(name.startswith("epsilon_") for name in values))
                     omitted = {"kappa_II", "M_Rd_min", "M_Rd_max", "inom_kapacitetsintervall", "utnyttjande_M"}
                     self.assertFalse(omitted & (values.keys() | partial))
+                    self.assertTrue({"geometri", "stadium"} <= self.visible())
                     self.assertEqual("h" in self.visible(), geometry != 1)
                     self.assertEqual("b" in self.visible(), geometry != 3)
                     self.assertEqual("n_uk" in self.visible(), geometry == 2)
@@ -307,6 +313,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(report["stadium"], "III")
         self.assertEqual(report["M_Ed"], self.fields["M"].value)
         self.assertNotIn("M_Rd", report)
+        self.assertNotIn("sigma_c_Rd", report)
         self.assertIn("Kritisk varning. Ingen jämvikt hittades", self.panel.cb.html_sr)
 
     def test_reported_steel_stresses_are_positive_in_tension_in_both_stages(self):
@@ -334,6 +341,8 @@ class PanelTests(unittest.TestCase):
         values = result(report)
         rows = {row["namn"]: row for row in report["slutresultat"]["items"]}
         self.assertAlmostEqual(values["sigma_s_Rd_1"], 244.572605, places=5)
+        self.assertEqual(rows["sigma_c_Rd"]["latex"], r"\sigma_c=f_{cd}")
+        self.assertEqual(rows["sigma_c_Rd"]["unit"], "MPa")
         self.assertAlmostEqual(values["M_Rd"], -342.089560, places=5)
         self.assertFalse(any(name.startswith("varning_") for name in values))
         self.assertEqual(rows["stadium"]["etikett"], "")

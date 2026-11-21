@@ -590,8 +590,6 @@ def _bt_panel_resultat(raw):
         {"rubrik": "Eurokod 2 (EN 1992-1-1:2004)", "text": "Stadium III bygger på betongens tryckmodell i 3.1.7, stålets flytplatå i 3.2.7(2) och antagandena om böjning med normalkraft i 6.1."},
     ])
     data = [
-        _post("geometri", r"g", {"pale": 1, "balk": 2, "plattremsa": 3}[p["geometri"]], "", f"valt tvärsnitt: {geometry}", 0),
-        _post("stadium", r"S", 2 if p["stadium"] == "II" else 3, "", f"valt analysstadium: stadium {p['stadium']}", 0),
         _post("b", "b", p["b"], "mm", "plattremsans bredd" if p["geometri"] == "plattremsa" else "snittets bredd"),
         _post("h", "h", p["h"], "mm", "tvärsnittets höjd eller plattjocklek"),
         _post("N_d", r"N_d", p["N_d"], "kN", "normalkraft i samma kombination som M, positiv i tryck"),
@@ -709,6 +707,8 @@ def _bt_panel_resultat(raw):
                 _post("epsilon_bottom_Rd", r"ε_{UK,Rd}", state["epsilon_bottom"] * 1000, "‰", "töjning i UK vid momentkapacitet"),
             ])
             final.append(_post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "tryckzonens höjd inom snittet"))
+            if p["tryckblock"] == "rektangel":
+                final.append(_post("sigma_c_Rd", r"\sigma_c=f_{cd}", p["f_cd"], "MPa", "betongens tryckspänning i tryckblocket"))
             if state["x"] is not None:
                 partial.append(_post("x_Rd", r"x_{Rd}", state["x"], "mm", "djup till neutralaxeln från tryckkanten"))
             for i, row in enumerate(state["rader"], 1):
