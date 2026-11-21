@@ -55,28 +55,36 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   visar valt stadium, tryckzonens höjd, stålspänningar, betongens tryckkraft,
   armeringens dragkraft och hävarm där den finns. \(M_{Ed}\) och \(M_{Rd}\)
   i lastens riktning visas efter varandra. Töjningarna finns i delresultatet.
-  Snittresultaten avser den ultimata profilen. Panel använder rektangulärt
-  tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.
+  Spänningar och töjningar avser snittet vid momentkapacitet. Panel använder
+  rektangulärt tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.
   Stålet har horisontell flytplatå vid \(f_{yd}=f_{yk}/\gamma_s\). Vid helt
   tryckt snitt används blockmodellens pivotvillkor med 1,75 ‰ som gräns
   vid jämn tryckning. Även tidigare sparade Panel-fall räknas om med
   rektangulärt tryckblock. Resultaten avser
   tvärsnittskapacitet och omfattar ingen sekant- eller tangentstyvhet.
 
+Stålspänning visas med drag positivt och tryck negativt i slutresultatet.
+Positiva spänningar och krafter visas utan plustecken. Jämviktsekvationerna
+och stålspänningarna från `berakna_betongtvarsnitt` har tryck positivt.
+
+Stadium II varnar vid överskriden elastisk töjningsgräns eller flytgräns i
+stålet och ger en kritisk varning vid överskriden stuktöjning i betongen.
+Stadium III ger kritiska varningar om beräkningen saknar jämvikt för angiven
+normalkraft eller om momentet ligger utanför den beräknade kapaciteten.
+Varningstexterna visas i metodbeskrivningen och slutresultatet.
+
 Modellgränsen för elastisk betongtrycktöjning är som standard
 \(0,4(f_{ck}+8)/E_{cd}\). Med \(f_{ck}=30\) MPa och \(E_{cd}=33\,000\) MPa
 blir gränsen 0,4606 ‰. Den kan anges manuellt i ‰ i Panel eller dimensionslöst
-som `epsilon_c_lim` i en dictionary. Det är ett varningskriterium för den
-elastiska modellen. Brottöjningskontrollen använder ett separat villkor.
-Varningstexterna visas både i metodbeskrivningen och i slutresultatet.
+som `epsilon_c_lim` i en dictionary.
 
 Modellerna omfattar rektangulära snitt, enaxlig böjning, normalkraft i tryck
 eller noll och \(f_{ck}\leq50\) MPa. Stadium III använder betongens tryckblock
 enligt EN 1992-1-1:2004 3.1.7(3), stålets flytplatå enligt 3.2.7(2) och
 antagandena för böjning med normalkraft enligt 6.1. Ekvationerna visar
 kraft- och momentjämvikt samt specialfallet ren böjning med ett draglager.
-Modellen söker jämvikt numeriskt längs tillåtna ultimata töjningsprofiler. Förankring,
-skjuvning, torsion, sprickbredd, fria stångavstånd, rotationsförmåga,
+Modellen söker jämvikt numeriskt för tillåtna töjningar i brottgränstillstånd.
+Förankring, skjuvning, torsion, sprickbredd, fria stångavstånd, rotationsförmåga,
 instabilitet och andra ordningens effekter kontrolleras separat.
 
 ## Anrop från Python

@@ -78,10 +78,12 @@ class ElasticTests(unittest.TestCase):
 
     def test_all_three_warning_categories(self):
         raw = bt.berakna_betongtvarsnitt(beam(N_d=0, M=20000))
-        codes = {w['kod'] for w in raw['varningar']}
-        self.assertIn('II_EPSILON_C_LIM', codes)
-        self.assertIn('II_BETONG_BROTTTOJNING', codes)
-        self.assertTrue(any(code.startswith('II_STALFLYTNING') for code in codes))
+        warnings = {w['kod']: w['niva'] for w in raw['varningar']}
+        self.assertEqual(warnings.pop('II_EPSILON_C_LIM'), 'VARNING')
+        self.assertEqual(warnings.pop('II_BETONG_BROTTTOJNING'), 'KRITISK')
+        self.assertTrue(warnings)
+        self.assertTrue(all(code.startswith('II_STALFLYTNING_') and level == 'VARNING'
+                            for code, level in warnings.items()))
         self.assertEqual(raw['indata']['stadium'], 'II')
         self.assertIsNone(raw['stadium_III'])
 
@@ -175,15 +177,18 @@ class UltimateTests(unittest.TestCase):
         self.assertAlmostEqual(a['M_Rd_min'], -b['M_Rd_max'], places=3)
 
     def test_capacity_exceedance_is_critical(self):
-        r = bt.berakna_betongtvarsnitt(beam(stadium='III', M=10000))
-        self.assertTrue(r['kritisk_varning'])
-        self.assertIn('III_MOMENTKAPACITET_OVERSKRIDS', {w['kod'] for w in r['varningar']})
+        for moment in (-10000, 10000):
+            with self.subTest(moment=moment):
+                r = bt.berakna_betongtvarsnitt(beam(stadium='III', M=moment))
+                self.assertTrue(r['kritisk_varning'])
+                self.assertEqual([w['kod'] for w in r['varningar']], ['III_MOMENTKAPACITET_OVERSKRIDS'])
 
     def test_impossible_normal_force_does_not_publish_capacity(self):
         r = bt.berakna_betongtvarsnitt(beam(stadium='III', N_d=10000000))
         self.assertFalse(r['stadium_III']['jamvikt'])
         self.assertIsNone(r['stadium_III']['M_Rd_max'])
         self.assertTrue(r['kritisk_varning'])
+        self.assertEqual([w['kod'] for w in r['varningar']], ['III_N_JAMVIKT_SAKNAS'])
 
     def test_pure_compression_profile_uses_model_specific_strain(self):
         for block, strain in [('rektangel', .00175), ('parabel', .002)]:

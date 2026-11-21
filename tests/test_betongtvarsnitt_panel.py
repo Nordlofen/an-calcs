@@ -287,7 +287,7 @@ class PanelTests(unittest.TestCase):
         cb = self.panel.cb
         for key in ("html_mb", "html_sr", "latex_sr"):
             block = getattr(cb, key)
-            for wording in ("modellkriterium", "överskrider vald flytgräns", "brottöjningsvillkor"):
+            for wording in ("elastiska töjningsgränsen", "överskrider flytgränsen", "tillåtna stuktöjning", "Kritisk varning"):
                 self.assertIn(wording, block)
         self.assertIn("Definition:", cb.html_id)
         self.assertIn("Definition:", cb.latex_id)
@@ -300,11 +300,46 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(entry["value"], 0.4)
         self.assertIn("manuellt", entry["etikett"])
 
-    def test_no_ultimate_equilibrium_shows_demand_and_warning(self):
+    def test_missing_axial_equilibrium_shows_demand_and_critical_warning(self):
         self.fields["stadium"].value = 3
         self.fields["N_d"].value = 1e7
         report = result(self.calculate())
         self.assertEqual(report["stadium"], "III")
         self.assertEqual(report["M_Ed"], self.fields["M"].value)
         self.assertNotIn("M_Rd", report)
-        self.assertIn("Ingen admissibel ultimat N-M-profil", self.panel.cb.html_sr)
+        self.assertIn("Kritisk varning. Ingen jämvikt hittades", self.panel.cb.html_sr)
+
+    def test_reported_steel_stresses_are_positive_in_tension_in_both_stages(self):
+        self.fields["N_d"].value = 200
+        for stage, prefix in ((2, "sigma_s_"), (3, "sigma_s_Rd_")):
+            self.fields["stadium"].value = stage
+            for moment in (-100, 100):
+                with self.subTest(stage=stage, moment=moment):
+                    self.fields["M"].value = moment
+                    rows = self.calculate()["slutresultat"]["items"]
+                    steel = {row["namn"]: row for row in rows if row["namn"].startswith(prefix)}
+                    tension = steel[f"{prefix}{1 if moment < 0 else 2}"]
+                    compression = steel[f"{prefix}{2 if moment < 0 else 1}"]
+                    self.assertGreater(tension["value"], 0)
+                    self.assertLess(compression["value"], 0)
+                    self.assertIn("dragspänning", tension["etikett"])
+                    self.assertIn("tryckspänning", compression["etikett"])
+                    self.assertEqual({row["latex"] for row in steel.values()}, {r"\sigma_{s,1}", r"\sigma_{s,2}"})
+
+    def test_plate_with_steel_below_yield_has_no_warning_in_stage_iii(self):
+        for key, value in dict(geometri=3, stadium=3, h=260, c_nom_ok=45, phi_ok=25,
+                               s_ok="50", s_uk="0", N_d=0, M=-325).items():
+            self.fields[key].value = value
+        report = self.calculate()
+        values = result(report)
+        rows = {row["namn"]: row for row in report["slutresultat"]["items"]}
+        self.assertAlmostEqual(values["sigma_s_Rd_1"], 244.572605, places=5)
+        self.assertAlmostEqual(values["M_Rd"], -342.089560, places=5)
+        self.assertFalse(any(name.startswith("varning_") for name in values))
+        self.assertEqual(rows["stadium"]["etikett"], "")
+        for name, symbol in {"sigma_s_Rd_1": r"\sigma_s", "F_c_Rd": "F_c", "F_s_drag_Rd": "F_s", "z_Rd": "z"}.items():
+            self.assertEqual(rows[name]["latex"], symbol)
+        self.assertEqual(rows["F_s_drag_Rd"]["etikett"], "armeringens dragkraft")
+        self.assertEqual(rows["M_Rd"]["etikett"], "momentkapacitet i lastens riktning")
+        self.assertIn("dragspänning i ÖK vid momentkapacitet", self.panel.cb.html_sr)
+        self.assertRegex(self.panel.cb.html_sr, r'class="anp-data-block__rhs">245(?=\s|<)')
