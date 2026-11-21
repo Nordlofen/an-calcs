@@ -76,13 +76,13 @@ class PanelTests(unittest.TestCase):
                     self.assertEqual("EI_II" in values, stage == 2)
                     self.assertEqual("sigma_c_Rd" in values, stage == 3)
                     if stage == 2:
-                        self.assertTrue({"x", "sigma_c_max", "sigma_s_1", "F_c", "F_s_drag"} <= values.keys())
-                        self.assertTrue({"epsilon_c_max", "epsilon_s_1"} <= partial)
+                        self.assertTrue({"x", "sigma_c_max", "F_c", "F_s_drag", "F_s_tryck"} <= values.keys())
+                        self.assertTrue({"epsilon_c_max", "epsilon_sy"} <= partial)
                         self.assertEqual("z_II" in values, values["F_s_drag"] > 0)
                     else:
-                        self.assertTrue({"x_Rd_verksam", "sigma_s_Rd_1", "F_c_Rd", "F_s_drag_Rd"} <= values.keys())
+                        self.assertTrue({"x_Rd_verksam", "F_c_Rd", "F_s_drag_Rd", "F_s_tryck_Rd", "balanskontroll"} <= values.keys())
                         self.assertEqual(values["sigma_c_Rd"], self.fields["f_cd"].value)
-                        self.assertTrue({"epsilon_c_Rd", "epsilon_s_Rd_1"} <= partial)
+                        self.assertTrue({"epsilon_c_Rd", "epsilon_sy"} <= partial)
                         self.assertEqual("z_Rd" in values, values["F_s_drag_Rd"] > 0)
                         self.assertEqual(values["M_Ed"], moment)
                         self.assertGreater(values["M_Rd"] * moment, 0)
@@ -152,7 +152,7 @@ class PanelTests(unittest.TestCase):
         self.assertAlmostEqual(data["s_2"], 1000 / 7)
         self.assertAlmostEqual(data["As_2"], 7 * math.pi * data["phi_2"]**2 / 4)
         older_px = [value for name, value in zip(betongtvarsnitt.panel_schema["px"], restored.to_px())
-                    if name not in {"s_ok", "s_uk"}]
+                    if name not in {"s_ok", "s_uk", "c_nom_sida"} and "_lager_" not in name]
         self.assertEqual(self.calculate(restored), betongtvarsnitt(older_px))
 
     def test_longitudinal_bars_clear_the_stirrup_in_dimensioned_figure(self):
@@ -316,22 +316,23 @@ class PanelTests(unittest.TestCase):
         self.assertNotIn("sigma_c_Rd", report)
         self.assertIn("Kritisk varning. Ingen jämvikt hittades", self.panel.cb.html_sr)
 
-    def test_reported_steel_stresses_are_positive_in_tension_in_both_stages(self):
+    def test_report_uses_tension_and_compression_groups_in_both_stages(self):
         self.fields["N_d"].value = 200
-        for stage, prefix in ((2, "sigma_s_"), (3, "sigma_s_Rd_")):
+        for stage, suffix in ((2, ""), (3, "_Rd")):
             self.fields["stadium"].value = stage
             for moment in (-100, 100):
                 with self.subTest(stage=stage, moment=moment):
                     self.fields["M"].value = moment
-                    rows = self.calculate()["slutresultat"]["items"]
-                    steel = {row["namn"]: row for row in rows if row["namn"].startswith(prefix)}
-                    tension = steel[f"{prefix}{1 if moment < 0 else 2}"]
-                    compression = steel[f"{prefix}{2 if moment < 0 else 1}"]
-                    self.assertGreater(tension["value"], 0)
-                    self.assertLess(compression["value"], 0)
-                    self.assertIn("dragspänning", tension["etikett"])
-                    self.assertIn("tryckspänning", compression["etikett"])
-                    self.assertEqual({row["latex"] for row in steel.values()}, {r"\sigma_{s,1}", r"\sigma_{s,2}"})
+                    details = self.calculate()
+                    final = result(details)
+                    partial = {row["namn"]: row["value"] for row in details["delresultat"]["items"]}
+                    self.assertFalse(any(name.startswith("sigma_s_") for name in final))
+                    self.assertGreater(final[f"F_s_drag{suffix}"], 0)
+                    self.assertGreater(final[f"F_s_tryck{suffix}"], 0)
+                    self.assertGreater(partial["epsilon_s_drag"], 0)
+                    self.assertGreater(partial["epsilon_s_tryck"], 0)
+                    self.assertAlmostEqual(partial["d"], 549 if moment < 0 else 542)
+                    self.assertAlmostEqual(partial["d_prime"], 58 if moment < 0 else 51)
 
     def test_plate_with_steel_below_yield_has_no_warning_in_stage_iii(self):
         for key, value in dict(geometri=3, stadium=3, h=260, c_nom_ok=45, phi_ok=25,
@@ -340,15 +341,69 @@ class PanelTests(unittest.TestCase):
         report = self.calculate()
         values = result(report)
         rows = {row["namn"]: row for row in report["slutresultat"]["items"]}
-        self.assertAlmostEqual(values["sigma_s_Rd_1"], 244.572605, places=5)
         self.assertEqual(rows["sigma_c_Rd"]["latex"], r"\sigma_c=f_{cd}")
         self.assertEqual(rows["sigma_c_Rd"]["unit"], "MPa")
         self.assertAlmostEqual(values["M_Rd"], -342.089560, places=5)
         self.assertFalse(any(name.startswith("varning_") for name in values))
+        self.assertEqual(values["balanskontroll"], "Överarmerat · Ej godkänd")
         self.assertEqual(rows["stadium"]["etikett"], "")
-        for name, symbol in {"sigma_s_Rd_1": r"\sigma_s", "F_c_Rd": "F_c", "F_s_drag_Rd": "F_s", "z_Rd": "z"}.items():
+        for name, symbol in {"F_c_Rd": "F_c", "F_s_drag_Rd": "F_s", "F_s_tryck_Rd": "F'_s", "z_Rd": "z"}.items():
             self.assertEqual(rows[name]["latex"], symbol)
         self.assertEqual(rows["F_s_drag_Rd"]["etikett"], "armeringens dragkraft")
         self.assertEqual(rows["M_Rd"]["etikett"], "momentkapacitet i lastens riktning")
-        self.assertIn("dragspänning i ÖK vid momentkapacitet", self.panel.cb.html_sr)
-        self.assertRegex(self.panel.cb.html_sr, r'class="anp-data-block__rhs">245(?=\s|<)')
+        self.assertIn("dragtöjning vid d", self.panel.cb.html_sr)
+
+    def test_extra_beam_layers_update_the_sketch_and_survive_case_restore(self):
+        self.fields["c_nom_sida"].value = "30"
+        table = self.panel._table_widgets["balk_lager"]
+        table.add_row({"sida": "ok", "phi": 12, "mangd": 3, "a_v": 25})
+        self.assertIn("ÖK  2 lager", self.figure())
+        bars = drawing(self.figure()).findall(".//*[@data-part='langsjarn']")
+        self.assertEqual(len(bars), 9)
+        self.assertEqual(len({bar.get("cy") for bar in bars}), 3)
+        details = self.calculate()
+        partial = {row["namn"]: row["value"] for row in details["delresultat"]["items"]}
+        self.assertAlmostEqual(partial["a_h_1"], 192)
+        self.assertAlmostEqual(partial["a_h_2"], 94)
+        self.assertAlmostEqual(partial["a_v_1_2"], 25)
+        self.panel._save_case("Balk med extra lager")
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(betongtvarsnitt, key="Balk med extra lager", state_file=self.state)
+        self.assertEqual(restored.to_px(), self.panel.to_px())
+        self.assertEqual(self.calculate(restored), details)
+        self.assertEqual(restored._figure_records[0]["widget"].value, self.figure())
+        restored._table_widgets["balk_lager"].rows[-1]["remove_button"].click()
+        updated = drawing(restored._figure_records[0]["widget"].value)
+        self.assertEqual(len(updated.findall(".//*[@data-part='langsjarn']")), 6)
+
+    def test_balance_uses_tension_centroid_when_only_one_layer_yields(self):
+        for name, value in dict(geometri=3, stadium=3, h=400, s_ok="0", s_uk="65", M=200).items():
+            self.fields[name].value = value
+        self.panel._table_widgets["plattremsa_lager"].add_row(
+            {"sida": "uk", "phi": 16, "mangd": 45, "a_v": 50})
+        details = self.calculate()
+        final = result(details)
+        partial = {row["namn"]: row["value"] for row in details["delresultat"]["items"]}
+        self.assertAlmostEqual(partial["a_h_2"], 29)
+        self.assertAlmostEqual(partial["a_v_2_1"], 50)
+        area_fraction = (20**2 / 65) / (20**2 / 65 + 16**2 / 45)
+        depth = area_fraction * 350 + (1 - area_fraction) * 282
+        self.assertAlmostEqual(partial["d"], depth)
+        self.assertAlmostEqual(partial["epsilon_s_drag"], 3.5 * (depth / partial["x_Rd"] - 1))
+        self.assertAlmostEqual(partial["flytandel_drag"], 100 * area_fraction)
+        self.assertIn(r"\%", self.panel.cb.latex_dr)
+        self.assertEqual(final["balanskontroll"], "Överarmerat · Ej godkänd")
+        self.assertGreater(final["M_Rd"], final["M_Ed"])
+
+    def test_balance_reports_the_yield_boundary_and_passes_on_the_underreinforced_side(self):
+        fyd = 500 / 1.15
+        x_bal = 350 * .0035 / (.0035 + fyd / 200000)
+        area_bal = 1000 * .8 * x_bal * 20 / fyd
+        spacing_bal = 1000 * math.pi * 20**2 / (4 * area_bal)
+        for name, value in dict(geometri=3, stadium=3, h=400, s_ok="0", M=100).items():
+            self.fields[name].value = value
+        self.fields["s_uk"].value = str(spacing_bal)
+        self.assertEqual(result(self.calculate())["balanskontroll"], "Balanserat · Gränsfall")
+        self.fields["s_uk"].value = str(spacing_bal * 1.1)
+        self.assertEqual(result(self.calculate())["balanskontroll"], "Underarmerat · Godkänd")

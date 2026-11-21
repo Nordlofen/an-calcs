@@ -11,7 +11,7 @@ _GUIDE = "var(--anp-line,#d3dce4)"
 
 def render(values):
     """Rita vald analys med gemensam höjdskala och schematisk profilbredd."""
-    raw = berakna_betongtvarsnitt(_bt_fran_panel([values[name] for name in _BT_PANEL_PX]))
+    raw = berakna_betongtvarsnitt(_bt_fran_panel([values.get(name) for name in _BT_PANEL_PX]))
     p = raw["indata"]
     elastic = p["stadium"] == "II"
     state = raw["stadium_II"] if elastic else raw["stadium_III"]["vald"]

@@ -239,18 +239,18 @@ class PanelAndInputTests(unittest.TestCase):
 
     def test_panel_default_and_each_geometry_model_combination(self):
         schema = bt.betongtvarsnitt.panel_schema
-        defaults = {f['name']: f['default'] for f in schema['fields']}
+        defaults = {f['name']: f.get('default') for f in schema['fields']}
         for geometry in [1, 2, 3]:
             for stage in [2, 3]:
                 data = dict(defaults, geometri=geometry, stadium=stage)
-                result = bt.betongtvarsnitt([data[key] for key in schema['px']])
+                result = bt.betongtvarsnitt([data.get(key) for key in schema['px']])
                 self.assertIn('slutresultat', result)
 
     def test_aldre_positionsanrop_med_explicit_betongmodell(self):
         schema = bt.betongtvarsnitt.panel_schema
-        defaults = {field['name']: field['default'] for field in schema['fields']}
+        defaults = {field['name']: field.get('default') for field in schema['fields']}
         defaults['stadium'] = 3
-        fields = [key for key in schema['px'] if key not in {'s_ok', 's_uk'}]
+        fields = [key for key in schema['px'] if key in defaults and key not in {'s_ok', 's_uk', 'c_nom_sida'}]
         px = [defaults[key] for key in fields]
         px.insert(fields.index('gamma_s'), 'parabel')
         method = bt.betongtvarsnitt(px)['metodbeskrivning']['items']
@@ -258,9 +258,9 @@ class PanelAndInputTests(unittest.TestCase):
 
     def test_panel_manual_strain_and_auto_strength_limit(self):
         schema = bt.betongtvarsnitt.panel_schema
-        data = {f['name']: f['default'] for f in schema['fields']}
+        data = {f['name']: f.get('default') for f in schema['fields']}
         data.update(epsilon_c_lim_manuell=True, epsilon_c_lim_pm=.4, f_ck=50)
-        p = bt._bt_indata(bt._bt_fran_panel([data[key] for key in schema['px']]))
+        p = bt._bt_indata(bt._bt_fran_panel([data.get(key) for key in schema['px']]))
         self.assertAlmostEqual(p['epsilon_c_lim'], .0004)
         self.assertAlmostEqual(p['sigma_c_lim'], .4 * 58)
 

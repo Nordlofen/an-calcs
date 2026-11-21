@@ -64,7 +64,7 @@ def render(values):
         if geometry == "plattremsa" and edge not in row_positions:
             continue
         cover_y = face + sign * offset * scale
-        start_x = row_positions[edge][0] if geometry == "plattremsa" else (left + right) / 2
+        start_x = row_positions[edge][0][0] if geometry == "plattremsa" else (left + right) / 2
         line(start_x, cover_y, cover_x + 4, cover_y, faint=True)
         line(right + 3, face, cover_x + 4, face, faint=True)
         line(cover_x, face, cover_x, cover_y)
@@ -82,8 +82,12 @@ def render(values):
     line(16, tail + 20, 444, tail + 20, faint=True)
     for x, edge in ((16, "ÖK"), (218, "UK")):
         if edge in row_positions:
-            _, count, diameter, spacing = row_positions[edge]
-            label = f"Ø{diameter:g} c/c {spacing:g}" if spacing else f"{count} × Ø{diameter:g}"
+            layers = row_positions[edge]
+            _, count, diameter, spacing = layers[0]
+            if len(layers) > 1:
+                label = f"{len(layers)} lager"
+            else:
+                label = f"Ø{diameter:g} c/c {spacing:g}" if spacing else f"{count} × Ø{diameter:g}"
             text(x, tail + 46, f"{edge}  {label}", bold=True)
     parts.append('</svg>')
     return ''.join(parts)
@@ -104,8 +108,7 @@ def _snitt_bilddelar(p, left, top, scale):
         top_cover = bottom_cover = side_cover = p["c_nom"]
     else:
         top_cover, bottom_cover = p["c_nom_ok"], p["c_nom_uk"]
-        bars_width = max(row["antal_ekv"] * row["phi"] for row in p["rader"])
-        side_cover = max(0, min(b * 0.09, (b - bars_width - 2 * stirrup) / 2))
+        side_cover = p["c_nom_sida"] if geometry == "balk" else 0.0
 
     outer_width = width - 2 * side_cover * scale
     outer_top, outer_bottom = top + top_cover * scale, top + (h - bottom_cover) * scale
@@ -159,5 +162,5 @@ def _snitt_bilddelar(p, left, top, scale):
             parts.append(f'<circle data-part="langsjarn" cx="{cx:.3f}" cy="{cy:.3f}" '
                          f'r="{radius:.3f}" fill="#ae4946"/>')
         edge = "ÖK" if row["namn"].endswith("ÖK") else "UK"
-        row_positions[edge] = (centers[-1], count, row["phi"], spacing)
+        row_positions.setdefault(edge, []).append((centers[-1], count, row["phi"], spacing))
     return parts, row_positions, stirrup, (top_cover, bottom_cover)

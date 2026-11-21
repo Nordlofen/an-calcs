@@ -22,7 +22,7 @@ _BT_DEFAULTS = {
     "armeringsrader": None, "c_nom": 30.0, "phi_b": 8.0, "phi_h": 20.0,
     "c_nom_ok": 35.0, "c_nom_uk": 40.0,
     "n_ok": 2, "n_uk": 4, "phi_ok": 16.0, "phi_uk": 20.0,
-    "s_ok": None, "s_uk": None,
+    "s_ok": None, "s_uk": None, "extra_lager": None, "c_nom_sida": None,
 }
 
 
@@ -54,7 +54,7 @@ def _bt_geometri(p, indata):
         if "h" in indata and not math.isclose(_bt_tal("h", p["h"], positive=True), p["b"], rel_tol=1e-12):
             raise ValueError("Pålvalet avser en kvadratisk påle med h=b.")
         p["h"] = p["b"]
-        if p["armeringsrader"] is not None:
+        if p["armeringsrader"] is not None or p["extra_lager"]:
             raise ValueError("Pålvalet använder fyra identiska hörnjärn. Ange pålens täckskikt och diametrar.")
         p["c_nom"] = _bt_tal("c_nom", p["c_nom"], minimum=0)
         p["phi_b"] = _bt_tal("Bygeldiameter", p["phi_b"], minimum=0)
@@ -70,8 +70,11 @@ def _bt_geometri(p, indata):
         p["h"] = _bt_tal("h", p["h"], positive=True)
         if geometry == "balk":
             p["phi_b"] = _bt_tal("Bygeldiameter", p["phi_b"], positive=True)
+        if p["armeringsrader"] is not None and p["extra_lager"]:
+            raise ValueError("Ange antingen armeringsrader eller extra lager från ÖK och UK.")
         rows = p["armeringsrader"] if p["armeringsrader"] is not None else _bt_fasta_rader(p)
     _bt_normalisera_rader(p, rows)
+    _bt_stangavstand(p)
     return p
 
 
@@ -82,32 +85,52 @@ def _bt_fasta_rader(p):
     inner_height = p["h"] - p["c_nom_ok"] - p["c_nom_uk"] - 2 * stirrup
     if inner_height <= 0:
         raise ValueError("Täckskikten och eventuell bygel måste rymmas inom snitthöjden.")
+    extra_layers = p["extra_lager"] if p["extra_lager"] is not None else ()
+    if not isinstance(extra_layers, (list, tuple)):
+        raise ValueError("Extra armeringslager ska anges som en lista.")
+    layers_by_side = {"ok": [], "uk": []}
+    for layer in extra_layers:
+        if not isinstance(layer, Mapping):
+            raise ValueError("Varje extra armeringslager ska vara en dictionary.")
+        edge = _bt_val(layer.get("sida"), {"ok": "ok", "ök": "ok", "uk": "uk"}, "sida för armeringslager")
+        layers_by_side[edge].append(layer)
+
     rows = []
-    diameter_sum = 0.0
+    occupied_height = 0.0
+    plate = p["geometri"] == "plattremsa"
     for key, name in (("ok", "ÖK"), ("uk", "UK")):
-        spacing = p[f"s_{key}"] if p["geometri"] == "plattremsa" else None
+        spacing = p[f"s_{key}"] if plate else None
         if isinstance(spacing, str):
             spacing = spacing.strip().replace(",", ".")
-        if spacing in (None, ""):
-            count = _bt_tal(f"Antal järn {name}", p[f"n_{key}"], minimum=0)
-            if not count.is_integer():
+        method = "antal" if spacing in (None, "") else "s"
+        first = {"phi": p[f"phi_{key}"], method: p[f"n_{key}"] if method == "antal" else spacing}
+        extent = 0.0
+        count_active = 0
+        for index, layer in enumerate((first, *layers_by_side[key])):
+            method = "s" if "s" in layer else "antal"
+            if index and (method != ("s" if plate else "antal") or {"s", "antal"} <= layer.keys()):
+                raise ValueError(f"Extra lager {name} anges med {'c/c-avstånd' if plate else 'antal järn'}.")
+            label = "C/c-avstånd" if method == "s" else "Antal järn"
+            amount = _bt_tal(f"{label} {name}", layer.get(method), minimum=0)
+            if amount == 0:
+                continue
+            if method == "antal" and not amount.is_integer():
                 raise ValueError(f"Antal järn {name} måste vara ett heltal.")
-            if count == 0:
-                continue
-            amount = {"s": p["b"] / count} if spacing == "" else {"antal": int(count)}
-        else:
-            spacing = _bt_tal(f"C/c-avstånd {name}", spacing, minimum=0)
-            if spacing == 0:
-                continue
-            amount = {"s": spacing}
-        phi = _bt_tal(f"Stångdiameter {name}", p[f"phi_{key}"], positive=True)
-        if "antal" in amount and amount["antal"] * phi + 2 * stirrup > p["b"]:
-            raise ValueError(f"Järnen i {name} ryms inte i breddled.")
-        distance = p[f"c_nom_{key}"] + stirrup + phi / 2
-        y = distance if key == "ok" else p["h"] - distance
-        rows.append({"namn": name, "y": y, "phi": phi, **amount})
-        diameter_sum += phi
-    if diameter_sum > inner_height:
+            phi = _bt_tal(f"Stångdiameter {name}", layer.get("phi"), positive=True)
+            if method == "antal" and amount * phi + 2 * stirrup > p["b"]:
+                raise ValueError(f"Järnen i {name} ryms inte i breddled.")
+            if not index and spacing == "":
+                method, amount = "s", p["b"] / amount
+            if count_active:
+                extent += _bt_tal(f"Fritt lageravstånd {name}", layer.get("a_v", 0), minimum=0)
+            distance = p[f"c_nom_{key}"] + stirrup + extent + phi / 2
+            y = distance if key == "ok" else p["h"] - distance
+            count_active += 1
+            layer_name = name if count_active == 1 else f"Lager {count_active} {name}"
+            rows.append({"namn": layer_name, "y": y, "phi": phi, method: amount})
+            extent += phi
+        occupied_height += extent
+    if occupied_height > inner_height + 1e-9:
         raise ValueError("Järnen ryms inte i höjdled med angivna täckskikt och diametrar.")
     return rows
 
@@ -208,6 +231,34 @@ def _bt_normalisera_rader(p, rows):
     p["A_s"] = sum(row["A_s"] for row in normalized)
     if p["A_s"] >= p["b"] * p["h"]:
         raise ValueError("Armeringsarean måste vara mindre än hela tvärsnittets area.")
+
+
+def _bt_stangavstand(p):
+    rows = p["rader"]
+    geometry = p["geometri"]
+    if geometry == "pale":
+        clear_width = p["b"] - 2 * (p["c_nom"] + p["phi_b"])
+    elif geometry == "balk" and p["armeringsrader"] is None:
+        bars_width = max(row["antal_ekv"] * row["phi"] for row in rows)
+        available = p["b"] - 2 * p["phi_b"] - bars_width
+        side_cover = p["c_nom_sida"]
+        if isinstance(side_cover, str):
+            side_cover = side_cover.strip().replace(",", ".")
+        p["c_nom_sida_auto"] = side_cover in (None, "")
+        p["c_nom_sida"] = (max(0, min(.09 * p["b"], available / 2)) if p["c_nom_sida_auto"]
+                          else _bt_tal("Täckskikt sida", side_cover, minimum=0))
+        clear_width = p["b"] - 2 * (p["c_nom_sida"] + p["phi_b"])
+        if clear_width < bars_width - 1e-9:
+            raise ValueError("Järnen ryms inte mellan bygelns sidor med angivet täckskikt.")
+    else:
+        clear_width = None
+
+    for row in rows:
+        if row["indatametod"] == "s":
+            row["a_h"] = row["indatavarde"] - row["phi"]
+        elif clear_width is not None and row["indatametod"] == "antal" and row["indatavarde"] > 1:
+            count = row["indatavarde"]
+            row["a_h"] = max(0, clear_width - count * row["phi"]) / (count - 1)
 
 
 def _bt_bisect(fun, lo, hi, iterations=90):
@@ -561,11 +612,49 @@ def berakna_betongtvarsnitt(indata):
             "kritisk_varning": any(w["niva"] == "KRITISK" for w in warnings)}
 
 
-def _bt_stalspanningspost(name, latex, row, suffix=""):
-    # Redovisningen använder drag positivt och visar noll utan minustecken.
-    sigma = 0.0 - row["sigma"]
-    label = "dragspänning" if sigma > 0 else "tryckspänning" if sigma < 0 else "stålspänning"
-    return _post(name, latex, sigma, "MPa", f"{label} i {row['namn']}{suffix}")
+def _bt_redovisa_armeringsgrupper(p, state, partial):
+    epsilon_y = p["f_yd"] / p["E_s"]
+    partial.append(_post("epsilon_sy", r"ε_{sy}", epsilon_y * 1000, "‰", "stålets flyttöjning", 4))
+    tension_strain = None
+    for group, sign, depth_name, symbol in (("drag", -1, "d", "d"), ("tryck", 1, "d_prime", "d'")):
+        rows = [row for row in state["rader"] if sign * row["epsilon"] > 0]
+        if not rows:
+            continue
+        area = sum(row["A_s"] for row in rows)
+        centroid = sum(row["A_s"] * row["y"] for row in rows) / area
+        depth = p["h"] - centroid if state["tryckkant"] == "UK" else centroid
+        strain = sum(row["A_s"] * sign * row["epsilon"] for row in rows) / area
+        partial.extend([
+            _post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens areatyngdpunkt från tryckkanten"),
+            _post(f"epsilon_s_{group}", rf"ε_{{s,{group}}}", strain * 1000, "‰", f"töjning vid {group}armeringens areatyngdpunkt", 4),
+        ])
+        if group == "drag":
+            tension_strain = strain
+            yielded = sum(row["A_s"] for row in rows if -row["epsilon"] >= epsilon_y * (1 - 1e-9))
+            partial.append(_post("flytandel_drag", r"\eta_{s,flyt}", 100 * yielded / area, "%",
+                                 "andel av dragarmeringsarean som nått flyttöjningen", 1))
+    return tension_strain
+
+
+def _bt_balanspost(tension_strain, epsilon_y, equilibrium):
+    label = ""
+    if not equilibrium:
+        status = "Ej bedömbar"
+        label = "normalkraftsjämvikt saknas"
+    elif tension_strain is None:
+        status = "Ej tillämplig"
+        label = "ingen armering ligger i drag"
+    else:
+        if math.isclose(tension_strain, epsilon_y, rel_tol=1e-9, abs_tol=1e-12):
+            status = "Balanserat · Gränsfall"
+        elif tension_strain > epsilon_y:
+            status = "Underarmerat · Godkänd"
+        else:
+            status = "Överarmerat · Ej godkänd"
+        strain_text = f"{1000 * tension_strain:.4f}".replace(".", ",")
+        limit_text = f"{1000 * epsilon_y:.4f}".replace(".", ",")
+        label = f"dragtöjning vid d {strain_text} ‰, flyttöjning {limit_text} ‰"
+    return _post("balanskontroll", "Balanskontroll", status, etikett=label)
 
 
 def _bt_panel_resultat(raw):
@@ -575,7 +664,7 @@ def _bt_panel_resultat(raw):
     model = "rektangulärt tryckblock" if p["tryckblock"] == "rektangel" else "parabel–rektangel"
     method_items = [
         {"rubrik": "Beräkning", "text": f"{geometry}, stadium {p['stadium']}. Rektangulärt snitt, enaxlig böjning och normalkraft."},
-        {"rubrik": "Tecken och enheter", "text": "Stålspänningen i slutresultatet är positiv i drag och negativ i tryck. I jämviktsekvationerna är tryck positivt. Positivt böjmoment ger tryck i ÖK vid ren böjning. Laster avser hela snittbredden. Töjningar visas i promille med tryck positivt."},
+        {"rubrik": "Tecken och enheter", "text": "I jämviktsekvationerna är tryck positivt. Positivt böjmoment ger tryck i ÖK vid ren böjning. Laster avser hela snittbredden. Armeringsgruppernas töjningar visas som belopp i promille."},
         {"rubrik": "Avgränsning", "text": "Tvärsnittsanalys för f_ck upp till 50 MPa. Förankring, skjuvning, torsion, sprickbredd, fria stångavstånd, rotationsförmåga, instabilitet och andra ordningens moment kontrolleras separat."},
     ]
     if ii is not None:
@@ -585,6 +674,7 @@ def _bt_panel_resultat(raw):
         ])
     else:
         method_items.append({"rubrik": "Stadium III", "text": f"Momentkapacitet vid angiven normalkraft med {model}. Stålspänningen är konstant efter flytning."})
+        method_items.append({"rubrik": "Balanskontroll", "text": "Dragtöjningen vid dragarmeringens areatyngdpunkt jämförs med flyttöjningen vid beräknad momentkapacitet."})
     method_items.extend([
         {"rubrik": "Stuktöjning", "text": f"Vid delvis tryckt snitt gäller {p['epsilon_cu']*1000:g} ‰ i den mest tryckta kanten. Vid helt tryckt snitt beror gränsen på töjningen i båda kanterna. Vid jämn tryckning är gränsen {p['epsilon_c0']*1000:g} ‰."},
         {"rubrik": "Eurokod 2 (EN 1992-1-1:2004)", "text": "Stadium III bygger på betongens tryckmodell i 3.1.7, stålets flytplatå i 3.2.7(2) och antagandena om böjning med normalkraft i 6.1."},
@@ -621,6 +711,9 @@ def _bt_panel_resultat(raw):
         for key, edge in (("ok", "ÖK"), ("uk", "UK")):
             reference = "bygelns utsida" if p["geometri"] == "balk" else "längsarmeringens utsida"
             data.append(_post(f"c_nom_{key}", rf"c_{{nom,{edge}}}", p[f"c_nom_{key}"], "mm", f"täckskikt {edge} till {reference}"))
+        if p["geometri"] == "balk":
+            label = "automatiskt sidomått till bygelns utsida" if p["c_nom_sida_auto"] else "sidotäckskikt till bygelns utsida"
+            data.append(_post("c_nom_sida", r"c_{nom,sida}", p["c_nom_sida"], "mm", label))
     for i, row in enumerate(p["rader"], 1):
         name = row["namn"]
         data.append(_post(f"phi_{i}", rf"\phi_{{{i}}}", row["phi"], "mm", f"stångdiameter {name}"))
@@ -633,15 +726,22 @@ def _bt_panel_resultat(raw):
     partial = [_post("A_c", r"A_c", p["b"] * p["h"], "mm^2", "snittets bruttoarea"),
                _post("A_s", r"A_s", p["A_s"], "mm^2", "total längsarmeringsarea"),
                _post("f_yd", r"f_{yd}", p["f_yd"], "MPa", "dimensionerande flytgräns")]
+    for i, row in enumerate(p["rader"], 1):
+        if "a_h" in row:
+            partial.append(_post(f"a_h_{i}", rf"a_{{h,{i}}}", row["a_h"], "mm", f"fritt stångavstånd i {row['namn']}"))
+    ordered_rows = sorted(enumerate(p["rader"], 1), key=lambda item: item[1]["y"])
+    for (i, upper), (j, lower) in zip(ordered_rows, ordered_rows[1:]):
+        gap = lower["y"] - upper["y"] - (upper["phi"] + lower["phi"]) / 2
+        partial.append(_post(f"a_v_{i}_{j}", rf"a_{{v,{i},{j}}}", gap, "mm",
+                             f"fritt höjdavstånd mellan {upper['namn']} och {lower['namn']}"))
     final = [_post("stadium", "Stadium", p["stadium"],
                    etikett="elastisk tvärsnittsanalys" if ii is not None else "")]
     equations = [
         _ekvation(r"f_{yd}=f_{yk}/\gamma_s", "dimensionerande flytgräns (EC2 3.2.7(2))"),
+        _ekvation(r"\varepsilon_{sy}=f_{yd}/E_s", "stålets flyttöjning"),
         _ekvation(r"\varepsilon(y)=\varepsilon_{ÖK}+\frac{y}{h}(\varepsilon_{UK}-\varepsilon_{ÖK})",
                    "plana snitt i brottgränstillstånd (EC2 6.1(2))" if iii is not None else "linjär töjning, y från ÖK"),
     ]
-    steel_stress_sign = _ekvation(r"\sigma_s=-\sigma_{s,\mathrm{ber}}",
-                                 "stålspänning i slutresultatet, med drag positivt")
     if any(row["indatametod"] == "s" for row in p["rader"]):
         equations.insert(0, _ekvation(r"A_{s,i}=\frac{b}{s_i}\frac{\pi\phi_i^2}{4}", "armeringsarea från c/c-avstånd"))
     if ii is not None:
@@ -655,19 +755,16 @@ def _bt_panel_resultat(raw):
             ("epsilon_top", r"ε_{ÖK}", "‰", "töjning i ÖK", 1000),
             ("epsilon_bottom", r"ε_{UK}", "‰", "töjning i UK", 1000),
             ("epsilon_cu_tillaten", r"ε_{cu,till}", "‰", "tillåten stuktöjning för beräknad töjningsfördelning", 1000),
-            ("F_s_tryck", r"F_{s,tryck}", "kN", "sammanlagd tryckkraft i armeringen", .001),
         ]:
             partial.append(_post(key, latex, ii[key] * factor, unit, label, 4))
         final.extend([
             _post("x", "x", ii["x"], "mm", "tryckzonens höjd"),
             _post("sigma_c_max", r"\sigma_{c,max}", ii["sigma_c_max"], "MPa", "största tryckspänning i betongen"),
         ])
-        for i, row in enumerate(ii["rader"], 1):
-            final.append(_bt_stalspanningspost(f"sigma_s_{i}", rf"\sigma_{{s,{i}}}", row))
-            partial.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
-                                 f"ståltöjning {row['namn']}"))
+        _bt_redovisa_armeringsgrupper(p, ii, partial)
         final.extend([
             _post("F_c", r"F_c", ii["F_c"] / 1000, "kN", "betongens tryckkraft efter armeringsavdrag"),
+            _post("F_s_tryck", r"F'_s", ii["F_s_tryck"] / 1000, "kN", "tryckarmeringens totala kraft"),
             _post("F_s_drag", r"F_{s,drag}", ii["F_s_drag"] / 1000, "kN", "armeringens dragkraft som positivt belopp"),
         ])
         if ii["z"] is not None:
@@ -694,10 +791,10 @@ def _bt_panel_resultat(raw):
                        "lös x med noll spänning vid tryckzonens gräns"),
             _ekvation(r"\sigma_c=E_{cd}\max(\varepsilon_c,0),\quad\sigma_{s,\mathrm{ber}}=E_s\varepsilon_s",
                        "elastiska spänningar med tryck positivt. Överskriden flytgräns ger en varning."),
-            steel_stress_sign,
             _ekvation(r"EI_{II}=E_{cd}I_{II}/10^9", "böjstyvhet i kNm² med E i MPa och I i mm⁴"),
         ])
     if iii is not None:
+        tension_strain = None
         if iii["jamvikt"]:
             state = iii["vald"]
             partial.extend([
@@ -711,14 +808,10 @@ def _bt_panel_resultat(raw):
                 final.append(_post("sigma_c_Rd", r"\sigma_c=f_{cd}", p["f_cd"], "MPa", "betongens tryckspänning i tryckblocket"))
             if state["x"] is not None:
                 partial.append(_post("x_Rd", r"x_{Rd}", state["x"], "mm", "djup till neutralaxeln från tryckkanten"))
-            for i, row in enumerate(state["rader"], 1):
-                symbol = r"\sigma_s" if len(state["rader"]) == 1 else rf"\sigma_{{s,{i}}}"
-                final.append(_bt_stalspanningspost(f"sigma_s_Rd_{i}", symbol, row,
-                                                  " vid momentkapacitet"))
-                partial.append(_post(f"epsilon_s_Rd_{i}", rf"ε_{{s,Rd,{i}}}", row["epsilon"] * 1000, "‰",
-                                     f"ståltöjning {row['namn']} vid momentkapacitet"))
+            tension_strain = _bt_redovisa_armeringsgrupper(p, state, partial)
             final.extend([
                 _post("F_c_Rd", "F_c", state["F_c"] / 1000, "kN", "betongens tryckkraft efter armeringsavdrag"),
+                _post("F_s_tryck_Rd", r"F'_s", state["F_s_tryck"] / 1000, "kN", "tryckarmeringens totala kraft"),
                 _post("F_s_drag_Rd", "F_s", state["F_s_drag"] / 1000, "kN", "armeringens dragkraft"),
             ])
             if state["z"] is not None:
@@ -726,6 +819,7 @@ def _bt_panel_resultat(raw):
         final.append(_post("M_Ed", r"M_{Ed}", p["M"], "kNm", "inmatat dimensionerande böjmoment"))
         if iii["jamvikt"]:
             final.append(_post("M_Rd", r"M_{Rd}", state["M_Rd"] / 1e6, "kNm", "momentkapacitet i lastens riktning"))
+        final.append(_bt_balanspost(tension_strain, p["f_yd"] / p["E_s"], iii["jamvikt"]))
         if p["tryckblock"] == "rektangel":
             equations.append(_ekvation(r"a=\min(0.8x,h),\quad F_c=f_{cd}(ba-A_{s,\mathrm{block}})",
                                        "tryckblock (EC2 3.1.7(3)). Dra av stålets area inom blocket."))
@@ -739,13 +833,12 @@ def _bt_panel_resultat(raw):
             _ekvation(r"M_{Rd,u}=F_c(h/2-u_c)+\sum_i F_{s,i}(h/2-u_i)",
                        "moment kring snittets mitt. u mäts från tryckkanten till respektive kraft."),
             _ekvation(r"M_{Rd}=sM_{Rd,u}", "s = +1 för tryckkant i ÖK och s = −1 för UK"),
-            steel_stress_sign,
         ])
         if p["tryckblock"] == "rektangel":
             equations.extend([
                 _ekvation(r"\varepsilon_{s,\mathrm{drag}}=\frac{d-x}{x}\varepsilon_{cu}",
-                           "delvis tryckt snitt med draglagret på djupet d. Dragtöjningen anges som belopp."),
-                _ekvation(r"F_s=\sigma_s A_s=F_c=f_{cd}\,b\,(0{,}8x)",
+                           "dragtöjning vid dragarmeringens areatyngdpunkt i delvis tryckt snitt"),
+                _ekvation(r"F_s=|\sigma_{s,\mathrm{ber}}| A_s=F_c=f_{cd}\,b\,(0{,}8x)",
                            "ren böjning med ett draglager och endast betong i tryckzonen"),
                 _ekvation(r"|M_{Rd}|=F_c z=f_{cd}\,b\,(0{,}8x)(d-0{,}4x)",
                            "samma fall, med hävarmen z från tryckblockets mitt till draglagret"),
@@ -781,6 +874,13 @@ def _bt_panel_geometri(data):
         data.pop("h", None)
     elif data["geometri"] == 3:
         data["b"] = _PLATTREMSA_BREDD
+    for code, table, method in ((2, "balk_lager", "antal"), (3, "plattremsa_lager", "s")):
+        columns = [data.pop(f"{table}_{column}", None) for column in _BT_LAGER_KOLUMNER]
+        if data["geometri"] == code and any(column is not None for column in columns):
+            data["extra_lager"] = [
+                {"sida": edge, "phi": phi, method: amount, "a_v": gap}
+                for edge, phi, amount, gap in zip(*columns, strict=True)
+            ]
     return data
 
 
@@ -791,6 +891,8 @@ def _bt_fran_panel(px):
     elif len(px) == len(_BT_ALDRE_PANEL_PX) + 1:
         i = _BT_ALDRE_PANEL_PX.index("gamma_s")
         fields = (*_BT_ALDRE_PANEL_PX[:i], "tryckblock", *_BT_ALDRE_PANEL_PX[i:])
+    elif len(px) == len(_BT_PANEL_PX_FORE_LAGER):
+        fields = _BT_PANEL_PX_FORE_LAGER
     if len(px) != len(fields):
         raise ValueError(f"Panel-formatet kräver {len(_BT_PANEL_PX)} värden. Äldre pålformat har 12 eller 16 värden.")
     data = _bt_panel_geometri(dict(zip(fields, px)))
@@ -818,8 +920,9 @@ def betongtvarsnitt(px):
     till den befintliga pålfunktionen, med oförändrad redovisning.
 
     Ange diameter och täckskikt per sida, samt antal för balk eller c/c för
-    plattremsa. Balk har bygel. En dictionary kan i stället ange armeringsrader
-    med centrumläge y, diameter och exakt ett av antal, s eller A_s.
+    plattremsa. Extra lager placeras med fritt vertikalt avstånd. Balk har bygel.
+    En dictionary kan i stället ange armeringsrader med centrumläge y,
+    diameter och exakt ett av antal, s eller A_s.
     Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
     materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
     """
@@ -857,7 +960,7 @@ _CC_HELP_HTML = (
 
 _BT_SKISS_FALT = (
     "geometri", "b", "h", "c_nom", "phi_b", "phi_h",
-    "c_nom_ok", "c_nom_uk", "n_ok", "phi_ok", "n_uk", "phi_uk", "s_ok", "s_uk",
+    "c_nom_ok", "c_nom_uk", "n_ok", "phi_ok", "n_uk", "phi_uk", "s_ok", "s_uk", "c_nom_sida",
 )
 _BT_FIELDS = [
     _bt_choice("geometri", "Geometri", 2, [("Påle", 1), ("Balk", 2), ("Plattremsa", 3)]),
@@ -897,14 +1000,38 @@ _BT_FIELDS = [
               visible_if={"all": [_ELASTISK, _AUTO_TOJNING]}, help="0,4(fck + 8) MPa. Töjningsgränsen fås genom division med Ecd."),
     _bt_field("sigma_c_lim", "Spänningsnivå för varningsgräns", "σ<sub>c,lim</sub>", "MPa", default=15.2,
               visible_if={"all": [_ELASTISK, _AUTO_TOJNING, {"field": "sigma_c_lim_auto", "equals": False}]}),
+    _bt_field("c_nom_sida", "Täckskikt sida", "<i>c</i><sub>nom,sida</sub>", "mm",
+              type="text", default="", visible_if=_BALK, help="Till bygelns utsida. Tomt fält använder ett automatiskt sidomått."),
 ]
-_BT_PANEL_PX = tuple(field["name"] for field in _BT_FIELDS)
-_BT_ALDRE_PANEL_PX = tuple(name for name in _BT_PANEL_PX if name not in {"s_ok", "s_uk"})
+_BT_LAGER_KOLUMNER = ("sida", "phi", "mangd", "a_v")
+
+
+def _bt_lagertabell(name, plate, visible_if):
+    columns = [
+        _bt_choice("sida", "Kant", "ok", [("ÖK", "ok"), ("UK", "uk")]),
+        _bt_field("phi", "Diameter", "Ø", "mm", default=16.0),
+        _bt_field("mangd", "C/c-avstånd" if plate else "Antal järn", "<i>s</i>" if plate else "",
+                  "mm" if plate else "st", type="float" if plate else "int", default=0),
+        _bt_field("a_v", "Fritt lageravstånd", "<i>a</i><sub>v</sub>", "mm", default=25.0),
+    ]
+    for column in columns:
+        column["output"] = f"{name}_{column['name']}"
+    return {"name": name, "type": "table", "label": "Extra lager från respektive kant",
+            "add_label": "+ Lägg till lager", "visible_if": visible_if, "columns": columns,
+            "default_rows": [{}], "outputs": [column["output"] for column in columns]}
+
+
+_BT_LAGERTABELLER = [_bt_lagertabell("balk_lager", False, _BALK), _bt_lagertabell("plattremsa_lager", True, _PLATTA)]
+_BT_LAGERTABELLNAMN = [table["name"] for table in _BT_LAGERTABELLER]
+_BT_SKALAR_PX = tuple(field["name"] for field in _BT_FIELDS)
+_BT_PANEL_PX_FORE_LAGER = tuple(name for name in _BT_SKALAR_PX if name != "c_nom_sida")
+_BT_ALDRE_PANEL_PX = tuple(name for name in _BT_PANEL_PX_FORE_LAGER if name not in {"s_ok", "s_uk"})
+_BT_PANEL_PX = (*_BT_SKALAR_PX, *(name for table in _BT_LAGERTABELLER for name in table["outputs"]))
 
 betongtvarsnitt.panel_schema = {
     "title": "Betongtvärsnitt",
     "px": list(_BT_PANEL_PX),
-    "fields": _BT_FIELDS,
+    "fields": [*_BT_FIELDS, *_BT_LAGERTABELLER],
     "blocks": {"ID": {"rader": 40}, "DR": {"rader": 40}, "EKV": {"rader": 40}, "SR": {"rader": 40}},
     "sections": [
         {"title": "Indata", "collapsible": True, "collapsed": False, "columns": 1, "sections": [
@@ -912,14 +1039,16 @@ betongtvarsnitt.panel_schema = {
             {"columns": 2, "sections": [
                 {"columns": 1, "sections": [
                     {"title": "Geometri", "fields": ["b", "h"], "columns": 2},
-                    {"title": "Täckskikt och diametrar", "fields": ["c_nom", "c_nom_ok", "c_nom_uk", "phi_b", "phi_h"], "columns": 3},
+                    {"title": "Täckskikt och diametrar", "fields": ["c_nom", "c_nom_ok", "c_nom_uk", "c_nom_sida", "phi_b", "phi_h"], "columns": 3},
                     {"title": "Längsarmering", "columns": 2, "sections": [
                         {"title": "Överkant", "fields": ["n_ok", "s_ok", "phi_ok"], "columns": 2},
                         {"title": "Underkant", "fields": ["n_uk", "s_uk", "phi_uk"], "columns": 2},
                     ]},
+                    {"fields": ["balk_lager"]},
+                    {"fields": ["plattremsa_lager"]},
                 ]},
                 {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_skiss:render",
-                            "fields": list(_BT_SKISS_FALT), "max_width": 480,
+                            "fields": list(_BT_SKISS_FALT), "tables": _BT_LAGERTABELLNAMN, "max_width": 480,
                             "caption": "Järnens placering i breddled visas schematiskt."}},
             ]},
             {"columns": 2, "sections": [
@@ -927,7 +1056,8 @@ betongtvarsnitt.panel_schema = {
                 {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
             ]},
             {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_profil:render",
-                        "fields": list(_BT_PANEL_PX), "full_width": True, "max_width": 820}},
+                        "fields": list(_BT_SKALAR_PX), "tables": _BT_LAGERTABELLNAMN,
+                        "full_width": True, "max_width": 820}},
         ]},
         {"title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 1, "sections": [
             {"title": "Stål", "fields": ["gamma_s"], "columns": 2},

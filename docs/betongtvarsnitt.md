@@ -9,7 +9,7 @@ Panel(betongtvarsnitt, key="Snitt 1")
 
 Välj **Påle**, **Balk** eller **Plattremsa** och **Stadium II** eller **Stadium III**.
 Måttskissen uppdateras när geometri eller armering ändras. Panel använder
-`an-print` med stöd för dynamiska figurer och indatagrupper. Spara indata och
+`an-print` med stöd för dynamiska figurer, inklusive lager från tabell. Spara indata och
 redovisningsval under **Beräkningsfall**.
 
 Spänningsfiguren visar de yttre lasterna och ett schematiskt tvärsnitt med
@@ -22,7 +22,7 @@ Tryckzonens numeriska höjd redovisas i resultatet.
 | Geometri | Mått och armering |
 |---|---|
 | Påle | Kvadratiskt snitt, fyra identiska hörnjärn, täckskikt till bygelns utsida, bygel- och stångdiameter |
-| Balk | Bredd, höjd, obligatorisk bygeldiameter och täckskikt till bygelns utsida i ÖK och UK. Antal och stångdiameter per sida |
+| Balk | Bredd, höjd, obligatorisk bygeldiameter och täckskikt till bygelns utsida i ÖK, UK och vid sidan. Antal och stångdiameter per lager |
 | Plattremsa | Fast beräkningsbredd 1 000 mm i Panel. Plattjocklek och täckskikt till längsarmeringens utsida i ÖK och UK. C/c-avstånd och stångdiameter per sida |
 
 Stångcentrum beräknas geometriskt från täckskiktet, en halv stångdiameter
@@ -32,6 +32,17 @@ För plattremsa beräknas armeringsarean med \(b/s\) gånger en stångs area.
 Måttskissen visar ett avrundat antal järn med angivet c/c. Ett tomt c/c-fält
 använder det motsvarande avståndet från antalet i det sparade fallet eller
 från förvalt antal i ett nytt fall.
+
+Balk och plattremsa kan ange **Extra lager från respektive kant**. Rader för
+varje kant läses i ordning från utsidan och in. Ange diameter, antal för balk
+eller c/c för plattremsa samt fritt vertikalt avstånd \(a_v\) till föregående
+aktivt lager. En rad med antal eller c/c noll utelämnas. Det första aktiva
+lagret på varje sida placeras med täckskiktet.
+
+För balk fördelas stänger med lika fria mellanrum i bredden innanför bygeln.
+Ange sidotäckskikt till bygelns utsida för ett bestämt mått. Tomt använder
+det automatiska sidomåttet från måttskissen, högst 9 % av balkbredden och
+begränsat av utrymmet för det bredaste armeringslagret.
 
 Längder anges i mm och laster i kN och kNm för **hela snittbredden**. För en
 1000 mm bred remsa sammanfaller lastvärdena numeriskt med kN/m och kNm/m.
@@ -45,18 +56,17 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   beräknas från det transformerade tröghetsmomentet och angiven \(E_{cd}\).
   Stålraderna behandlas som koncentrerade areor och deras egna
   tröghetsmoment försummas. Slutresultatet visar valt stadium, tryckzonens
-  höjd, maximal betongtryckspänning, stålspänning per rad, betongens tryckkraft,
-  armeringens dragkraft, hävarm där den finns och \(EI_{II}\). Töjningarna
+  höjd, maximal betongtryckspänning, betongens tryckkraft, armeringens drag-
+  och tryckkraft, hävarm där den finns och \(EI_{II}\). Töjningarna
   finns i delresultatet. Under Ekvationer visas det transformerade snittets
   area, tyngdpunkt och tröghetsmoment samt hur man bestämmer tryckzonens
-  höjd från normalkraft och moment. Elastiska stålspänningar redovisas även
-  över flytgränsen.
+  höjd från normalkraft och moment.
 - **Stadium III** löser tryck- och momentkapacitet vid given normalkraft och
   visar valt stadium, tryckzonens höjd, betongens tryckspänning \(\sigma_c=f_{cd}\),
-  stålspänningar, betongens tryckkraft, armeringens dragkraft och hävarm där
+  betongens tryckkraft, armeringens drag- och tryckkraft och hävarm där
   den finns. \(M_{Ed}\) och \(M_{Rd}\)
   i lastens riktning visas efter varandra. Töjningarna finns i delresultatet.
-  Spänningar och töjningar avser snittet vid momentkapacitet. Panel använder
+  Snittkrafter och töjningar avser snittet vid momentkapacitet. Panel använder
   rektangulärt tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.
   Stålet har horisontell flytplatå vid \(f_{yd}=f_{yk}/\gamma_s\). Vid helt
   tryckt snitt används blockmodellens pivotvillkor med 1,75 ‰ som gräns
@@ -64,9 +74,22 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   rektangulärt tryckblock. Resultaten avser
   tvärsnittskapacitet och omfattar ingen sekant- eller tangentstyvhet.
 
-Stålspänning visas med drag positivt och tryck negativt i slutresultatet.
-Positiva spänningar och krafter visas utan plustecken. Jämviktsekvationerna
-och stålspänningarna från `berakna_betongtvarsnitt` har tryck positivt.
+Delresultatet visar fria stångavstånd \(a_h\) i sidled när breddplaceringen
+är känd och \(a_v\) i höjdled mellan närliggande lager. De anges i mm.
+Kontrollen av minsta fria avstånd enligt SS-EN 1992-1-1:2005 (Sv) 8.2
+ingår separat i konstruktionsarbetet.
+
+Armeringen redovisas som drag- och tryckgrupp med summan av respektive
+kraft. Delresultatet visar avstånden \(d\) och \(d'\) från mest tryckta kanten
+till respektive areatyngdpunkt, töjningarna där, stålets flyttöjning
+\(\varepsilon_{sy}=f_{yd}/E_s\) och andelen dragarmeringsarea som nått
+flyttöjningen. Kraft- och momentjämvikten räknas med varje lager för sig.
+
+**Balanskontroll** i stadium III jämför dragtöjningen vid \(d\) med
+\(\varepsilon_{sy}\) vid momentkapaciteten. Högre töjning ger underarmerat
+och godkänd gruppkontroll, lika ger balanserat gränsfall och lägre ger
+överarmerat och ej godkänd gruppkontroll. För ett snitt utan armering i drag
+är kontrollen ej tillämplig. Momentkapaciteten jämförs separat med lasten.
 
 Stadium II varnar vid överskriden elastisk töjningsgräns eller flytgräns i
 stålet och ger en kritisk varning vid överskriden stuktöjning i betongen.
