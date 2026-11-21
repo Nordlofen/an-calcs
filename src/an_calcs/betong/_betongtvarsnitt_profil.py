@@ -19,7 +19,9 @@ def render(values):
         return '<p role="status">Ingen spänningsprofil kan visas. Jämvikt vid angiven normalkraft hittades inte.</p>'
 
     h = p["h"]
-    span, width = 112, 96
+    geometry = p["geometri"]
+    span = 112
+    width = {"pale": span, "balk": 96, "plattremsa": 176}[geometry]
     scale = span / h
     top, bottom = 101, 101 + span
     left, right = 142 - width / 2, 142 + width / 2
@@ -30,10 +32,8 @@ def render(values):
     lower_edge = state["tryckkant"] == "UK"
     start, stop = (h - x, h) if lower_edge else (0, x)
     neutral = None if unloaded or not 0 < x < h else (start if lower_edge else stop)
-    # Komprimera skillnaden mot mitten i stadium II:s principskiss.
-    # Samma avbildning för alla nivåer bevarar ordningen på krafter och järn.
-    schematic = elastic and neutral is not None
-    axis_depth = 0.35 * neutral + 0.65 * h / 2 if schematic else neutral
+    # Placera neutralaxeln schematiskt och avbilda kraftnivåer och tryckblock därefter.
+    axis_depth = h * (0.5 if elastic else 0.4)
     title = f'Spänningsprofil · Stadium {p["stadium"]}'
     context = "Elastisk profil vid angiven last" if elastic else "Kapacitetsprofil vid angiven normalkraft"
     footer = bottom + 39
@@ -50,7 +50,7 @@ def render(values):
     ]
 
     def depth(y):
-        if not schematic:
+        if neutral is None:
             return top + y * scale
         if y <= neutral:
             return top + y * axis_depth / neutral * scale
@@ -111,6 +111,9 @@ def render(values):
                      f'height="{depth(stop) - depth(start):.3f}" fill="#67bed9" fill-opacity=".37"/>')
     parts.append(f'<rect x="{left}" y="{top}" width="{width}" height="{span}" '
                  'fill="none" stroke="currentColor" stroke-width="1.4"/>')
+    if geometry != "plattremsa":
+        parts.append(f'<rect data-part="bygel" x="{left + 9}" y="{top + 9}" width="{width - 18}" '
+                     f'height="{span - 18}" rx="10" fill="none" stroke="#52788f" stroke-width="2"/>')
     for cy in (top + 17, bottom - 17):
         for cx in (left + 20, right - 20):
             parts.append(f'<circle data-part="langsjarn" cx="{cx}" cy="{cy}" r="4" fill="{_RED}"/>')
@@ -125,7 +128,7 @@ def render(values):
         line(xp, top - 5, xp, bottom + 8)
     # Låt den raka töjningslinjen korsa den ritade neutralaxeln.
     top_width, bottom_width = etop, ebottom
-    if schematic:
+    if neutral is not None:
         sign = -1 if lower_edge else 1
         top_width = sign * axis_depth
         bottom_width = -sign * (h - axis_depth)
@@ -167,8 +170,7 @@ def render(values):
         dimension(z_axis, z_top, z_bottom, "z", _AXIS, tag='data-part="haevarm"')
 
     if neutral is not None:
-        neutral_label = "Neutralaxelns läge visas schematiskt" if schematic else "Streckad linje = neutralaxel"
-        label(20, footer, neutral_label, size=14)
+        label(20, footer, "Neutralaxelns läge visas schematiskt", size=14)
     elif unloaded:
         label(20, footer, "Obelastat snitt", size=14)
     label(924, footer, "Schematisk geometri och armering · Tryck åt höger · Drag åt vänster", anchor="end", size=14)

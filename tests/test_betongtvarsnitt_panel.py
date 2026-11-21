@@ -167,11 +167,18 @@ class PanelTests(unittest.TestCase):
 
     def test_profile_uses_fixed_section_but_updates_external_loads(self):
         def geometry(profile):
-            return [part.attrib for part in drawing(profile) if part.get("data-part") in {"betong", "langsjarn"}]
+            return [part.attrib for part in drawing(profile) if part.get("data-part") in {"betong", "bygel", "langsjarn"}]
 
+        widths = {}
+        for kind in (1, 2, 3):
+            self.fields["geometri"].value = kind
+            svg = drawing(self.profile())
+            widths[kind] = float(svg.find(".//*[@data-part='betong']").get("width"))
+            self.assertEqual(svg.find(".//*[@data-part='bygel']") is not None, kind != 3)
+        self.assertGreater(widths[3], max(widths[1], widths[2]))
         schematic = geometry(self.profile())
         self.assertEqual(len(schematic), 5)
-        for field, value in dict(geometri=3, h=225, s_uk="180", N_d=125.5, M=-90).items():
+        for field, value in dict(h=225, s_uk="180", N_d=125.5, M=-90).items():
             self.fields[field].value = value
         for stage in (2, 3):
             self.fields["stadium"].value = stage
@@ -200,18 +207,25 @@ class PanelTests(unittest.TestCase):
         self.assertIn("Jämvikt vid angiven normalkraft hittades inte", self.profile())
         self.assertIn("Måttsatt tvärsnitt", self.figure())
 
-    def test_elastic_profile_has_a_schematic_axis_aligned_with_the_strain_line(self):
-        svg = drawing(self.profile())
-        self.assertIn("Neutralaxelns läge visas schematiskt", self.profile())
-        concrete = svg.find(".//*[@data-part='betong']")
-        top, height = float(concrete.get("y")), float(concrete.get("height"))
-        points = svg.find(".//*[@data-part='toejning']").get("points").split()
-        zero, a, b, _ = [tuple(map(float, point.split(","))) for point in points]
-        crossing = a[1] + (b[1] - a[1]) * (zero[0] - a[0]) / (b[0] - a[0])
-        zone = svg.find(".//*[@data-part='tryckzon']")
-        self.assertAlmostEqual(crossing, top + float(zone.get("height")), places=1)
-        x = result(self.calculate())["x"]
-        self.assertLess(abs((crossing - top) / height - 0.5), abs(x / self.fields["h"].value - 0.5))
+    def test_schematic_axis_aligns_with_strain_line_and_compression_zone(self):
+        for stage, relative_depth in ((2, 0.5), (3, 0.4)):
+            self.fields["stadium"].value = stage
+            for moment in (100, -100):
+                with self.subTest(stage=stage, moment=moment):
+                    self.fields["M"].value = moment
+                    profile = self.profile()
+                    self.assertIn("Neutralaxelns läge visas schematiskt", profile)
+                    svg = drawing(profile)
+                    concrete = svg.find(".//*[@data-part='betong']")
+                    top, height = float(concrete.get("y")), float(concrete.get("height"))
+                    points = svg.find(".//*[@data-part='toejning']").get("points").split()
+                    zero, a, b, _ = [tuple(map(float, point.split(","))) for point in points]
+                    crossing = a[1] + (b[1] - a[1]) * (zero[0] - a[0]) / (b[0] - a[0])
+                    zone = svg.find(".//*[@data-part='tryckzon']")
+                    zone_top = float(zone.get("y"))
+                    zone_height = float(zone.get("height"))
+                    self.assertAlmostEqual(crossing, top + height * relative_depth, places=1)
+                    self.assertAlmostEqual(crossing, zone_top + (zone_height if moment > 0 else 0), places=1)
 
     def test_equations_show_the_transformed_section_in_stage_ii_only(self):
         self.calculate()

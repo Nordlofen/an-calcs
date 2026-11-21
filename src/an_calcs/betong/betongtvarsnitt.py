@@ -838,6 +838,12 @@ _ELASTISK = {"field": "stadium", "equals": 2}
 _ULTIMAT = {"field": "stadium", "equals": 3}
 _MANUELL_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": True}
 _AUTO_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": False}
+_CC_HELP = "0 utelämnar lagret. Tomt fält använder c/c från tidigare antal."
+_CC_HELP_HTML = (
+    '<style>.anp-panel .anp-grid:has(> .anp-field .betongtvarsnitt-cc-help) '
+    '{ align-items: start; }</style>'
+    f'<span class="betongtvarsnitt-cc-help">{_CC_HELP}</span>'
+)
 
 _BT_SKISS_FALT = (
     "geometri", "b", "h", "c_nom", "phi_b", "phi_h",
@@ -861,9 +867,9 @@ _BT_FIELDS = [
     _bt_field("n_uk", "Antal järn", "", "st", type="int", visible_if=_BALK),
     _bt_field("phi_uk", "Stångdiameter", "Ø", "mm", visible_if=_BALK_PLATTA),
     _bt_field("s_ok", "C/c-avstånd", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA,
-              help="0 utelämnar lagret. Tomt fält ger motsvarande c/c från tidigare antal."),
+              help=_CC_HELP, help_html=_CC_HELP_HTML),
     _bt_field("s_uk", "C/c-avstånd", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA,
-              help="0 utelämnar lagret. Tomt fält ger motsvarande c/c från tidigare antal."),
+              help=_CC_HELP, help_html=_CC_HELP_HTML),
     _bt_field("N_d", "Normalkraft", "<i>N</i><sub>d</sub>", "kN", help="Positiv i tryck. Laster avser hela bredden."),
     _bt_field("M", "Böjmoment", "<i>M</i>", "kNm", help="Positivt moment har trycksidan i ÖK. Laster avser hela bredden."),
     _bt_field("f_ck", "Karakteristisk betongtryckhållfasthet", "<i>f</i><sub>ck</sub>", "MPa", help="Högst 50 MPa."),
