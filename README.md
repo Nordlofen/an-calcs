@@ -725,6 +725,23 @@ importeras inte när vanliga beräkningsfunktioner används. Detta är
 Jupyterversionen; export till en fristående beräkningsbar HTML-fil ingår
 ännu inte.
 
+## Betongtvärsnitt
+
+`an_calcs.betong.betongtvarsnitt` analyserar pålar, balkar och plattremsor.
+Välj stadium II för elastisk böjstyvhet med tryckzon eller stadium III för
+momentkapacitet vid given normalkraft. Panelen visar en dynamisk måttskiss
+med täckskikt och armering. Balk har alltid bygel. Armeringen i överkant och
+underkant placeras automatiskt från täckskikt och stångdiameter.
+
+```python
+from an_calcs.betong import betongtvarsnitt
+from an_print import Panel
+
+Panel(betongtvarsnitt, key="Snitt 1")
+```
+
+Se [modell, indata och exempel](docs/betongtvarsnitt.md).
+
 ## Böjstyvhet - Betongpålar
 
 `an_calcs.betong.bojstyvhet_betongpalar` beräknar modifierad nominell böjstyvhet för en
