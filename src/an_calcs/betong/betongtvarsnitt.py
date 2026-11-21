@@ -655,6 +655,24 @@ def _bt_panel_resultat(raw):
             final.append(_post("z_II", r"z_{II}", ii["z"], "mm", "hävarm mellan snittets samlade tryckkraft och armeringens dragkraft"))
         final.append(_post("EI_II", r"EI_{II}", ii["EI_II"], "kN*m^2", "elastisk böjstyvhet för betongens tryckzon och armeringen"))
         equations.extend([
+            _ekvation(r"\alpha=\frac{E_s}{E_{cd}}", "modulkvot som omvandlar armeringsarea till ekvivalent betongarea"),
+            _ekvation(r"\beta_i=\alpha-1\quad\text{om }u_i\leq x", "armeringsrad i tryckzonen, med avdrag för den undanträngda betongen"),
+            _ekvation(r"\beta_i=\alpha\quad\text{om }u_i>x", "armeringsrad utanför tryckzonen"),
+            _ekvation(r"A_{II}(x)=bx+\sum_i\beta_i A_{s,i}", "transformerad area för ett provvärde på tryckzonens höjd"),
+            _ekvation(r"x_{tp}(x)=\frac{bx^2/2+\sum_i\beta_i A_{s,i}u_i}{A_{II}(x)}",
+                       "transformerad tyngdpunkt från den mest tryckta kanten"),
+            _ekvation(r"I_{II}(x)=\frac{bx^3}{12}+bx\left(\frac{x}{2}-x_{tp}(x)\right)^2+\sum_i\beta_i A_{s,i}\left(u_i-x_{tp}(x)\right)^2",
+                       "tryckzonens och de transformerade armeringsradernas tröghetsmoment kring samma tyngdpunkt"),
+            _ekvation(r"M_u=sM", "moment med tecken för den valda riktningen: s = +1 från ÖK, s = −1 från UK"),
+            _ekvation(r"M_{tp}(x)=M_u-N_d\left(\frac h2-x_{tp}(x)\right)",
+                       "moment kring den transformerade tyngdpunkten efter flytt från hela snittets mitt"),
+            _ekvation(r"\sigma_{II}(u;x)=\frac{N_d}{A_{II}(x)}-\frac{M_{tp}(x)}{I_{II}(x)}\left(u-x_{tp}(x)\right)",
+                       "linjär spänning i det transformerade snittet, med tryck positivt"),
+            _ekvation(r"\sigma_{\min}(h)=\min\{\sigma_{II}(0;h),\sigma_{II}(h;h)\}",
+                       "pröva hela snittet och jämför spänningarna i båda kanterna"),
+            _ekvation(r"x=h\quad\text{om }\sigma_{\min}(h)\geq 0", "hela höjden är verksam i betongtryck"),
+            _ekvation(r"\sigma_{II}(x;x)=0\quad\text{om }\sigma_{\min}(h)<0",
+                       "lös för x mellan 0 och h så att spänningen vid tryckzonens gräns är noll"),
             _ekvation(r"\sigma_c=E_{cd}\max(\varepsilon_c,0),\quad\sigma_s=E_s\varepsilon_s", "stadium II; armeringens spänning klipps inte vid flytning utan ger varning"),
             _ekvation(r"EI_{II}=E_{cd}I_{II}/10^9", "MPa och mm^4 omvandlas till kNm^2; punktareor utan järnens egen tröghet"),
         ])
@@ -694,11 +712,17 @@ def _bt_panel_resultat(raw):
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}; gräns {warning['grans']:.6g} {warning['enhet']}.")
         final.append(_post(f"varning_{i}", rf"\mathrm{{VARNING}}_{{{i}}}", 1, "",
                            warning["niva"] + ": " + warning["text"] + value_text, 0))
+    equation_section = {"title": "Ekvationer", "items": equations}
+    if ii is not None:
+        equation_section["notes"] = [
+            {"rubrik": "Koordinater och enheter", "text": "u och armeringsradens centrumläge u_i räknas från den mest tryckta kanten. N_d och M sätts in i N och Nmm i snittekvationerna. Måtten är i mm."},
+            {"rubrik": "Lösning för x", "text": "I delvis tryckt snitt söker programmet den tryckzon vars integrerade krafter och moment balanserar N_d och M. Töjningen och betongspänningen är då noll vid tryckzonens gräns. Sambanden för det transformerade snittet ovan ger samma jämvikt."},
+        ]
     return {
         "metodbeskrivning": {"title": "Metodbeskrivning", "items": method_items},
         "indata": {"title": "Indata", "items": data},
         "delresultat": {"title": "Delresultat", "items": partial},
-        "ekvationer": {"title": "Ekvationer", "items": equations},
+        "ekvationer": equation_section,
         "slutresultat": {"title": "Slutresultat", "items": final},
     }
 
@@ -842,7 +866,7 @@ betongtvarsnitt.panel_schema = {
                 {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
             ]},
             {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_profil:render",
-                        "fields": list(_BT_PANEL_PX), "full_width": True}},
+                        "fields": list(_BT_PANEL_PX), "full_width": True, "max_width": 760}},
         ]},
         {"title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 1, "sections": [
             {"title": "Stål", "fields": ["gamma_s"], "columns": 2},

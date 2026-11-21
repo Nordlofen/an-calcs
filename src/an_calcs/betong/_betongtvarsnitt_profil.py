@@ -20,9 +20,9 @@ def render(values):
         return '<p role="status">Ingen spänningsprofil kan visas. Jämvikt vid angiven normalkraft hittades inte.</p>'
 
     h, b = p["h"], p["b"]
-    scale = min(185 / b, 168 / h)
+    scale = min(185 / b, 112 / h)
     span = h * scale
-    top, bottom = 108, 108 + span
+    top, bottom = 79, 79 + span
     left = 142 - b * scale / 2
     right = left + b * scale
     strain_axis, stress_axis, force_axis, z_axis = 362, 523, 753, 867
@@ -32,22 +32,30 @@ def render(values):
     lower_edge = state["tryckkant"] == "UK"
     start, stop = (h - x, h) if lower_edge else (0, x)
     neutral = None if unloaded or not 0 < x < h else (start if lower_edge else stop)
+    # Komprimera skillnaden mot mitten i stadium II:s principskiss.
+    # Samma avbildning för alla nivåer bevarar ordningen på krafter och järn.
+    schematic = elastic and neutral is not None
+    axis_depth = 0.35 * neutral + 0.65 * h / 2 if schematic else neutral
     title = f'Spänningsprofil · Stadium {p["stadium"]}'
     context = "Elastisk profil vid angiven last" if elastic else "Ultimat profil · rektangulärt tryckblock"
-    svg_height = bottom + 73
+    svg_height = bottom + (54 if state["z"] is not None else 35)
     parts = [
         '<div style="overflow-x:auto;max-width:100%" tabindex="0" role="region" aria-label="Spänningsfigur">',
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 944 {svg_height:.2f}" '
         f'role="img" aria-label="{title}" style="min-width:680px;font:16px sans-serif;color:var(--anp-fg,#202327)">',
         f'<title>{title}</title>',
-        '<desc>Gemensam höjdskala för tvärsnitt, töjning, betongspänning och krafter. '
+        '<desc>Tvärsnitt, töjning, betongspänning och krafter visas på motsvarande nivåer. '
         'Tryck åt höger och drag åt vänster. Profilernas bredd visas schematiskt.</desc>',
         f'<rect x="1" y="1" width="942" height="{svg_height - 2:.2f}" rx="7" '
         f'fill="none" stroke="{_GUIDE}"/>',
     ]
 
     def depth(y):
-        return top + y * scale
+        if not schematic:
+            return top + y * scale
+        if y <= neutral:
+            return top + y * axis_depth / neutral * scale
+        return bottom - (h - y) * (h - axis_depth) / (h - neutral) * scale
 
     def line(x1, y1, x2, y2, *, color=_AXIS, dashed=False, tag=""):
         dash = ' stroke-dasharray="5 5"' if dashed else ''
@@ -81,16 +89,16 @@ def render(values):
         parts.append(f'<path d="M{end} {y:.2f} l{-8 * direction} -4 v8 z" fill="{color}"/>')
         label((force_axis + end) / 2, y - 8, name, anchor="middle", color=color)
 
-    label(20, 28, title, size=22, bold=True)
-    label(924, 28, context, size=14, anchor="end")
-    line(20, 44, 924, 44, color=_GUIDE)
+    label(20, 22, title, size=22, bold=True)
+    label(924, 22, context, size=14, anchor="end")
+    line(20, 34, 924, 34, color=_GUIDE)
     for xp, name in ((142, "Tvärsnitt"), (strain_axis, "Töjning ε"),
                      (stress_axis + 31, "Betongspänning"), (force_axis, "Krafter")):
-        label(xp, 72, name, anchor="middle", bold=True)
+        label(xp, 56, name, anchor="middle", bold=True)
     for level in (top, bottom):
         line(right, level, force_axis + 52, level, color=_GUIDE, dashed=True)
 
-    concrete, _, _, _ = _snitt_bilddelar(p, left, top, scale, None if unloaded else (start, stop))
+    concrete, _, _, _ = _snitt_bilddelar(p, left, top, scale, None if unloaded else (start, stop), djup=depth)
     parts.extend(concrete)
     label(left, top - 8, "ÖK", size=13)
     label(left, bottom + 16, "UK", size=13)
@@ -101,10 +109,16 @@ def render(values):
 
     for xp in (strain_axis, stress_axis, force_axis):
         line(xp, top - 5, xp, bottom + 8)
-    emax = max(abs(etop), abs(ebottom))
+    # Låt den raka töjningslinjen korsa den ritade neutralaxeln.
+    top_width, bottom_width = etop, ebottom
+    if schematic:
+        sign = -1 if lower_edge else 1
+        top_width = sign * axis_depth
+        bottom_width = -sign * (h - axis_depth)
+    emax = max(abs(top_width), abs(bottom_width))
     if emax:
-        strain_top = strain_axis + 73 * etop / emax
-        strain_bottom = strain_axis + 73 * ebottom / emax
+        strain_top = strain_axis + 73 * top_width / emax
+        strain_bottom = strain_axis + 73 * bottom_width / emax
         shape([(strain_axis, top), (strain_top, top), (strain_bottom, bottom), (strain_axis, bottom)],
               tag='data-part="toejning"', color="currentColor")
     if neutral is not None:
@@ -139,11 +153,12 @@ def render(values):
         dimension(z_axis, z_top, z_bottom, "z", _AXIS, tag='data-part="haevarm"')
 
     if neutral is not None:
-        label(20, bottom + 32, "Streckad linje = neutralaxel", size=14)
+        neutral_label = "Neutralaxelns läge visas schematiskt" if schematic else "Streckad linje = neutralaxel"
+        label(20, bottom + 26, neutral_label, size=14)
     elif unloaded:
-        label(20, bottom + 32, "Obelastat snitt", size=14)
-    label(924, bottom + 32, "Tryck åt höger · Drag åt vänster · Schematisk profilbredd", anchor="end", size=14)
+        label(20, bottom + 26, "Obelastat snitt", size=14)
+    label(924, bottom + 26, "Tryck åt höger · Drag åt vänster · Schematisk profilbredd", anchor="end", size=14)
     if state["z"] is not None:
-        label(20, bottom + 53, "Hävarmen z mäts från samlad tryckresultant (betong och tryckarmering) till dragresultanten.", size=14)
+        label(20, bottom + 44, "Hävarmen z mäts från samlad tryckresultant (betong och tryckarmering) till dragresultanten.", size=14)
     parts.append('</svg></div>')
     return ''.join(parts)

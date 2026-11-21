@@ -88,16 +88,19 @@ def render(values):
 
 
 
-def _snitt_bilddelar(p, left, top, scale, tryckzon=None):
+def _snitt_bilddelar(p, left, top, scale, tryckzon=None, *, djup=None):
     """Rita betong och armering i samma koordinatsystem för båda figurerna."""
+    if djup is None:
+        def djup(y):
+            return top + y * scale
     geometry, b, h = p["geometri"], p["b"], p["h"]
     width, height = b * scale, h * scale
     parts = [f'<rect data-part="betong" x="{left:.3f}" y="{top:.3f}" '
              f'width="{width:.3f}" height="{height:.3f}" fill="var(--anp-soft,#eef2f5)"/>']
     if tryckzon is not None:
         start, stop = tryckzon
-        parts.append(f'<rect data-part="tryckzon" x="{left:.3f}" y="{top + start * scale:.3f}" '
-                     f'width="{width:.3f}" height="{(stop - start) * scale:.3f}" fill="#67bed9" fill-opacity=".37"/>')
+        parts.append(f'<rect data-part="tryckzon" x="{left:.3f}" y="{djup(start):.3f}" '
+                     f'width="{width:.3f}" height="{djup(stop) - djup(start):.3f}" fill="#67bed9" fill-opacity=".37"/>')
     parts.append(f'<rect x="{left:.3f}" y="{top:.3f}" width="{width:.3f}" height="{height:.3f}" '
                  'fill="none" stroke="currentColor" stroke-width="1.4"/>')
 
@@ -109,13 +112,14 @@ def _snitt_bilddelar(p, left, top, scale, tryckzon=None):
         bars_width = max(row["antal_ekv"] * row["phi"] for row in p["rader"])
         side_cover = max(0, min(b * 0.09, (b - bars_width - 2 * stirrup) / 2))
 
-    stroke = stirrup * scale
     outer_width = width - 2 * side_cover * scale
-    outer_height = height - (top_cover + bottom_cover) * scale
+    outer_top, outer_bottom = djup(top_cover), djup(h - bottom_cover)
+    outer_height = outer_bottom - outer_top
+    stroke = min(stirrup * scale, .45 * outer_height)
     inside_left = left + side_cover * scale + stroke
     clear_width = outer_width - 2 * stroke
-    clear_top = top + top_cover * scale + stroke
-    clear_bottom = top + height - bottom_cover * scale - stroke
+    clear_top = outer_top + stroke
+    clear_bottom = outer_bottom - stroke
     rows = []
     for row in p["rader"]:
         count = int(row["indatavarde"])
@@ -145,7 +149,7 @@ def _snitt_bilddelar(p, left, top, scale, tryckzon=None):
             inside_left + margin + i * (clear_width - 2 * margin) / (drawn - 1) for i in range(drawn)
         ]
         cy = max(clear_top + radius + gap,
-                 min(top + row["y"] * scale, clear_bottom - radius - gap))
+                 min(djup(row["y"]), clear_bottom - radius - gap))
         for cx in centers:
             parts.append(f'<circle data-part="langsjarn" cx="{cx:.3f}" cy="{cy:.3f}" '
                          f'r="{radius:.3f}" fill="#ae4946"/>')

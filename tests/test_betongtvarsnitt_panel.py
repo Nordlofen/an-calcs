@@ -148,6 +148,31 @@ class PanelTests(unittest.TestCase):
         self.assertIn("Jämvikt vid angiven normalkraft hittades inte", self.profile())
         self.assertIn("Måttsatt tvärsnitt", self.figure())
 
+    def test_elastic_profile_has_a_schematic_axis_aligned_with_the_strain_line(self):
+        svg = drawing(self.profile())
+        self.assertIn("Neutralaxelns läge visas schematiskt", self.profile())
+        concrete = svg.find(".//*[@data-part='betong']")
+        top, height = float(concrete.get("y")), float(concrete.get("height"))
+        points = svg.find(".//*[@data-part='toejning']").get("points").split()
+        zero, a, b, _ = [tuple(map(float, point.split(","))) for point in points]
+        crossing = a[1] + (b[1] - a[1]) * (zero[0] - a[0]) / (b[0] - a[0])
+        zone = svg.find(".//*[@data-part='tryckzon']")
+        self.assertAlmostEqual(crossing, top + float(zone.get("height")), places=1)
+        x = result(self.calculate())["x"]
+        self.assertLess(abs((crossing - top) / height - 0.5), abs(x / self.fields["h"].value - 0.5))
+
+    def test_equations_show_the_transformed_section_in_stage_ii_only(self):
+        self.calculate()
+        latex = self.panel.cb.latex_ekv
+        for equation in (r"\alpha", "A_{II}(x)", "x_{tp}(x)", "I_{II}(x)", "M_{tp}(x)",
+                         r"\sigma_{\min}(h)", r"\sigma_{II}(x;x)", "EI_{II}"):
+            self.assertIn(equation, latex)
+        self.assertIn("Lösning för x", latex)
+        self.fields["stadium"].value = 3
+        self.calculate()
+        self.assertNotIn("I_{II}(x)", self.panel.cb.latex_ekv)
+        self.assertIn(r"\min(0.8x,h)", self.panel.cb.latex_ekv)
+
     def test_figure_and_saved_case_follow_layer_inputs(self):
         self.assertIn("UK  4 × Ø20", self.figure())
         self.assertIn("Bygel Ø8", self.figure())

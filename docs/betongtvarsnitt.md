@@ -14,9 +14,10 @@ redovisningsval under **Beräkningsfall**.
 
 En separat spänningsfigur under last- och materialfälten visar samma snitt
 tillsammans med töjning, betongspänning, betongens tryckkraft, armeringens
-dragkraft och hävarmen när den finns. Diagrammen delar höjdskala. Deras
-bredd är schematisk. Stadium II visar profilen vid angiven last och
-stadium III den ultimata profilen vid angiven normalkraft.
+dragkraft och hävarmen när den finns. Samma höjdnivåer följer genom
+diagrammen och profilbredderna är schematiska. Stadium II visar profilen
+vid angiven last med schematiskt axelläge i delvis tryckt snitt.
+Stadium III visar den ultimata profilen vid angiven normalkraft.
 
 | Geometri | Mått och armering |
 |---|---|
@@ -43,7 +44,10 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   tröghetsmoment försummas. Slutresultatet visar valt stadium, tryckzonens
   höjd, maximal betongtryckspänning, stålspänning per rad, betongens tryckkraft,
   armeringens dragkraft, hävarm där den finns och \(EI_{II}\). Töjningarna
-  finns i delresultatet. Elastiska stålspänningar redovisas även över flytgränsen.
+  finns i delresultatet. Under Ekvationer visas det transformerade snittets
+  area, tyngdpunkt och tröghetsmoment samt hur man bestämmer tryckzonens
+  höjd från normalkraft och moment. Elastiska stålspänningar redovisas även
+  över flytgränsen.
 - **Stadium III** löser tryck- och momentkapacitet vid given normalkraft och
   visar valt stadium, tryckzonens höjd, stålspänningar, betongens tryckkraft,
   armeringens dragkraft och hävarm där den finns. \(M_{Ed}\) och \(M_{Rd}\)
