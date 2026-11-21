@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import math
 import pathlib
 import sys
 import tempfile
@@ -86,7 +87,8 @@ class PanelTests(unittest.TestCase):
                     self.assertFalse(omitted & (values.keys() | partial))
                     self.assertEqual("h" in self.visible(), geometry != 1)
                     self.assertEqual("b" in self.visible(), geometry != 3)
-                    self.assertEqual("n_uk" in self.visible(), geometry != 1)
+                    self.assertEqual("n_uk" in self.visible(), geometry == 2)
+                    self.assertEqual("s_uk" in self.visible(), geometry == 3)
                     self.assertEqual("phi_h" in self.visible(), geometry == 1)
                     self.assertEqual("phi_b" in self.visible(), geometry != 3)
                     self.assertEqual("E_cd" in self.visible(), stage == 2)
@@ -112,22 +114,72 @@ class PanelTests(unittest.TestCase):
         restored._field_widgets["geometri"].value = 2
         self.assertEqual(restored.to_px()[i], 381)
 
-    def test_longitudinal_bars_clear_the_stirrup_in_both_figures(self):
+    def test_plate_spacing_drives_area_and_automatic_bar_positions(self):
+        for field, value in dict(geometri=3, h=260, M=-50, s_ok="150,5", s_uk="200").items():
+            self.fields[field].value = value
+        report = self.calculate()
+        data = {row["namn"]: row["value"] for row in report["indata"]["items"]}
+        self.assertEqual(data["s_1"], 150.5)
+        self.assertAlmostEqual(data["As_1"], 1000 / 150.5 * math.pi * data["phi_1"]**2 / 4)
+        self.assertAlmostEqual(data["As_2"], 1000 / 200 * math.pi * data["phi_2"]**2 / 4)
+        svg = drawing(self.figure())
+        bars = svg.findall(".//*[@data-part='langsjarn']")
+        self.assertEqual(len(bars), 12)
+        scale = float(svg.find(".//*[@data-part='betong']").get("width")) / 1000
+        self.assertAlmostEqual((float(bars[1].get("cx")) - float(bars[0].get("cx"))) / scale, 150.5, places=2)
+        self.fields["s_uk"].value = "0"
+        self.assertEqual(len(drawing(self.figure()).findall(".//*[@data-part='langsjarn']")), 7)
+
+    def test_old_plate_case_retains_area_when_spacing_fields_are_missing(self):
+        self.fields["geometri"].value = 3
+        self.fields["n_uk"].value = 7
+        self.panel._save_case("Platta äldre fall")
+        saved = json.loads(self.state.read_text())
+        for case in saved.values():
+            for field in ("s_ok", "s_uk"):
+                case.pop(field, None)
+        self.state.write_text(json.dumps(saved))
+        Panel._LAST_VALUES.clear()
+        Panel._LAST_BY_FUNCTION.clear()
+        restored = Panel(betongtvarsnitt, key="Platta äldre fall", state_file=self.state)
+        data = {row["namn"]: row["value"] for row in self.calculate(restored)["indata"]["items"]}
+        self.assertAlmostEqual(data["s_2"], 1000 / 7)
+        self.assertAlmostEqual(data["As_2"], 7 * math.pi * data["phi_2"]**2 / 4)
+        older_px = [value for name, value in zip(betongtvarsnitt.panel_schema["px"], restored.to_px())
+                    if name not in {"s_ok", "s_uk"}]
+        self.assertEqual(self.calculate(restored), betongtvarsnitt(older_px))
+
+    def test_longitudinal_bars_clear_the_stirrup_in_dimensioned_figure(self):
         # Bred balk med grova ÖK-järn som i exemplet där bygeln överlappades.
         self.fields["b"].value = 1000
         self.fields["phi_ok"].value = 34
-        for markup in (self.figure(), self.profile()):
-            svg = drawing(markup)
-            hoop = svg.find(".//*[@data-part='bygel']")
-            bars = svg.findall(".//*[@data-part='langsjarn']")
-            self.assertEqual(len(bars), 6)
-            x, y, w, h, rx, stroke = (float(hoop.get(k)) for k in ("x", "y", "width", "height", "rx", "stroke-width"))
-            for bar in bars:
-                cx, cy, r = (float(bar.get(k)) for k in ("cx", "cy", "r"))
-                self.assertGreaterEqual(cx, x + rx)
-                self.assertLessEqual(cx, x + w - rx)
-                self.assertGreater(cy - r, y + stroke / 2)
-                self.assertLess(cy + r, y + h - stroke / 2)
+        svg = drawing(self.figure())
+        hoop = svg.find(".//*[@data-part='bygel']")
+        bars = svg.findall(".//*[@data-part='langsjarn']")
+        self.assertEqual(len(bars), 6)
+        x, y, w, h, rx, stroke = (float(hoop.get(k)) for k in ("x", "y", "width", "height", "rx", "stroke-width"))
+        for bar in bars:
+            cx, cy, r = (float(bar.get(k)) for k in ("cx", "cy", "r"))
+            self.assertGreaterEqual(cx, x + rx)
+            self.assertLessEqual(cx, x + w - rx)
+            self.assertGreater(cy - r, y + stroke / 2)
+            self.assertLess(cy + r, y + h - stroke / 2)
+
+    def test_profile_uses_fixed_section_but_updates_external_loads(self):
+        def geometry(profile):
+            return [part.attrib for part in drawing(profile) if part.get("data-part") in {"betong", "langsjarn"}]
+
+        schematic = geometry(self.profile())
+        self.assertEqual(len(schematic), 5)
+        for field, value in dict(geometri=3, h=225, s_uk="180", N_d=125.5, M=-90).items():
+            self.fields[field].value = value
+        for stage in (2, 3):
+            self.fields["stadium"].value = stage
+            profile = self.profile()
+            self.assertEqual(geometry(profile), schematic)
+            self.assertIn("Yttre laster", profile)
+            self.assertIn("125,5 kN", profile)
+            self.assertIn("-90 kNm", profile)
 
     def test_stress_profile_switches_stage_and_follows_bending_direction(self):
         self.fields["M"].value = 100
@@ -172,6 +224,9 @@ class PanelTests(unittest.TestCase):
         self.calculate()
         self.assertNotIn("I_{II}(x)", self.panel.cb.latex_ekv)
         self.assertIn(r"\min(0.8x,h)", self.panel.cb.latex_ekv)
+        for equation in (r"N_d=F_c+\sum_i F_{s,i}", "M_{Rd,u} & = & F_c", r"\frac{d-x}{x}", "|M_{Rd}| & = & F_c z"):
+            self.assertIn(equation, self.panel.cb.latex_ekv)
+        self.assertIn("Ren böjning", self.panel.cb.latex_ekv)
 
     def test_figure_and_saved_case_follow_layer_inputs(self):
         self.assertIn("UK  4 × Ø20", self.figure())

@@ -245,8 +245,9 @@ class PanelAndInputTests(unittest.TestCase):
         schema = bt.betongtvarsnitt.panel_schema
         defaults = {field['name']: field['default'] for field in schema['fields']}
         defaults['stadium'] = 3
-        px = [defaults[key] for key in schema['px']]
-        px.insert(schema['px'].index('gamma_s'), 'parabel')
+        fields = [key for key in schema['px'] if key not in {'s_ok', 's_uk'}]
+        px = [defaults[key] for key in fields]
+        px.insert(fields.index('gamma_s'), 'parabel')
         method = bt.betongtvarsnitt(px)['metodbeskrivning']['items']
         self.assertTrue(any('parabel–rektangel' in item['text'] for item in method))
 

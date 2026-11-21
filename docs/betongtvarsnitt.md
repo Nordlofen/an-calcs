@@ -12,23 +12,25 @@ Måttskissen uppdateras när geometri eller armering ändras. Panel använder
 `an-print` med stöd för dynamiska figurer och indatagrupper. Spara indata och
 redovisningsval under **Beräkningsfall**.
 
-En separat spänningsfigur under last- och materialfälten visar samma snitt
-tillsammans med töjning, betongspänning, betongens tryckkraft, armeringens
-dragkraft och hävarmen när den finns. Samma höjdnivåer följer genom
-diagrammen och profilbredderna är schematiska. Stadium II visar profilen
-vid angiven last med schematiskt axelläge i delvis tryckt snitt.
-Stadium III visar den ultimata profilen vid angiven normalkraft.
+Spänningsfiguren under last- och materialfälten visar de yttre lasterna
+och ett fast, schematiskt tvärsnitt med två järn per sida. Töjning,
+betongspänning, krafter och eventuell hävarm följer beräkningen. Stadium II
+visar profilen vid angiven last med schematiskt axelläge i delvis tryckt snitt.
+Stadium III visar profilen vid momentkapacitet för angiven normalkraft.
 
 | Geometri | Mått och armering |
 |---|---|
 | Påle | Kvadratiskt snitt, fyra identiska hörnjärn, täckskikt till bygelns utsida, bygel- och stångdiameter |
 | Balk | Bredd, höjd, obligatorisk bygeldiameter och täckskikt till bygelns utsida i ÖK och UK. Antal och stångdiameter per sida |
-| Plattremsa | Fast beräkningsbredd 1 000 mm i Panel. Plattjocklek och täckskikt till längsarmeringens utsida i ÖK och UK. Antal och stångdiameter per sida |
+| Plattremsa | Fast beräkningsbredd 1 000 mm i Panel. Plattjocklek och täckskikt till längsarmeringens utsida i ÖK och UK. C/c-avstånd och stångdiameter per sida |
 
 Stångcentrum beräknas geometriskt från täckskiktet, en halv stångdiameter
 och för balk även bygeldiametern. I underkant mäts motsvarande avstånd från
-underkanten. Antal noll utelämnar den armeringsraden. Skissen visar
-placeringen i breddled schematiskt.
+underkanten. Ange noll som antal eller c/c-avstånd för att utelämna raden.
+För plattremsa beräknas armeringsarean med \(b/s\) gånger en stångs area.
+Måttskissen visar ett avrundat antal järn med angivet c/c. Ett tomt c/c-fält
+använder det motsvarande avståndet från antalet i det sparade fallet eller
+från förvalt antal i ett nytt fall.
 
 Längder anges i mm och laster i kN och kNm för **hela snittbredden**. För en
 1000 mm bred remsa sammanfaller lastvärdena numeriskt med kN/m och kNm/m.
@@ -68,9 +70,11 @@ elastiska modellen. Brottöjningskontrollen använder ett separat villkor.
 Varningstexterna visas både i metodbeskrivningen och i slutresultatet.
 
 Modellerna omfattar rektangulära snitt, enaxlig böjning, normalkraft i tryck
-eller noll och \(f_{ck}\leq50\) MPa. Stadium III bygger på materialmodellerna
-från EN 1992-1-1:2004, 3.1.7 och 6.1, med inmatade designvärden. Modellen
-söker jämvikt numeriskt längs tillåtna ultimata töjningsprofiler. Förankring,
+eller noll och \(f_{ck}\leq50\) MPa. Stadium III använder betongens tryckblock
+enligt EN 1992-1-1:2004 3.1.7(3), stålets flytplatå enligt 3.2.7(2) och
+antagandena för böjning med normalkraft enligt 6.1. Ekvationerna visar
+kraft- och momentjämvikt samt specialfallet ren böjning med ett draglager.
+Modellen söker jämvikt numeriskt längs tillåtna ultimata töjningsprofiler. Förankring,
 skjuvning, torsion, sprickbredd, fria stångavstånd, rotationsförmåga,
 instabilitet och andra ordningens effekter kontrolleras separat.
 
@@ -78,9 +82,10 @@ instabilitet och andra ordningens effekter kontrolleras separat.
 
 Dictionary-formatet kan använda samma två lager som Panel. För balk är
 `phi_b` bygeldiametern i mm. `c_nom_ok`, `c_nom_uk`, `phi_ok` och `phi_uk`
-anges i mm och `n_ok`, `n_uk` i antal stänger. Påle använder `b`, `c_nom`,
+anges i mm. För balk anges `n_ok`, `n_uk` i antal stänger. För plattremsa
+kan `s_ok`, `s_uk` anges i mm och beräkningsbredden `b` ändras. Äldre
+plattremsor med `n_ok`, `n_uk` stöds fortfarande. Påle använder `b`, `c_nom`,
 `phi_b` och `phi_h` för den kvadratiska geometrin.
-Python-anrop med dictionary kan ange en annan beräkningsbredd för plattremsa.
 
 ```python
 from an_calcs.betong import berakna_betongtvarsnitt, betongtvarsnitt

@@ -1,6 +1,5 @@
 """Måttlösa spännings- och töjningsprofiler från Panelens beräkningsmodell."""
 
-from ._betongtvarsnitt_skiss import _snitt_bilddelar
 from .betongtvarsnitt import _BT_PANEL_PX, _bt_fran_panel, berakna_betongtvarsnitt
 
 
@@ -19,12 +18,11 @@ def render(values):
     if state is None:
         return '<p role="status">Ingen spänningsprofil kan visas. Jämvikt vid angiven normalkraft hittades inte.</p>'
 
-    h, b = p["h"], p["b"]
-    scale = min(185 / b, 112 / h)
-    span = h * scale
-    top, bottom = 79, 79 + span
-    left = 142 - b * scale / 2
-    right = left + b * scale
+    h = p["h"]
+    span, width = 112, 96
+    scale = span / h
+    top, bottom = 101, 101 + span
+    left, right = 142 - width / 2, 142 + width / 2
     strain_axis, stress_axis, force_axis, z_axis = 362, 523, 753, 867
     etop, ebottom = state["epsilon_top"], state["epsilon_bottom"]
     unloaded = etop == ebottom == 0
@@ -37,15 +35,16 @@ def render(values):
     schematic = elastic and neutral is not None
     axis_depth = 0.35 * neutral + 0.65 * h / 2 if schematic else neutral
     title = f'Spänningsprofil · Stadium {p["stadium"]}'
-    context = "Elastisk profil vid angiven last" if elastic else "Ultimat profil · rektangulärt tryckblock"
-    svg_height = bottom + (54 if state["z"] is not None else 35)
+    context = "Elastisk profil vid angiven last" if elastic else "Kapacitetsprofil vid angiven normalkraft"
+    footer = bottom + 39
+    svg_height = footer + (30 if state["z"] is not None else 12)
     parts = [
         '<div style="overflow-x:auto;max-width:100%" tabindex="0" role="region" aria-label="Spänningsfigur">',
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 944 {svg_height:.2f}" '
         f'role="img" aria-label="{title}" style="min-width:680px;font:16px sans-serif;color:var(--anp-fg,#202327)">',
         f'<title>{title}</title>',
-        '<desc>Tvärsnitt, töjning, betongspänning och krafter visas på motsvarande nivåer. '
-        'Tryck åt höger och drag åt vänster. Profilernas bredd visas schematiskt.</desc>',
+        '<desc>Tvärsnitt och armeringsjärn är schematiska. Töjning, betongspänning och krafter '
+        'visas på motsvarande nivåer, med tryck åt höger och drag åt vänster.</desc>',
         f'<rect x="1" y="1" width="942" height="{svg_height - 2:.2f}" rx="7" '
         f'fill="none" stroke="{_GUIDE}"/>',
     ]
@@ -92,14 +91,29 @@ def render(values):
     label(20, 22, title, size=22, bold=True)
     label(924, 22, context, size=14, anchor="end")
     line(20, 34, 924, 34, color=_GUIDE)
+    n_value = f'{p["N_d"]:.6g}'.replace(".", ",")
+    m_value = f'{p["M"]:.6g}'.replace(".", ",")
+    n_arrow = "⊗ " if p["N_d"] else ""
+    m_arrow = "↻ " if p["M"] > 0 else "↺ " if p["M"] < 0 else ""
+    label(20, 54, "Yttre laster", size=14, bold=True)
+    label(118, 54, f'{n_arrow}{subscript("N", "d")} = {n_value} kN', size=14)
+    label(295, 54, f"{m_arrow}M = {m_value} kNm", size=14)
     for xp, name in ((142, "Tvärsnitt"), (strain_axis, "Töjning ε"),
                      (stress_axis + 31, "Betongspänning"), (force_axis, "Krafter")):
-        label(xp, 56, name, anchor="middle", bold=True)
+        label(xp, 78, name, anchor="middle", bold=True)
     for level in (top, bottom):
         line(right, level, force_axis + 52, level, color=_GUIDE, dashed=True)
 
-    concrete, _, _, _ = _snitt_bilddelar(p, left, top, scale, None if unloaded else (start, stop), djup=depth)
-    parts.extend(concrete)
+    parts.append(f'<rect data-part="betong" x="{left}" y="{top:.3f}" width="{width}" height="{span}" '
+                 'fill="var(--anp-soft,#eef2f5)"/>')
+    if not unloaded:
+        parts.append(f'<rect data-part="tryckzon" x="{left}" y="{depth(start):.3f}" width="{width}" '
+                     f'height="{depth(stop) - depth(start):.3f}" fill="#67bed9" fill-opacity=".37"/>')
+    parts.append(f'<rect x="{left}" y="{top}" width="{width}" height="{span}" '
+                 'fill="none" stroke="currentColor" stroke-width="1.4"/>')
+    for cy in (top + 17, bottom - 17):
+        for cx in (left + 20, right - 20):
+            parts.append(f'<circle data-part="langsjarn" cx="{cx}" cy="{cy}" r="4" fill="{_RED}"/>')
     label(left, top - 8, "ÖK", size=13)
     label(left, bottom + 16, "UK", size=13)
     if not unloaded:
@@ -154,11 +168,11 @@ def render(values):
 
     if neutral is not None:
         neutral_label = "Neutralaxelns läge visas schematiskt" if schematic else "Streckad linje = neutralaxel"
-        label(20, bottom + 26, neutral_label, size=14)
+        label(20, footer, neutral_label, size=14)
     elif unloaded:
-        label(20, bottom + 26, "Obelastat snitt", size=14)
-    label(924, bottom + 26, "Tryck åt höger · Drag åt vänster · Schematisk profilbredd", anchor="end", size=14)
+        label(20, footer, "Obelastat snitt", size=14)
+    label(924, footer, "Schematisk geometri och armering · Tryck åt höger · Drag åt vänster", anchor="end", size=14)
     if state["z"] is not None:
-        label(20, bottom + 44, "Hävarmen z mäts från samlad tryckresultant (betong och tryckarmering) till dragresultanten.", size=14)
+        label(20, footer + 18, "Hävarmen z mäts mellan tryckresultanten och dragresultanten.", size=14)
     parts.append('</svg></div>')
     return ''.join(parts)
