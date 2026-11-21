@@ -155,21 +155,31 @@ class PanelTests(unittest.TestCase):
                     if name not in {"s_ok", "s_uk", "c_nom_sida"} and "_lager_" not in name]
         self.assertEqual(self.calculate(restored), betongtvarsnitt(older_px))
 
-    def test_longitudinal_bars_clear_the_stirrup_in_dimensioned_figure(self):
-        # Bred balk med grova ÖK-järn som i exemplet där bygeln överlappades.
+    def test_outer_longitudinal_bars_touch_the_stirrup_in_each_layer(self):
         self.fields["b"].value = 1000
         self.fields["phi_ok"].value = 34
+        self.panel._table_widgets["balk_lager"].add_row({"sida": "ok", "phi": 16, "mangd": 3, "a_v": 25})
         svg = drawing(self.figure())
         hoop = svg.find(".//*[@data-part='bygel']")
         bars = svg.findall(".//*[@data-part='langsjarn']")
-        self.assertEqual(len(bars), 6)
-        x, y, w, h, rx, stroke = (float(hoop.get(k)) for k in ("x", "y", "width", "height", "rx", "stroke-width"))
+        x, y, w, h, corner, stroke = (float(hoop.get(k)) for k in ("x", "y", "width", "height", "rx", "stroke-width"))
+        inner_left, inner_right = x + stroke / 2, x + w - stroke / 2
+        inner_top, inner_bottom = y + stroke / 2, y + h - stroke / 2
+        layers = {}
         for bar in bars:
             cx, cy, r = (float(bar.get(k)) for k in ("cx", "cy", "r"))
-            self.assertGreaterEqual(cx, x + rx)
-            self.assertLessEqual(cx, x + w - rx)
-            self.assertGreater(cy - r, y + stroke / 2)
-            self.assertLess(cy + r, y + h - stroke / 2)
+            self.assertGreaterEqual(cy + .002, y + corner)
+            self.assertLessEqual(cy - .002, y + h - corner)
+            layers.setdefault(cy, []).append((cx, r))
+        top, middle, bottom = sorted(layers)
+        self.assertEqual([len(layers[cy]) for cy in (top, middle, bottom)], [2, 3, 4])
+        for layer in layers.values():
+            cx, r = layer[0]
+            self.assertAlmostEqual(cx - r, inner_left, delta=.002)
+            cx, r = layer[-1]
+            self.assertAlmostEqual(cx + r, inner_right, delta=.002)
+        self.assertAlmostEqual(top - layers[top][0][1], inner_top, delta=.002)
+        self.assertAlmostEqual(bottom + layers[bottom][0][1], inner_bottom, delta=.002)
 
     def test_profile_uses_fixed_section_but_updates_external_loads(self):
         def geometry(profile):
@@ -180,7 +190,14 @@ class PanelTests(unittest.TestCase):
             self.fields["geometri"].value = kind
             svg = drawing(self.profile())
             widths[kind] = float(svg.find(".//*[@data-part='betong']").get("width"))
-            self.assertEqual(svg.find(".//*[@data-part='bygel']") is not None, kind != 3)
+            hoop = svg.find(".//*[@data-part='bygel']")
+            self.assertEqual(hoop is not None, kind != 3)
+            if hoop is not None:
+                x, y, w, h, stroke = (float(hoop.get(k)) for k in ("x", "y", "width", "height", "stroke-width"))
+                for bar in svg.findall(".//*[@data-part='langsjarn']"):
+                    cx, cy, r = (float(bar.get(k)) for k in ("cx", "cy", "r"))
+                    self.assertAlmostEqual(min(cx - x, x + w - cx) - r, stroke / 2)
+                    self.assertAlmostEqual(min(cy - y, y + h - cy) - r, stroke / 2)
         self.assertGreater(widths[3], max(widths[1], widths[2]))
         schematic = geometry(self.profile())
         self.assertEqual(len(schematic), 5)

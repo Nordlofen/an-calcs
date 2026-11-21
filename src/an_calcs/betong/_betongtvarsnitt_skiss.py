@@ -118,6 +118,7 @@ def _snitt_bilddelar(p, left, top, scale):
     clear_width = outer_width - 2 * stroke
     clear_top = outer_top + stroke
     clear_bottom = outer_bottom - stroke
+    clear_height = clear_bottom - clear_top
     rows = []
     for row in p["rader"]:
         spacing = row["indatavarde"] if row["indatametod"] == "s" else None
@@ -125,39 +126,33 @@ def _snitt_bilddelar(p, left, top, scale):
         if spacing:
             count = max(1, min(count, 1 + int(max(0, b - row["phi"]) / spacing)))
         drawn = min(count, 70)
-        radius = min(max(1.05, row["phi"] * scale / 2), clear_width / (2 * drawn),
-                     (clear_bottom - clear_top) / 2)
-        if spacing:
-            radius = min(radius, row["phi"] * scale / 2)
-        rows.append((row, count, drawn, radius, spacing))
+        radius = row["phi"] * scale / 2
+        if not stirrup and not spacing:
+            radius = max(1.05, radius)
+        radius = min(radius, clear_width / (2 * drawn), clear_height / 2)
+        cy = max(clear_top + radius, min(top + row["y"] * scale, clear_bottom - radius))
+        rows.append((row, count, drawn, radius, spacing, cy))
 
     if stirrup:
-        # Lägg yttersta järnet förbi bygelböjen. Vid täta rader minskar
-        # hörnradien i skissen så att järnen också ryms i breddled.
-        room = min(clear_width / 2 - (n - 1) * radius for _, _, n, radius, _ in rows)
-        corner = min(10, outer_width / 7, outer_height / 7, room + stroke / 2)
+        # Hörnböjen slutar före stångcentrumen så att stängerna kan ligga an
+        # mot bygelns insida även i hörnen.
+        corner_room = min(min(cy - clear_top, clear_bottom - cy) for _, _, _, _, _, cy in rows)
+        corner = stroke / 2 + min(10, clear_width / 7, clear_height / 7, corner_room)
         parts.append(f'<rect data-part="bygel" x="{inside_left - stroke / 2:.3f}" '
                      f'y="{clear_top - stroke / 2:.3f}" width="{outer_width - stroke:.3f}" '
                      f'height="{outer_height - stroke:.3f}" rx="{corner:.3f}" '
                      f'fill="none" stroke="#52788f" stroke-width="{stroke:.3f}"/>')
-    else:
-        corner = 0.0
 
     row_positions = {}
-    for row, count, drawn, radius, spacing in rows:
-        room = clear_width / 2 - (drawn - 1) * radius
-        gap = min(.55, max(0, room - radius), max(0, (clear_bottom - clear_top) / 2 - radius)) if stirrup else 0
-        margin = min(room, max(radius, corner - stroke / 2) + gap)
+    for row, count, drawn, radius, spacing, cy in rows:
         if drawn == 1:
             centers = [left + width / 2]
         elif spacing:
             span = (count - 1) * spacing * scale
             centers = [left + (width - span) / 2 + i * span / (drawn - 1) for i in range(drawn)]
         else:
-            centers = [inside_left + margin + i * (clear_width - 2 * margin) / (drawn - 1)
+            centers = [inside_left + radius + i * (clear_width - 2 * radius) / (drawn - 1)
                        for i in range(drawn)]
-        cy = max(clear_top + radius + gap,
-                 min(top + row["y"] * scale, clear_bottom - radius - gap))
         for cx in centers:
             parts.append(f'<circle data-part="langsjarn" cx="{cx:.3f}" cy="{cy:.3f}" '
                          f'r="{radius:.3f}" fill="#ae4946"/>')

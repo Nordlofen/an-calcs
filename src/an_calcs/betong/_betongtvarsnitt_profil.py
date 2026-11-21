@@ -111,12 +111,18 @@ def render(values):
                      f'height="{depth(stop) - depth(start):.3f}" fill="#67bed9" fill-opacity=".37"/>')
     parts.append(f'<rect x="{left}" y="{top}" width="{width}" height="{span}" '
                  'fill="none" stroke="currentColor" stroke-width="1.4"/>')
+    bar_radius = 4
+    bar_inset_x, bar_inset_y = 20, 17
     if geometry != "plattremsa":
-        parts.append(f'<rect data-part="bygel" x="{left + 9}" y="{top + 9}" width="{width - 18}" '
-                     f'height="{span - 18}" rx="10" fill="none" stroke="#52788f" stroke-width="2"/>')
-    for cy in (top + 17, bottom - 17):
-        for cx in (left + 20, right - 20):
-            parts.append(f'<circle data-part="langsjarn" cx="{cx}" cy="{cy}" r="4" fill="{_RED}"/>')
+        hoop_inset, hoop_stroke = 9, 2
+        corner = hoop_stroke / 2 + bar_radius
+        bar_inset_x = bar_inset_y = hoop_inset + corner
+        parts.append(f'<rect data-part="bygel" x="{left + hoop_inset}" y="{top + hoop_inset}" '
+                     f'width="{width - 2 * hoop_inset}" height="{span - 2 * hoop_inset}" rx="{corner:g}" '
+                     f'fill="none" stroke="#52788f" stroke-width="{hoop_stroke}"/>')
+    for cy in (top + bar_inset_y, bottom - bar_inset_y):
+        for cx in (left + bar_inset_x, right - bar_inset_x):
+            parts.append(f'<circle data-part="langsjarn" cx="{cx}" cy="{cy}" r="{bar_radius}" fill="{_RED}"/>')
     label(left, top - 8, "ÖK", size=13)
     label(left, bottom + 16, "UK", size=13)
     if not unloaded:
