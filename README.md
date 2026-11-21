@@ -728,9 +728,10 @@ Jupyterversionen; export till en fristående beräkningsbar HTML-fil ingår
 ## Betongtvärsnitt
 
 `an_calcs.betong.betongtvarsnitt` analyserar pålar, balkar och plattremsor.
-Välj stadium II för elastisk böjstyvhet med tryckzon eller stadium III för
-momentkapacitet vid given normalkraft. Panelen visar en dynamisk måttskiss
-med täckskikt och armering. Balk har alltid bygel. Balk och plattremsa kan ha
+Under **Analysmodell** kan du välja stadium II för elastisk böjstyvhet med
+tryckzon eller stadium III för momentkapacitet vid given normalkraft.
+Panelen visar en dynamisk måttskiss med täckskikt och armering.
+Balk har alltid bygel. Balk och plattremsa kan ha
 flera lager i över- och underkant. Lagren placeras från täckskikt, stångdiameter
 och fritt höjdavstånd. Stadium III visar balanskontrollen för dragarmeringen och
 om lastmomentet ryms inom momentkapaciteten vid angiven normalkraft.

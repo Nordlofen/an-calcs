@@ -926,6 +926,7 @@ def betongtvarsnitt(px):
     plattremsa. Extra lager placeras med fritt vertikalt avstånd. Balk har bygel.
     En dictionary kan i stället ange armeringsrader med centrumläge y,
     diameter och exakt ett av antal, s eller A_s.
+    Panelens val Analysmodell visar när respektive stadium används.
     Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
     materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
     Slutresultatet i stadium III visar balanskontroll och momentkontroll.
@@ -955,6 +956,17 @@ _ELASTISK = {"field": "stadium", "equals": 2}
 _ULTIMAT = {"field": "stadium", "equals": 3}
 _MANUELL_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": True}
 _AUTO_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": False}
+_STADIUM_HELP_HTML = (
+    '<style>.anp-panel .anp-grid:has(> .anp-field .betongtvarsnitt-stadium-help) '
+    '{ align-items: start; }'
+    '.betongtvarsnitt-stadium-help > div + div { margin-top: .35em; }</style>'
+    '<div class="betongtvarsnitt-stadium-help">'
+    '<div><strong>Stadium II.</strong> Beräkna böjstyvhet <i>EI</i><sub>II</sub> vid angiven last, '
+    'till exempel som underlag för nedböjningsberäkning.</div>'
+    '<div><strong>Stadium III.</strong> Kontrollera om lastmomentet ryms inom snittets momentkapacitet '
+    '<i>M</i><sub>Rd</sub> vid angiven normalkraft.</div>'
+    '</div>'
+)
 _CC_HELP = "0 utelämnar lagret. Tomt fält använder c/c från tidigare antal."
 _CC_HELP_HTML = (
     '<style>.anp-panel .anp-grid:has(> .anp-field .betongtvarsnitt-cc-help) '
@@ -968,7 +980,7 @@ _BT_SKISS_FALT = (
 )
 _BT_FIELDS = [
     _bt_choice("geometri", "Geometri", 2, [("Påle", 1), ("Balk", 2), ("Plattremsa", 3)]),
-    _bt_choice("stadium", "Analysmodell", 2, [("Stadium II", 2), ("Stadium III", 3)]),
+    _bt_choice("stadium", "Analysmodell", 2, [("Stadium II", 2), ("Stadium III", 3)], help_html=_STADIUM_HELP_HTML),
     _bt_field("b", "Bredd", "<i>b</i>", "mm", presentation_if={**_PALE, "label": "Pålsida"},
               visible_if={"field": "geometri", "not_equals": 3},
               fixed_if={**_PLATTA, "value": _PLATTREMSA_BREDD}),
