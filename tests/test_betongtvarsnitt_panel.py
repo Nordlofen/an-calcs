@@ -292,6 +292,20 @@ class PanelTests(unittest.TestCase):
                     self.assertEqual([float(axis.get("d").split()[i]) for i in (1, 3)],
                                      [tension, 270] if moment < 0 else [110, tension])
 
+    def test_stage_iii_keeps_the_axial_and_compression_steel_arrows_at_zero(self):
+        for name, value in dict(geometri=3, stadium=3, h=300, N_d=0, M=-325,
+                                c_nom_ok=45, s_ok="100", phi_ok=25, s_uk="0").items():
+            self.fields[name].value = value
+        svg = drawing(self.profile())
+        force = svg.find(".//*[@data-part='normalkraft']")
+        self.assertIsNotNone(force.find("{*}polyline"))
+        self.assertEqual("".join(force.find("{*}text").itertext()), "NEd = 0")
+        self.assertIsNotNone(svg.find(".//*[@data-part='tryckarmeringskraft']"))
+        self.assertIn("F′s = 0", ["".join(text.itertext()) for text in svg.findall("{*}text")])
+        concrete = svg.find(".//*[@data-part='betongkraft']")
+        resultant = svg.find(".//*[@data-part='tryckresultant']")
+        self.assertEqual(concrete.get("points").split()[0].split(",")[1], resultant.get("cy"))
+
     def test_equations_show_the_transformed_section_in_stage_ii_only(self):
         self.calculate()
         latex = self.panel.cb.latex_ekv
@@ -423,6 +437,23 @@ class PanelTests(unittest.TestCase):
                     self.assertIn("gemensamma areatyngdpunkt", self.panel.cb.html_dr)
                     self.assertNotIn("d_3", partial)
                     self.assertNotIn("d_prime_3", partial)
+
+    def test_stage_iii_reports_force_depths_and_signed_steel_strains(self):
+        for name, value in dict(geometri=3, stadium=3, h=200, N_d=0, M=-90,
+                                c_nom_ok=45, phi_ok=10, s_ok="100", s_uk="0").items():
+            self.fields[name].value = value
+        self.panel._table_widgets["plattremsa_lager"].add_row({"sida": "ok", "phi": 20, "mangd": 200, "a_v": 10})
+        details = self.calculate()
+        rows = {row["namn"]: row for row in details["delresultat"]["items"]}
+        self.assertEqual(rows["epsilon_c_Rd"]["latex"], r"ε_{cu3}")
+        self.assertNotIn("epsilon_top_Rd", rows)
+        self.assertEqual(rows["epsilon_bottom_Rd"]["value"], 3.5)
+        x = rows["x_Rd"]["value"]
+        self.assertAlmostEqual(rows["u_c"]["value"], 0.4 * x)
+        for i, depth in enumerate((150, 125), 1):
+            self.assertEqual(rows[f"u_s_{i}"]["value"], depth)
+            self.assertAlmostEqual(rows[f"epsilon_s_{i}"]["value"], 3.5 * (1 - depth / x))
+        self.assertAlmostEqual(rows["d"]["value"], (150 + 2 * 125) / 3)
 
     def test_plate_with_steel_below_yield_has_no_warning_in_stage_iii(self):
         for key, value in dict(geometri=3, stadium=3, h=260, c_nom_ok=45, phi_ok=25,

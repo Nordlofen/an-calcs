@@ -67,6 +67,9 @@ har trycksidan i ÖK. Armeringen avser den studerade böjriktningen.
   betongens tryckkraft, armeringens drag- och tryckkraft och hävarm där
   den finns. \(M_{Ed}\) och \(M_{Rd}\)
   i lastens riktning visas efter varandra. Töjningarna finns i delresultatet.
+  Där visas också avstånden \(u_c\) och \(u_{s,i}\) från tryckkanten till
+  betongens tryckresultant respektive varje stånglager. Stånglagrens
+  töjningar följer jämviktsekvationernas teckenkonvention med tryck positivt.
   Snittkrafter och töjningar avser snittet vid momentkapacitet. Panel använder
   rektangulärt tryckblock med \(\lambda=0,8\) och \(\eta=1\) för \(f_{ck}\leq50\) MPa.
   Stålet har horisontell flytplatå vid \(f_{yd}=f_{yk}/\gamma_s\). Vid helt

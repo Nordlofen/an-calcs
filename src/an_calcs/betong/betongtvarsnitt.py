@@ -807,17 +807,36 @@ def _bt_panel_resultat(raw):
             _ekvation(r"EI_{II}=E_{cd}I_{II}/10^9", "böjstyvhet i kNm² med E i MPa och I i mm⁴"),
         ])
     if iii is not None:
+        rectangular = p["tryckblock"] == "rektangel"
         tension_strain = None
         if iii["jamvikt"]:
             state = iii["vald"]
+            from_bottom = state["tryckkant"] == "UK"
+            concrete_depth = state["y_Fc_fran_tryckkant"]
+            if concrete_depth is not None:
+                partial.append(_post("u_c", r"u_c", concrete_depth, "mm", "djup till betongens tryckresultant från tryckkanten"))
+            for i, row in enumerate(state["rader"], 1):
+                layer_depth = p["h"] - row["y"] if from_bottom else row["y"]
+                partial.append(_post(f"u_s_{i}", rf"u_{{s,{i}}}", layer_depth, "mm",
+                                     f"djup till stångcentrum i {row['namn']} från tryckkanten"))
+
+            concrete_strain_symbol = r"ε_{c,Rd}"
+            if state["x"] is not None and state["x"] <= p["h"]:
+                concrete_strain_symbol = r"ε_{cu3}" if rectangular else r"ε_{cu2}"
             partial.extend([
-                _post("a_block_Rd", r"a_{Rd}", state["a_block"], "mm", "tryckblockets höjd" if p["tryckblock"] == "rektangel" else "tryckzonens höjd"),
-                _post("epsilon_c_Rd", r"ε_{c,Rd}", state["epsilon_c_max"] * 1000, "‰", "största trycktöjning i betongen"),
-                _post("epsilon_top_Rd", r"ε_{ÖK,Rd}", state["epsilon_top"] * 1000, "‰", "töjning i ÖK vid momentkapacitet"),
-                _post("epsilon_bottom_Rd", r"ε_{UK,Rd}", state["epsilon_bottom"] * 1000, "‰", "töjning i UK vid momentkapacitet"),
+                _post("a_block_Rd", r"a_{Rd}", state["a_block"], "mm", "tryckblockets höjd" if rectangular else "tryckzonens höjd"),
+                _post("epsilon_c_Rd", concrete_strain_symbol, state["epsilon_c_max"] * 1000, "‰", "största trycktöjning i betongen"),
             ])
+            for edge, key in (("ÖK", "epsilon_top"), ("UK", "epsilon_bottom")):
+                if state[key] > 0:
+                    partial.append(_post(f"{key}_Rd", rf"ε_{{{edge},Rd}}", state[key] * 1000, "‰",
+                                         f"trycktöjning i {edge} vid momentkapacitet"))
+            for i, row in enumerate(state["rader"], 1):
+                strain_kind = "dragtöjning" if row["epsilon"] < 0 else "ståltöjning"
+                partial.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
+                                     f"{strain_kind} i {row['namn']}", 4))
             final.append(_post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "tryckzonens höjd inom snittet"))
-            if p["tryckblock"] == "rektangel":
+            if rectangular:
                 final.append(_post("sigma_c_Rd", r"\sigma_c=f_{cd}", p["f_cd"], "MPa", "betongens tryckspänning i tryckblocket"))
             if state["x"] is not None:
                 partial.append(_post("x_Rd", r"x_{Rd}", state["x"], "mm", "djup till neutralaxeln från tryckkanten"))
@@ -836,7 +855,6 @@ def _bt_panel_resultat(raw):
         moment_status = "Godkänd" if iii["inom_kapacitetsintervall"] else "Ej godkänd"
         moment_label = "" if iii["jamvikt"] else "normalkraftsjämvikt saknas"
         final.append(_post("momentkontroll", "Momentkontroll", moment_status, etikett=moment_label))
-        rectangular = p["tryckblock"] == "rektangel"
         capacity = iii["vald"]
         uniform_compression = capacity is not None and capacity["x"] is None
         if uniform_compression:

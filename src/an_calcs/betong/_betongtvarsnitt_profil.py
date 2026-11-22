@@ -178,9 +178,8 @@ def render(values):
                      '<path d="M0 0V-6A6 6 0 0 1 6 0Z M0 0V6A6 6 0 0 1 -6 0Z" fill="currentColor"/>'
                      '<circle r="6" fill="none" stroke="currentColor"/></g>')
         parts.append(f'<g data-part="normalkraft"><title>N_Ed = {n_value} kN</title>')
-        if p["N_d"]:
-            shape([(right + 62, mid_y), (right + 3, mid_y)], tag="", color=red)
-            parts.append(f'<path d="M{right + 3} {mid_y} l8 -4 v8 z" fill="{red}"/>')
+        shape([(right + 62, mid_y), (right + 3, mid_y)], tag="", color=red)
+        parts.append(f'<path d="M{right + 3} {mid_y} l8 -4 v8 z" fill="{red}"/>')
         n_label = subscript("N", "Ed") + ("" if p["N_d"] else " = 0")
         label(right + 32, mid_y - 12, n_label, anchor="middle", color=red)
         parts.append('</g>')
@@ -250,14 +249,19 @@ def render(values):
 
     concrete_y = None if state["y_Fc"] is None else depth(state["y_Fc"])
     compression_steel_y = None
-    if not elastic and state["F_s_tryck"] > 0:
-        compression_steel_y = depth(sum(max(0, row["F"]) * row["y"] for row in state["rader"]) / state["F_s_tryck"])
+    compression_steel = state["F_s_tryck"]
+    if not elastic:
+        if compression_steel > 0:
+            compression_steel_y = depth(sum(max(0, row["F"]) * row["y"] for row in state["rader"]) / compression_steel)
+        else:
+            compression_steel_y = bottom - bar_inset_y if lower_edge else top + bar_inset_y
     steel_above_concrete = compression_steel_y is not None and concrete_y is not None and compression_steel_y < concrete_y
     if concrete_y is not None:
         arrow(force_axis + (65 if elastic else 74), concrete_y, subscript("F", "c"), blue,
               'data-part="betongkraft"', below=steel_above_concrete)
     if compression_steel_y is not None:
-        arrow(force_axis + 56, compression_steel_y, subscript("F′", "s"), red,
+        steel_label = subscript("F′", "s") + ("" if compression_steel else " = 0")
+        arrow(force_axis + 56, compression_steel_y, steel_label, red,
               'data-part="tryckarmeringskraft"', below=not steel_above_concrete)
     if drag_y is not None:
         arrow(force_axis - 65, drag_y, subscript("F", "s,drag" if elastic else "s"), red, 'data-part="dragkraft"')
@@ -270,7 +274,7 @@ def render(values):
             parts.append(f'<circle data-part="tryckresultant" cx="{marker_x}" cy="{compression_y:.2f}" r="3.7" fill="currentColor"/>')
             result_label_y = bottom + 35 if lower_edge else top - 12
             line(marker_x, compression_y, marker_x, result_label_y + (-13 if lower_edge else 5))
-            label(marker_x, result_label_y, "Gemensam tryckresultant" if compression_steel_y is not None else "Tryckresultant",
+            label(marker_x, result_label_y, "Gemensam tryckresultant" if compression_steel > 0 else "Tryckresultant",
                   anchor="middle", size=13)
         z_top, z_bottom = sorted((compression_y, drag_y))
         dimension(z_axis, z_top, z_bottom, "z", _AXIS, tag='data-part="haevarm"',
