@@ -848,8 +848,6 @@ def _bt_panel_resultat(raw):
                 _post("F_s_tryck_Rd", r"F'_s", state["F_s_tryck"] / 1000, "kN", "tryckarmeringens totala kraft"),
                 _post("F_s_drag_Rd", "F_s", state["F_s_drag"] / 1000, "kN", "armeringens dragkraft"),
             ])
-            if state["z"] is not None:
-                final.append(_post("z_Rd", "z", state["z"], "mm", "hävarm mellan tryck- och dragresultanterna"))
         final.append(_post("M_Ed", r"M_{Ed}", p["M"], "kNm", "inmatat dimensionerande böjmoment"))
         if iii["jamvikt"]:
             final.append(_post("M_Rd", r"M_{Rd}", state["M_Rd"] / 1e6, "kNm", "momentkapacitet i lastens riktning"))
@@ -889,9 +887,6 @@ def _bt_panel_resultat(raw):
                        "moment kring snittets mitt. u mäts från tryckkanten till respektive kraft."),
             _ekvation(r"M_{Rd}=sM_{Rd,u}", "s = +1 för tryckkant i ÖK och s = −1 för UK"),
         ])
-        if (rectangular and p["N_d"] == 0 and capacity is not None
-                and capacity["F_s_tryck"] == 0 and capacity["z"] is not None):
-            equations.append(_ekvation(r"|M_{Rd}|=F_c z", "Förenklad beräkning"))
     for i, warning in enumerate(warnings, 1):
         value_text = ("" if warning["varde"] is None else
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}. Gräns {warning['grans']:.6g} {warning['enhet']}.")

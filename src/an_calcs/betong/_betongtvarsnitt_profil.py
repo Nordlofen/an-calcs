@@ -29,7 +29,7 @@ def render(values):
     else:
         span, top, section_center = 160, 110, 162
         widths = {"pale": span, "balk": 136, "plattremsa": 185}
-        strain_axis, stress_axis, force_axis, z_axis = 466, 630, 875, 1034
+        strain_axis, stress_axis, force_axis = 466, 630, 875
         svg_width, minimum_width = 1120, 760
     width = widths[geometry]
     bottom = top + span
@@ -104,11 +104,11 @@ def render(values):
         parts.append(f'<{element} {tag} points="{coords}" fill="{fill}"{opacity} '
                      f'stroke="{color}" stroke-width="2" stroke-linejoin="round"/>')
 
-    def dimension(xp, start_y, end_y, name, color, *, tag="", label_color=None):
+    def dimension(xp, start_y, end_y, name, color, *, tag=""):
         line(xp, start_y, xp, end_y, color=color, tag=tag)
         for y in (start_y, end_y):
             line(xp - 4, y + 4, xp + 4, y - 4, color=color)
-        label(xp + 9, (start_y + end_y) / 2 + 5, name, color=label_color or color)
+        label(xp + 9, (start_y + end_y) / 2 + 5, name, color=color)
 
     def arrow(end, y, name, color, tag, *, below=False):
         direction = 1 if end > force_axis else -1
@@ -141,7 +141,7 @@ def render(values):
             line(right, level, force_axis + 52, level, color=_GUIDE, dashed=True)
     else:
         compression_edge = bottom if lower_edge else top
-        line(right, compression_edge, z_axis, compression_edge, color=_GUIDE, dashed=True)
+        line(right, compression_edge, force_axis, compression_edge, color=_GUIDE, dashed=True)
         if drag_y is not None:
             if lower_edge:
                 strain_top_y = drag_y
@@ -265,20 +265,10 @@ def render(values):
               'data-part="tryckarmeringskraft"', below=not steel_above_concrete)
     if drag_y is not None:
         arrow(force_axis - 65, drag_y, subscript("F", "s,drag" if elastic else "s"), red, 'data-part="dragkraft"')
-    if state["z"] is not None:
+    if elastic and state["z"] is not None:
         compression_y = depth(state["y_tryckresultant"])
-        if not elastic:
-            marker_x = force_axis + 94
-            line(force_axis, drag_y, z_axis, drag_y, dashed=True)
-            line(marker_x, compression_y, z_axis, compression_y, dashed=True)
-            parts.append(f'<circle data-part="tryckresultant" cx="{marker_x}" cy="{compression_y:.2f}" r="3.7" fill="currentColor"/>')
-            result_label_y = bottom + 35 if lower_edge else top - 12
-            line(marker_x, compression_y, marker_x, result_label_y + (-13 if lower_edge else 5))
-            label(marker_x, result_label_y, "Gemensam tryckresultant" if compression_steel > 0 else "Tryckresultant",
-                  anchor="middle", size=13)
         z_top, z_bottom = sorted((compression_y, drag_y))
-        dimension(z_axis, z_top, z_bottom, "z", _AXIS, tag='data-part="haevarm"',
-                  label_color=None if elastic else "currentColor")
+        dimension(z_axis, z_top, z_bottom, "z", _AXIS, tag='data-part="haevarm"')
 
     if elastic and neutral is not None:
         label(20, footer, "Neutralaxelns läge visas schematiskt", size=14)
