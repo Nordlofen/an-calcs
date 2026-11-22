@@ -695,11 +695,7 @@ def _bt_panel_resultat(raw):
     ]
     for key, latex, unit, label in [
         ("f_ck", r"f_{ck}", "MPa", "karakteristisk cylindertryckhållfasthet"),
-        ("f_cd", r"f_{cd}", "MPa", "dimensionerande betongtryckhållfasthet"),
         ("E_cd", r"E_{cd}", "MPa", "betongens elasticitetsmodul i stadium II"),
-        ("E_s", r"E_s", "MPa", "elasticitetsmodul för armeringen"),
-        ("f_yk", r"f_{yk}", "MPa", "karakteristisk flytgräns för stålet"),
-        ("gamma_s", r"\gamma_s", "", "partialkoefficient för armeringsstål"),
         ("sigma_c_lim", r"\sigma_{c,lim}", "MPa", "modellens spänningsgräns för töjningsvarning"),
     ]:
         if key in p and (key != "sigma_c_lim" or not p["epsilon_c_lim_kalla"].startswith("manuellt")):
@@ -707,10 +703,6 @@ def _bt_panel_resultat(raw):
     if ii is not None:
         data.append(_post("epsilon_c_lim", r"ε_{c,lim}", p["epsilon_c_lim"] * 1000, "‰",
             "Definition: " + p["epsilon_c_lim_kalla"], 4))
-    data.append(_post("epsilon_cu", r"ε_{cu}", p["epsilon_cu"] * 1000, "‰",
-        "betongens brottöjning vid delvis tryckt snitt (EC2 6.1(3))"))
-    data.append(_post("epsilon_c0", r"ε_{c,0}", p["epsilon_c0"] * 1000, "‰",
-        f"töjningsgräns vid jämn ren tryckning, {model}", 3))
     if p["geometri"] == "pale":
         data.append(_post("c_nom", r"c_{nom}", p["c_nom"], "mm", "lika täckskikt till bygelns utsida"))
     if p["geometri"] == "pale" or (p["geometri"] == "balk" and p["armeringsrader"] is None):
@@ -731,9 +723,22 @@ def _bt_panel_resultat(raw):
         if row["indatametod"] == "antal":
             label += f" ({row['indatavarde']:g} järn)"
         data.append(_post(f"As_{i}", rf"A_{{s,{i}}}", row["A_s"], "mm^2", label))
-    partial = [_post("A_c", r"A_c", p["b"] * p["h"], "mm^2", "snittets bruttoarea"),
-               _post("A_s", r"A_s", p["A_s"], "mm^2", "total längsarmeringsarea"),
-               _post("f_yd", r"f_{yd}", p["f_yd"], "MPa", "dimensionerande flytgräns")]
+    partial = [
+        _post("A_c", r"A_c", p["b"] * p["h"], "mm^2", "snittets bruttoarea"),
+        _post("A_s", r"A_s", p["A_s"], "mm^2", "total längsarmeringsarea"),
+    ]
+    if iii is not None:
+        partial.append(_post("f_cd", r"f_{cd}", p["f_cd"], "MPa", "dimensionerande betongtryckhållfasthet"))
+    partial.extend([
+        _post("E_s", r"E_s", p["E_s"], "MPa", "elasticitetsmodul för armeringen"),
+        _post("f_yk", r"f_{yk}", p["f_yk"], "MPa", "karakteristisk flytgräns för stålet"),
+        _post("gamma_s", r"\gamma_s", p["gamma_s"], "", "partialkoefficient för armeringsstål"),
+        _post("f_yd", r"f_{yd}", p["f_yd"], "MPa", "dimensionerande flytgräns"),
+        _post("epsilon_cu", r"ε_{cu}", p["epsilon_cu"] * 1000, "‰",
+              "betongens brottöjning vid delvis tryckt snitt (EC2 6.1(3))"),
+        _post("epsilon_c0", r"ε_{c,0}", p["epsilon_c0"] * 1000, "‰",
+              f"töjningsgräns vid jämn ren tryckning, {model}", 3),
+    ])
     for i, row in enumerate(p["rader"], 1):
         if "a_h" in row:
             partial.append(_post(f"a_h_{i}", rf"a_{{h,{i}}}", row["a_h"], "mm", f"fritt stångavstånd i {row['namn']}"))

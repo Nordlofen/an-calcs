@@ -70,6 +70,11 @@ class PanelTests(unittest.TestCase):
                     input_names = {item["namn"] for item in report["indata"]["items"]}
                     self.assertFalse({"geometri", "stadium"} & input_names)
                     partial = {item["namn"] for item in report["delresultat"]["items"]}
+                    materials = {"E_s", "f_yk", "gamma_s", "epsilon_cu", "epsilon_c0"}
+                    self.assertTrue(materials <= partial)
+                    self.assertFalse((materials | {"f_cd"}) & input_names)
+                    self.assertIn("f_ck", input_names)
+                    self.assertEqual("f_cd" in partial, stage == 3)
                     self.assertEqual(next(iter(values)), "stadium")
                     self.assertEqual(values["stadium"], "II" if stage == 2 else "III")
                     self.assertIn(f'class="anp-data-block__rhs">{values["stadium"]}</div>', self.panel.cb.html_sr)
