@@ -18,7 +18,6 @@ PANEL_STYLE = """
 .bt-panel .anp-illustrated-section { gap: 0; }
 .bt-panel .anp-figure figcaption { margin-top: 4px; font-size: 11px; }
 .bt-panel .anp-figure figcaption:empty { display: none; }
-.bt-panel .anp-figure svg[aria-label^="Måttsatt tvärsnitt"] { max-height: 174px; }
 .bt-panel .betongtvarsnitt-stadium-help summary { cursor: pointer; }
 .bt-panel .betongtvarsnitt-stadium-help div + div { margin-top: .35em; }
 .bt-panel .anp-table { margin: 0; }

@@ -613,10 +613,11 @@ def berakna_betongtvarsnitt(indata):
             "kritisk_varning": any(w["niva"] == "KRITISK" for w in warnings)}
 
 
-def _bt_redovisa_armeringsgrupper(p, state, partial):
+def _bt_redovisa_armeringsgrupper(p, state, partial, strains):
     epsilon_y = p["f_yd"] / p["E_s"]
-    partial.append(_post("epsilon_sy", r"ε_{sy}", epsilon_y * 1000, "‰", "stålets flyttöjning", 4))
+    strains.append(_post("epsilon_sy", r"ε_{sy}", epsilon_y * 1000, "‰", "stålets flyttöjning", 4))
     tension_strain = None
+    yielded_percent = None
     from_bottom = state["tryckkant"] == "UK"
     for group, sign, depth_name, symbol in (("drag", -1, "d", "d"), ("tryck", 1, "d_prime", "d'")):
         rows = [(i, row) for i, row in enumerate(state["rader"], 1) if sign * row["epsilon"] > 0]
@@ -633,15 +634,16 @@ def _bt_redovisa_armeringsgrupper(p, state, partial):
                 partial.append(_post(f"{depth_name}_{i}", rf"{symbol}_{{{i}}}", layer_depth, "mm",
                                      f"djup till stångcentrum i {row['namn']} från tryckkanten"))
             centroid_label = "gemensamma areatyngdpunkt"
-        partial.extend([
-            _post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens {centroid_label} från tryckkanten"),
-            _post(f"epsilon_s_{group}", rf"ε_{{s,{group}}}", strain * 1000, "‰", f"töjning vid {group}armeringens areatyngdpunkt", 4),
-        ])
+        partial.append(_post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens {centroid_label} från tryckkanten"))
+        strains.append(_post(f"epsilon_s_{group}", rf"ε_{{s,{group}}}", strain * 1000, "‰",
+                             f"töjning vid {group}armeringens areatyngdpunkt", 4))
         if group == "drag":
             tension_strain = strain
             yielded = sum(row["A_s"] for _, row in rows if -row["epsilon"] >= epsilon_y * (1 - 1e-9))
-            partial.append(_post("flytandel_drag", r"\eta_{s,flyt}", 100 * yielded / area, "%",
-                                 "andel av dragarmeringsarean som nått flyttöjningen", 1))
+            yielded_percent = 100 * yielded / area
+    if yielded_percent is not None:
+        strains.append(_post("flytandel_drag", r"\eta_{s,flyt}", yielded_percent, "%",
+                             "andel av dragarmeringsarean som nått flyttöjningen", 1))
     return tension_strain
 
 
@@ -728,6 +730,7 @@ def _bt_panel_resultat(raw):
         _post("A_c", r"A_c", p["b"] * p["h"], "mm^2", "snittets bruttoarea"),
         _post("A_s", r"A_s", p["A_s"], "mm^2", "total längsarmeringsarea"),
     ]
+    strains = []
     if iii is not None:
         partial.append(_post("f_cd", r"f_{cd}", p["f_cd"], "MPa", "dimensionerande betongtryckhållfasthet"))
     partial.extend([
@@ -735,10 +738,6 @@ def _bt_panel_resultat(raw):
         _post("f_yk", r"f_{yk}", p["f_yk"], "MPa", "karakteristisk flytgräns för stålet"),
         _post("gamma_s", r"\gamma_s", p["gamma_s"], "", "partialkoefficient för armeringsstål"),
         _post("f_yd", r"f_{yd}", p["f_yd"], "MPa", "dimensionerande flytgräns"),
-        _post("epsilon_cu", r"ε_{cu}", p["epsilon_cu"] * 1000, "‰",
-              "betongens brottöjning vid delvis tryckt snitt (EC2 6.1(3))"),
-        _post("epsilon_c0", r"ε_{c,0}", p["epsilon_c0"] * 1000, "‰",
-              f"töjningsgräns vid jämn ren tryckning, {model}", 3),
     ])
     for i, row in enumerate(p["rader"], 1):
         if "a_h" in row:
@@ -761,21 +760,23 @@ def _bt_panel_resultat(raw):
                                    "linjär töjning, y från ÖK"))
         if not p["epsilon_c_lim_kalla"].startswith("manuellt"):
             equations.append(_ekvation(r"\varepsilon_{c,lim}=\sigma_{c,lim}/E_{cd}", "automatisk varningsgräns för den elastiska modellen"))
-        for key, latex, unit, label, factor in [
-            ("x_tp", r"x_{tp}", "mm", "transformerad tyngdpunkt från den mest tryckta kanten", 1),
-            ("A_II", r"A_{II}", "mm^2", "transformerat snitts area", 1),
-            ("I_II", r"I_{II}", "mm^4", "transformerat snitts tröghetsmoment", 1),
-            ("epsilon_c_max", r"ε_{c,max}", "‰", "största trycktöjning i betongen", 1000),
-            ("epsilon_top", r"ε_{ÖK}", "‰", "töjning i ÖK", 1000),
-            ("epsilon_bottom", r"ε_{UK}", "‰", "töjning i UK", 1000),
-            ("epsilon_cu_tillaten", r"ε_{cu,till}", "‰", "tillåten stuktöjning för beräknad töjningsfördelning", 1000),
+        partial.extend([
+            _post("x_tp", r"x_{tp}", ii["x_tp"], "mm", "transformerad tyngdpunkt från den mest tryckta kanten", 4),
+            _post("A_II", r"A_{II}", ii["A_II"], "mm^2", "transformerat snitts area", 4),
+            _post("I_II", r"I_{II}", ii["I_II"], "mm^4", "transformerat snitts tröghetsmoment", 4),
+        ])
+        for key, latex, label in [
+            ("epsilon_c_max", r"ε_{c,max}", "största trycktöjning i betongen"),
+            ("epsilon_top", r"ε_{ÖK}", "töjning i ÖK"),
+            ("epsilon_bottom", r"ε_{UK}", "töjning i UK"),
+            ("epsilon_cu_tillaten", r"ε_{cu,till}", "tillåten stuktöjning för beräknad töjningsfördelning"),
         ]:
-            partial.append(_post(key, latex, ii[key] * factor, unit, label, 4))
+            strains.append(_post(key, latex, ii[key] * 1000, "‰", label, 4))
         final.extend([
             _post("x", "x", ii["x"], "mm", "tryckzonens höjd"),
             _post("sigma_c_max", r"\sigma_{c,max}", ii["sigma_c_max"], "MPa", "största tryckspänning i betongen"),
         ])
-        _bt_redovisa_armeringsgrupper(p, ii, partial)
+        _bt_redovisa_armeringsgrupper(p, ii, partial, strains)
         final.extend([
             _post("F_c", r"F_c", ii["F_c"] / 1000, "kN", "betongens tryckkraft efter armeringsavdrag"),
             _post("F_s_tryck", r"F'_s", ii["F_s_tryck"] / 1000, "kN", "tryckarmeringens totala kraft"),
@@ -824,24 +825,24 @@ def _bt_panel_resultat(raw):
             concrete_strain_symbol = r"ε_{c,Rd}"
             if state["x"] is not None and state["x"] <= p["h"]:
                 concrete_strain_symbol = r"ε_{cu3}" if rectangular else r"ε_{cu2}"
-            partial.extend([
-                _post("a_block_Rd", r"a_{Rd}", state["a_block"], "mm", "tryckblockets höjd" if rectangular else "tryckzonens höjd"),
-                _post("epsilon_c_Rd", concrete_strain_symbol, state["epsilon_c_max"] * 1000, "‰", "största trycktöjning i betongen"),
-            ])
+            partial.append(_post("a_block_Rd", r"a_{Rd}", state["a_block"], "mm",
+                                 "tryckblockets höjd" if rectangular else "tryckzonens höjd"))
+            strains.append(_post("epsilon_c_Rd", concrete_strain_symbol, state["epsilon_c_max"] * 1000, "‰",
+                                 "största trycktöjning i betongen"))
             for edge, key in (("ÖK", "epsilon_top"), ("UK", "epsilon_bottom")):
                 if state[key] > 0:
-                    partial.append(_post(f"{key}_Rd", rf"ε_{{{edge},Rd}}", state[key] * 1000, "‰",
+                    strains.append(_post(f"{key}_Rd", rf"ε_{{{edge},Rd}}", state[key] * 1000, "‰",
                                          f"trycktöjning i {edge} vid momentkapacitet"))
             for i, row in enumerate(state["rader"], 1):
                 strain_kind = "dragtöjning" if row["epsilon"] < 0 else "ståltöjning"
-                partial.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
-                                     f"{strain_kind} i {row['namn']}", 4))
+                strains.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
+                                     f"{strain_kind} i armering", 4))
             final.append(_post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "tryckzonens höjd inom snittet"))
             if rectangular:
                 final.append(_post("sigma_c_Rd", r"\sigma_c=f_{cd}", p["f_cd"], "MPa", "betongens tryckspänning i tryckblocket"))
             if state["x"] is not None:
                 partial.append(_post("x_Rd", r"x_{Rd}", state["x"], "mm", "djup till neutralaxeln från tryckkanten"))
-            tension_strain = _bt_redovisa_armeringsgrupper(p, state, partial)
+            tension_strain = _bt_redovisa_armeringsgrupper(p, state, partial, strains)
             final.extend([
                 _post("F_c_Rd", "F_c", state["F_c"] / 1000, "kN", "betongens tryckkraft efter armeringsavdrag"),
                 _post("F_s_tryck_Rd", r"F'_s", state["F_s_tryck"] / 1000, "kN", "tryckarmeringens totala kraft"),
@@ -910,7 +911,7 @@ def _bt_panel_resultat(raw):
     return {
         "metodbeskrivning": {"title": "Metodbeskrivning", "items": method_items},
         "indata": {"title": "Indata", "items": data},
-        "delresultat": {"title": "Delresultat", "items": partial},
+        "delresultat": {"title": "Delresultat", "items": partial + strains},
         "ekvationer": equation_section,
         "slutresultat": {"title": "Slutresultat", "items": final},
     }
@@ -1103,7 +1104,7 @@ betongtvarsnitt.panel_schema = {
                 ]},
                 {"columns": 1, "sections": [
                     {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_skiss:render",
-                                "fields": list(_BT_SKISS_FALT), "tables": _BT_LAGERTABELLNAMN, "max_width": 300,
+                                "fields": list(_BT_SKISS_FALT), "tables": _BT_LAGERTABELLNAMN, "max_width": 480,
                                 "caption": "Järnens placering i breddled visas schematiskt."}},
                     {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
                 ]},

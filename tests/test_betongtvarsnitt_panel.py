@@ -70,8 +70,9 @@ class PanelTests(unittest.TestCase):
                     input_names = {item["namn"] for item in report["indata"]["items"]}
                     self.assertFalse({"geometri", "stadium"} & input_names)
                     partial = {item["namn"] for item in report["delresultat"]["items"]}
-                    materials = {"E_s", "f_yk", "gamma_s", "epsilon_cu", "epsilon_c0"}
+                    materials = {"E_s", "f_yk", "gamma_s"}
                     self.assertTrue(materials <= partial)
+                    self.assertFalse({"epsilon_cu", "epsilon_c0"} & partial)
                     self.assertFalse((materials | {"f_cd"}) & input_names)
                     self.assertIn("f_ck", input_names)
                     self.assertEqual("f_cd" in partial, stage == 3)
@@ -457,7 +458,13 @@ class PanelTests(unittest.TestCase):
         for i, depth in enumerate((150, 125), 1):
             self.assertEqual(rows[f"u_s_{i}"]["value"], depth)
             self.assertAlmostEqual(rows[f"epsilon_s_{i}"]["value"], 3.5 * (1 - depth / x))
+            self.assertEqual(rows[f"epsilon_s_{i}"]["etikett"], "dragtöjning i armering")
         self.assertAlmostEqual(rows["d"]["value"], (150 + 2 * 125) / 3)
+        keys = list(rows)
+        self.assertLess(keys.index("d"), keys.index("epsilon_c_Rd"))
+        self.assertEqual(keys[keys.index("epsilon_c_Rd"):], [
+            "epsilon_c_Rd", "epsilon_bottom_Rd", "epsilon_s_1", "epsilon_s_2", "epsilon_sy", "epsilon_s_drag", "flytandel_drag",
+        ])
 
     def test_plate_with_steel_below_yield_has_no_warning_in_stage_iii(self):
         for key, value in dict(geometri=3, stadium=3, h=260, c_nom_ok=45, phi_ok=25,
