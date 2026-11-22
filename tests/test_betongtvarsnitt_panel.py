@@ -205,17 +205,25 @@ class PanelTests(unittest.TestCase):
                     self.assertAlmostEqual(min(cx - x, x + w - cx) - r, stroke / 2)
                     self.assertAlmostEqual(min(cy - y, y + h - cy) - r, stroke / 2)
         self.assertGreater(widths[3], max(widths[1], widths[2]))
-        schematic = geometry(self.profile())
-        self.assertEqual(len(schematic), 5)
+        schematic = {}
+        for stage in (2, 3):
+            self.fields["stadium"].value = stage
+            schematic[stage] = geometry(self.profile())
+            self.assertEqual(len(schematic[stage]), 5)
         for field, value in dict(h=225, s_uk="180", N_d=125.5, M=-90).items():
             self.fields[field].value = value
         for stage in (2, 3):
             self.fields["stadium"].value = stage
             profile = self.profile()
-            self.assertEqual(geometry(profile), schematic)
-            self.assertIn("Yttre laster", profile)
-            self.assertIn("125,5 kN", profile)
-            self.assertIn("-90 kNm", profile)
+            self.assertEqual(geometry(profile), schematic[stage])
+            if stage == 2:
+                self.assertIn("Yttre laster", profile)
+                self.assertIn("125,5 kN", profile)
+                self.assertIn("-90 kNm", profile)
+            else:
+                capacity = result(self.calculate())["M_Rd"]
+                self.assertIn("N_Ed = 125,5 kN", profile)
+                self.assertIn(f'M_Rd = {capacity:.6g} kNm'.replace(".", ","), profile)
 
     def test_stress_profile_switches_stage_and_follows_bending_direction(self):
         self.fields["M"].value = 100
@@ -237,13 +245,13 @@ class PanelTests(unittest.TestCase):
         self.assertIn("Måttsatt tvärsnitt", self.figure())
 
     def test_schematic_axis_aligns_with_strain_line_and_compression_zone(self):
-        for stage, relative_depth in ((2, 0.5), (3, 0.4)):
+        for stage in (2, 3):
             self.fields["stadium"].value = stage
             for moment in (100, -100):
                 with self.subTest(stage=stage, moment=moment):
                     self.fields["M"].value = moment
                     profile = self.profile()
-                    self.assertIn("Neutralaxelns läge visas schematiskt", profile)
+                    relative_depth = .5 if stage == 2 else (.4375 if moment > 0 else .5625)
                     svg = drawing(profile)
                     concrete = svg.find(".//*[@data-part='betong']")
                     top, height = float(concrete.get("y")), float(concrete.get("height"))
@@ -256,6 +264,34 @@ class PanelTests(unittest.TestCase):
                     self.assertAlmostEqual(crossing, top + height * relative_depth, places=1)
                     self.assertAlmostEqual(crossing, zone_top + (zone_height if moment > 0 else 0), places=1)
 
+    def test_stage_iii_profile_aligns_the_steel_strain_and_resultants(self):
+        for name, value in dict(geometri=3, stadium=3, h=300, N_d=900,
+                                c_nom_ok=18, c_nom_uk=18, s_ok="130", s_uk="130").items():
+            self.fields[name].value = value
+        for moment in (-90, 90):
+            with self.subTest(moment=moment):
+                self.fields["M"].value = moment
+                profile = self.profile()
+                svg = drawing(profile)
+                parts = {part.get("data-part"): part for part in svg.iter() if part.get("data-part")}
+                self.assertIn("tyngdpunkt", parts)
+                self.assertIn("#b44340", list(parts["normalkraft"])[-1].get("fill"))
+                self.assertIn("#23784c", list(parts["kapacitetsmoment"])[-1].get("fill"))
+                tension = float(parts["dragtoejning"].get("cy"))
+                compression = float(parts["tryckresultant"].get("cy"))
+                concrete_y, steel_y = (float(parts[name].get("points").split()[0].split(",")[1])
+                                       for name in ("betongkraft", "tryckarmeringskraft"))
+                self.assertLess(min(concrete_y, steel_y), compression)
+                self.assertLess(compression, max(concrete_y, steel_y))
+                for name in ("dragkraft", "dragniva"):
+                    xy = parts[name].get("points", parts[name].get("d")).replace(",", " ").split()
+                    self.assertEqual(float(xy[1]), tension)
+                self.assertEqual(sorted(float(parts["haevarm"].get("d").split()[i]) for i in (1, 3)),
+                                 sorted((tension, compression)))
+                for axis in svg.findall(".//*[@data-part='profilaxel']"):
+                    self.assertEqual([float(axis.get("d").split()[i]) for i in (1, 3)],
+                                     [tension, 270] if moment < 0 else [110, tension])
+
     def test_equations_show_the_transformed_section_in_stage_ii_only(self):
         self.calculate()
         latex = self.panel.cb.latex_ekv
@@ -267,9 +303,13 @@ class PanelTests(unittest.TestCase):
         self.calculate()
         self.assertNotIn("I_{II}(x)", self.panel.cb.latex_ekv)
         self.assertIn(r"\min(0.8x,h)", self.panel.cb.latex_ekv)
-        for equation in (r"N_d=F_c+\sum_i F_{s,i}", "M_{Rd,u} & = & F_c", r"\frac{d-x}{x}", "|M_{Rd}| & = & F_c z"):
+        for equation in (r"N_{Ed} & = & F_c(x)+\sum_i F_{s,i}(x)", "M_{Rd,u} & = & F_c",
+                         r"\varepsilon_{s,i}(x) & = & \varepsilon_{cu3}\left(1-\frac{u_i}{x}\right)",
+                         r"F_c & = & f_{cd}(ba-A_{s,\mathrm{block}})", "|M_{Rd}| & = & F_c z"):
             self.assertIn(equation, self.panel.cb.latex_ekv)
-        self.assertIn("Ren böjning", self.panel.cb.latex_ekv)
+        self.assertNotIn(r"\varepsilon(y)", self.panel.cb.latex_ekv)
+        self.assertNotIn("d-0{,}4x", self.panel.cb.latex_ekv)
+        self.assertIn("ren böjning utan tryckarmering", self.panel.cb.latex_ekv)
 
     def test_figure_and_saved_case_follow_layer_inputs(self):
         self.assertIn("UK  4 × Ø20", self.figure())

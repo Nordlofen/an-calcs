@@ -12,12 +12,13 @@ Måttskissen uppdateras när geometri eller armering ändras. Panel använder
 `an-print` med stöd för dynamiska figurer, inklusive lager från tabell. Spara indata och
 redovisningsval under **Beräkningsfall**.
 
-Spänningsfiguren visar de yttre lasterna och ett schematiskt tvärsnitt med
-två järn per sida. Påle och balk visas med bygel. Plattremsan visas bredare.
-Stadium II visar profilen vid angiven last. Stadium III visar profilen vid
-momentkapacitet för angiven normalkraft. För delvis tryckta snitt ritas
-neutralaxeln vid halva höjden i stadium II och något högre i stadium III.
-Tryckzonens numeriska höjd redovisas i resultatet.
+Spänningsfiguren visar ett schematiskt tvärsnitt med två järn per sida.
+Påle och balk visas med bygel. Plattremsan visas bredare. Stadium II visar
+profilen vid angiven last. Stadium III visar \(N_{Ed}\) och \(M_{Rd}\) vid
+snittet. Töjningsdiagrammet går från dragresultantens nivå till tryckkanten
+när det finns dragarmering. Hävarmen \(z\) går mellan dragresultanten och den
+samlade tryckresultanten av betong och tryckarmering. Tryckzonens numeriska
+höjd redovisas i resultatet.
 
 | Geometri | Mått och armering |
 |---|---|

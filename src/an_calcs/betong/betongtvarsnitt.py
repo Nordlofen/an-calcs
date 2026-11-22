@@ -752,12 +752,12 @@ def _bt_panel_resultat(raw):
     equations = [
         _ekvation(r"f_{yd}=f_{yk}/\gamma_s", "dimensionerande flytgräns (EC2 3.2.7(2))"),
         _ekvation(r"\varepsilon_{sy}=f_{yd}/E_s", "stålets flyttöjning"),
-        _ekvation(r"\varepsilon(y)=\varepsilon_{ÖK}+\frac{y}{h}(\varepsilon_{UK}-\varepsilon_{ÖK})",
-                   "plana snitt i brottgränstillstånd (EC2 6.1(2))" if iii is not None else "linjär töjning, y från ÖK"),
     ]
     if any(row["indatametod"] == "s" for row in p["rader"]):
         equations.insert(0, _ekvation(r"A_{s,i}=\frac{b}{s_i}\frac{\pi\phi_i^2}{4}", "armeringsarea från c/c-avstånd"))
     if ii is not None:
+        equations.append(_ekvation(r"\varepsilon(y)=\varepsilon_{ÖK}+\frac{y}{h}(\varepsilon_{UK}-\varepsilon_{ÖK})",
+                                   "linjär töjning, y från ÖK"))
         if not p["epsilon_c_lim_kalla"].startswith("manuellt"):
             equations.append(_ekvation(r"\varepsilon_{c,lim}=\sigma_{c,lim}/E_{cd}", "automatisk varningsgräns för den elastiska modellen"))
         for key, latex, unit, label, factor in [
@@ -836,29 +836,41 @@ def _bt_panel_resultat(raw):
         moment_status = "Godkänd" if iii["inom_kapacitetsintervall"] else "Ej godkänd"
         moment_label = "" if iii["jamvikt"] else "normalkraftsjämvikt saknas"
         final.append(_post("momentkontroll", "Momentkontroll", moment_status, etikett=moment_label))
-        if p["tryckblock"] == "rektangel":
-            equations.append(_ekvation(r"a=\min(0.8x,h),\quad F_c=f_{cd}(ba-A_{s,\mathrm{block}})",
-                                       "tryckblock (EC2 3.1.7(3)). Dra av stålets area inom blocket."))
+        rectangular = p["tryckblock"] == "rektangel"
+        capacity = iii["vald"]
+        uniform_compression = capacity is not None and capacity["x"] is None
+        if uniform_compression:
+            equations.append(_ekvation(r"\varepsilon_{s,i}=\varepsilon_{c,0}", "ståltöjning vid jämn tryckning"))
+        else:
+            fully_compressed = capacity is not None and capacity["x"] > p["h"]
+            compression_strain = r"\varepsilon_{c,max}(x)" if fully_compressed else (
+                r"\varepsilon_{cu3}" if rectangular else r"\varepsilon_{cu2}")
+            equations.append(_ekvation(r"\varepsilon_{s,i}(x)=" + compression_strain + r"\left(1-\frac{u_i}{x}\right)",
+                                       "töjning i lager i på djupet u_i från tryckkanten (EC2 6.1(2))"))
+            if fully_compressed:
+                equations.append(_ekvation(r"\varepsilon_{c,max}(x)=\frac{\varepsilon_{c,0}}{1-(1-\varepsilon_{c,0}/\varepsilon_{cu})h/x}",
+                                           "betongens kanttöjning vid helt tryckt snitt (EC2 figur 6.1)"))
+        if rectangular:
+            block_height = r"a=h" if uniform_compression else r"a=\min(0.8x,h)"
+            equations.extend([
+                _ekvation(block_height, "tryckblockets höjd (EC2 3.1.7(3))"),
+                _ekvation(r"F_c=f_{cd}(ba-A_{s,\mathrm{block}})", "betongens tryckkraft med avdrag för stålets area i blocket"),
+            ])
         else:
             equations.append(_ekvation(r"\sigma_c=f_{cd}[1-(1-\varepsilon_c/0.002)^2]", "parabel upp till 2 promille, därefter konstant f_cd till tillämplig brottöjning; dragbetong försummas"))
         equations.extend([
-            _ekvation(r"\sigma_{s,\mathrm{ber}}=\max(-f_{yd},\min(f_{yd},E_s\varepsilon_s))",
+            _ekvation(r"\sigma_{s,\mathrm{ber},i}=\max(-f_{yd},\min(f_{yd},E_s\varepsilon_{s,i}))",
                        "stålspänning i beräkningen med flytplatå (EC2 3.2.7(2)b)"),
-            _ekvation(r"F_{s,i}=\sigma_{s,\mathrm{ber},i}A_{s,i},\quad N_d=F_c+\sum_i F_{s,i}",
-                       "kraftjämvikt med tryck positivt och drag negativt"),
+            _ekvation(r"F_{s,i}=\sigma_{s,\mathrm{ber},i}A_{s,i}", "kraft i armeringslager i"),
+            _ekvation(r"N_{Ed}=F_c+\sum_i F_{s,i}" if uniform_compression else r"N_{Ed}=F_c(x)+\sum_i F_{s,i}(x)",
+                       "normalkraftsjämvikt vid jämn tryckning" if uniform_compression else
+                       "lös x ur normalkraftsjämvikten. Tryck är positivt och drag negativt."),
             _ekvation(r"M_{Rd,u}=F_c(h/2-u_c)+\sum_i F_{s,i}(h/2-u_i)",
                        "moment kring snittets mitt. u mäts från tryckkanten till respektive kraft."),
             _ekvation(r"M_{Rd}=sM_{Rd,u}", "s = +1 för tryckkant i ÖK och s = −1 för UK"),
         ])
-        if p["tryckblock"] == "rektangel":
-            equations.extend([
-                _ekvation(r"\varepsilon_{s,\mathrm{drag}}=\frac{d-x}{x}\varepsilon_{cu}",
-                           "dragtöjning vid dragarmeringens areatyngdpunkt i delvis tryckt snitt"),
-                _ekvation(r"F_s=|\sigma_{s,\mathrm{ber}}| A_s=F_c=f_{cd}\,b\,(0{,}8x)",
-                           "ren böjning med ett draglager och endast betong i tryckzonen"),
-                _ekvation(r"|M_{Rd}|=F_c z=f_{cd}\,b\,(0{,}8x)(d-0{,}4x)",
-                           "samma fall, med hävarmen z från tryckblockets mitt till draglagret"),
-            ])
+        if rectangular:
+            equations.append(_ekvation(r"|M_{Rd}|=F_c z", "förenklad beräkning vid ren böjning utan tryckarmering"))
     for i, warning in enumerate(warnings, 1):
         value_text = ("" if warning["varde"] is None else
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}. Gräns {warning['grans']:.6g} {warning['enhet']}.")
@@ -874,10 +886,6 @@ def _bt_panel_resultat(raw):
         equation_section["notes"] = [
             {"rubrik": "Koordinater och enheter", "text": "u och armeringsradens centrumläge u_i räknas från den mest tryckta kanten. N_d och M sätts in i N och Nmm i snittekvationerna. Måtten är i mm."},
             {"rubrik": "Lösning för x", "text": "Programmet anpassar tryckzonen till kraft- och momentjämvikt. Vid delvis tryckt snitt är betongspänningen noll vid tryckzonens gräns."},
-        ]
-    elif p["tryckblock"] == "rektangel":
-        equation_section["notes"] = [
-            {"rubrik": "Ren böjning", "text": "De två sista sambanden gäller för N_d = 0 och ett enda draglager. Med normalkraft eller fler lager används den allmänna kraft- och momentjämvikten."},
         ]
     return {
         "metodbeskrivning": {"title": "Metodbeskrivning", "items": method_items},
