@@ -313,6 +313,7 @@ class PanelTests(unittest.TestCase):
                          r"\sigma_{\min}(h)", r"\sigma_{II}(x;x)", "EI_{II}"):
             self.assertIn(equation, latex)
         self.assertIn("Lösning för x", latex)
+        self.fields["n_ok"].value = 0
         self.fields["stadium"].value = 3
         self.calculate()
         self.assertNotIn("I_{II}(x)", self.panel.cb.latex_ekv)
@@ -323,7 +324,10 @@ class PanelTests(unittest.TestCase):
             self.assertIn(equation, self.panel.cb.latex_ekv)
         self.assertNotIn(r"\varepsilon(y)", self.panel.cb.latex_ekv)
         self.assertNotIn("d-0{,}4x", self.panel.cb.latex_ekv)
-        self.assertIn("ren böjning utan tryckarmering", self.panel.cb.latex_ekv)
+        self.assertIn(r"|M_{Rd}| & = & F_c z\quad \tiny{\text{Förenklad beräkning}}", self.panel.cb.latex_ekv)
+        self.fields["N_d"].value = 100
+        self.calculate()
+        self.assertNotIn("Förenklad beräkning", self.panel.cb.latex_ekv)
 
     def test_figure_and_saved_case_follow_layer_inputs(self):
         self.assertIn("UK  4 × Ø20", self.figure())

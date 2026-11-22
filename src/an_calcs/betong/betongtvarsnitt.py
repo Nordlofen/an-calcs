@@ -8,6 +8,7 @@ Beräkningskärnan använder endast standardbiblioteket.
 import math
 from collections.abc import Mapping
 
+from ._betongtvarsnitt_panelstil import PANEL_STYLE
 from .bojstyvhet_betongpalar import bojstyvhet_betongpalar, _andligt_tal, _ekvation, _post
 
 __all__ = ["betongtvarsnitt", "berakna_betongtvarsnitt"]
@@ -887,8 +888,9 @@ def _bt_panel_resultat(raw):
                        "moment kring snittets mitt. u mäts från tryckkanten till respektive kraft."),
             _ekvation(r"M_{Rd}=sM_{Rd,u}", "s = +1 för tryckkant i ÖK och s = −1 för UK"),
         ])
-        if rectangular:
-            equations.append(_ekvation(r"|M_{Rd}|=F_c z", "förenklad beräkning vid ren böjning utan tryckarmering"))
+        if (rectangular and p["N_d"] == 0 and capacity is not None
+                and capacity["F_s_tryck"] == 0 and capacity["z"] is not None):
+            equations.append(_ekvation(r"|M_{Rd}|=F_c z", "Förenklad beräkning"))
     for i, warning in enumerate(warnings, 1):
         value_text = ("" if warning["varde"] is None else
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}. Gräns {warning['grans']:.6g} {warning['enhet']}.")
@@ -968,7 +970,8 @@ def betongtvarsnitt(px):
     plattremsa. Extra lager placeras med fritt vertikalt avstånd. Balk har bygel.
     En dictionary kan i stället ange armeringsrader med centrumläge y,
     diameter och exakt ett av antal, s eller A_s.
-    Panelens val Analysmodell visar när respektive stadium används.
+    Geometri, Analysmodell och laster visas överst i Panel. Vägledningen
+    under Analysmodell går att fälla ut.
     Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
     materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
     Delresultatet visar enskilda lagerdjup för armeringsgrupper med flera lager.
@@ -1000,22 +1003,16 @@ _ULTIMAT = {"field": "stadium", "equals": 3}
 _MANUELL_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": True}
 _AUTO_TOJNING = {"field": "epsilon_c_lim_manuell", "equals": False}
 _STADIUM_HELP_HTML = (
-    '<style>.anp-panel .anp-grid:has(> .anp-field .betongtvarsnitt-stadium-help) '
-    '{ align-items: start; }'
-    '.betongtvarsnitt-stadium-help > div + div { margin-top: .35em; }</style>'
-    '<div class="betongtvarsnitt-stadium-help">'
+    PANEL_STYLE
+    + '<details class="betongtvarsnitt-stadium-help">'
+    '<summary>II Böjstyvhet · III Momentkapacitet</summary>'
     '<div><strong>Stadium II.</strong> Beräkna böjstyvhet <i>EI</i><sub>II</sub> vid angiven last, '
     'till exempel som underlag för nedböjningsberäkning.</div>'
     '<div><strong>Stadium III.</strong> Kontrollera om lastmomentet ryms inom snittets momentkapacitet '
     '<i>M</i><sub>Rd</sub> vid angiven normalkraft.</div>'
-    '</div>'
+    '</details>'
 )
-_CC_HELP = "0 utelämnar lagret. Tomt fält använder c/c från tidigare antal."
-_CC_HELP_HTML = (
-    '<style>.anp-panel .anp-grid:has(> .anp-field .betongtvarsnitt-cc-help) '
-    '{ align-items: start; }</style>'
-    f'<span class="betongtvarsnitt-cc-help">{_CC_HELP}</span>'
-)
+_CC_HELP_HTML = '<span title="Tomt fält använder c/c från tidigare antal.">0 utelämnar lagret.</span>'
 
 _BT_SKISS_FALT = (
     "geometri", "b", "h", "c_nom", "phi_b", "phi_h",
@@ -1029,27 +1026,25 @@ _BT_FIELDS = [
               fixed_if={**_PLATTA, "value": _PLATTREMSA_BREDD}),
     _bt_field("h", "Höjd", "<i>h</i>", "mm", visible_if=_BALK_PLATTA,
               presentation_if={**_PLATTA, "label": "Plattjocklek"}),
-    _bt_field("c_nom", "Täckskikt", "<i>c</i><sub>nom</sub>", "mm", visible_if=_PALE),
-    _bt_field("c_nom_ok", "Täckskikt ÖK", "<i>c</i><sub>nom,ÖK</sub>", "mm", visible_if=_BALK_PLATTA),
-    _bt_field("c_nom_uk", "Täckskikt UK", "<i>c</i><sub>nom,UK</sub>", "mm", visible_if=_BALK_PLATTA),
+    _bt_field("c_nom", "Täckskikt", unit="mm", visible_if=_PALE),
+    _bt_field("c_nom_ok", "Täckskikt ÖK", unit="mm", visible_if=_BALK_PLATTA),
+    _bt_field("c_nom_uk", "Täckskikt UK", unit="mm", visible_if=_BALK_PLATTA),
     _bt_field("phi_b", "Bygeldiameter", "Ø<sub>b</sub>", "mm", visible_if={"field": "geometri", "in": [1, 2]}),
     _bt_field("phi_h", "Diameter för fyra hörnjärn", "Ø<sub>h</sub>", "mm", visible_if=_PALE),
     _bt_field("n_ok", "Antal järn", "", "st", type="int", visible_if=_BALK),
-    _bt_field("phi_ok", "Stångdiameter", "Ø", "mm", visible_if=_BALK_PLATTA),
+    _bt_field("phi_ok", "Diameter", "Ø", "mm", visible_if=_BALK_PLATTA),
     _bt_field("n_uk", "Antal järn", "", "st", type="int", visible_if=_BALK),
-    _bt_field("phi_uk", "Stångdiameter", "Ø", "mm", visible_if=_BALK_PLATTA),
-    _bt_field("s_ok", "C/c-avstånd", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA,
-              help=_CC_HELP, help_html=_CC_HELP_HTML),
-    _bt_field("s_uk", "C/c-avstånd", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA,
-              help=_CC_HELP, help_html=_CC_HELP_HTML),
-    _bt_field("N_d", "Normalkraft", "<i>N</i><sub>d</sub>", "kN", help="Positiv i tryck. Laster avser hela bredden."),
-    _bt_field("M", "Böjmoment", "<i>M</i>", "kNm", help="Positivt moment har trycksidan i ÖK. Laster avser hela bredden."),
-    _bt_field("f_ck", "Karakteristisk betongtryckhållfasthet", "<i>f</i><sub>ck</sub>", "MPa", help="Högst 50 MPa."),
-    _bt_field("f_cd", "Dimensionerande betongtryckhållfasthet", "<i>f</i><sub>cd</sub>", "MPa", visible_if=_ULTIMAT),
-    _bt_field("E_cd", "Betongens elasticitetsmodul", "<i>E</i><sub>cd</sub>", "MPa", visible_if=_ELASTISK,
+    _bt_field("phi_uk", "Diameter", "Ø", "mm", visible_if=_BALK_PLATTA),
+    _bt_field("s_ok", "C/c", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA, help_html=_CC_HELP_HTML),
+    _bt_field("s_uk", "C/c", "<i>s</i>", "mm", type="text", default="", visible_if=_PLATTA, help_html=_CC_HELP_HTML),
+    _bt_field("N_d", "Normalkraft", "<i>N</i><sub>d</sub>", "kN", help="Positivt värde ger tryck."),
+    _bt_field("M", "Böjmoment", "<i>M</i>", "kNm", help="Positivt moment ger tryck i ÖK."),
+    _bt_field("f_ck", "Betonghållfasthet", "<i>f</i><sub>ck</sub>", "MPa", help="Högst 50 MPa."),
+    _bt_field("f_cd", "Dimensionerande hållfasthet", "<i>f</i><sub>cd</sub>", "MPa", visible_if=_ULTIMAT),
+    _bt_field("E_cd", "Betongens E-modul", "<i>E</i><sub>cd</sub>", "MPa", visible_if=_ELASTISK,
               help="Används som angiven i stadium II."),
-    _bt_field("E_s", "Armeringens elasticitetsmodul", "<i>E</i><sub>s</sub>", "MPa"),
-    _bt_field("f_yk", "Armeringens karakteristiska flytgräns", "<i>f</i><sub>yk</sub>", "MPa"),
+    _bt_field("E_s", "Stålets E-modul", "<i>E</i><sub>s</sub>", "MPa"),
+    _bt_field("f_yk", "Stålets flytgräns", "<i>f</i><sub>yk</sub>", "MPa"),
     _bt_field("gamma_s", "Partialkoefficient för stål", "γ<sub>s</sub>", help="Flytgränsen i beräkningen är fyk / γs."),
     _bt_field("epsilon_c_lim_manuell", "Ange trycktöjningsgränsen manuellt", type="bool", default=False,
               widget="checkbox", visible_if=_ELASTISK),
@@ -1059,7 +1054,7 @@ _BT_FIELDS = [
               visible_if={"all": [_ELASTISK, _AUTO_TOJNING]}, help="0,4(fck + 8) MPa. Töjningsgränsen fås genom division med Ecd."),
     _bt_field("sigma_c_lim", "Spänningsnivå för varningsgräns", "σ<sub>c,lim</sub>", "MPa", default=15.2,
               visible_if={"all": [_ELASTISK, _AUTO_TOJNING, {"field": "sigma_c_lim_auto", "equals": False}]}),
-    _bt_field("c_nom_sida", "Täckskikt sida", "<i>c</i><sub>nom,sida</sub>", "mm",
+    _bt_field("c_nom_sida", "Täckskikt sida", unit="mm",
               type="text", default="", visible_if=_BALK, help="Till bygelns utsida. Tomt fält använder ett automatiskt sidomått."),
 ]
 _BT_LAGER_KOLUMNER = ("sida", "phi", "mangd", "a_v")
@@ -1071,7 +1066,7 @@ def _bt_lagertabell(name, plate, visible_if):
         _bt_field("phi", "Diameter", "Ø", "mm", default=16.0),
         _bt_field("mangd", "C/c-avstånd" if plate else "Antal järn", "<i>s</i>" if plate else "",
                   "mm" if plate else "st", type="float" if plate else "int", default=0),
-        _bt_field("a_v", "Fritt lageravstånd", "<i>a</i><sub>v</sub>", "mm", default=25.0),
+        _bt_field("a_v", "Lageravstånd", "<i>a</i><sub>v</sub>", "mm", default=25.0),
     ]
     for column in columns:
         column["output"] = f"{name}_{column['name']}"
@@ -1094,29 +1089,28 @@ betongtvarsnitt.panel_schema = {
     "blocks": {"ID": {"rader": 40}, "DR": {"rader": 40}, "EKV": {"rader": 40}, "SR": {"rader": 40}},
     "sections": [
         {"title": "Indata", "collapsible": True, "collapsed": False, "columns": 1, "sections": [
-            {"fields": ["geometri", "stadium"], "columns": 2},
+            {"fields": ["geometri", "stadium", "N_d", "M"], "columns": 2},
             {"columns": 2, "sections": [
                 {"columns": 1, "sections": [
-                    {"title": "Geometri", "fields": ["b", "h"], "columns": 2},
-                    {"title": "Täckskikt och diametrar", "fields": ["c_nom", "c_nom_ok", "c_nom_uk", "c_nom_sida", "phi_b", "phi_h"], "columns": 3},
+                    {"title": "Mått och täckskikt", "columns": 3,
+                     "fields": ["b", "h", "c_nom", "c_nom_ok", "c_nom_uk", "c_nom_sida", "phi_b", "phi_h"]},
                     {"title": "Längsarmering", "columns": 2, "sections": [
                         {"title": "Överkant", "fields": ["n_ok", "s_ok", "phi_ok"], "columns": 2},
                         {"title": "Underkant", "fields": ["n_uk", "s_uk", "phi_uk"], "columns": 2},
                     ]},
-                    {"fields": ["balk_lager"]},
-                    {"fields": ["plattremsa_lager"]},
+                    {"title": "Extra armeringslager", "collapsible": True, "collapsed": False, "columns": 1,
+                     "sections": [{"fields": ["balk_lager"]}, {"fields": ["plattremsa_lager"]}]},
                 ]},
-                {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_skiss:render",
-                            "fields": list(_BT_SKISS_FALT), "tables": _BT_LAGERTABELLNAMN, "max_width": 480,
-                            "caption": "Järnens placering i breddled visas schematiskt."}},
-            ]},
-            {"columns": 2, "sections": [
-                {"title": "Laster", "fields": ["N_d", "M"], "columns": 2},
-                {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
+                {"columns": 1, "sections": [
+                    {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_skiss:render",
+                                "fields": list(_BT_SKISS_FALT), "tables": _BT_LAGERTABELLNAMN, "max_width": 300,
+                                "caption": "Järnens placering i breddled visas schematiskt."}},
+                    {"title": "Material", "fields": ["f_ck", "f_cd", "E_cd", "E_s", "f_yk"], "columns": 2},
+                ]},
             ]},
             {"figure": {"renderer": "an_calcs.betong._betongtvarsnitt_profil:render",
                         "fields": list(_BT_SKALAR_PX), "tables": _BT_LAGERTABELLNAMN,
-                        "full_width": True, "max_width": 820}},
+                        "full_width": True, "max_width": 760}},
         ]},
         {"title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 1, "sections": [
             {"title": "Stål", "fields": ["gamma_s"], "columns": 2},
