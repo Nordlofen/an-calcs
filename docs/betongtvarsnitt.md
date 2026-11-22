@@ -83,7 +83,9 @@ Armeringen redovisas som drag- och tryckgrupp med summan av respektive
 kraft. Delresultatet visar avstånden \(d\) och \(d'\) från mest tryckta kanten
 till respektive areatyngdpunkt, töjningarna där, stålets flyttöjning
 \(\varepsilon_{sy}=f_{yd}/E_s\) och andelen dragarmeringsarea som nått
-flyttöjningen. Kraft- och momentjämvikten räknas med varje lager för sig.
+flyttöjningen. För en grupp med flera lager visas först djupet till varje
+stångcentrum med \(d_i\) eller \(d'_i\), där indexet följer Indata. Kraft- och
+momentjämvikten räknas med varje lager för sig.
 
 **Balanskontroll** i stadium III jämför dragtöjningen vid \(d\) med
 \(\varepsilon_{sy}\) vid momentkapaciteten. Högre töjning ger underarmerat
@@ -95,7 +97,8 @@ Stadium II varnar vid överskriden elastisk töjningsgräns eller flytgräns i
 stålet och ger en kritisk varning vid överskriden stuktöjning i betongen.
 Stadium III ger kritiska varningar om beräkningen saknar jämvikt för angiven
 normalkraft eller om momentet ligger utanför den beräknade kapaciteten.
-Varningstexterna visas i metodbeskrivningen och slutresultatet.
+Överskriden momentkapacitet visas som **Momentkontroll = Ej godkänd** i
+slutresultatet. Varningstexten med lastmoment och gränsvärde finns i metodbeskrivningen.
 
 Modellgränsen för elastisk betongtrycktöjning är som standard
 \(0,4(f_{ck}+8)/E_{cd}\). Med \(f_{ck}=30\) MPa och \(E_{cd}=33\,000\) MPa

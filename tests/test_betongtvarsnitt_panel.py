@@ -353,6 +353,32 @@ class PanelTests(unittest.TestCase):
                     self.assertAlmostEqual(partial["d"], 549 if moment < 0 else 542)
                     self.assertAlmostEqual(partial["d_prime"], 58 if moment < 0 else 51)
 
+    def test_multiple_layers_report_each_depth_before_the_group_centroid(self):
+        self.fields["N_d"].value = 200
+        self.panel._table_widgets["balk_lager"].add_row({"sida": "ok", "phi": 12, "mangd": 3, "a_v": 25})
+        centroid = (2 * 16**2 * 51 + 3 * 12**2 * 90) / (2 * 16**2 + 3 * 12**2)
+        for stage in (2, 3):
+            self.fields["stadium"].value = stage
+            for moment, name, symbol, first, second, combined in (
+                (100, "d_prime", "d'", 51, 90, centroid),
+                (-100, "d", "d", 549, 510, 600 - centroid),
+            ):
+                with self.subTest(stage=stage, moment=moment):
+                    self.fields["M"].value = moment
+                    report = self.calculate()
+                    partial = {row["namn"]: row for row in report["delresultat"]["items"]}
+                    keys = list(partial)
+                    index = keys.index(name)
+                    self.assertEqual(keys[index - 2:index], [f"{name}_1", f"{name}_2"])
+                    for i, expected in enumerate((first, second), 1):
+                        row = partial[f"{name}_{i}"]
+                        self.assertEqual(row["latex"], rf"{symbol}_{{{i}}}")
+                        self.assertEqual(row["value"], expected)
+                    self.assertAlmostEqual(partial[name]["value"], combined)
+                    self.assertIn("gemensamma areatyngdpunkt", self.panel.cb.html_dr)
+                    self.assertNotIn("d_3", partial)
+                    self.assertNotIn("d_prime_3", partial)
+
     def test_plate_with_steel_below_yield_has_no_warning_in_stage_iii(self):
         for key, value in dict(geometri=3, stadium=3, h=260, c_nom_ok=45, phi_ok=25,
                                s_ok="50", s_uk="0", N_d=0, M=-325).items():
@@ -435,5 +461,9 @@ class PanelTests(unittest.TestCase):
                 self.assertEqual(final["momentkontroll"], expected)
                 rows = list(final)
                 self.assertEqual(rows[rows.index("balanskontroll") + 1], "momentkontroll")
+                self.assertEqual(rows[-1], "momentkontroll")
                 html = self.panel.cb.html_sr
                 self.assertRegex(html, rf"(?s)Balanskontroll.*Momentkontroll.*>{expected}</div>")
+                if expected == "Ej godkänd":
+                    self.assertIn("ligger utanför snittets momentkapacitet", self.panel.cb.html_mb)
+                    self.assertIn(f"Gräns {capacity:.6g} kNm.", self.panel.cb.html_mb)

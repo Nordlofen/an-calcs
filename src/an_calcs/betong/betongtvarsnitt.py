@@ -616,21 +616,29 @@ def _bt_redovisa_armeringsgrupper(p, state, partial):
     epsilon_y = p["f_yd"] / p["E_s"]
     partial.append(_post("epsilon_sy", r"ε_{sy}", epsilon_y * 1000, "‰", "stålets flyttöjning", 4))
     tension_strain = None
+    from_bottom = state["tryckkant"] == "UK"
     for group, sign, depth_name, symbol in (("drag", -1, "d", "d"), ("tryck", 1, "d_prime", "d'")):
-        rows = [row for row in state["rader"] if sign * row["epsilon"] > 0]
+        rows = [(i, row) for i, row in enumerate(state["rader"], 1) if sign * row["epsilon"] > 0]
         if not rows:
             continue
-        area = sum(row["A_s"] for row in rows)
-        centroid = sum(row["A_s"] * row["y"] for row in rows) / area
-        depth = p["h"] - centroid if state["tryckkant"] == "UK" else centroid
-        strain = sum(row["A_s"] * sign * row["epsilon"] for row in rows) / area
+        area = sum(row["A_s"] for _, row in rows)
+        centroid = sum(row["A_s"] * row["y"] for _, row in rows) / area
+        depth = p["h"] - centroid if from_bottom else centroid
+        strain = sum(row["A_s"] * sign * row["epsilon"] for _, row in rows) / area
+        centroid_label = "areatyngdpunkt"
+        if len(rows) > 1:
+            for i, row in rows:
+                layer_depth = p["h"] - row["y"] if from_bottom else row["y"]
+                partial.append(_post(f"{depth_name}_{i}", rf"{symbol}_{{{i}}}", layer_depth, "mm",
+                                     f"djup till stångcentrum i {row['namn']} från tryckkanten"))
+            centroid_label = "gemensamma areatyngdpunkt"
         partial.extend([
-            _post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens areatyngdpunkt från tryckkanten"),
+            _post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens {centroid_label} från tryckkanten"),
             _post(f"epsilon_s_{group}", rf"ε_{{s,{group}}}", strain * 1000, "‰", f"töjning vid {group}armeringens areatyngdpunkt", 4),
         ])
         if group == "drag":
             tension_strain = strain
-            yielded = sum(row["A_s"] for row in rows if -row["epsilon"] >= epsilon_y * (1 - 1e-9))
+            yielded = sum(row["A_s"] for _, row in rows if -row["epsilon"] >= epsilon_y * (1 - 1e-9))
             partial.append(_post("flytandel_drag", r"\eta_{s,flyt}", 100 * yielded / area, "%",
                                  "andel av dragarmeringsarean som nått flyttöjningen", 1))
     return tension_strain
@@ -850,9 +858,12 @@ def _bt_panel_resultat(raw):
         value_text = ("" if warning["varde"] is None else
                       f" Beräknat {warning['varde']:.6g} {warning['enhet']}. Gräns {warning['grans']:.6g} {warning['enhet']}.")
         heading = "Kritisk varning" if warning["niva"] == "KRITISK" else "Varning"
-        method_items.append({"rubrik": heading, "text": warning["text"]})
-        final.append(_post(f"varning_{i}", rf"\mathrm{{{warning['niva']}}}_{{{i}}}", 1, "",
-                           f"{heading}. {warning['text']}{value_text}", 0))
+        shown_by_moment_check = warning["kod"] == "III_MOMENTKAPACITET_OVERSKRIDS"
+        method_text = warning["text"] + (value_text if shown_by_moment_check else "")
+        method_items.append({"rubrik": heading, "text": method_text})
+        if not shown_by_moment_check:
+            final.append(_post(f"varning_{i}", rf"\mathrm{{{warning['niva']}}}_{{{i}}}", 1, "",
+                               f"{heading}. {warning['text']}{value_text}", 0))
     equation_section = {"title": "Ekvationer", "items": equations}
     if ii is not None:
         equation_section["notes"] = [
@@ -929,6 +940,7 @@ def betongtvarsnitt(px):
     Panelens val Analysmodell visar när respektive stadium används.
     Panel använder rektangulärt tryckblock i stadium III. Ett uttryckligt
     materialval från tidigare positions- eller dictionary-anrop läses fortsatt.
+    Delresultatet visar enskilda lagerdjup för armeringsgrupper med flera lager.
     Slutresultatet i stadium III visar balanskontroll och momentkontroll.
     """
     if isinstance(px, (list, tuple)):
