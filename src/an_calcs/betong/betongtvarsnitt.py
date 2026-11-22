@@ -635,7 +635,8 @@ def _bt_redovisa_armeringsgrupper(p, state, partial, strains):
                                      f"djup till stångcentrum i {row['namn']} från tryckkanten"))
             centroid_label = "gemensamma areatyngdpunkt"
         partial.append(_post(depth_name, symbol, depth, "mm", f"djup till {group}armeringens {centroid_label} från tryckkanten"))
-        strains.append(_post(f"epsilon_s_{group}", rf"ε_{{s,{group}}}", strain * 1000, "‰",
+        strain_symbol = r"|ε_{s,drag}|" if group == "drag" else r"ε_{s,tryck}"
+        strains.append(_post(f"epsilon_s_{group}", strain_symbol, strain * 1000, "‰",
                              f"töjning vid {group}armeringens areatyngdpunkt", 4))
         if group == "drag":
             tension_strain = strain
@@ -834,9 +835,8 @@ def _bt_panel_resultat(raw):
                     strains.append(_post(f"{key}_Rd", rf"ε_{{{edge},Rd}}", state[key] * 1000, "‰",
                                          f"trycktöjning i {edge} vid momentkapacitet"))
             for i, row in enumerate(state["rader"], 1):
-                strain_kind = "dragtöjning" if row["epsilon"] < 0 else "ståltöjning"
                 strains.append(_post(f"epsilon_s_{i}", rf"ε_{{s,{i}}}", row["epsilon"] * 1000, "‰",
-                                     f"{strain_kind} i armering", 4))
+                                     f"töjning i armeringslager {i}", 4))
             final.append(_post("x_Rd_verksam", r"x_{Rd,verksam}", state["x_verksam"], "mm", "tryckzonens höjd inom snittet"))
             if rectangular:
                 final.append(_post("sigma_c_Rd", r"\sigma_c=f_{cd}", p["f_cd"], "MPa", "betongens tryckspänning i tryckblocket"))

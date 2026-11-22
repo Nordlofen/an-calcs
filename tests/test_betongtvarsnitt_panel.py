@@ -458,7 +458,8 @@ class PanelTests(unittest.TestCase):
         for i, depth in enumerate((150, 125), 1):
             self.assertEqual(rows[f"u_s_{i}"]["value"], depth)
             self.assertAlmostEqual(rows[f"epsilon_s_{i}"]["value"], 3.5 * (1 - depth / x))
-            self.assertEqual(rows[f"epsilon_s_{i}"]["etikett"], "dragtöjning i armering")
+            self.assertEqual(rows[f"epsilon_s_{i}"]["etikett"], f"töjning i armeringslager {i}")
+        self.assertEqual(rows["epsilon_s_drag"]["latex"], r"|ε_{s,drag}|")
         self.assertAlmostEqual(rows["d"]["value"], (150 + 2 * 125) / 3)
         keys = list(rows)
         self.assertLess(keys.index("d"), keys.index("epsilon_c_Rd"))
