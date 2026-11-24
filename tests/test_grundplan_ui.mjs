@@ -6025,6 +6025,33 @@ for(const readOnly of [false,true]) test(`adjusted load labels show derived and 
   assert.doesNotMatch(elementText(ui.byClass('gp-tag-result')),/bᵧ/);
 });
 
+test('a wall pad label keeps the source line load and its resultant when by changes', t => {
+  const ui = setup(t);
+  ui.tag.footing_type = 'vaggsula';
+  Object.assign(ui.tag.values, {lang: 0, lasttyp: 1, physical_length: true, L_vagg: .4,
+    l: 1, l_override: true, F_vy: 479, F_vy_bruk: 406.9, isolering: false});
+  ui.tag.imported_length = .4;
+  ui.tag.load_resultants = {brott: 191.6, bruk: 162.76};
+  ui.changed();
+
+  const checkLoads = () => {
+    const loads = elementText(ui.byClass('gp-tag-loads'));
+    assert.match(loads, /V 479 kN\/m → 191,6 kN/);
+    assert.match(loads, /V 406,9 kN\/m → 162,76 kN/);
+    assert.doesNotMatch(loads, /Omräknad last|urspr\./);
+  };
+  checkLoads();
+  ui.marker().click();
+  ui.field('l').value = '1,3';
+  ui.field('l').dispatch('input');
+  checkLoads();
+  const request = ui.sent.at(-1);
+  Object.assign(ui.tag.values, request.values);
+  ui.changed();
+  ui.ack(request);
+  checkLoads();
+});
+
 for (const [dx,dy] of [[100,0],[0,100],[-100,0],[0,-100],[100,-100]])
   test(`wall placement follows positive by direction (${dx}, ${dy}) with length from by`,t=>{
     const ui=contourSetup(t);ui.tag.footing_type='vaggsula';

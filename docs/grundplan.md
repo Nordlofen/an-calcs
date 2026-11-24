@@ -865,7 +865,9 @@ och följer med gruppens visningsval och den låsta HTML-exporten. Saknad/ogilti
 last eller stödslängd visas som ett streck; andra indatafel hindrar inte att en
 giltig resultant visas. Endast H-stabilitet visar Bruk-resultanten för
 sättningsberäkningen, men ingen Brott-resultant.
-På pelarsuleetiketter med linjelast visas exempelvis **V 200 kN/m → 120 kN**.
+På etiketter för pelarsulemodellen går pilen från källans linjelast till
+punktlasten, exempelvis **V 200 kN/m → 120 kN**. Båda värdena ligger kvar
+när sulans bᵧ ändras.
 
 Python-fältet `lasttyp` är 1 för linjelast och 0 för punktlast; `lang` väljer
 fortfarande beräkningsmodell. Exempel för ett linjestöd som kontrolleras som pelarsula:
@@ -882,7 +884,8 @@ sker genom ny lastimport. För manuella objekt utan källängd kan den anges en
 gång. **bᵧ** är sulans fysiska längd; något separat L_s-mått används inte.
 
 Exempel: ursprunglig V = 200 kN/m och L_stöd = 0,6 m ger alltid 120 kN.
-Om bᵧ ändras till 0,4 m blir intensiteten 300 kN/m och totalen förblir 120 kN.
+Med väggsulemodellen ger bᵧ = 0,4 m intensiteten 300 kN/m, medan totalen
+förblir 120 kN.
 Samma faktor gäller yttre brott-/brukmoment och horisontallaster i brott.
 Källvärdena skalas aldrig om i lagringen. Etiketten får **Omräknad last** och
 visar aktuellt värde följt av `(urspr. …)` i mindre normal text. Omräknade

@@ -4564,7 +4564,14 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         marker.append(mathText("span", "gp-tag-support", line));
       if (governingLabel) marker.append(node("span", "gp-governing", "Styrande: " + governingLabel));
       const loads = node("span", "gp-tag-loads");
-      const adjusted = adjustedLineLoad({...tag, values});
+      const loadTag = {...tag, values};
+      const isLineLoad = lineLoads(values);
+      const lineToPoint = Number(values.lang) === 0 && isLineLoad;
+      const adjustedIntensity = adjustedLineLoad(loadTag);
+      const adjusted = !lineToPoint && adjustedIntensity;
+      // Geometry edits may invalidate U, while a resultant on the same load basis stays valid.
+      const sameLoadBasis = Number(tag.values.lang) === 0 && lineLoads(tag.values)
+        && draftNumber(values.L_vagg) === draftNumber(tag.values.L_vagg);
       if (adjusted && !onlyH) {
         const badge = node("span","gp-load-adjusted","Omräknad last");
         badge.title = "Omräknad för justerad sullängd. Totallasten är oförändrad."; loads.append(badge);
@@ -4572,19 +4579,20 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
       const accessibleLoads = [];
       for (const group of model.get("schema").load_groups || []) {
         if (onlyH) continue;
-        if (group.label === "Bruk" && !insulated && !tag.settlement && !adjusted) continue;
+        if (group.label === "Bruk" && !insulated && !tag.settlement && !adjusted && !lineToPoint) continue;
         const tokens = [];
         for (const field of group.fields) {
-          const raw = displayedLineLoad({...tag,values},field.name);
+          const original = draftNumber(values[field.name]);
+          const raw = lineToPoint ? original : displayedLineLoad(loadTag, field.name);
           const value = typeof raw === "string" ? Number(raw.replace(",", ".")) : raw;
           if (typeof value !== "number" || !Number.isFinite(value) || value === 0) continue;
-          const unit = field.unit + (lineLoads(values) ? "/m" : "");
+          const unit = field.unit + (isLineLoad ? "/m" : "");
           let token = field.symbol + " " + (adjusted ? compactNumber(value, 1) : precise(value)) + " " + unit;
-          if (Number(values.lang) === 0 && lineLoads(values) && ["F_vy", "F_vy_bruk"].includes(field.name)) {
-            const total = dirty.has(tag.id) ? null : tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"];
+          if (lineToPoint && ["F_vy", "F_vy_bruk"].includes(field.name)) {
+            const currentTotal = !dirty.has(tag.id) || sameLoadBasis && original === draftNumber(tag.values[field.name]);
+            const total = currentTotal ? tag.load_resultants?.[field.name === "F_vy" ? "brott" : "bruk"] : null;
             token += " → " + (Number.isFinite(total) ? precise(total) + " kN" : "—");
           }
-          const original = draftNumber(values[field.name]);
           if (adjusted && Number.isFinite(original)) token += " (urspr. " + compactNumber(original, 1) + ")";
           tokens.push(token);
         }
@@ -4618,7 +4626,7 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
         const value = (name, unit) => {
           const raw = name === "glid_L" && values.physical_length ? values.l : name === "V_Ed_EQU" ? displayedLineLoad({...tag,values},name) : values[name];
           const n = raw == null || raw === "" ? NaN : Number(String(raw).replace(",", "."));
-          return Number.isFinite(n) ? compactNumber(n, adjusted && name === "V_Ed_EQU" ? 1 : 3) + " " + unit : "—";
+          return Number.isFinite(n) ? compactNumber(n, adjustedIntensity && name === "V_Ed_EQU" ? 1 : 3) + " " + unit : "—";
         };
         add(data, "V", "Ed,EQU", value("V_Ed_EQU", lineLoads(values) ? "kN/m" : "kN"));
         if (values.physical_length && Number.isFinite(draftNumber(values.V_Ed_EQU)) && displayedLineLoad({...tag,values},"V_Ed_EQU") !== draftNumber(values.V_Ed_EQU))

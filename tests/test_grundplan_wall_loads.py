@@ -315,7 +315,7 @@ class TestWallLoads(unittest.TestCase):
         self.assertFalse(self.plan.taggar[0]["values"]["physical_length"])
         self.assertEqual(self.plan.taggar[0]["load_resultants"]["brott"],200)
 
-    def test_adjusted_export_shows_both_values_and_hides_wall_by(self):
+    def test_adjusted_export_displays_loads_according_to_bearing_model(self):
         from pypdf import PdfReader
         import io
         ident=self.imported()
@@ -326,6 +326,13 @@ class TestWallLoads(unittest.TestCase):
             self.assertIn(expected,text)
         self.assertNotIn("bᵧ",text)
         self.assertEqual(self.plan.taggar,before)
+
+        self.plan.uppdatera(ident, indata={"lang":0, "l":1.3})
+        text=PdfReader(io.BytesIO(self.plan._pdf_bytes())).pages[0].extract_text()
+        self.assertIn("V 200 kN/m → 120 kN", text)
+        self.assertIn("V 100 kN/m → 60 kN", text)
+        self.assertNotIn("Omräknad last", text)
+        self.assertNotIn("urspr.", text)
 
     def test_rotated_start_adjustment_keeps_the_far_end_in_both_axes(self):
         from an_calcs.notebook.grundplan_lengths import wall_axes
