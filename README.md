@@ -132,9 +132,10 @@ panel
 
 Välj mittupplag eller ändupplag under **Indata**. Avståndet till ändträkanten
 visas vid ändupplag. För `l_1` kan du ange ett mått i mm eller skriva `lang`
-om längden är tillräcklig för fullt tillägg och minst `2h`. Lämna tryckkraften
-tom för att bara beräkna bärförmågan. Under **Beräkningsinställningar** väljer
-du upplagsfall och kan aktivera EKS-valet som låser `k_mod` och `gamma_M` till 1.
+om längden är tillräcklig för fullt tillägg och minst `2h`. Lämna kontaktkraften
+`F_c_90_Ed` tom för att bara beräkna bärförmågan `F_c_90_Rd`. Under
+**Beräkningsinställningar** väljer du upplagsfall och kan aktivera EKS-valet
+som låser `k_mod` och `gamma_M` till 1.
 
 ## Pelarholk
 

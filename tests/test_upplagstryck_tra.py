@@ -18,8 +18,9 @@ def _hamta_post(section, namn):
 class TestUpplagstryckTra(unittest.TestCase):
     def test_panelens_px_ordning_och_forval(self):
         schema = upplagstryck_tra.panel_schema
-        defaults = {field["name"]: field["default"] for field in schema["fields"]}
-        px = [defaults[name] for name in schema["px"]]
+        fields = {field["name"]: field for field in schema["fields"]}
+        px = [fields[name]["default"] for name in schema["px"]]
+        self.assertEqual(fields["N_c_90_Ed"]["symbol"], "<i>F</i><sub>c,90,Ed</sub>")
         px_numeric = [90.0, 45.0, "mittupplag", 0.0, 440.0, 220.0,
                       "understodd_barverksdel_dubbelsidig", "konstruktionsvirke",
                       2.5, 0.8, 1.3, False, None]
@@ -33,7 +34,7 @@ class TestUpplagstryckTra(unittest.TestCase):
         self.assertEqual(_hamta_post(details["indata"], "l_1")["value"], 40.5)
         self.assertEqual(_hamta_post(details["indata"], "N_c_90_Ed")["value"], 10.5)
 
-        for index, name in ((4, "l_1"), (12, "N_c_90_Ed")):
+        for index, name in ((4, "l_1"), (12, "F_c_90_Ed")):
             for value in ("nan", "inf", "ogiltigt"):
                 with self.subTest(field=name, value=value), self.assertRaisesRegex(ValueError, name):
                     invalid = px.copy()
@@ -137,6 +138,12 @@ class TestUpplagstryckTra(unittest.TestCase):
         delresultat = details["delresultat"]
         slutresultat = details["slutresultat"]
 
+        for section in (details["indata"], slutresultat):
+            self.assertEqual(_hamta_post(section, "N_c_90_Ed")["latex"], r"F_{c,90,Ed}")
+        self.assertEqual(_hamta_post(slutresultat, "N_c_90_Rd")["latex"], r"F_{c,90,Rd}")
+        ekvationer = [item["latex"] for item in details["ekvationer"]["items"]]
+        self.assertTrue(any(r"\frac{F_{c,90,Ed}" in latex for latex in ekvationer))
+        self.assertTrue(any(latex.startswith(r"F_{c,90,Rd} =") for latex in ekvationer))
         self.assertTrue(math.isclose(_hamta_post(delresultat, "sigma_c_90_d")["value"], 1.0582010582010581))
         self.assertEqual(_hamta_post(slutresultat, "eta")["value"], "55.026 %")
         self.assertEqual(_hamta_post(slutresultat, "eta")["latex"], r"\mu")

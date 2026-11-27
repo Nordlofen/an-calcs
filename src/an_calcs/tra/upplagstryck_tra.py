@@ -324,7 +324,7 @@ def upplagstryck_tra(px):
             k_mod,
             gamma_M,
             tillat_hogre_tryck_eks,
-            N_c_90_Ed
+            F_c_90_Ed
         ]
 
     Parameternycklar:
@@ -373,15 +373,16 @@ def upplagstryck_tra(px):
             ``True`` eller ``False``.
             Om ``True`` används effektivt ``k_mod = 1`` och ``gamma_M = 1``.
 
-        N_c_90_Ed
-            Valfri dimensionerande tryckkraft [kN]. Kan anges som tal eller
-            text med decimalpunkt eller decimalkomma. Tom text motsvarar ``None``.
+        F_c_90_Ed
+            Valfri dimensionerande kontaktkraft vinkelrätt mot fiberriktningen [kN].
+            Kan anges som tal eller text med decimalpunkt eller decimalkomma.
+            Tom text motsvarar ``None``.
 
     Kortare varianter som också accepteras:
         - direktformat utan ``upplagsplacering`` där tredje värdet tolkas som ``a``
         - ``"mittupplag"`` utan ``a``
         - ``"andupplag"`` utan ``a`` vilket då tolkas som ``a = 0``
-        - samtliga ovanstående både med och utan ``N_c_90_Ed``
+        - samtliga ovanstående både med och utan ``F_c_90_Ed``
 
     Kopiera till notebook:
         details = upplagstryck_tra([
@@ -397,7 +398,7 @@ def upplagstryck_tra(px):
             0.8,                                 # k_mod [-]
             1.3,                                 # gamma_M [-]
             True,                                # tillat_hogre_tryck_eks
-            10.0,                                # N_c_90_Ed [kN]
+            10.0,                                # F_c_90_Ed [kN]
         ])
     """
     data = _tolka_px(px)
@@ -413,7 +414,7 @@ def upplagstryck_tra(px):
     k_mod = data["k_mod"]
     gamma_M = data["gamma_M"]
     tillat_hogre_tryck_eks = data["tillat_hogre_tryck_eks"]
-    N_c_90_Ed = data["N_c_90_Ed"]
+    F_c_90_Ed = data["N_c_90_Ed"]
     upplagsplacering = data["upplagsplacering"]
     explicit_upplagsplacering = data["explicit_upplagsplacering"]
 
@@ -429,10 +430,10 @@ def upplagstryck_tra(px):
         raise ValueError("k_mod måste vara > 0.")
     if not math.isfinite(gamma_M) or gamma_M <= 0:
         raise ValueError("gamma_M måste vara > 0.")
-    lastfel = "N_c_90_Ed måste vara ett positivt, ändligt tal om det anges."
-    if isinstance(N_c_90_Ed, str):
-        N_c_90_Ed = _tolka_taltext(N_c_90_Ed, lastfel) if N_c_90_Ed.strip() else None
-    if N_c_90_Ed is not None and (not math.isfinite(N_c_90_Ed) or N_c_90_Ed <= 0):
+    lastfel = "F_c_90_Ed måste vara ett positivt, ändligt tal om det anges."
+    if isinstance(F_c_90_Ed, str):
+        F_c_90_Ed = _tolka_taltext(F_c_90_Ed, lastfel) if F_c_90_Ed.strip() else None
+    if F_c_90_Ed is not None and (not math.isfinite(F_c_90_Ed) or F_c_90_Ed <= 0):
         raise ValueError(lastfel)
 
     if upplagsplacering != "mittupplag":
@@ -467,7 +468,7 @@ def upplagstryck_tra(px):
     gamma_M_eff = 1.0 if tillat_hogre_tryck_eks else gamma_M
     f_c_90_d = (k_mod_eff / gamma_M_eff) * f_c_90_k
     k_c_90 = _hamta_k_c_90(upplagsfall, materialtyp, l, l_1_post_value, h)
-    N_c_90_Rd = k_c_90 * f_c_90_d * A_ef / 1000.0
+    F_c_90_Rd = k_c_90 * f_c_90_d * A_ef / 1000.0
 
     delresultat_items = [
         _post("x_in", r"x_{in}", x_in, "mm", "effektivt tillägg inåt i bärverksdelen"),
@@ -483,15 +484,16 @@ def upplagstryck_tra(px):
             _post("x_end", r"x_{end}", x_end, "mm", "effektivt tillägg mot ändträkant"),
         )
 
+    # Behåll postnamnen för redovisningskod som läser details.
     slutresultat_items = [
-        _post("N_c_90_Rd", r"N_{c,90,Rd}", N_c_90_Rd, "kN", "dimensionerande bärförmåga"),
+        _post("N_c_90_Rd", r"F_{c,90,Rd}", F_c_90_Rd, "kN", "dimensionerande bärförmåga för upplagstryck"),
     ]
 
-    if N_c_90_Ed is not None:
-        sigma_c_90_d = N_c_90_Ed * 1000.0 / A_ef
-        eta = 100.0 * N_c_90_Ed / N_c_90_Rd
+    if F_c_90_Ed is not None:
+        sigma_c_90_d = F_c_90_Ed * 1000.0 / A_ef
+        eta = 100.0 * F_c_90_Ed / F_c_90_Rd
         eta_text = f"{eta:.3f} %"
-        kontroll_ok = N_c_90_Ed <= N_c_90_Rd
+        kontroll_ok = F_c_90_Ed <= F_c_90_Rd
 
         delresultat_items.append(
             _post(
@@ -504,7 +506,7 @@ def upplagstryck_tra(px):
         )
         slutresultat_items.extend(
             [
-                _post("N_c_90_Ed", r"N_{c,90,Ed}", N_c_90_Ed, "kN", "dimensionerande tryckkraft"),
+                _post("N_c_90_Ed", r"F_{c,90,Ed}", F_c_90_Ed, "kN", "dimensionerande kontaktkraft"),
                 _post("eta", r"\mu", eta_text, "", "utnyttjandegrad"),
                 _post("kontroll_ok", r"\mathrm{OK}", kontroll_ok, "", "uppfyller bärförmågekravet"),
             ]
@@ -536,9 +538,9 @@ def upplagstryck_tra(px):
         ]
     )
 
-    if N_c_90_Ed is not None:
+    if F_c_90_Ed is not None:
         indata_items.append(
-            _post("N_c_90_Ed", r"N_{c,90,Ed}", N_c_90_Ed, "kN", "dimensionerande tryckkraft")
+            _post("N_c_90_Ed", r"F_{c,90,Ed}", F_c_90_Ed, "kN", "dimensionerande kontaktkraft")
         )
 
     ekvationer = [
@@ -575,8 +577,8 @@ def upplagstryck_tra(px):
     ekvationer.extend(
         [
             _ekvation(r"f_{c,90,d} = \frac{k_{mod}}{\gamma_M} \, f_{c,90,k}", "dimensionerande tryckhållfasthet"),
-            _ekvation(r"\sigma_{c,90,d} = \frac{N_{c,90,Ed} \, 1000}{A_{ef}}", "dimensionerande tryckspänning"),
-            _ekvation(r"N_{c,90,Rd} = k_{c,90} \, f_{c,90,d} \, A_{ef} \, / \, 1000", "dimensionerande bärförmåga"),
+            _ekvation(r"\sigma_{c,90,d} = \frac{F_{c,90,Ed} \, 1000}{A_{ef}}", "dimensionerande tryckspänning"),
+            _ekvation(r"F_{c,90,Rd} = k_{c,90} \, f_{c,90,d} \, A_{ef} \, / \, 1000", "dimensionerande bärförmåga för upplagstryck"),
         ]
     )
 
@@ -701,8 +703,8 @@ upplagstryck_tra.panel_schema = {
             "default": False, "span": 2,
         },
         {
-            "name": "N_c_90_Ed", "type": "text", "label": "Dimensionerande tryckkraft",
-            "symbol": "<i>N</i><sub>c,90,Ed</sub>", "unit": "kN", "default": "",
+            "name": "N_c_90_Ed", "type": "text", "label": "Dimensionerande kontaktkraft",
+            "symbol": "<i>F</i><sub>c,90,Ed</sub>", "unit": "kN", "default": "",
             "help": "Lämna tomt för att bara beräkna bärförmågan.",
         },
     ],
