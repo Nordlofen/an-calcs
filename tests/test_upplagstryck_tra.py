@@ -16,6 +16,30 @@ def _hamta_post(section, namn):
 
 
 class TestUpplagstryckTra(unittest.TestCase):
+    def test_panelens_px_ordning_och_forval(self):
+        schema = upplagstryck_tra.panel_schema
+        defaults = {field["name"]: field["default"] for field in schema["fields"]}
+        px = [defaults[name] for name in schema["px"]]
+        px_numeric = [90.0, 45.0, "mittupplag", 0.0, 440.0, 220.0,
+                      "understodd_barverksdel_dubbelsidig", "konstruktionsvirke",
+                      2.5, 0.8, 1.3, False, None]
+        self.assertEqual(upplagstryck_tra(px), upplagstryck_tra(px_numeric))
+
+    def test_panelens_textfalt_for_langd_och_last(self):
+        px = [90, 45, "andupplag", 12, "40,5", 20,
+              "barverksdel_pa_upplag_enkelsidig", "konstruktionsvirke",
+              2.5, 0.8, 1.3, False, "10,5"]
+        details = upplagstryck_tra(px)
+        self.assertEqual(_hamta_post(details["indata"], "l_1")["value"], 40.5)
+        self.assertEqual(_hamta_post(details["indata"], "N_c_90_Ed")["value"], 10.5)
+
+        for index, name in ((4, "l_1"), (12, "N_c_90_Ed")):
+            for value in ("nan", "inf", "ogiltigt"):
+                with self.subTest(field=name, value=value), self.assertRaisesRegex(ValueError, name):
+                    invalid = px.copy()
+                    invalid[index] = value
+                    upplagstryck_tra(invalid)
+
     def test_returnerar_standardiserad_details_i_direktformat(self):
         details = upplagstryck_tra(
             [90, 45, 0, "lang", 220, "understodd_barverksdel_dubbelsidig", "konstruktionsvirke", 2.5, 0.8, 1.3, False]

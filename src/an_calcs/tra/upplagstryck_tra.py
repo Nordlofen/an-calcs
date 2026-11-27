@@ -1,3 +1,6 @@
+import math
+
+
 def _post(namn, latex, value, unit="", etikett=""):
     """Skapar en standardiserad datapost."""
     return {
@@ -14,14 +17,22 @@ def _ekvation(latex, etikett):
     return {"latex": latex, "etikett": etikett}
 
 
-def _tolka_l_1(l_1):
-    if isinstance(l_1, str):
-        if l_1.strip().lower() != "lang":
-            raise ValueError("l_1 måste vara ett positivt tal eller strängen 'lang'.")
-        return "lang", 30.0
+def _tolka_taltext(text, felmeddelande):
+    try:
+        return float(text.replace(",", "."))
+    except ValueError:
+        raise ValueError(felmeddelande) from None
 
-    if l_1 <= 0:
-        raise ValueError("l_1 måste vara ett positivt tal eller strängen 'lang'.")
+
+def _tolka_l_1(l_1):
+    felmeddelande = "l_1 måste vara ett positivt, ändligt tal eller strängen 'lang'."
+    if isinstance(l_1, str):
+        if l_1.strip().lower() == "lang":
+            return "lang", 30.0
+        l_1 = _tolka_taltext(l_1, felmeddelande)
+
+    if not math.isfinite(l_1) or l_1 <= 0:
+        raise ValueError(felmeddelande)
 
     return l_1, min(30.0, l_1 / 2.0)
 
@@ -296,6 +307,9 @@ def upplagstryck_tra(px):
     Beräknar dimensionerande bärförmåga för upplagstryck vinkelrätt
     fiberriktningen enligt EN 1995-1-1, 6.1.5.
 
+    Kan användas med ``an_print.Panel(upplagstryck_tra)``. Panelen använder
+    ordningen i exemplet nedan.
+
     Exempel på px:
         px = [
             b,
@@ -333,7 +347,8 @@ def upplagstryck_tra(px):
 
         l_1
             Tillgänglig längd inåt i lastspridningsriktningen [mm] eller
-            strängen ``"lang"``.
+            strängen ``"lang"``. Längden kan även anges som text med
+            decimalpunkt eller decimalkomma.
 
         h
             Bärverksdelens höjd [mm].
@@ -359,7 +374,8 @@ def upplagstryck_tra(px):
             Om ``True`` används effektivt ``k_mod = 1`` och ``gamma_M = 1``.
 
         N_c_90_Ed
-            Valfri dimensionerande tryckkraft [kN].
+            Valfri dimensionerande tryckkraft [kN]. Kan anges som tal eller
+            text med decimalpunkt eller decimalkomma. Tom text motsvarar ``None``.
 
     Kortare varianter som också accepteras:
         - direktformat utan ``upplagsplacering`` där tredje värdet tolkas som ``a``
@@ -401,26 +417,26 @@ def upplagstryck_tra(px):
     upplagsplacering = data["upplagsplacering"]
     explicit_upplagsplacering = data["explicit_upplagsplacering"]
 
-    if b <= 0:
+    if not math.isfinite(b) or b <= 0:
         raise ValueError("b måste vara > 0.")
-    if l <= 0:
+    if not math.isfinite(l) or l <= 0:
         raise ValueError("l måste vara > 0.")
-    if h <= 0:
+    if not math.isfinite(h) or h <= 0:
         raise ValueError("h måste vara > 0.")
-    if f_c_90_k <= 0:
+    if not math.isfinite(f_c_90_k) or f_c_90_k <= 0:
         raise ValueError("f_c_90_k måste vara > 0.")
-    if k_mod <= 0:
+    if not math.isfinite(k_mod) or k_mod <= 0:
         raise ValueError("k_mod måste vara > 0.")
-    if gamma_M <= 0:
+    if not math.isfinite(gamma_M) or gamma_M <= 0:
         raise ValueError("gamma_M måste vara > 0.")
-    if N_c_90_Ed is not None and N_c_90_Ed <= 0:
-        raise ValueError("N_c_90_Ed måste vara > 0 om det anges.")
+    lastfel = "N_c_90_Ed måste vara ett positivt, ändligt tal om det anges."
+    if isinstance(N_c_90_Ed, str):
+        N_c_90_Ed = _tolka_taltext(N_c_90_Ed, lastfel) if N_c_90_Ed.strip() else None
+    if N_c_90_Ed is not None and (not math.isfinite(N_c_90_Ed) or N_c_90_Ed <= 0):
+        raise ValueError(lastfel)
 
-    if explicit_upplagsplacering and upplagsplacering == "andupplag":
-        if a < 0:
-            raise ValueError("a måste vara >= 0.")
-    elif not explicit_upplagsplacering:
-        if a < 0:
+    if upplagsplacering != "mittupplag":
+        if not math.isfinite(a) or a < 0:
             raise ValueError("a måste vara >= 0.")
 
     if upplagsfall not in {
@@ -622,3 +638,86 @@ def upplagstryck_tra(px):
             "items": ekvationer,
         },
     }
+
+
+_EKS_FAKTOR = {"field": "tillat_hogre_tryck_eks", "equals": True, "value": 1.0}
+
+upplagstryck_tra.panel_schema = {
+    "title": "Upplagstryck i trä",
+    "px": [
+        "b", "l", "upplagsplacering", "a", "l_1", "h", "upplagsfall", "materialtyp",
+        "f_c_90_k", "k_mod", "gamma_M", "tillat_hogre_tryck_eks", "N_c_90_Ed",
+    ],
+    "fields": [
+        {"name": "b", "type": "float", "label": "Kontaktbredd", "symbol": "<i>b</i>", "unit": "mm", "default": 90.0},
+        {"name": "l", "type": "float", "label": "Fysisk upplagslängd", "symbol": "<i>l</i>", "unit": "mm", "default": 45.0},
+        {
+            "name": "upplagsplacering", "type": "choice", "label": "Upplagsplacering", "symbol": "",
+            "default": "mittupplag",
+            "options": [
+                {"label": "Mittupplag", "value": "mittupplag"},
+                {"label": "Ändupplag", "value": "andupplag"},
+            ],
+        },
+        {
+            "name": "a", "type": "float", "label": "Avstånd till ändträkant", "symbol": "<i>a</i>", "unit": "mm",
+            "default": 0.0, "visible_if": {"field": "upplagsplacering", "equals": "andupplag"},
+        },
+        {
+            "name": "l_1", "type": "text", "label": "Tillgänglig längd inåt", "symbol": "<i>l</i><sub>1</sub>",
+            "unit": "mm", "default": "440",
+            "help": "Ange ett tal. Skriv lang om längden är tillräcklig för fullt tillägg (30 mm) och minst 2h.",
+        },
+        {"name": "h", "type": "float", "label": "Bärverksdelens höjd", "symbol": "<i>h</i>", "unit": "mm", "default": 220.0},
+        {
+            "name": "upplagsfall", "type": "choice", "label": "Upplagsfall", "symbol": "",
+            "default": "understodd_barverksdel_dubbelsidig", "span": 2,
+            "options": [
+                {"label": "Helt understödd eller dubbelsidigt belastad", "value": "understodd_barverksdel_dubbelsidig"},
+                {"label": "Enkelsidigt belastad på upplag", "value": "barverksdel_pa_upplag_enkelsidig"},
+            ],
+        },
+        {
+            "name": "materialtyp", "type": "choice", "label": "Materialtyp", "symbol": "", "default": "konstruktionsvirke",
+            "options": [
+                {"label": "Konstruktionsvirke", "value": "konstruktionsvirke"},
+                {"label": "Limträ", "value": "limtra"},
+            ],
+        },
+        {
+            "name": "f_c_90_k", "type": "float", "label": "Karakteristisk tryckhållfasthet",
+            "symbol": "<i>f</i><sub>c,90,k</sub>", "unit": "MPa", "default": 2.5,
+        },
+        {
+            "name": "k_mod", "type": "float", "label": "Modifieringsfaktor", "symbol": "<i>k</i><sub>mod</sub>",
+            "default": 0.8, "fixed_if": _EKS_FAKTOR,
+        },
+        {
+            "name": "gamma_M", "type": "float", "label": "Partialkoefficient", "symbol": "γ<sub>M</sub>",
+            "default": 1.3, "fixed_if": _EKS_FAKTOR,
+        },
+        {
+            "name": "tillat_hogre_tryck_eks", "type": "bool", "label": "Tillåt högre tryck enligt EKS", "symbol": "",
+            "default": False, "span": 2,
+        },
+        {
+            "name": "N_c_90_Ed", "type": "text", "label": "Dimensionerande tryckkraft",
+            "symbol": "<i>N</i><sub>c,90,Ed</sub>", "unit": "kN", "default": "",
+            "help": "Lämna tomt för att bara beräkna bärförmågan.",
+        },
+    ],
+    "sections": [
+        {
+            "title": "Indata", "collapsible": True, "collapsed": False, "columns": 1,
+            "sections": [
+                {"title": "Geometri", "fields": ["upplagsplacering", "a", "b", "l", "h", "l_1"], "columns": 2},
+                {"title": "Material", "fields": ["materialtyp", "f_c_90_k"], "columns": 2},
+                {"title": "Last", "fields": ["N_c_90_Ed"], "columns": 1},
+            ],
+        },
+        {
+            "title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 2,
+            "fields": ["upplagsfall", "tillat_hogre_tryck_eks", "k_mod", "gamma_M"],
+        },
+    ],
+}

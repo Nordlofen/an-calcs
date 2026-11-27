@@ -120,6 +120,22 @@ Foreslagen projektstruktur:
 - `notebooks/` for exempel och utvecklingsnotebooks
 - `docs/` for dokumentation
 
+## Upplagstryck i trä
+
+```python
+from an_calcs.tra import upplagstryck_tra
+from an_print import Panel
+
+panel = Panel(upplagstryck_tra)
+panel
+```
+
+Välj mittupplag eller ändupplag under **Indata**. Avståndet till ändträkanten
+visas vid ändupplag. För `l_1` kan du ange ett mått i mm eller skriva `lang`
+om längden är tillräcklig för fullt tillägg och minst `2h`. Lämna tryckkraften
+tom för att bara beräkna bärförmågan. Under **Beräkningsinställningar** väljer
+du upplagsfall och kan aktivera EKS-valet som låser `k_mod` och `gamma_M` till 1.
+
 ## Pelarholk
 
 `an_calcs.betong.Pelarholk` (alias `pelarholk`) löser kraftspelet för **släta
