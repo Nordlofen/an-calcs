@@ -37,6 +37,23 @@ def _tolka_l_1(l_1):
     return l_1, min(30.0, l_1 / 2.0)
 
 
+def _tolka_kontaktkraft(kraft):
+    felmeddelande = "F_c_90_Ed måste vara ett positivt, ändligt tal om det anges."
+    if isinstance(kraft, str):
+        kraft = _tolka_taltext(kraft, felmeddelande) if kraft.strip() else None
+    if kraft is not None and (not math.isfinite(kraft) or kraft <= 0):
+        raise ValueError(felmeddelande)
+    return kraft
+
+
+def _effektiv_upplagslangd(l, x_in, a):
+    """Beräkna ändtillägg och effektiv upplagslängd. Mittupplag anges med a=None."""
+    if a is None:
+        return None, l + 2.0 * x_in
+    x_end = min(30.0, a)
+    return x_end, l + x_in + x_end
+
+
 def _hamta_k_c_90(upplagsfall, materialtyp, l, l_1, h):
     l_1_for_check = float("inf") if l_1 == "lang" else l_1
 
@@ -308,7 +325,7 @@ def upplagstryck_tra(px):
     fiberriktningen enligt EN 1995-1-1, 6.1.5.
 
     Kan användas med ``an_print.Panel(upplagstryck_tra)``. Panelen använder
-    ordningen i exemplet nedan.
+    ordningen i exemplet nedan och visar skisser för placering och upplagsfall.
 
     Exempel på px:
         px = [
@@ -430,11 +447,7 @@ def upplagstryck_tra(px):
         raise ValueError("k_mod måste vara > 0.")
     if not math.isfinite(gamma_M) or gamma_M <= 0:
         raise ValueError("gamma_M måste vara > 0.")
-    lastfel = "F_c_90_Ed måste vara ett positivt, ändligt tal om det anges."
-    if isinstance(F_c_90_Ed, str):
-        F_c_90_Ed = _tolka_taltext(F_c_90_Ed, lastfel) if F_c_90_Ed.strip() else None
-    if F_c_90_Ed is not None and (not math.isfinite(F_c_90_Ed) or F_c_90_Ed <= 0):
-        raise ValueError(lastfel)
+    F_c_90_Ed = _tolka_kontaktkraft(F_c_90_Ed)
 
     if upplagsplacering != "mittupplag":
         if not math.isfinite(a) or a < 0:
@@ -455,12 +468,8 @@ def upplagstryck_tra(px):
 
     l_1_post_value, x_in = _tolka_l_1(l_1)
 
-    if explicit_upplagsplacering and upplagsplacering == "mittupplag":
-        x_end = None
-        l_ef = l + 2.0 * x_in
-    else:
-        x_end = min(30.0, a)
-        l_ef = l + x_in + x_end
+    ar_mittupplag = upplagsplacering == "mittupplag"
+    x_end, l_ef = _effektiv_upplagslangd(l, x_in, None if ar_mittupplag else a)
 
     A_ef = b * l_ef
 
@@ -547,8 +556,6 @@ def upplagstryck_tra(px):
         _ekvation(r"x_{in} = 30", "effektivt tillägg inåt när l1 är 'lang'"),
         _ekvation(r"x_{in} = \min(30, l_1 / 2)", "effektivt tillägg inåt när l1 anges numeriskt"),
     ]
-
-    ar_mittupplag = explicit_upplagsplacering and upplagsplacering == "mittupplag"
 
     if ar_mittupplag:
         ekvationer.append(_ekvation(r"l_{ef} = l + 2 \, x_{in}", "effektiv upplagslängd för mittupplag"))
@@ -712,14 +719,31 @@ upplagstryck_tra.panel_schema = {
         {
             "title": "Indata", "collapsible": True, "collapsed": False, "columns": 1,
             "sections": [
-                {"title": "Geometri", "fields": ["upplagsplacering", "a", "b", "l", "h", "l_1"], "columns": 2},
+                {
+                    "title": "Geometri", "columns": 2,
+                    "sections": [
+                        {"fields": ["upplagsplacering", "a", "b", "l", "h", "l_1"], "columns": 2},
+                        {"figure": {
+                            "renderer": "an_calcs.tra._upplagstryck_skiss:render_geometri",
+                            "fields": ["upplagsplacering", "a", "b", "l", "h", "l_1", "N_c_90_Ed"],
+                            "max_width": 480,
+                        }},
+                    ],
+                },
                 {"title": "Material", "fields": ["materialtyp", "f_c_90_k"], "columns": 2},
                 {"title": "Last", "fields": ["N_c_90_Ed"], "columns": 1},
             ],
         },
         {
             "title": "Beräkningsinställningar", "collapsible": True, "collapsed": True, "columns": 2,
-            "fields": ["upplagsfall", "tillat_hogre_tryck_eks", "k_mod", "gamma_M"],
+            "sections": [
+                {"fields": ["upplagsfall", "tillat_hogre_tryck_eks", "k_mod", "gamma_M"], "columns": 2},
+                {"figure": {
+                    "renderer": "an_calcs.tra._upplagstryck_skiss:render_upplagsfall",
+                    "fields": ["upplagsfall"],
+                    "max_width": 360,
+                }},
+            ],
         },
     ],
 }

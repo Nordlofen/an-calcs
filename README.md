@@ -137,6 +137,11 @@ om längden är tillräcklig för fullt tillägg och minst `2h`. Lämna kontaktk
 **Beräkningsinställningar** väljer du upplagsfall och kan aktivera EKS-valet
 som låser `k_mod` och `gamma_M` till 1.
 
+Måttskissen följer indata och visar fysisk upplagsyta, tillägg till effektiv
+upplagslängd och kontaktkraften. Under **Beräkningsinställningar** visar en
+separat skiss det valda upplagsfallet. Skisserna använder samma stöd för
+dynamiska figurer i `an-print` som Betongtvärsnitt.
+
 ## Pelarholk
 
 `an_calcs.betong.Pelarholk` (alias `pelarholk`) löser kraftspelet för **släta
