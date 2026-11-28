@@ -542,6 +542,9 @@ sulor samma värde i kolumnen. Resultaten uppdateras automatiskt vid varje
 ändring; eventuella fel visas per sula.
 Se [importformat och arbetsgång](docs/grundplan.md#importera-lasteffekter).
 
+Resultatpopupen delar upp vertikallasten i yttre last och fundamentets
+egentyngd. Grundplan använder egentyngdsfaktor 1,2 i brott för jord och isolering.
+
 Installera från GitHub i samma Pythonmiljö som notebookens kernel.
 Kör följande i terminalen, från mappen där din `.venv` finns:
 

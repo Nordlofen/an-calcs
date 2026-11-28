@@ -20,6 +20,22 @@ class TestBearingArea(unittest.TestCase):
         Image.new("RGB", (800,600), "white").save(image)
         self.plan = Grundplan(image); self.addCleanup(self.plan.close)
 
+    def test_pad_self_weight_uses_uls_factor_only_and_is_reported_separately(self):
+        ident = self.plan.lagg_till(.3, .4, typ="pelarsula", littera="PS.7", indata={
+            "b": 1.8, "l": 1.8, "t": .45, "F_vy": 1666.1, "F_vy_bruk": 1264.1,
+            "isolering": True, "f_d_brott": 750, "f_d_bruk": 750,
+        })
+        result = self.plan._tag(ident)["summary"]
+        load = result["vertical_load"]
+        self.assertEqual(load["external"], 1666.1)
+        self.assertEqual(load["factor"], 1.2)
+        self.assertEqual(load["unit_weight"], 25)
+        self.assertAlmostEqual(load["self_weight"], 43.74)
+        self.assertAlmostEqual(result["last"], 1709.84)
+        self.assertAlmostEqual(result["q_Ed"], 527.7283950617)
+        self.assertAlmostEqual(result["isolering"]["isolering_N_brott"], 1709.84)
+        self.assertAlmostEqual(result["isolering"]["isolering_N_bruk"], 1300.55)
+
     def test_pressure_resistance_and_utilization_agree_for_all_three_footing_categories(self):
         cases = (("pelarsula",0,2.1,None),("vaggsula",1,2,4),("vaggsula",0,1.4,.6))
         for typ, model, by, source, moment in ((*case,m) for case in cases for m in (0,31)):

@@ -323,6 +323,10 @@ export function popupCalculationResult(tag) {
   const forceLength = r.lastenhet === "kN/m" ? 1 : length;
   const result = {...r, last: r.last / forceLength, barformaga: r.barformaga / forceLength,
     lastenhet: "kN/m", display_per_metre: true, area_unit: "m²/m"};
+  if (r.vertical_load) {
+    const load = r.vertical_load;
+    result.vertical_load = {...load, external: load.external / forceLength, self_weight: load.self_weight / forceLength};
+  }
   if (r.effective_area) result.effective_area = Object.fromEntries(Object.entries(r.effective_area).map(([phase,a]) => [phase, {
     ...a, by: 1, by_eff: a.by_eff / a.by, area: a.area / a.by,
     V: a.V / forceLength, Mx: a.Mx / forceLength, My: a.My / forceLength,
@@ -756,8 +760,9 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
   const background = () => drawingPreview?.background || model.get("background") || {};
   const drawingLayout = () => drawingDraft || state().drawing_layout || {x: 0, y: 0, scale: 1};
   const current = () => state().tags.find((tag) => tag.id === active);
-  const number = (value, digits = 2) => new Intl.NumberFormat("sv-SE", {
+  const number = (value, digits = 2, minimumFractionDigits = 0) => new Intl.NumberFormat("sv-SE", {
     maximumFractionDigits: digits,
+    minimumFractionDigits,
   }).format(value);
   const precise = value => value !== 0 && (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e9)
     ? value.toExponential(2).replace(".", ",") : number(value, 6);
@@ -6443,9 +6448,10 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
     }
     const headline = node("div", "gp-result-main " + (r.utnyttjandegrad <= 1 ? "gp-pass" : "gp-fail"));
     headline.append(node("span", "", "Utnyttjandegrad"), node("strong", "", number(r.utnyttjandegrad * 100, 1) + "%"));
+    const vertical = node("dl", "gp-result-list");
+    vertical.append(mathText("dt", "", "Vertikallast V – brott"), node("dd", "", number(r.last) + " " + r.lastenhet));
     const table = node("dl", "gp-result-list");
     for (const [label, value] of [
-      ["Vertikallast V – brott", number(r.last) + " " + r.lastenhet],
       ["Jordens bärförmåga", number(r.barformaga) + " " + r.lastenhet],
       ["Lasteffekt q_Ed", number(r.q_Ed) + " kPa"],
       ["Bärförmåga q_bd", number(r.q_bd) + " kPa"],
@@ -6459,6 +6465,23 @@ function render({ model, el, readOnly = false, pdfMode = false }) {
           number(check.utnyttjandegrad * 100, 1) + "%"));
       }
       results.append(node("p", "gp-field-note", "Styrande: " + r.styrande), checks);
+    }
+    results.append(vertical);
+    if (r.vertical_load) {
+      const load = r.vertical_load;
+      const breakdown = node("div", "gp-result-load-breakdown");
+      const list = node("dl", "gp-result-list");
+      list.append(
+        mathText("dt", "", "Yttre vertikallast V_yttre"), node("dd", "", number(load.external, 2, 2) + " " + r.lastenhet),
+        mathText("dt", "", "Egentyngd fundament G_Ed"), node("dd", "", number(load.self_weight, 2, 2) + " " + r.lastenhet),
+      );
+      const {b, l, t} = tag.values;
+      const dimensions = r.display_per_metre ? [b, t] : [b, l, t];
+      const geometry = dimensions.map(value => number(value, 6, 2)).join(" × ");
+      const unit = r.display_per_metre ? "m²" : "m³";
+      breakdown.append(list, node("p", "gp-result-note",
+        number(load.factor, 6, 2) + " × (" + geometry + ") " + unit + " × " + number(load.unit_weight) + " kN/m³"));
+      results.append(breakdown);
     }
     results.append(table, node("p", "gp-result-note", "Jord: U = last / bärförmåga i brottgränstillstånd enligt befintlig modell."));
     if (r.load_conversion) {

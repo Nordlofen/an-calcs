@@ -53,7 +53,7 @@ class TestWallLoads(unittest.TestCase):
                 self.assertEqual(a["load_conversion"]["brott"], 200 * length)
                 self.assertEqual(a["load_conversion"]["bruk"], 100 * length)
                 self.assertFalse(a["load_conversion"]["at_least_one"])
-                self.assertAlmostEqual(a["last"], 200 * length + 1.5 * 25 * 1.2 * 1.3 * .4)
+                self.assertAlmostEqual(a["last"], 200 * length + 1.2 * 25 * 1.2 * 1.3 * .4)
                 self.assertEqual(self.plan._tag(line)["values"]["F_vy"], 200)
 
     def test_short_and_long_imports_use_actual_source_length_without_floor(self):

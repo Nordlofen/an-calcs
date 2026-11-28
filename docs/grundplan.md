@@ -893,13 +893,16 @@ lastvärden avrundas till högst en decimal vid visning; beräkningarna behålle
 full precision. Det gäller även
 PDF och resultat-HTML. Tabellens indata är källvärden; V_res visar resultatanten.
 
-Egentyngden beräknas från sulans geometri med befintliga faktorer 1,5 i brott
-respektive 1,0 i bruk. q_Ed är total vertikallast inklusive egentyngd delad med
-effektiv area. Den gemensamma väggsulemotorn använder ekvivalenta värden per
+Egentyngden beräknas från sulans geometri med faktor 1,2 i brott för jord
+och isolering. I bruk används faktor 1,0. Under **Vertikallast V – brott**
+i resultatpopupen visas yttre vertikallast och **Egentyngd fundament G_Ed**
+med formeln för egentyngdsbidraget. q_Ed är vertikallasten inklusive egentyngd
+delad med effektiv area. Den gemensamma väggsulemotorn använder ekvivalenta värden per
 meter. Popupens resultat och areaskiss för väggsulemodellen visar en
 enmetersremsa: krafter i kN/m, moment i kNm/m och effektiv area i m²/m.
-Jordtryck och utnyttjandegrad är oförändrade. Internt bevaras hela sulans
-resultat och totala lastresultant; pelarsulemodellen visas fortsatt för hela sulan.
+Jordtryck och utnyttjandegrad är desamma vid redovisning per meter och för
+hela sulan. Internt bevaras hela sulans resultat och totala lastresultant.
+Pelarsulemodellen redovisas för hela sulan.
 
 Projektformat 32 migrerar äldre importerade stöd med sparad `imported_length`.
 En gammal lokal enmetersremsa blir inte sulans fysiska längd. En kalibrerad
@@ -1045,9 +1048,9 @@ anropas med en hävarm.
   och bruk. Excentriciteten beräknas från dessa moment och eventuell
   placeringsexcentricitet. Horisontallaster i brott behålls för deras
   påverkan på jordens bärighet, men ger inget extra moment.
-- Fundamentets egentyngd läggs till enligt den befintliga modellen:
-  `F_v = F_vy × L_stöd + 1.5 * 25 * b * b_y * t` totalt för väggsulor,
-  respektive `F_v = V_res + 1.5 * 25 * b * l * t` totalt för pelarsulemodellen.
+- Fundamentets egentyngd läggs till med faktor 1,2 i brott.
+  `F_v = F_vy × L_stöd + 1.2 * 25 * b * b_y * t` totalt för väggsulor,
+  respektive `F_v = V_res + 1.2 * 25 * b * l * t` totalt för pelarsulemodellen.
 - Jordens utnyttjandegrad definieras som `U = F_v / F_bd`. Väggsulemotorn använder
   ekvivalenta värden per meter. För väggsulor multipliceras både last och
   bärförmåga med bᵧ i Grundplans sammanfattning; kvoten är densamma.
@@ -1116,7 +1119,7 @@ Beräkningen använder följande uttryck separat i brott och bruk:
 
 ```text
 EG_k = 25 × b × l_ref × t
-N_brott = F_vy + 1,5 × EG_k
+N_brott = F_vy + 1,2 × EG_k
 N_bruk  = F_vy_bruk + 1,0 × EG_k
 
 e_b = abs(e_b_plac + M_insp_l / N)
@@ -1136,8 +1139,8 @@ och moment först med den ursprungliga lastgivande L_stöd.
 över större area; egentyngden ändras med sulans geometri. Till exempel ger
 200 kN/m över 0,6 m alltid 120 kN yttre last, oavsett bᵧ.
 I den gemensamma motorns rapport används ekvivalenta värden per meter.
-Egentyngdsfaktorn 1,5 i brott följer
-den befintliga jordmodellen; i bruk används 1,0. Ingen lastkombination
+Grundplan använder samma egentyngdsfaktor 1,2 i brott för jord och isolering.
+I bruk används 1,0. Ingen lastkombination
 genereras från karakteristiska laster. Effektiva mått, punktlast och
 bärförmågor måste vara positiva; annars visas ett fel utan aktuell utnyttjandegrad.
 

@@ -176,7 +176,7 @@ class TestGrundplan(unittest.TestCase):
         values = self.plan.taggar[0]["values"]
         expected = allmanna_barighetsekvationen([
             0.0 if name == "l_h" else values[name] for name in allmanna_barighetsekvationen.panel_schema["px"]
-        ])
+        ], eg_faktor_brott=1.2)
         for section in ("indata", "delresultat", "slutresultat", "ekvationer"):
             self.assertEqual(details[section], expected[section])
         self.assertEqual(self.plan.taggar[0]["summary"]["lastenhet"], "kN")
@@ -195,14 +195,16 @@ class TestGrundplan(unittest.TestCase):
         ident = self.add(indata={"F_vy": 100, "b": 0.8, "t": 0.4})
         self.plan.berakna(ident)
         first = self.plan.taggar[0]["summary"]
-        self.assertAlmostEqual(first["last"], 100 + 1.5 * 25 * 0.8 * 0.4)
+        self.assertAlmostEqual(first["last"], 100 + 1.2 * 25 * 0.8 * 0.4)
         self.assertEqual(self.plan._tag(ident)["values"]["l"], 1)
         self.plan.uppdatera(ident, indata={"l": 2.5})
         self.plan.berakna(ident)
         second = self.plan.taggar[0]["summary"]
         for name in ("lastenhet", "q_bd", "b_ef"):
             self.assertEqual(first[name], second[name])
-        self.assertAlmostEqual(second["last"], 100 + 1.5 * 25 * .8 * .4 * 2.5)
+        self.assertAlmostEqual(second["last"], 100 + 1.2 * 25 * .8 * .4 * 2.5)
+        self.assertAlmostEqual(second["vertical_load"]["external"], 100)
+        self.assertAlmostEqual(second["vertical_load"]["self_weight"], 24)
         self.assertAlmostEqual(second["barformaga"], first["barformaga"] * 2.5)
         self.assertLess(second["utnyttjandegrad"], first["utnyttjandegrad"])
         self.assertEqual(second["load_conversion"]["brott"], 100)
@@ -217,7 +219,7 @@ class TestGrundplan(unittest.TestCase):
         sliding = self.plan.taggar[0]["sliding"]
         self.plan.uppdatera(ident, indata={"l": 2.5})
         summary = self.plan._tag(ident)["summary"]
-        for phase, normal, moment in (("brott", 137.5, 11.5), ("bruk", 85, 7)):
+        for phase, normal, moment in (("brott", 130, 11.5), ("bruk", 85, 7)):
             area = summary["effective_area"][phase]
             self.assertAlmostEqual(area["by"], 2.5)
             self.assertAlmostEqual(area["ey_moment"], moment / normal)
@@ -243,7 +245,7 @@ class TestGrundplan(unittest.TestCase):
         second = self.plan._tag(ident)["summary"]
         self.assertEqual(second["load_conversion"]["brott"], first["load_conversion"]["brott"])
         self.assertEqual(second["load_conversion"]["bruk"], first["load_conversion"]["bruk"])
-        self.assertAlmostEqual(second["isolering"]["isolering_q_Ed_brott"], 100 / .5 + 15)
+        self.assertAlmostEqual(second["isolering"]["isolering_q_Ed_brott"], 100 / .5 + 12)
         self.assertAlmostEqual(second["isolering"]["isolering_q_Ed_bruk"], 70 / .5 + 10)
         self.assertGreater(second["utnyttjandegrad"], first["utnyttjandegrad"])
 
@@ -314,7 +316,7 @@ class TestGrundplan(unittest.TestCase):
         summary = self.plan._tag(ident)["summary"]
         checks = {check["id"]: check["utnyttjandegrad"] for check in summary["kontroller"]}
         self.assertLess(checks["jord_brott"], 1)
-        self.assertAlmostEqual(checks["isolering_brott"], 115 / 200)
+        self.assertAlmostEqual(checks["isolering_brott"], 112 / 200)
         self.assertAlmostEqual(checks["isolering_bruk"], 80 / 50)
         self.assertAlmostEqual(summary["utnyttjandegrad"], 1.6)
         self.assertEqual(summary["styrande"], "Isolering · bruk")
@@ -332,7 +334,7 @@ class TestGrundplan(unittest.TestCase):
         tag = self.plan._tag(ident)
         expected = allmanna_barighetsekvationen([
             0.0 if name == "l_h" else tag["values"][name] for name in allmanna_barighetsekvationen.panel_schema["px"]
-        ])
+        ], eg_faktor_brott=1.2)
         for section in ("indata", "delresultat", "slutresultat", "ekvationer"):
             self.assertEqual(details[section], expected[section])
         self.assertEqual(tag["values"]["f_d_bruk"], 50)
@@ -427,7 +429,7 @@ class TestGrundplan(unittest.TestCase):
                 self.assertFalse(removed & self.plan._tag(ident)["values"].keys())
                 result = {item["namn"]: item["value"] for item in details["delresultat"]["items"]}
                 for phase, normal, moment_b, moment_l in (
-                    ("brott", 600 + 1.5 * 25 * 2 * length * .4, 69, -34.5),
+                    ("brott", 600 + 1.2 * 25 * 2 * length * .4, 69, -34.5),
                     ("bruk", 300 + 25 * 2 * length * .4, -36, 18),
                 ):
                     b_eff = 2 - 2 * abs(.1 + moment_b / normal)

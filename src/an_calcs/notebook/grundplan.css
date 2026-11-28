@@ -405,6 +405,9 @@
 .an-grundplan .gp-result-list dt { font-weight: 500; }
 .an-grundplan .gp-result-list dd { font: inherit; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .an-grundplan .gp-result-note { color: var(--gp-muted); font-size: 10px; }
+.an-grundplan .gp-result-load-breakdown { border-inline-start: 2px solid var(--gp-line); padding-inline-start: 9px; margin: 0 0 8px 3px; }
+.an-grundplan .gp-result-load-breakdown .gp-result-list { margin-bottom: 3px; }
+.an-grundplan .gp-result-load-breakdown .gp-result-note { margin: 0; }
 .an-grundplan .gp-dialog-footer { position: sticky; bottom: 0; display: flex; justify-content: space-between; gap: 8px; background: white; border-top: 1px solid var(--gp-line); padding: 10px 0; }
 .an-grundplan .gp-primary { background: var(--gp-accent); border-color: var(--gp-accent); color: #fff; }
 .an-grundplan .gp-primary:hover { background: #0e5148; color: #fff; }

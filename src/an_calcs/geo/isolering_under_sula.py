@@ -2,7 +2,7 @@
 
 import math
 
-from .allmanna_barighetsekvationen import allmanna_barighetsekvationen
+from .allmanna_barighetsekvationen import BETONGTUNGHET, allmanna_barighetsekvationen
 
 
 _GEOMETRY = ["b", "l", "lang", "t", "e_b_plac", "e_l_plac"]
@@ -22,7 +22,7 @@ def _post(name, value, unit, label):
             "value": value, "unit": unit, "etikett": label}
 
 
-def isolering_under_sula(px, *, remslangd=None):
+def isolering_under_sula(px, *, remslangd=None, eg_faktor_brott=1.5):
     """Kontrollera isolering i brott och bruk (långtid), med q = N / A_eff.
 
     px = [b, l, lang, t, e_b_plac, e_l_plac,
@@ -33,7 +33,8 @@ def isolering_under_sula(px, *, remslangd=None):
     Mått anges i m, hållfastheter i kPa. Yttre laster anges exklusive sulans
     egentyngd. För lang=1 avser krafter kN/m och moment kNm/m på en 1 m-remsa;
     annars anges kN och kNm för hela fundamentet. Egentyngd är 25*b*l_ref*t,
-    med faktor 1,5 i brott och 1,0 i bruk. Lastkombinationerna anges färdiga.
+    med faktor ``eg_faktor_brott`` i brott och 1,0 i bruk.
+    Lastkombinationerna anges färdiga.
     Inmatade f_d är färdiga dimensionerande värden; ingen materialfaktor
     appliceras igen. Isoleringen förutsätts täcka hela den effektiva arean.
 
@@ -50,6 +51,9 @@ def isolering_under_sula(px, *, remslangd=None):
     if px is None or len(px) != len(_NAMES):
         raise ValueError(f"px måste innehålla {len(_NAMES)} värden.")
     values = {name: _number(value, name) for name, value in zip(_NAMES, px)}
+    eg_faktor_brott = _number(eg_faktor_brott, "Egentyngdsfaktor i brott")
+    if eg_faktor_brott < 0:
+        raise ValueError("Egentyngdsfaktor i brott måste vara >= 0.")
     if values["lang"] not in (0, 1):
         raise ValueError("lang måste vara 0 eller 1.")
     for name in ("b", "l", "t", "f_d_brott", "f_d_bruk"):
@@ -64,10 +68,10 @@ def isolering_under_sula(px, *, remslangd=None):
         if values["lang"] != 1 or length <= 0:
             raise ValueError("Remslängd måste vara positiv och gäller endast väggsulor.")
     force_unit = "kN/m" if values["lang"] == 1 else "kN"
-    weight = _number(25 * values["b"] * (1.0 if values["lang"] == 1 else length) * values["t"], "Egentyngd")
+    weight = _number(BETONGTUNGHET * values["b"] * (1.0 if values["lang"] == 1 else length) * values["t"], "Egentyngd")
     intermediate = [_post("isolering_EG_k", weight, force_unit, "sulans karakteristiska egentyngd")]
     results = []
-    for phase, suffix, factor in (("brott", "", 1.5), ("bruk", "_bruk", 1.0)):
+    for phase, suffix, factor in (("brott", "", eg_faktor_brott), ("bruk", "_bruk", 1.0)):
         normal = values["F_vy" + suffix] + factor * weight
         _number(normal, f"N_{phase}")
         if normal <= 0:
@@ -117,7 +121,7 @@ def isolering_under_sula(px, *, remslangd=None):
             {"rubrik": "Isolering under sula", "text": (
                 "Tryck över effektiv area jämförs med inmatad dimensionerande bärförmåga separat i brott och bruk (långtid). "
                 "Isoleringen förutsätts täcka hela arean. Inga ytterligare materialfaktorer eller lastkombinationer tillämpas. "
-                "Sulans egentyngd läggs till med faktor 1,5 i brott och 1,0 i bruk. "
+                f"Sulans egentyngd läggs till med faktor {format(eg_faktor_brott, 'g').replace('.', ',')} i brott och 1,0 i bruk. "
                 "Kontrollen beräknar inte maximalt kanttryck, sättning eller krypdeformation."
             )},
         ]},
@@ -126,7 +130,7 @@ def isolering_under_sula(px, *, remslangd=None):
         "slutresultat": {"title": "Slutresultat", "items": results},
         "ekvationer": {"title": "Ekvationer", "items": [
             {"latex": r"EG_k = 25 b t" if remslangd is not None else r"EG_k = 25 b l_{ref} t", "etikett": "sulans egentyngd"},
-            {"latex": r"N_{brott}=F_{v,y,brott}+1.5 EG_k,\quad N_{bruk}=F_{v,y,bruk}+EG_k", "etikett": "total vertikallast"},
+            {"latex": rf"N_{{brott}}=F_{{v,y,brott}}+{eg_faktor_brott:g} EG_k,\quad N_{{bruk}}=F_{{v,y,bruk}}+EG_k", "etikett": "total vertikallast"},
             {"latex": r"e_b=\left|e_{b,plac}+\frac{M_{insp,l}-F_{h,b}l_h}{N}\right|,\quad e_l=\left|e_{l,plac}+\frac{M_{insp,b}-F_{h,l}l_h}{N}\right|", "etikett": "excentricitet per lastkombination"},
             {"latex": r"A_{eff}=(b-2e_b)(l_{ref}-2e_l)", "etikett": "effektiv area"},
             {"latex": r"q_{Ed}=\frac{N l_{ref}}{A_{eff}},\quad U=\frac{q_{Ed}}{f_d}" if remslangd is not None else r"q_{Ed}=\frac{N}{A_{eff}},\quad U=\frac{q_{Ed}}{f_d}", "etikett": "kontroll separat i brott och bruk"},

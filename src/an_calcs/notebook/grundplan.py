@@ -20,6 +20,7 @@ except ImportError as exc:
     ) from exc
 
 from an_calcs.geo import allmanna_barighetsekvationen, isolering_under_sula
+from an_calcs.geo.allmanna_barighetsekvationen import BETONGTUNGHET
 from .grundplan_labels import DISPLAY_LABELS, DISPLAY_SYMBOLS, LOAD_GROUPS
 from .grundplan_text import today_text, validate_text_objects
 from .grundplan_types import footing_type, footing_category, infer_type, validate_model
@@ -54,6 +55,7 @@ _CALCULATOR_VERSION = hashlib.sha256(
 _FORMAT = "an-calcs-grundplan"
 _STATE_FORMAT = "an-calcs-grundplan-state"
 _DEFAULT_SUBTITLE = "Sulgrundläggning · jordens bärighet"
+_EG_FAKTOR_BROTT = 1.2
 _MAX_FILE_BYTES = 40 * 1024 * 1024
 _MAX_PROJECT_BYTES = 60 * 1024 * 1024
 _MAX_TAGS = 1000
@@ -393,7 +395,9 @@ def _calculate(values):
                 name = field["name"]
                 if engine_values[name] is not None:
                     engine_values[name] = _number(engine_values[name] * factor, name)
-    options = {"remslangd": values["l"]} if values["lang"] == 1 and values["l"] != 1 else {}
+    options = {"eg_faktor_brott": _EG_FAKTOR_BROTT}
+    if values["lang"] == 1 and values["l"] != 1:
+        options["remslangd"] = values["l"]
     details = allmanna_barighetsekvationen([engine_values[name] for name in _SOIL_NAMES], **options)
     result = {item["namn"]: item["value"] for item in details["slutresultat"]["items"]}
     for section in ("indata", "delresultat", "slutresultat"):
@@ -412,6 +416,12 @@ def _calculate(values):
         "q_bd": result["q_bd"],
         "b": values["b"],
         "b_ef": result["b_ef"],
+        "vertical_load": {
+            "external": engine_values["F_vy"],
+            "self_weight": _EG_FAKTOR_BROTT * result["EG_k"],
+            "factor": _EG_FAKTOR_BROTT,
+            "unit_weight": BETONGTUNGHET,
+        },
     }
     checks = [{"id": "jord_brott", "label": "Jord · brott", "utnyttjandegrad": utilization}]
     if values["isolering"]:
@@ -459,6 +469,8 @@ def _calculate(values):
                        "brott": _number(values["F_vy"] * support_length, "Yttre last, brott"),
                        "bruk": None if values["F_vy_bruk"] is None else
                        _number(values["F_vy_bruk"] * support_length, "Yttre last, bruk")})
+        for name in ("external", "self_weight"):
+            summary["vertical_load"][name] = _number(summary["vertical_load"][name] * to_total, name)
         for area in areas.values():
             for name in ("V", "Mx", "My"):
                 area[name] = _number(area[name] * to_total, name)

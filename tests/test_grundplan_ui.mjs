@@ -6113,6 +6113,25 @@ function wallPopupFixture() {
     effective_area:{brott:a,bruk:{...a,V:10000}},load_conversion:{support_length:by,by,brott:12793.46}}};
 }
 
+test('popup reports separate external load, design self weight and geometry for both models', t=>{
+  const ui=setup(t);
+  Object.assign(ui.tag.values,{lang:0,b:1.8,l:1.8,t:.45});
+  Object.assign(ui.tag.summary,{last:1709.84,lastenhet:'kN',
+    vertical_load:{external:1666.1,self_weight:43.74,factor:1.2,unit_weight:25}});
+  ui.changed();ui.marker().click();
+  let breakdown=ui.byClass('gp-result-load-breakdown');
+  assert.match(elementText(breakdown),/Yttre vertikallast Vyttre1\s666,10 kNEgentyngd fundament GEd43,74 kN/);
+  assert.equal(breakdown.children[1].textContent,'1,20 × (1,80 × 1,80 × 0,45) m³ × 25 kN/m³');
+  Object.assign(ui.tag.values,{lang:1,b:1,l:2.5,t:.4});
+  Object.assign(ui.tag.summary,{last:130,vertical_load:{external:100,self_weight:30,factor:1.2,unit_weight:25}});
+  const before=structuredClone(ui.tag);
+  ui.changed();
+  breakdown=ui.byClass('gp-result-load-breakdown');
+  assert.match(elementText(breakdown),/Vyttre40,00 kN\/mEgentyngd fundament GEd12,00 kN\/m/);
+  assert.equal(breakdown.children[1].textContent,'1,20 × (1,00 × 0,40) m² × 25 kN/m³');
+  assert.deepEqual(ui.tag,before);
+});
+
 test('wall popup presents a one-metre strip and preserves pressure, utilization and source totals',()=>{
   const tag=wallPopupFixture(),before=structuredClone(tag),r=popupCalculationResult(tag),a=r.effective_area.brott;
   assert.equal(r.lastenhet,'kN/m');near(r.last,500.675);near(r.barformaga,15536.64/26.2);
