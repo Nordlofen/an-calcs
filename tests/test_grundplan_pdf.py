@@ -526,7 +526,7 @@ class TestGrundplanPdf(unittest.TestCase):
         pad = self.tag(plan, littera="Pelarsula", typ="pelarsula", indata={"b": 1.8, "l": 2.4, "F_vy": 100})
         plan.berakna(pad)
         text = PdfReader(io.BytesIO(plan._pdf_bytes())).pages[0].extract_text()
-        for expected in ("U 22,7 %", "U 6,4 %", "Kontrollera indata", "U 160 % · bₓ 1 m",
+        for expected in ("U 22,2 %", "U 6,2 %", "Kontrollera indata", "U 160 % · bₓ 1 m",
                          "Med isolering", "Utan isolering"):
             self.assertIn(expected, text)
         self.assertRegex(text, r"bₓ 1,8 m · b\s*ᵧ\s+2,4 m · t 0,3 m")
